@@ -37,7 +37,7 @@ Stage EIGRP into FRR:
 
 ```sh
 cd eigrp
-tools/install.sh -frr-root ../frr
+tools/frr-install.sh --frr-root ../frr
 ```
 
 This copies:
@@ -50,8 +50,8 @@ test/frr/  -> ../frr/tests/eigrpd/
 Build FRR normally, or use the helper:
 
 ```sh
-tools/build.sh config -frr-root ../frr
-tools/build.sh build  -frr-root ../frr
+tools/frr.sh --configure --frr-root ../frr
+tools/frr.sh --build --frr-root ../frr
 ```
 
 Standalone compile smoke
@@ -75,28 +75,48 @@ This is not a replacement for the FRR build/link gate.
 Tests
 -----
 
-Run portable tests:
+`tools/frr-uut.sh` is the FRR UUT driver. A normal UUT run stages the current
+EIGRP source into FRR, builds FRR/eigrpd, and only then runs the selected tests.
+The default test selection is the portable and FRR-native test suites.
+
+On a Linux machine that is itself the UUT:
 
 ```sh
-tools/unittest.sh -portable
+tools/frr-uut.sh --frr-root ../frr
 ```
 
-Run packet-only portable tests:
+From another development host, sync the project to a remote Linux UUT and run
+the complete build/test cycle there:
 
 ```sh
-tools/unittest.sh -packet
+tools/frr-uut.sh --host uut --frr-root '~/devel/frr'
 ```
 
-Install FRR-native tests into an FRR checkout:
+Select a narrower test set when needed:
 
 ```sh
-tools/unittest.sh -install -frr-root ../frr
+tools/frr-uut.sh --packet   --frr-root ../frr
+tools/frr-uut.sh --portable --frr-root ../frr
+tools/frr-uut.sh --frr      --frr-root ../frr
 ```
 
-Run FRR-native tests when `test/frr/` has a real test payload:
+Those UUT commands still build FRR first. To run portable tests without an FRR
+build, use the project-local target directly:
 
 ```sh
-tools/unittest.sh -frr -frr-root ../frr
+make portable-test
+```
+
+To re-run bootstrap/configure before the UUT build:
+
+```sh
+tools/frr-uut.sh --configure-first --frr-root ../frr
+```
+
+To build without executing tests:
+
+```sh
+tools/frr-uut.sh --build-only --frr-root ../frr
 ```
 
 Debugging

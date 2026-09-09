@@ -14,6 +14,7 @@
 #include "eigrp_cli.h"
 
 #include "lib/keychain.h"
+#include "lib/distribute.h"
 #include "lib/northbound.h"
 #include "lib/zclient.h"
 
@@ -692,6 +693,23 @@ static int eigrpd_instance_neighbor_destroy(struct nb_cb_destroy_args *args)
 			 "no neighbor Command is not implemented yet");
 		break;
 	}
+
+	return NB_OK;
+}
+
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/distribute-list
+ */
+static int eigrp_northbound_distribute_list_create(
+	struct nb_cb_create_args *args)
+{
+	eigrp_instance_t *eigrp;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	group_distribute_list_create_helper(args, eigrp->distribute_ctx);
 
 	return NB_OK;
 }
@@ -1395,6 +1413,45 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_instance_neighbor_create,
 				.destroy = eigrpd_instance_neighbor_destroy,
 				.cli_show = eigrp_cli_show_neighbor,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/instance/distribute-list",
+			.cbs = {
+				.create = eigrp_northbound_distribute_list_create,
+				.destroy = group_distribute_list_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/instance/distribute-list/in/access-list",
+			.cbs = {
+				.modify = group_distribute_list_ipv4_modify,
+				.destroy = group_distribute_list_ipv4_destroy,
+				.cli_show = group_distribute_list_ipv4_cli_show,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/instance/distribute-list/out/access-list",
+			.cbs = {
+				.modify = group_distribute_list_ipv4_modify,
+				.destroy = group_distribute_list_ipv4_destroy,
+				.cli_show = group_distribute_list_ipv4_cli_show,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/instance/distribute-list/in/prefix-list",
+			.cbs = {
+				.modify = group_distribute_list_ipv4_modify,
+				.destroy = group_distribute_list_ipv4_destroy,
+				.cli_show = group_distribute_list_ipv4_cli_show,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/instance/distribute-list/out/prefix-list",
+			.cbs = {
+				.modify = group_distribute_list_ipv4_modify,
+				.destroy = group_distribute_list_ipv4_destroy,
+				.cli_show = group_distribute_list_ipv4_cli_show,
 			}
 		},
 		{

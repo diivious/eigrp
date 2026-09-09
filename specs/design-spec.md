@@ -78,11 +78,7 @@ The expected workflow is:
 git clone https://github.com/frrouting/frr.git frr
 git clone git@github.com:diivious/eigrp.git eigrp
 cd eigrp
-tools/install.sh -frr-root ../frr
-cd ../frr
-./bootstrap.sh
-./configure ...
-make
+tools/frr.sh --all --frr-root ../frr
 ```
 
 The project must remain build-compatible with FRR when `eigrp/eigrpd/` is copied into `frr/eigrpd/`.
