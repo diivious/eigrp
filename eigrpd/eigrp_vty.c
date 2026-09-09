@@ -490,13 +490,13 @@ static void clear_eigrp_neighbor_all_cb(struct vty *vty, eigrp_instance_t *eigrp
 				continue;
 
 			zlog_debug("Neighbor %pI4 (%s) is down: manually cleared",
-				   &nbr->src,
+				   &nbr->src.ip.v4,
 				   ifindex2ifname(nbr->ei->ifp->ifindex,
 						  eigrp->vrf_id));
 			vty_time_print(vty, 0);
 			vty_out(vty,
 				"Neighbor %pI4 (%s) is down: manually cleared\n",
-				&nbr->src,
+				&nbr->src.ip.v4,
 				ifindex2ifname(nbr->ei->ifp->ifindex,
 					       eigrp->vrf_id));
 
@@ -532,12 +532,12 @@ static void clear_eigrp_neighbor_interface_cb(struct vty *vty,
 			continue;
 
 		zlog_debug("Neighbor %pI4 (%s) is down: manually cleared",
-			   &nbr->src,
+			   &nbr->src.ip.v4,
 			   ifindex2ifname(nbr->ei->ifp->ifindex,
 					  eigrp->vrf_id));
 		vty_time_print(vty, 0);
 		vty_out(vty, "Neighbor %pI4 (%s) is down: manually cleared\n",
-			&nbr->src,
+			&nbr->src.ip.v4,
 			ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
 
 		eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);

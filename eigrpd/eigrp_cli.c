@@ -95,6 +95,15 @@ DEFPY_YANG_NOSH(
 
 	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
 	rv = nb_cli_apply_changes(vty, NULL);
+
+	vty_out(vty,
+		"EIGRP-NB DEBUG: router xpath=%s rv=%d candidate-exists=%s\n",
+		xpath, rv,
+		(vty->candidate_config && vty->candidate_config->dnode &&
+		 yang_dnode_exists(vty->candidate_config->dnode, xpath))
+			? "yes"
+			: "no");
+
 	if (rv == CMD_SUCCESS)
 		VTY_PUSH_XPATH(EIGRP_NODE, xpath);
 
@@ -2065,6 +2074,12 @@ static int eigrp_config_write(struct vty *vty)
 void
 eigrp_cli_init(void)
 {
+	/* Both EIGRP configuration entry forms are valid.  FRR's CLI matcher
+	 * gives the numeric RANGE token priority over WORD, so an ASN selects
+	 * classic mode while a non-numeric token selects named mode.
+	 */
+	install_element(CONFIG_NODE, &router_eigrp_cmd);
+	install_element(CONFIG_NODE, &no_router_eigrp_cmd);
 	install_element(CONFIG_NODE, &router_eigrp_named_cmd);
 	install_element(CONFIG_NODE, &no_router_eigrp_named_cmd);
 

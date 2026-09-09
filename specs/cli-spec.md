@@ -22,14 +22,23 @@ CLI authority follows the project authority order defined in `design-spec.md`:
 4. FRR only for build compatibility, daemon integration, VTY plumbing, clippy generation, and library/API compatibility.
 5. Existing `eigrpd` code only where it does not conflict with this specification.
 
-## 3. Named-Mode CLI Direction
+## 3. Classic and Named-Mode CLI Direction
 
-EIGRP configuration is named-mode first.
-
-Classic configuration commands must not be installed as the active user-facing configuration surface:
+Both EIGRP router entry forms are valid and must be installed concurrently:
 
 ```text
 router eigrp <asn>
+router eigrp <name>
+```
+
+`router eigrp <asn>` enters the classic/legacy numeric-AS configuration mode.
+`router eigrp <name>` enters named mode; the EIGRP protocol instance is created when an address-family and autonomous-system are configured.
+
+The CLI grammar must preserve type-based disambiguation: numeric values in the valid ASN range select the numeric-AS command, while non-numeric words select the named-mode command. Do not remove either command surface when modifying the other.
+
+Classic interface-style commands may coexist with their named-mode equivalents while compatibility is required, including:
+
+```text
 ip hello-interval eigrp <asn> <seconds>
 ip hold-time eigrp <asn> <seconds>
 ip summary-address eigrp <asn> <prefix>
@@ -37,7 +46,7 @@ ip authentication mode eigrp <asn> ...
 ip authentication key-chain eigrp <asn> ...
 ```
 
-The user-facing configuration model is:
+The named-mode user-facing configuration model is:
 
 ```text
 router eigrp <name>
