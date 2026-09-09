@@ -22,14 +22,14 @@ usage() {
 usage: $script_name [options]
 
 options:
-  -frr-root PATH       FRR checkout root. Default inference order:
-                       ../frr, ~/devel/frr, or parent when run from frr/eigrpd/tools.
-  -no-eigrpd           Do not install eigrpd/ into FRR.
-  -copy-eigrpd         Copy eigrpd/ into FRR/eigrpd/. This is the default.
-  -link-eigrpd         Replace FRR/eigrpd with a symlink to this project eigrpd/.
-  -no-tests            Do not copy test/frr/ into FRR tests/eigrpd/.
-  -dry-run             Print the actions without copying files.
-  -h, -help, --help    Show this help.
+  --frr-root PATH       FRR checkout root. Default inference order:
+                        ../frr, ~/devel/frr, or parent when run from an FRR tree.
+  --no-eigrpd           Do not install eigrpd/ into FRR.
+  --copy-eigrpd         Copy eigrpd/ into FRR/eigrpd/. This is the default.
+  --link-eigrpd         Replace FRR/eigrpd with a symlink to this project eigrpd/.
+  --no-tests            Do not copy test/frr/ into FRR tests/eigrpd/.
+  --dry-run             Print the actions without copying files.
+  --help                Show this help.
 
 installs:
   eigrpd/      -> frr/eigrpd/ by copy or symlink
@@ -126,7 +126,7 @@ install_eigrpd_copy() {
 			return 0
 		fi
 
-		fail "destination is a symlink to $dst_real; use -link-eigrpd to replace it or remove it first"
+		fail "destination is a symlink to $dst_real; use --link-eigrpd to replace it or remove it first"
 	fi
 
 	if [[ "$dry_run" -eq 1 ]]; then
@@ -177,32 +177,32 @@ install_tests_subdir_include() {
 
 while [[ "$#" -gt 0 ]]; do
 	case "$1" in
-		-frr-root)
-			[[ "$#" -ge 2 ]] || fail "-frr-root requires a path"
+		--frr-root)
+			[[ "$#" -ge 2 ]] || fail "--frr-root requires a path"
 			frr_root="$(resolve_existing_path "$2")"
 			shift 2
 			;;
-		-no-eigrpd)
+		--no-eigrpd)
 			install_eigrpd=0
 			shift
 			;;
-		-copy-eigrpd)
+		--copy-eigrpd)
 			eigrpd_install_mode="copy"
 			shift
 			;;
-		-link-eigrpd)
+		--link-eigrpd)
 			eigrpd_install_mode="link"
 			shift
 			;;
-		-no-tests)
+		--no-tests)
 			install_tests=0
 			shift
 			;;
-		-dry-run)
+		--dry-run)
 			dry_run=1
 			shift
 			;;
-		-h|-help|--help)
+		--help)
 			usage
 			exit 0
 			;;
@@ -216,7 +216,7 @@ require_command rsync
 
 if [[ -z "$frr_root" ]]; then
 	if ! frr_root="$(infer_frr_root)"; then
-		fail "FRR root could not be inferred; use -frr-root /path/to/frr"
+		fail "FRR root could not be inferred; use --frr-root /path/to/frr"
 	fi
 fi
 

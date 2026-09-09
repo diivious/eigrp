@@ -17,11 +17,11 @@ zip_name=""
 
 usage() {
 	cat <<USAGE
-usage: $script_name -z ZIPFILE
+usage: $script_name --zip ZIPFILE
 
 examples:
-  tools/backup.sh -z eigrp.zip
-  tools/backup.sh -zip eigrp-active-code.zip
+  tools/backup.sh --zip eigrp.zip
+  tools/backup.sh --zip eigrp-active-code.zip
 
 Creates a clean copy of the project at ~/Downloads/$project_name and writes the
 requested zip file to ~/Downloads unless ZIPFILE is an absolute path.
@@ -30,13 +30,13 @@ USAGE
 
 while [[ "$#" -gt 0 ]]; do
 	case "$1" in
-		-z|-zip)
+		--zip)
 			shift
 			[[ "$#" -gt 0 && "${1:-}" != -* ]] || { echo "error: missing zip file name" >&2; usage >&2; exit 2; }
 			zip_name="$1"
 			shift
 			;;
-		-h|-help|--help)
+		--help)
 			usage
 			exit 0
 			;;

@@ -3,7 +3,11 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# EIGRP project test runner.
+# Build and test the FRR-backed EIGRP unit under test (UUT).
+#
+# When --host is supplied, the project is synced to the remote Linux UUT and
+# this same script is invoked there.  The remote invocation performs the FRR
+# build first and only runs tests after the build succeeds.
 
 set -euo pipefail
 
@@ -11,48 +15,83 @@ script_name="$(basename "$0")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 eigrp_root="$(cd "$script_dir/.." && pwd)"
 
-run_portable=0
-run_frr=0
-install_tests=1
-install_only=0
+test_mode="all"
+test_mode_set=0
+build_only=0
 list_only=0
+configure_first=0
+host=""
+remote_root="eigrp-uut"
+remote_root_set=0
 frr_root=""
+jobs=""
 pytest_args=()
-portable_target="test/portable"
 
 usage() {
 	cat <<USAGE
 usage: $script_name [options] [-- pytest-args]
 
-primary options:
-  -all                 Run portable tests and FRR-native tests when present.
-  -packet              Run portable packet tests.
-  -portable            Run all portable tests.
-  -frr                 Run FRR-native tests from frr/tests/eigrpd.
-  -install             Copy test/frr/ into frr/tests/eigrpd and exit.
-  -list                List available EIGRP tests and exit.
+Default workflow:
+  1. Sync to the remote UUT when --host is supplied.
+  2. Stage EIGRP into the FRR checkout.
+  3. Build FRR/eigrpd.
+  4. Run portable and FRR-native EIGRP tests.
 
-path/options:
-  -frr-root PATH       FRR checkout root. Default: ../frr or ~/devel/frr.
-  -no-install          Do not copy test/frr/ before running FRR tests.
-  -h, -help, --help    Show this help.
+Test selection:
+  --all                 Build, then run portable and FRR-native tests. Default.
+  --packet              Build, then run portable packet tests only.
+  --portable            Build, then run all portable tests only.
+  --frr                 Build, then run FRR-native tests only.
+  --build-only          Build the UUT and do not run tests.
+  --list                List available EIGRP tests and exit without building.
+
+Build/UUT options:
+  --host USER@HOST      Remote Linux UUT. If omitted, this machine is the UUT.
+  --remote-root PATH    Remote parent directory used for project sync.
+                        Default: eigrp-uut.
+  --frr-root PATH       FRR checkout root on the UUT.
+                        Default: ../frr or ~/devel/frr when detectable.
+  --jobs N              make parallelism. Default: detected on the UUT.
+  --configure-first     Run FRR bootstrap/configure before the build.
+  --help                Show this help.
+
+Arguments after -- are passed to pytest/FRR test execution.
 
 examples:
-  tools/unittest.sh -portable
-  tools/unittest.sh -packet -- -k checksum
-  tools/unittest.sh -install -frr-root ~/devel/frr
-  tools/unittest.sh -frr -frr-root ~/devel/frr
+  # Build and test on the current Linux UUT.
+  tools/frr-uut.sh --frr-root ~/devel/frr
+
+  # Sync, build, and test on a remote Linux UUT.
+  tools/frr-uut.sh --host uut --frr-root '~/devel/frr'
+
+  # Remote packet-test cycle.
+  tools/frr-uut.sh --packet --host donnie@lab-linux --frr-root /home/donnie/frr
+
+  # Reconfigure before building and testing.
+  tools/frr-uut.sh --configure-first --frr-root ~/devel/frr
+
+  # Build only.
+  tools/frr-uut.sh --build-only --frr-root ~/devel/frr
 
 layout:
-  portable tests: test/portable/
-  FRR test source: test/frr/
-  FRR install path: frr/tests/eigrpd/
+  portable tests:       test/portable/
+  FRR test source:      test/frr/
+  FRR installed tests:  frr/tests/eigrpd/
 USAGE
 }
 
 fail() {
 	echo "error: $*" >&2
 	exit 1
+}
+
+set_test_mode() {
+	local new_mode="$1"
+	if [[ "$test_mode_set" -eq 1 ]]; then
+		fail "only one test selection may be specified"
+	fi
+	test_mode="$new_mode"
+	test_mode_set=1
 }
 
 require_command() {
@@ -66,8 +105,18 @@ is_abs_path() {
 	esac
 }
 
-resolve_existing_path() {
+expand_home_path() {
 	local path="$1"
+	case "$path" in
+		'~') printf '%s\n' "$HOME" ;;
+		'~/'*) printf '%s/%s\n' "$HOME" "${path:2}" ;;
+		*) printf '%s\n' "$path" ;;
+	esac
+}
+
+resolve_existing_path() {
+	local path
+	path="$(expand_home_path "$1")"
 	if is_abs_path "$path"; then
 		cd "$path" && pwd
 	else
@@ -86,6 +135,16 @@ infer_frr_root() {
 	return 1
 }
 
+default_jobs() {
+	if command -v nproc >/dev/null 2>&1; then
+		nproc
+	elif command -v sysctl >/dev/null 2>&1; then
+		sysctl -n hw.ncpu
+	else
+		echo 4
+	fi
+}
+
 has_frr_tests() {
 	local src="$1"
 	[[ -d "$src" ]] || return 1
@@ -95,7 +154,8 @@ has_frr_tests() {
 print_available_tests() {
 	echo "portable tests:"
 	if [[ -d "$eigrp_root/test/portable" ]]; then
-		find "$eigrp_root/test/portable" -mindepth 1 -maxdepth 3 -type d ! -name __pycache__ | sed "s#^$eigrp_root/test/##" | sort
+		find "$eigrp_root/test/portable" -mindepth 1 -maxdepth 3 -type d ! -name __pycache__ \
+			| sed "s#^$eigrp_root/test/##" | sort
 	else
 		echo "  none"
 	fi
@@ -103,20 +163,116 @@ print_available_tests() {
 	echo
 	echo "FRR-native test payload:"
 	if has_frr_tests "$eigrp_root/test/frr"; then
-		find "$eigrp_root/test/frr" -mindepth 1 -maxdepth 2 -type f | sed "s#^$eigrp_root/test/frr/#  #" | sort
+		find "$eigrp_root/test/frr" -mindepth 1 -maxdepth 2 -type f \
+			| sed "s#^$eigrp_root/test/frr/#  #" | sort
 	else
 		echo "  none"
 	fi
 }
 
-install_frr_tests() {
-	local root="$1"
-	"$script_dir/install.sh" -frr-root "$root" -no-eigrpd
+shell_quote() {
+	printf '%q' "$1"
+}
+
+remote_path_quote() {
+	local path="$1"
+	case "$path" in
+		'~')
+			printf '~'
+			;;
+		'~/'*)
+			printf '~/%q' "${path:2}"
+			;;
+		*)
+			shell_quote "$path"
+			;;
+	esac
+}
+
+sync_remote_project() {
+	local remote_project="$remote_root/eigrp"
+
+	require_command ssh
+	require_command rsync
+
+	echo "sync: $eigrp_root/ -> $host:$remote_project/"
+	ssh "$host" "mkdir -p $(remote_path_quote "$remote_project")"
+	rsync -az --delete \
+		--exclude '.git/' \
+		--exclude '.pytest_cache/' \
+		--exclude '__pycache__/' \
+		--exclude '__MACOSX/' \
+		--exclude '.DS_Store' \
+		--exclude '*.o' \
+		--exclude '*.lo' \
+		--exclude '*.la' \
+		--exclude '*~' \
+		--exclude 'build/obj/' \
+		--exclude 'build/logs/' \
+		"$eigrp_root"/ "$host:$remote_project"/
+}
+
+run_remote_uut() {
+	local remote_project="$remote_root/eigrp"
+	local remote_cmd
+
+	sync_remote_project
+
+	remote_cmd="cd $(remote_path_quote "$remote_project") && tools/frr-uut.sh"
+
+	if [[ "$build_only" -eq 1 ]]; then
+		remote_cmd+=" --build-only"
+	else
+		case "$test_mode" in
+			all) remote_cmd+=" --all" ;;
+			packet) remote_cmd+=" --packet" ;;
+			portable) remote_cmd+=" --portable" ;;
+			frr) remote_cmd+=" --frr" ;;
+			*) fail "unhandled test mode: $test_mode" ;;
+		esac
+	fi
+	if [[ "$configure_first" -eq 1 ]]; then
+		remote_cmd+=" --configure-first"
+	fi
+	if [[ -n "$frr_root" ]]; then
+		remote_cmd+=" --frr-root $(shell_quote "$frr_root")"
+	fi
+	if [[ -n "$jobs" ]]; then
+		remote_cmd+=" --jobs $(shell_quote "$jobs")"
+	fi
+	if [[ "${#pytest_args[@]}" -gt 0 ]]; then
+		remote_cmd+=" --"
+		local arg
+		for arg in "${pytest_args[@]}"; do
+			remote_cmd+=" $(shell_quote "$arg")"
+		done
+	fi
+
+	echo "run: ssh $host $remote_cmd"
+	ssh "$host" "$remote_cmd"
+}
+
+build_local_uut() {
+	local build_args=(--build --frr-root "$frr_root" --jobs "$jobs")
+
+	if [[ "$configure_first" -eq 1 ]]; then
+		build_args+=(--configure-first)
+	fi
+
+	"$script_dir/frr.sh" "${build_args[@]}"
+}
+
+run_portable_tests() {
+	local target="$1"
+	require_command python3
+	(
+		cd "$eigrp_root"
+		python3 -m pytest "$target" "${pytest_args[@]}"
+	)
 }
 
 run_frr_tests() {
-	local root="$1"
-	local frr_test_dir="$root/tests/eigrpd"
+	local frr_test_dir="$frr_root/tests/eigrpd"
 
 	[[ -d "$frr_test_dir" ]] || fail "FRR EIGRP test directory not found: $frr_test_dir"
 	if ! has_frr_tests "$frr_test_dir"; then
@@ -126,49 +282,63 @@ run_frr_tests() {
 
 	require_command python3
 	(
-		cd "$root"
+		cd "$frr_root"
 		python3 tests/runtests.py -v tests/eigrpd "${pytest_args[@]}"
 	)
 }
 
 while [[ "$#" -gt 0 ]]; do
 	case "$1" in
-		-all)
-			run_portable=1
-			run_frr=1
+		--all)
+			set_test_mode all
 			shift
 			;;
-		-packet)
-			run_portable=1
-			portable_target="test/portable/packet"
+		--packet)
+			set_test_mode packet
 			shift
 			;;
-		-portable)
-			run_portable=1
+		--portable)
+			set_test_mode portable
 			shift
 			;;
-		-frr)
-			run_frr=1
+		--frr)
+			set_test_mode frr
 			shift
 			;;
-		-install)
-			install_only=1
+		--build-only)
+			build_only=1
 			shift
 			;;
-		-list)
+		--list)
 			list_only=1
 			shift
 			;;
-		-frr-root)
-			[[ "$#" -ge 2 ]] || fail "-frr-root requires a path"
-			frr_root="$(resolve_existing_path "$2")"
+		--host)
+			[[ "$#" -ge 2 ]] || fail "--host requires USER@HOST"
+			host="$2"
 			shift 2
 			;;
-		-no-install)
-			install_tests=0
+		--remote-root)
+			[[ "$#" -ge 2 ]] || fail "--remote-root requires a path"
+			remote_root="$2"
+			remote_root_set=1
+			shift 2
+			;;
+		--frr-root)
+			[[ "$#" -ge 2 ]] || fail "--frr-root requires a path"
+			frr_root="$2"
+			shift 2
+			;;
+		--jobs)
+			[[ "$#" -ge 2 ]] || fail "--jobs requires a value"
+			jobs="$2"
+			shift 2
+			;;
+		--configure-first)
+			configure_first=1
 			shift
 			;;
-		-h|-help|--help)
+		--help)
 			usage
 			exit 0
 			;;
@@ -184,39 +354,66 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [[ "$list_only" -eq 1 ]]; then
+	[[ "$build_only" -eq 0 ]] || fail "--list cannot be combined with --build-only"
+	[[ "$test_mode_set" -eq 0 ]] || fail "--list cannot be combined with a test selection"
+	[[ -z "$host" ]] || fail "--list is local; omit --host"
+	[[ "$remote_root_set" -eq 0 ]] || fail "--remote-root requires --host"
+	[[ "${#pytest_args[@]}" -eq 0 ]] || fail "pytest arguments are not valid with --list"
 	print_available_tests
 	exit 0
 fi
 
-if [[ "$run_portable" -eq 0 && "$run_frr" -eq 0 && "$install_only" -eq 0 ]]; then
-	usage
-	exit 2
+if [[ "$build_only" -eq 1 ]]; then
+	[[ "$test_mode_set" -eq 0 ]] || fail "--build-only cannot be combined with a test selection"
+	[[ "${#pytest_args[@]}" -eq 0 ]] || fail "pytest arguments are not valid with --build-only"
+fi
+if [[ -z "$host" && "$remote_root_set" -eq 1 ]]; then
+	fail "--remote-root requires --host"
+fi
+if [[ -n "$jobs" ]]; then
+	[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "--jobs must be a positive integer"
 fi
 
-if [[ "$run_frr" -eq 1 || "$install_only" -eq 1 ]]; then
-	if [[ -z "$frr_root" ]]; then
-		if ! frr_root="$(infer_frr_root)"; then
-			fail "FRR root could not be inferred; use -frr-root /path/to/frr"
-		fi
-	fi
-	[[ -f "$frr_root/bootstrap.sh" ]] || fail "not an FRR checkout root: $frr_root"
-	if [[ "$install_tests" -eq 1 || "$install_only" -eq 1 ]]; then
-		install_frr_tests "$frr_root"
-	fi
-fi
-
-if [[ "$install_only" -eq 1 ]]; then
+if [[ -n "$host" ]]; then
+	run_remote_uut
 	exit 0
 fi
 
-if [[ "$run_portable" -eq 1 ]]; then
-	require_command python3
-	(
-		cd "$eigrp_root"
-		python3 -m pytest "$portable_target" "${pytest_args[@]}"
-	)
+if [[ -z "$frr_root" ]]; then
+	if ! frr_root="$(infer_frr_root)"; then
+		fail "FRR root could not be inferred; use --frr-root /path/to/frr"
+	fi
+else
+	frr_root="$(resolve_existing_path "$frr_root")"
+fi
+[[ -f "$frr_root/bootstrap.sh" ]] || fail "not an FRR checkout root: $frr_root"
+
+if [[ -z "$jobs" ]]; then
+	jobs="$(default_jobs)"
+fi
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "--jobs must be a positive integer"
+
+build_local_uut
+
+if [[ "$build_only" -eq 1 ]]; then
+	exit 0
 fi
 
-if [[ "$run_frr" -eq 1 ]]; then
-	run_frr_tests "$frr_root"
-fi
+case "$test_mode" in
+	all)
+		run_portable_tests test/portable
+		run_frr_tests
+		;;
+	packet)
+		run_portable_tests test/portable/packet
+		;;
+	portable)
+		run_portable_tests test/portable
+		;;
+	frr)
+		run_frr_tests
+		;;
+	*)
+		fail "unhandled test mode: $test_mode"
+		;;
+esac

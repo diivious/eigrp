@@ -7,30 +7,29 @@
 
 set -euo pipefail
 
+script_name="$(basename "$0")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-eigrp_root="$(cd "$script_dir/.." && pwd)"
 devel_root="$HOME/devel"
 frr_root="$devel_root/frr"
 frr_orig_root="$devel_root/frr-orig"
+skip_clone=0
+skip_build=0
 
 usage() {
 	cat <<USAGE
-usage: $(basename "$0") [options]
+usage: $script_name [options]
 
 options:
-  -devel PATH          Development root. Default: ~/devel
-  -skip-clone          Do not clone missing repositories.
-  -skip-build          Do not configure/build/install FRR.
-  -h, -help, --help    Show this help.
+  --devel-root PATH    Development root. Default: ~/devel
+  --skip-clone         Do not clone missing repositories.
+  --skip-build         Do not configure/build/install FRR.
+  --help               Show this help.
 
 This script is intentionally Debian-focused. It installs FRR build packages,
 clones FRR if needed, stages this EIGRP tree into FRR, and creates basic local
 FRR config files.
 USAGE
 }
-
-skip_clone=0
-skip_build=0
 
 fail() {
 	echo "error: $*" >&2
@@ -39,22 +38,22 @@ fail() {
 
 while [[ "$#" -gt 0 ]]; do
 	case "$1" in
-		-devel)
-			[[ "$#" -ge 2 ]] || fail "-devel requires a path"
+		--devel-root)
+			[[ "$#" -ge 2 ]] || fail "--devel-root requires a path"
 			devel_root="$2"
 			frr_root="$devel_root/frr"
 			frr_orig_root="$devel_root/frr-orig"
 			shift 2
 			;;
-		-skip-clone)
+		--skip-clone)
 			skip_clone=1
 			shift
 			;;
-		-skip-build)
+		--skip-build)
 			skip_build=1
 			shift
 			;;
-		-h|-help|--help)
+		--help)
 			usage
 			exit 0
 			;;
@@ -144,10 +143,10 @@ if [[ ! -d "$frr_root" ]]; then
 	fail "FRR checkout not found: $frr_root"
 fi
 
-"$script_dir/install.sh" -frr-root "$frr_root"
+"$script_dir/frr-install.sh" --frr-root "$frr_root"
 
 if [[ "$skip_build" -eq 0 ]]; then
-	"$script_dir/build.sh" all -frr-root "$frr_root" -no-install
+	"$script_dir/frr.sh" --all --frr-root "$frr_root" --no-install
 	sudo make -C "$frr_root" install
 fi
 

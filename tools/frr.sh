@@ -3,7 +3,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# FRR build helper for the EIGRP project.
+# FRR development driver for the EIGRP project.
 
 set -euo pipefail
 
@@ -11,7 +11,8 @@ script_name="$(basename "$0")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 eigrp_root="$(cd "$script_dir/.." && pwd)"
 
-command="build"
+action="build"
+action_set=0
 frr_root=""
 jobs=""
 install_first=1
@@ -20,35 +21,46 @@ extra_configure_args=()
 
 usage() {
 	cat <<USAGE
-usage: $script_name [command] [options] [-- configure-args]
+usage: $script_name [action] [options] [-- configure-args]
 
-commands:
-  smoke       Run the standalone compile-smoke harness only.
-  install     Copy eigrpd/ and test/frr/ into FRR only.
-  config      Run bootstrap.sh and configure in FRR.
-  build       Install EIGRP into FRR, then run make. Default.
-  check       Install EIGRP into FRR, then run make check.
-  all         Install EIGRP into FRR, configure, build, and run make check.
-  clean       Run make clean in FRR.
+actions:
+  --smoke              Run the standalone compile-smoke harness only.
+  --install            Stage eigrpd/ and test/frr/ into FRR only.
+  --configure          Stage EIGRP, then run bootstrap.sh and configure in FRR.
+  --build              Stage EIGRP, then run make. Default.
+  --check              Stage EIGRP, then run make check.
+  --all                Stage EIGRP, configure, build, and run make check.
+  --clean              Run make clean in FRR.
 
 options:
-  -frr-root PATH       FRR checkout root. Default: ../frr or ~/devel/frr.
-  -j N                 make parallelism. Default: detected CPU count.
-  -no-install          Do not stage EIGRP into FRR before build/check/all.
-  -configure           Run configure before build/check.
-  -h, -help, --help    Show this help.
+  --frr-root PATH       FRR checkout root. Default: ../frr or ~/devel/frr.
+  --jobs N              make parallelism. Default: detected CPU count.
+  --no-install          Do not stage EIGRP before configure/build/check/all.
+  --configure-first     Run configure before --build or --check.
+  --help                Show this help.
+
+Only one action may be specified. Arguments after -- are passed to FRR configure.
 
 examples:
-  tools/build.sh smoke
-  tools/build.sh config -frr-root ~/devel/frr
-  tools/build.sh build -j 8
-  tools/build.sh all -- --enable-snmp
+  tools/frr.sh --smoke
+  tools/frr.sh --configure --frr-root ~/devel/frr
+  tools/frr.sh --build --jobs 8
+  tools/frr.sh --all -- --enable-snmp
 USAGE
 }
 
 fail() {
 	echo "error: $*" >&2
 	exit 1
+}
+
+set_action() {
+	local new_action="$1"
+	if [[ "$action_set" -eq 1 ]]; then
+		fail "only one action may be specified"
+	fi
+	action="$new_action"
+	action_set=1
 }
 
 is_abs_path() {
@@ -116,31 +128,59 @@ run_make() {
 	)
 }
 
+stage_eigrp() {
+	"$script_dir/frr-install.sh" --frr-root "$frr_root"
+}
+
 while [[ "$#" -gt 0 ]]; do
 	case "$1" in
-		smoke|install|config|build|check|all|clean)
-			command="$1"
+		--smoke)
+			set_action smoke
 			shift
 			;;
-		-frr-root)
-			[[ "$#" -ge 2 ]] || fail "-frr-root requires a path"
+		--install)
+			set_action install
+			shift
+			;;
+		--configure)
+			set_action configure
+			shift
+			;;
+		--build)
+			set_action build
+			shift
+			;;
+		--check)
+			set_action check
+			shift
+			;;
+		--all)
+			set_action all
+			shift
+			;;
+		--clean)
+			set_action clean
+			shift
+			;;
+		--frr-root)
+			[[ "$#" -ge 2 ]] || fail "--frr-root requires a path"
 			frr_root="$(resolve_existing_path "$2")"
 			shift 2
 			;;
-		-j)
-			[[ "$#" -ge 2 ]] || fail "-j requires a value"
+		--jobs)
+			[[ "$#" -ge 2 ]] || fail "--jobs requires a value"
 			jobs="$2"
 			shift 2
 			;;
-		-no-install)
+		--no-install)
 			install_first=0
 			shift
 			;;
-		-configure)
+		--configure-first)
 			configure_first=1
 			shift
 			;;
-		-h|-help|--help)
+		--help)
 			usage
 			exit 0
 			;;
@@ -158,35 +198,49 @@ done
 if [[ -z "$jobs" ]]; then
 	jobs="$(default_jobs)"
 fi
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || fail "--jobs must be a positive integer"
 
-case "$command" in
-	smoke)
-		make -C "$eigrp_root/build"
-		exit 0
-		;;
-esac
+if [[ "$configure_first" -eq 1 && "$action" != "build" && "$action" != "check" ]]; then
+	fail "--configure-first is valid only with --build or --check"
+fi
+if [[ "${#extra_configure_args[@]}" -gt 0 ]]; then
+	case "$action" in
+		configure|all) ;;
+		build|check)
+			[[ "$configure_first" -eq 1 ]] || fail "configure arguments require --configure-first with --$action"
+			;;
+		*)
+			fail "configure arguments are not valid with --$action"
+			;;
+	esac
+fi
+
+if [[ "$action" == "smoke" ]]; then
+	make -C "$eigrp_root/build"
+	exit 0
+fi
 
 if [[ -z "$frr_root" ]]; then
 	if ! frr_root="$(infer_frr_root)"; then
-		fail "FRR root could not be inferred; use -frr-root /path/to/frr"
+		fail "FRR root could not be inferred; use --frr-root /path/to/frr"
 	fi
 fi
 
 [[ -f "$frr_root/bootstrap.sh" ]] || fail "not an FRR checkout root: $frr_root"
 
-case "$command" in
+case "$action" in
 	install)
-		"$script_dir/install.sh" -frr-root "$frr_root"
+		stage_eigrp
 		;;
-	config)
+	configure)
 		if [[ "$install_first" -eq 1 ]]; then
-			"$script_dir/install.sh" -frr-root "$frr_root"
+			stage_eigrp
 		fi
 		configure_frr
 		;;
 	build)
 		if [[ "$install_first" -eq 1 ]]; then
-			"$script_dir/install.sh" -frr-root "$frr_root"
+			stage_eigrp
 		fi
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
@@ -195,7 +249,7 @@ case "$command" in
 		;;
 	check)
 		if [[ "$install_first" -eq 1 ]]; then
-			"$script_dir/install.sh" -frr-root "$frr_root"
+			stage_eigrp
 		fi
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
@@ -204,7 +258,7 @@ case "$command" in
 		;;
 	all)
 		if [[ "$install_first" -eq 1 ]]; then
-			"$script_dir/install.sh" -frr-root "$frr_root"
+			stage_eigrp
 		fi
 		configure_frr
 		run_make
@@ -214,6 +268,6 @@ case "$command" in
 		run_make clean
 		;;
 	*)
-		fail "unhandled command: $command"
+		fail "unhandled action: $action"
 		;;
 esac
