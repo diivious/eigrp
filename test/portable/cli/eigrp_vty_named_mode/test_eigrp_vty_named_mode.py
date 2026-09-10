@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-VTY = ROOT / "eigrpd" / "eigrp_vty.c"
+VTY = ROOT / "frr" / "eigrp_vty.c"
 DUMP = ROOT / "eigrpd" / "eigrp_dump.c"
-CLIPPY = ROOT / "eigrpd" / "eigrp_vty_clippy.c"
+CLIPPY = ROOT / "frr" / "eigrp_vty_clippy.c"
 
 
 def read(path: Path) -> str:
@@ -37,9 +37,6 @@ def test_named_show_commands_are_defpy_and_installed():
         assert f"&{name}_cmd" in init
 
     assert '"show eigrp address-family <ipv4|ipv6>$afi' in vty
-    assert "show_ip_eigrp_neighbor_cmd" not in init
-    assert "show_ip_eigrp_interfaces_cmd" not in init
-    assert "show_ip_eigrp_topology_cmd" not in init
 
 
 def test_named_clear_commands_are_defpy_and_installed():
@@ -55,7 +52,6 @@ def test_named_clear_commands_are_defpy_and_installed():
         assert f"&{name}_cmd" in init
 
     assert '"clear eigrp address-family <ipv4|ipv6>$afi' in vty
-    assert "clear_ip_eigrp_neighbors_cmd" not in init
 
 
 def test_vty_command_names_follow_mode_eigrp_command_pattern():
@@ -115,7 +111,28 @@ def test_cli_implementation_notes_are_in_cli_spec():
     assert "## 3. Named-Mode CLI Direction" not in design
     assert "## 4. Named-Mode VTY and Debug CLI Direction" not in design
 
-    assert "## 3. Named-Mode CLI Direction" in cli
-    assert "## 4. Named-Mode VTY and Debug CLI Direction" in cli
+    assert "## 3. Classic and Named-Mode CLI Direction" in cli
+    assert "## 8. Named-Mode Show, Clear, and Debug Direction" in cli
     assert "debug eigrp packet" in cli
     assert "show_eigrp_neighbor_cmd" in cli
+
+
+def test_named_operational_commands_use_feature_specific_targets():
+    vty = read(VTY)
+    operational = read(ROOT / "eigrpd" / "eigrp_operational.c")
+
+    assert "show_eigrp_stub" not in vty
+    assert "eigrp_cli_not_configured" not in vty
+    for target in (
+        "eigrp_accounting_show",
+        "eigrp_event_show",
+        "eigrp_timer_show",
+        "eigrp_traffic_show",
+        "eigrp_protocol_show",
+        "eigrp_tech_support_show",
+    ):
+        assert target in vty
+        assert f"{target}(" in operational
+
+    # Explicitly excluded by cli-spec.md.
+    assert "install_element(VIEW_NODE, &show_eigrp_plugin_cmd);" not in vty

@@ -33,6 +33,7 @@
 #include "eigrpd/eigrp_cli.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
+#include "eigrpd/eigrp_operational.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_zebra.h"
@@ -75,7 +76,7 @@ static bool eigrp_vty_afi_supported(struct vty *vty, const char *afi,
 	if (afi && strcmp(afi, "ipv4") == 0)
 		return true;
 
-	eigrp_cli_not_configured(vty, command);
+	eigrp_cli_result_render(vty, command, EIGRP_RESULT_UNSUPPORTED);
 	return false;
 }
 
@@ -400,9 +401,23 @@ DEFPY(show_eigrp_topology,
 					show_eigrp_topology_prefix_cb, &ctx);
 }
 
-static int show_eigrp_stub(struct vty *vty, const char *command)
+static bool eigrp_vty_operational_request_build(
+	const char *afi_text, int64_t asn, const char *vrf_name,
+	eigrp_operational_request_t *request)
 {
-	return eigrp_cli_not_configured(vty, command);
+	if (!afi_text || !request)
+		return false;
+
+	memset(request, 0, sizeof(*request));
+	if (strcmp(afi_text, "ipv4") == 0)
+		request->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	else if (strcmp(afi_text, "ipv6") == 0)
+		request->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+	else
+		return false;
+	request->asn = asn > 0 ? (uint16_t)asn : 0;
+	request->vrf_name = vrf_name;
+	return true;
 }
 
 DEFPY(show_eigrp_accounting,
@@ -412,7 +427,12 @@ DEFPY(show_eigrp_accounting,
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
       "Display multicast instances\n" "Display EIGRP accounting\n")
 {
-	return show_eigrp_stub(vty, "show eigrp address-family accounting");
+	eigrp_operational_request_t request;
+
+	if (!eigrp_vty_operational_request_build(afi, as, vrf, &request))
+		return CMD_WARNING;
+	return eigrp_cli_result_render(vty, "accounting",
+				       eigrp_accounting_show(&request));
 }
 
 DEFPY(show_eigrp_event,
@@ -422,7 +442,12 @@ DEFPY(show_eigrp_event,
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
       "Display multicast instances\n" "Display EIGRP events\n")
 {
-	return show_eigrp_stub(vty, "show eigrp address-family events");
+	eigrp_operational_request_t request;
+
+	if (!eigrp_vty_operational_request_build(afi, as, vrf, &request))
+		return CMD_WARNING;
+	return eigrp_cli_result_render(vty, "events",
+				       eigrp_event_show(&request));
 }
 
 DEFPY(show_eigrp_timer,
@@ -432,7 +457,12 @@ DEFPY(show_eigrp_timer,
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
       "Display multicast instances\n" "Display EIGRP timers\n")
 {
-	return show_eigrp_stub(vty, "show eigrp address-family timers");
+	eigrp_operational_request_t request;
+
+	if (!eigrp_vty_operational_request_build(afi, as, vrf, &request))
+		return CMD_WARNING;
+	return eigrp_cli_result_render(vty, "timers",
+				       eigrp_timer_show(&request));
 }
 
 DEFPY(show_eigrp_traffic,
@@ -442,7 +472,12 @@ DEFPY(show_eigrp_traffic,
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
       "Display multicast instances\n" "Display EIGRP traffic\n")
 {
-	return show_eigrp_stub(vty, "show eigrp address-family traffic");
+	eigrp_operational_request_t request;
+
+	if (!eigrp_vty_operational_request_build(afi, as, vrf, &request))
+		return CMD_WARNING;
+	return eigrp_cli_result_render(vty, "traffic",
+				       eigrp_traffic_show(&request));
 }
 
 DEFPY(show_eigrp_protocol,
@@ -450,15 +485,7 @@ DEFPY(show_eigrp_protocol,
       "show eigrp protocols",
       SHOW_STR EIGRP_STR "Display EIGRP protocol information\n")
 {
-	return show_eigrp_stub(vty, "show eigrp protocols");
-}
-
-DEFPY(show_eigrp_plugin,
-      show_eigrp_plugin_cmd,
-      "show eigrp plugins",
-      SHOW_STR EIGRP_STR "Display EIGRP plugin information\n")
-{
-	return show_eigrp_stub(vty, "show eigrp plugins");
+	return eigrp_cli_result_render(vty, "protocols", eigrp_protocol_show());
 }
 
 DEFPY(show_eigrp_tech_support,
@@ -466,7 +493,8 @@ DEFPY(show_eigrp_tech_support,
       "show eigrp tech-support",
       SHOW_STR EIGRP_STR "Display EIGRP tech-support information\n")
 {
-	return show_eigrp_stub(vty, "show eigrp tech-support");
+	return eigrp_cli_result_render(vty, "tech-support",
+				       eigrp_tech_support_show());
 }
 
 static void clear_eigrp_neighbor_all_cb(struct vty *vty, eigrp_instance_t *eigrp,
@@ -663,7 +691,6 @@ void eigrp_vty_show_init(void)
 	install_element(VIEW_NODE, &show_eigrp_timer_cmd);
 	install_element(VIEW_NODE, &show_eigrp_traffic_cmd);
 	install_element(VIEW_NODE, &show_eigrp_protocol_cmd);
-	install_element(VIEW_NODE, &show_eigrp_plugin_cmd);
 	install_element(VIEW_NODE, &show_eigrp_tech_support_cmd);
 }
 

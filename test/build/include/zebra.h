@@ -55,7 +55,7 @@
 #define REDIST_STR "Redistribute information from another routing protocol\n"
 #define FRR_REDIST_HELP_STR_EIGRPD "Connected\nStatic\nKernel\n"
 #define VTY_NEWLINE "\n"
-#define VTY_CURR_XPATH (vty ? vty->xpath : "")
+#define VTY_CURR_XPATH ((vty && vty->xpath_index > 0) ? vty->xpath[vty->xpath_index - 1] : "")
 #define XPATH_MAXLEN 1024
 #define ZEBRA_ROUTE_MAX 256
 #define ZEBRA_ROUTE_EIGRP 88
@@ -108,7 +108,7 @@ typedef uint64_t route_value_t;
 
 enum node_type { VIEW_NODE, ENABLE_NODE, CONFIG_NODE, INTERFACE_NODE, EIGRP_NODE, DEBUG_NODE };
 struct candidate_config_stub { struct lyd_node *dnode; };
-struct vty { int type; int node; char xpath[XPATH_MAXLEN]; void *index; void *index_sub; struct candidate_config_stub *candidate_config; };
+struct vty { int type; int node; int xpath_index; char xpath[8][XPATH_MAXLEN]; void *index; void *index_sub; struct candidate_config_stub *candidate_config; };
 struct cmd_token { const char *text; const char *arg; const char *varname; int type; };
 struct cmd_element { const char *string; int (*func)(const struct cmd_element *, struct vty *, int, struct cmd_token *[]); const char *doc; int attr; int daemon; const char *name; void *xref; };
 struct cmd_node { const char *name; enum node_type node; enum node_type parent_node; const char *prompt; int (*config_write)(struct vty *); int (*node_exit)(struct vty *); void *cmdgraph; void *cmd_vector; void *cmd_hash; bool graph_built; bool no_xpath; };
@@ -245,6 +245,7 @@ static inline const char *yang_dnode_get_string(const struct lyd_node *dnode, co
 static inline bool yang_dnode_exists(const struct lyd_node *dnode, const char *xpath) { (void)dnode;(void)xpath; return false; }
 static inline const struct lyd_node *yang_dnode_get(const struct lyd_node *dnode, const char *xpath) { (void)dnode;(void)xpath; return NULL; }
 static inline const char *lyd_get_value(const struct lyd_node *dnode) { (void)dnode; return ""; }
+static inline const struct lyd_node *lyd_parent(const struct lyd_node *dnode) { return dnode; }
 static inline const struct lyd_node *yang_dnode_getf(const struct lyd_node *dnode, const char *fmt, ...) { (void)dnode;(void)fmt; return NULL; }
 static inline int str2prefix_ipv4(const char *s, struct prefix_ipv4 *p) { (void)s; if (p) { memset(p,0,sizeof(*p)); p->family=AF_INET; } return 1; }
 static inline int str2prefix(const char *s, struct prefix *p) { (void)s; if (p) memset(p,0,sizeof(*p)); return 1; }
@@ -462,9 +463,9 @@ static inline void distribute_list_delete_hook(struct distribute_ctx *ctx, void 
 static inline void distribute_list_delete(struct distribute_ctx **ctx) { if (ctx) { free(*ctx); *ctx = NULL; } }
 static inline struct distribute *distribute_lookup(struct distribute_ctx *ctx, const char *ifname) { (void)ctx; (void)ifname; return NULL; }
 
-static inline uint32_t yang_dnode_get_uint32(const struct lyd_node *dnode, const char *xpath) { (void)dnode; (void)xpath; return 0; }
-static inline uint16_t yang_dnode_get_uint16(const struct lyd_node *dnode, const char *xpath) { (void)dnode; (void)xpath; return 0; }
-static inline uint8_t yang_dnode_get_uint8(const struct lyd_node *dnode, const char *xpath) { (void)dnode; (void)xpath; return 0; }
+static inline uint32_t yang_dnode_get_uint32(const struct lyd_node *dnode, const char *xpath_fmt, ...) { (void)dnode; (void)xpath_fmt; return 0; }
+static inline uint16_t yang_dnode_get_uint16(const struct lyd_node *dnode, const char *xpath_fmt, ...) { (void)dnode; (void)xpath_fmt; return 0; }
+static inline uint8_t yang_dnode_get_uint8(const struct lyd_node *dnode, const char *xpath_fmt, ...) { (void)dnode; (void)xpath_fmt; return 0; }
 static inline bool yang_dnode_get_bool(const struct lyd_node *dnode, const char *xpath) { (void)dnode; (void)xpath; return false; }
 static inline int yang_dnode_get_ipv4(struct in_addr *addr, const struct lyd_node *dnode, const char *xpath) { (void)dnode; (void)xpath; if (addr) addr->s_addr = 0; return 0; }
 static inline int yang_dnode_get_ipv4p(struct prefix *p, const struct lyd_node *dnode, const char *xpath) { (void)dnode; (void)xpath; if (p) memset(p, 0, sizeof(*p)); return 0; }

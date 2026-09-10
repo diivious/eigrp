@@ -1,0 +1,148 @@
+diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang
+index 6c498ee..8ca18d4 100644
+--- a/yang/frr-eigrpd.yang
++++ b/yang/frr-eigrpd.yang
+@@ -550,4 +550,143 @@ module frr-eigrpd {
+     }
+   }
+ 
++
++  /*
++   * Named-mode base topology configuration.  Runtime behavior is owned by
++   * common EIGRP targets; this schema retains the named configuration while
++   * those targets are implemented incrementally.
++   */
++  augment "/eigrpd/named/address-family" {
++    container topology {
++      presence "Configure the EIGRP base topology";
++      description "Base topology configuration for this named address family";
++
++      leaf auto-summary {
++        type empty;
++        description "Enable automatic classful summarization";
++      }
++
++      leaf default-information-in {
++        type empty;
++        description "Accept exterior or default routing information";
++      }
++
++      leaf default-information-out {
++        type empty;
++        description "Advertise exterior or default routing information";
++      }
++
++      container default-metric {
++        presence "Configure a default redistribution metric";
++        leaf bandwidth {
++          type uint32 { range "1..4294967295"; }
++        }
++        leaf delay {
++          type uint32;
++        }
++        leaf reliability {
++          type uint8;
++        }
++        leaf load {
++          type uint8 { range "1..255"; }
++        }
++        leaf mtu {
++          type uint16 { range "1..65535"; }
++        }
++      }
++
++      container distance {
++        presence "Configure EIGRP administrative distances";
++        leaf internal {
++          type uint8 { range "1..255"; }
++        }
++        leaf external {
++          type uint8 { range "1..255"; }
++        }
++      }
++
++      leaf maximum-prefix {
++        type uint32 { range "1..4294967295"; }
++        description "Maximum number of prefixes accepted under this topology";
++      }
++
++      container metric-weights {
++        presence "Configure EIGRP metric coefficients";
++        leaf tos {
++          type uint8 { range "0"; }
++        }
++        leaf K1 { type uint8; }
++        leaf K2 { type uint8; }
++        leaf K3 { type uint8; }
++        leaf K4 { type uint8; }
++        leaf K5 { type uint8; }
++      }
++
++      list offset-list {
++        key "access-list direction interface";
++        description "Metric offset applied to incoming or outgoing updates";
++        leaf access-list {
++          type string { length "1..255"; }
++        }
++        leaf direction {
++          type enumeration {
++            enum in;
++            enum out;
++          }
++        }
++        leaf interface {
++          type string;
++          description "Interface name, or empty for all interfaces";
++        }
++        leaf offset {
++          type uint32 { range "0..2147483647"; }
++        }
++      }
++
++      list redistribute {
++        key "protocol";
++        description "Routes redistributed into this EIGRP topology";
++        leaf protocol {
++          type string { length "1..32"; }
++        }
++        container metrics {
++          presence "Configure an explicit redistribution metric";
++          leaf bandwidth {
++            type uint32 { range "1..4294967295"; }
++          }
++          leaf delay { type uint32; }
++          leaf reliability { type uint8; }
++          leaf load { type uint8 { range "1..255"; } }
++          leaf mtu { type uint16 { range "1..65535"; } }
++        }
++      }
++
++      list summary-metric {
++        key "address mask";
++        description "Fixed metric for an IPv4 summary aggregate";
++        leaf address { type inet:ipv4-address; }
++        leaf mask { type inet:ipv4-address; }
++        leaf bandwidth { type uint32 { range "1..4294967295"; } }
++        leaf delay { type uint32; }
++        leaf reliability { type uint8; }
++        leaf load { type uint8 { range "1..255"; } }
++        leaf mtu { type uint16 { range "1..65535"; } }
++      }
++
++      leaf active-time {
++        type uint16;
++        description "Active-state time limit in minutes; zero means disabled";
++      }
++
++      leaf traffic-share-balanced {
++        type boolean;
++        description "Whether unequal-cost eligible routes share traffic";
++      }
++
++      leaf variance {
++        type uint8 { range "1..128"; }
++      }
++    }
++  }
++
+ }

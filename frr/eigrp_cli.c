@@ -14,9 +14,13 @@
 #include "lib/northbound_cli.h"
 
 #include "eigrp_structs.h"
+#include "eigrp_named.h"
 #include "eigrpd.h"
 #include "eigrp_zebra.h"
 #include "eigrp_cli.h"
+
+static bool eigrp_cli_named_topology_mode(struct vty *vty);
+static int eigrp_cli_named_topology_required(struct vty *vty);
 
 #ifndef EIGRP_STANDALONE_BUILD
 /*
@@ -230,6 +234,337 @@ void eigrp_cli_show_end_header(struct vty *vty, const struct lyd_node *dnode)
 	vty_out(vty, "!\n");
 }
 
+void eigrp_cli_show_named_header(struct vty *vty, const struct lyd_node *dnode,
+				 bool show_defaults)
+{
+	const char *name = yang_dnode_get_string(dnode, "name");
+
+	(void)show_defaults;
+	vty_out(vty, "router eigrp %s\n", name);
+}
+
+void eigrp_cli_show_named_end(struct vty *vty, const struct lyd_node *dnode)
+{
+	(void)dnode;
+	vty_out(vty, "exit\n!\n");
+}
+
+void eigrp_cli_show_named_address_family(struct vty *vty,
+					 const struct lyd_node *dnode,
+					 bool show_defaults)
+{
+	const char *afi = yang_dnode_get_string(dnode, "afi");
+	const char *vrf = yang_dnode_get_string(dnode, "vrf");
+	uint16_t asn = yang_dnode_get_uint16(dnode, "asn");
+
+	(void)show_defaults;
+	vty_out(vty, " address-family %s unicast", afi);
+	if (strcmp(vrf, VRF_DEFAULT_NAME) != 0)
+		vty_out(vty, " vrf %s", vrf);
+	vty_out(vty, " autonomous-system %u\n", asn);
+}
+
+void eigrp_cli_show_named_address_family_end(struct vty *vty,
+					     const struct lyd_node *dnode)
+{
+	(void)dnode;
+	vty_out(vty, " exit-address-family\n");
+}
+
+void eigrp_cli_show_named_neighbor(struct vty *vty,
+				   const struct lyd_node *dnode,
+				   bool show_defaults)
+{
+	const char *address = yang_dnode_get_string(dnode, "address");
+	const char *interface_name = yang_dnode_get_string(dnode, "interface");
+
+	(void)show_defaults;
+	vty_out(vty, "  neighbor %s %s\n", address, interface_name);
+}
+
+void eigrp_cli_show_named_shutdown(struct vty *vty,
+				   const struct lyd_node *dnode,
+				   bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "  shutdown\n");
+}
+
+
+void eigrp_cli_show_named_af_interface(struct vty *vty,
+				       const struct lyd_node *dnode,
+				       bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "  af-interface %s\n",
+		yang_dnode_get_string(dnode, "interface"));
+}
+
+void eigrp_cli_show_named_af_interface_end(struct vty *vty,
+					   const struct lyd_node *dnode)
+{
+	(void)dnode;
+	vty_out(vty, "  exit-af-interface\n");
+}
+
+void eigrp_cli_show_named_af_interface_bandwidth(struct vty *vty,
+						 const struct lyd_node *dnode,
+						 bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   bandwidth-percent %u\n",
+		yang_dnode_get_uint32(dnode, NULL));
+}
+
+void eigrp_cli_show_named_af_interface_hello(struct vty *vty,
+					     const struct lyd_node *dnode,
+					     bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   hello-interval %u\n",
+		yang_dnode_get_uint16(dnode, NULL));
+}
+
+void eigrp_cli_show_named_af_interface_hold(struct vty *vty,
+					    const struct lyd_node *dnode,
+					    bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   hold-time %u\n", yang_dnode_get_uint16(dnode, NULL));
+}
+
+void eigrp_cli_show_named_af_interface_passive(struct vty *vty,
+					       const struct lyd_node *dnode,
+					       bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "   passive-interface\n");
+}
+
+void eigrp_cli_show_named_af_interface_authentication(
+	struct vty *vty, const struct lyd_node *dnode, bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   authentication mode %s\n",
+		yang_dnode_get_string(dnode, NULL));
+}
+
+void eigrp_cli_show_named_af_interface_keychain(struct vty *vty,
+						const struct lyd_node *dnode,
+						bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   authentication key-chain %s\n",
+		yang_dnode_get_string(dnode, NULL));
+}
+
+void eigrp_cli_show_named_af_interface_next_hop_self(
+	struct vty *vty, const struct lyd_node *dnode, bool show_defaults)
+{
+	(void)show_defaults;
+	if (!yang_dnode_get_bool(dnode, NULL))
+		vty_out(vty, "   no next-hop-self\n");
+}
+
+void eigrp_cli_show_named_af_interface_split_horizon(
+	struct vty *vty, const struct lyd_node *dnode, bool show_defaults)
+{
+	(void)show_defaults;
+	if (!yang_dnode_get_bool(dnode, NULL))
+		vty_out(vty, "   no split-horizon\n");
+}
+
+void eigrp_cli_show_named_af_interface_summary(struct vty *vty,
+					       const struct lyd_node *dnode,
+					       bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   summary-address %s %s\n",
+		yang_dnode_get_string(dnode, "address"),
+		yang_dnode_get_string(dnode, "mask"));
+}
+
+void eigrp_cli_show_named_af_interface_shutdown(struct vty *vty,
+						const struct lyd_node *dnode,
+						bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "   shutdown\n");
+}
+
+void eigrp_cli_show_named_topology(struct vty *vty,
+				   const struct lyd_node *dnode,
+				   bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "  topology base\n");
+}
+
+void eigrp_cli_show_named_topology_end(struct vty *vty,
+				       const struct lyd_node *dnode)
+{
+	(void)dnode;
+	vty_out(vty, "  exit-af-topology\n");
+}
+
+void eigrp_cli_show_named_auto_summary(struct vty *vty,
+				       const struct lyd_node *dnode,
+				       bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "   auto-summary\n");
+}
+
+void eigrp_cli_show_named_default_information_in(struct vty *vty,
+						 const struct lyd_node *dnode,
+						 bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "   default-information in\n");
+}
+
+void eigrp_cli_show_named_default_information_out(struct vty *vty,
+						  const struct lyd_node *dnode,
+						  bool show_defaults)
+{
+	(void)dnode;
+	(void)show_defaults;
+	vty_out(vty, "   default-information out\n");
+}
+
+void eigrp_cli_show_named_default_metric(struct vty *vty,
+					 const struct lyd_node *dnode,
+					 bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   default-metric %u %u %u %u %u\n",
+		yang_dnode_get_uint32(dnode, "bandwidth"),
+		yang_dnode_get_uint32(dnode, "delay"),
+		yang_dnode_get_uint8(dnode, "reliability"),
+		yang_dnode_get_uint8(dnode, "load"),
+		yang_dnode_get_uint16(dnode, "mtu"));
+}
+
+void eigrp_cli_show_named_distance(struct vty *vty,
+				   const struct lyd_node *dnode,
+				   bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   distance eigrp %u %u\n",
+		yang_dnode_get_uint8(dnode, "internal"),
+		yang_dnode_get_uint8(dnode, "external"));
+}
+
+void eigrp_cli_show_named_maximum_prefix(struct vty *vty,
+					 const struct lyd_node *dnode,
+					 bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   maximum-prefix %u\n",
+		yang_dnode_get_uint32(dnode, NULL));
+}
+
+void eigrp_cli_show_named_metric_weights(struct vty *vty,
+					 const struct lyd_node *dnode,
+					 bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   metric weights %u %u %u %u %u %u\n",
+		yang_dnode_get_uint8(dnode, "tos"),
+		yang_dnode_get_uint8(dnode, "K1"),
+		yang_dnode_get_uint8(dnode, "K2"),
+		yang_dnode_get_uint8(dnode, "K3"),
+		yang_dnode_get_uint8(dnode, "K4"),
+		yang_dnode_get_uint8(dnode, "K5"));
+}
+
+void eigrp_cli_show_named_offset_list(struct vty *vty,
+				      const struct lyd_node *dnode,
+				      bool show_defaults)
+{
+	const char *interface_name = yang_dnode_get_string(dnode, "interface");
+
+	(void)show_defaults;
+	vty_out(vty, "   offset-list %s %s %u",
+		yang_dnode_get_string(dnode, "access-list"),
+		yang_dnode_get_string(dnode, "direction"),
+		yang_dnode_get_uint32(dnode, "offset"));
+	if (interface_name && interface_name[0])
+		vty_out(vty, " %s", interface_name);
+	vty_out(vty, "\n");
+}
+
+void eigrp_cli_show_named_redistribute(struct vty *vty,
+				       const struct lyd_node *dnode,
+				       bool show_defaults)
+{
+	const char *protocol = yang_dnode_get_string(dnode, "protocol");
+
+	(void)show_defaults;
+	vty_out(vty, "   redistribute %s", protocol);
+	if (yang_dnode_exists(dnode, "metrics"))
+		vty_out(vty, " metric %u %u %u %u %u",
+			yang_dnode_get_uint32(dnode, "metrics/bandwidth"),
+			yang_dnode_get_uint32(dnode, "metrics/delay"),
+			yang_dnode_get_uint8(dnode, "metrics/reliability"),
+			yang_dnode_get_uint8(dnode, "metrics/load"),
+			yang_dnode_get_uint16(dnode, "metrics/mtu"));
+	vty_out(vty, "\n");
+}
+
+void eigrp_cli_show_named_summary_metric(struct vty *vty,
+					 const struct lyd_node *dnode,
+					 bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   summary-metric %s %s %u %u %u %u %u\n",
+		yang_dnode_get_string(dnode, "address"),
+		yang_dnode_get_string(dnode, "mask"),
+		yang_dnode_get_uint32(dnode, "bandwidth"),
+		yang_dnode_get_uint32(dnode, "delay"),
+		yang_dnode_get_uint8(dnode, "reliability"),
+		yang_dnode_get_uint8(dnode, "load"),
+		yang_dnode_get_uint16(dnode, "mtu"));
+}
+
+void eigrp_cli_show_named_active_time(struct vty *vty,
+				      const struct lyd_node *dnode,
+				      bool show_defaults)
+{
+	uint16_t active_time = yang_dnode_get_uint16(dnode, NULL);
+
+	(void)show_defaults;
+	if (active_time == 0)
+		vty_out(vty, "   timers active-time disabled\n");
+	else
+		vty_out(vty, "   timers active-time %u\n", active_time);
+}
+
+void eigrp_cli_show_named_traffic_share_balanced(struct vty *vty,
+						 const struct lyd_node *dnode,
+						 bool show_defaults)
+{
+	(void)show_defaults;
+	if (yang_dnode_get_bool(dnode, NULL))
+		vty_out(vty, "   traffic-share balanced\n");
+	else
+		vty_out(vty, "   no traffic-share balanced\n");
+}
+
+void eigrp_cli_show_named_variance(struct vty *vty,
+				   const struct lyd_node *dnode,
+				   bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   variance %u\n", yang_dnode_get_uint8(dnode, NULL));
+}
+
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/router-id
  */
@@ -310,6 +645,10 @@ DEFPY_YANG(
 	"Active state time limit in seconds\n"
 	"Disable time limit for active state\n")
 {
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && !eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+
 	if (disabled)
 		nb_cli_enqueue_change(vty, "./active-time", NB_OP_MODIFY, "0");
 	else
@@ -329,6 +668,9 @@ DEFPY_YANG(
 	"Active state time limit in seconds\n"
 	"Disable time limit for active state\n")
 {
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && !eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
 	nb_cli_enqueue_change(vty, "./active-time", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
@@ -351,6 +693,9 @@ DEFPY_YANG(
 	"Control load balancing variance\n"
 	"Metric variance multiplier\n")
 {
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && !eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
 	nb_cli_enqueue_change(vty, "./variance", NB_OP_MODIFY, variance_str);
 	return nb_cli_apply_changes(vty, NULL);
 }
@@ -363,6 +708,9 @@ DEFPY_YANG(
 	"Control load balancing variance\n"
 	"Metric variance multiplier\n")
 {
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && !eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
 	nb_cli_enqueue_change(vty, "./variance", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
@@ -431,6 +779,28 @@ DEFPY_YANG(
 	"K5\n"
 	"K6\n")
 {
+	if (strstr(VTY_CURR_XPATH, "/named[")) {
+		if (!eigrp_cli_named_topology_required(vty))
+			return CMD_WARNING;
+		/* Named-mode syntax is: tos, K1, K2, K3, K4, K5. */
+		/* k6 is the parsed numeric value, so a valid final K5 value of 0
+		 * evaluates false.  k6_str distinguishes an omitted sixth token from
+		 * the explicitly configured value 0.
+		 */
+		if (!k6_str || strcmp(k1_str, "0") != 0) {
+			vty_out(vty, "%% EIGRP metric weights TOS must be 0 and K1-K5 are required\n");
+			return CMD_WARNING;
+		}
+		nb_cli_enqueue_change(vty, "./metric-weights", NB_OP_CREATE, NULL);
+		nb_cli_enqueue_change(vty, "./metric-weights/tos", NB_OP_MODIFY, k1_str);
+		nb_cli_enqueue_change(vty, "./metric-weights/K1", NB_OP_MODIFY, k2_str);
+		nb_cli_enqueue_change(vty, "./metric-weights/K2", NB_OP_MODIFY, k3_str);
+		nb_cli_enqueue_change(vty, "./metric-weights/K3", NB_OP_MODIFY, k4_str);
+		nb_cli_enqueue_change(vty, "./metric-weights/K4", NB_OP_MODIFY, k5_str);
+		nb_cli_enqueue_change(vty, "./metric-weights/K5", NB_OP_MODIFY, k6_str);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+
 	nb_cli_enqueue_change(vty, "./metric-weights/K1", NB_OP_MODIFY, k1_str);
 	nb_cli_enqueue_change(vty, "./metric-weights/K2", NB_OP_MODIFY, k2_str);
 	nb_cli_enqueue_change(vty, "./metric-weights/K3", NB_OP_MODIFY, k3_str);
@@ -457,6 +827,13 @@ DEFPY_YANG(
 	"K5\n"
 	"K6\n")
 {
+	if (strstr(VTY_CURR_XPATH, "/named[")) {
+		if (!eigrp_cli_named_topology_required(vty))
+			return CMD_WARNING;
+		nb_cli_enqueue_change(vty, "./metric-weights", NB_OP_DESTROY, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+
 	nb_cli_enqueue_change(vty, "./metric-weights/K1", NB_OP_DESTROY, NULL);
 	nb_cli_enqueue_change(vty, "./metric-weights/K2", NB_OP_DESTROY, NULL);
 	nb_cli_enqueue_change(vty, "./metric-weights/K3", NB_OP_DESTROY, NULL);
@@ -690,6 +1067,10 @@ DEFPY_YANG(
 {
 	char xpath[XPATH_MAXLEN], xpath_metric[XPATH_MAXLEN + 64];
 
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && !eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+
 	snprintf(xpath, sizeof(xpath), "./redistribute[protocol='%s']", proto);
 
 	if (no) {
@@ -700,6 +1081,11 @@ DEFPY_YANG(
 	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
 	if (bw == 0 || delay == 0 || rlbt == 0 || load == 0 || mtu == 0)
 		return nb_cli_apply_changes(vty, NULL);
+
+	if (strstr(VTY_CURR_XPATH, "/named[")) {
+		snprintf(xpath_metric, sizeof(xpath_metric), "%s/metrics", xpath);
+		nb_cli_enqueue_change(vty, xpath_metric, NB_OP_CREATE, NULL);
+	}
 
 	snprintf(xpath_metric, sizeof(xpath_metric), "%s/metrics/bandwidth",
 		 xpath);
@@ -1156,6 +1542,11 @@ static bool eigrp_cli_current_as_vrf(struct vty *vty, char *asn,
 	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "vrf", vrf, vrf_len);
 }
 
+static bool eigrp_cli_current_afi(struct vty *vty, char *afi, size_t afi_len)
+{
+	return eigrp_cli_xpath_get(VTY_CURR_XPATH, "afi", afi, afi_len);
+}
+
 static const char *eigrp_cli_vrf_name(const char *vrf)
 {
 	return vrf ? vrf : VRF_DEFAULT_NAME;
@@ -1222,68 +1613,186 @@ static bool eigrp_cli_parse_uint16(const char *value, uint16_t *out)
 	return true;
 }
 
-int eigrp_cli_not_configured(struct vty *vty, const char *command)
+int eigrp_cli_result_render(struct vty *vty, const char *operation,
+			    eigrp_result_t result)
 {
-	zlog_debug("EIGRP named-mode command '%s' is not configured yet", command);
-	vty_out(vty, "%% EIGRP named-mode command '%s' is not configured yet\n",
-		command);
-	return CMD_SUCCESS;
+	switch (result) {
+	case EIGRP_RESULT_SUCCESS:
+		return CMD_SUCCESS;
+	case EIGRP_RESULT_NOT_IMPLEMENTED:
+		vty_out(vty, "%% EIGRP %s is not currently implemented\n", operation);
+		return CMD_SUCCESS;
+	case EIGRP_RESULT_INVALID_ARGUMENT:
+		vty_out(vty, "%% Invalid EIGRP %s configuration\n", operation);
+		return CMD_WARNING;
+	case EIGRP_RESULT_NOT_FOUND:
+		vty_out(vty, "%% EIGRP %s target was not found\n", operation);
+		return CMD_WARNING;
+	case EIGRP_RESULT_CONFLICT:
+		vty_out(vty, "%% EIGRP %s conflicts with existing configuration\n", operation);
+		return CMD_WARNING;
+	case EIGRP_RESULT_UNSUPPORTED:
+		vty_out(vty, "%% EIGRP %s is not supported for this address family or capability\n", operation);
+		return CMD_WARNING;
+	case EIGRP_RESULT_INTERNAL_FAILURE:
+	default:
+		vty_out(vty, "%% EIGRP %s failed internally\n", operation);
+		return CMD_WARNING;
+	}
+}
+
+static int eigrp_cli_token_values_after(int argc, struct cmd_token *argv[],
+				const char *keyword, const char **values,
+				int values_len)
+{
+	bool found = false;
+	int count = 0;
+	int i;
+
+	if (!keyword || !values || values_len <= 0)
+		return -1;
+
+	for (i = 0; i < argc; i++) {
+		const char *value = eigrp_cli_token_value(argv[i]);
+
+		if (!value)
+			continue;
+		if (!found) {
+			if (strcmp(value, keyword) == 0)
+				found = true;
+			continue;
+		}
+		if (count < values_len)
+			values[count++] = value;
+	}
+
+	return found ? count : -1;
+}
+
+static bool eigrp_cli_xpath_leaf_build(char *leaf_xpath, size_t leaf_xpath_len,
+				       const char *xpath, const char *leaf)
+{
+	size_t xpath_len;
+	size_t leaf_len;
+	size_t remaining;
+
+	if (!leaf_xpath || leaf_xpath_len == 0 || !xpath || !leaf)
+		return false;
+
+	xpath_len = strlen(xpath);
+	leaf_len = strlen(leaf);
+	if (xpath_len >= leaf_xpath_len)
+		return false;
+
+	remaining = leaf_xpath_len - xpath_len;
+	if (remaining < 2 || leaf_len > remaining - 2)
+		return false;
+
+	memcpy(leaf_xpath, xpath, xpath_len);
+	leaf_xpath[xpath_len] = '/';
+	memcpy(leaf_xpath + xpath_len + 1, leaf, leaf_len + 1);
+	return true;
+}
+
+static void eigrp_cli_named_xpath(char *xpath, size_t xpath_len,
+				   const char *name)
+{
+	snprintf(xpath, xpath_len,
+		 "/frr-eigrpd:eigrpd/named[name='%s']", name);
+}
+
+static void eigrp_cli_named_af_xpath(char *xpath, size_t xpath_len,
+				      const char *name, const char *afi,
+				      const char *vrf_name, const char *asn)
+{
+	snprintf(xpath, xpath_len,
+		 "/frr-eigrpd:eigrpd/named[name='%s']/address-family[afi='%s'][vrf='%s'][asn='%s']",
+		 name, afi, eigrp_cli_vrf_name(vrf_name), asn);
+}
+
+static void eigrp_cli_named_af_interface_xpath(char *xpath, size_t xpath_len,
+					       const char *name, const char *afi,
+					       const char *vrf_name, const char *asn,
+					       const char *interface_name)
+{
+	eigrp_cli_named_af_xpath(xpath, xpath_len, name, afi, vrf_name, asn);
+	snprintf(xpath + strlen(xpath), xpath_len - strlen(xpath),
+		 "/af-interface[interface='%s']", interface_name);
+}
+
+static void eigrp_cli_named_topology_xpath(char *xpath, size_t xpath_len,
+					 const char *name, const char *afi,
+					 const char *vrf_name, const char *asn)
+{
+	eigrp_cli_named_af_xpath(xpath, xpath_len, name, afi, vrf_name, asn);
+	snprintf(xpath + strlen(xpath), xpath_len - strlen(xpath), "/topology");
+}
+
+static bool eigrp_cli_named_topology_mode(struct vty *vty)
+{
+	return strstr(VTY_CURR_XPATH, "/named[") != NULL
+	       && strstr(VTY_CURR_XPATH, "/address-family[") != NULL
+	       && strstr(VTY_CURR_XPATH, "/topology") != NULL;
+}
+
+static int eigrp_cli_named_topology_required(struct vty *vty)
+{
+	if (eigrp_cli_named_topology_mode(vty))
+		return 1;
+	vty_out(vty, "%% Enter named EIGRP topology base mode first\n");
+	return 0;
 }
 
 static int eigrp_cli_push_named_root(struct vty *vty, const char *name)
 {
 	char xpath[XPATH_MAXLEN];
+	int rv;
 
-	snprintf(xpath, sizeof(xpath),
-		 "/frr-eigrpd:eigrpd/eigrp-named[name='%s']",
-		 name && name[0] ? name : "EIGRP");
-	VTY_PUSH_XPATH(EIGRP_NODE, xpath);
-	return CMD_SUCCESS;
+	if (!name || !name[0])
+		return CMD_WARNING;
+
+	eigrp_cli_named_xpath(xpath, sizeof(xpath), name);
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	rv = nb_cli_apply_changes(vty, NULL);
+	if (rv == CMD_SUCCESS)
+		VTY_PUSH_XPATH(EIGRP_NODE, xpath);
+	return rv;
 }
 
-static void eigrp_cli_instance_xpath(char *xpath, size_t xpath_len,
-				     const char *asn, const char *vrf_name)
-{
-	snprintf(xpath, xpath_len,
-		 "/frr-eigrpd:eigrpd/instance[asn='%s'][vrf='%s']", asn,
-		 eigrp_cli_vrf_name(vrf_name));
-}
-
-static int eigrp_cli_named_instance_set(struct vty *vty, const char *name,
-					const char *asn, const char *vrf_name)
+static int eigrp_cli_named_address_family_set(struct vty *vty,
+					      const char *name,
+					      const char *afi,
+					      const char *asn,
+					      const char *vrf_name)
 {
 	char xpath[XPATH_MAXLEN];
 	uint16_t as;
-	struct vrf *vrf;
-	eigrp_instance_t *eigrp;
 	int rv;
 
-	if (!eigrp_cli_parse_uint16(asn, &as)) {
-		vty_out(vty, "%% Invalid autonomous-system %s\n", asn ? asn : "");
+	if (!name || !name[0] || !eigrp_cli_parse_uint16(asn, &as)) {
+		vty_out(vty, "%% Invalid EIGRP named address-family configuration\n");
 		return CMD_WARNING;
 	}
 
-	eigrp_cli_instance_xpath(xpath, sizeof(xpath), asn,
-				 eigrp_cli_vrf_name(vrf_name));
+	eigrp_cli_named_af_xpath(xpath, sizeof(xpath), name, afi,
+				eigrp_cli_vrf_name(vrf_name), asn);
 	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
 	rv = nb_cli_apply_changes(vty, NULL);
-	if (rv != CMD_SUCCESS)
-		return rv;
-
-	vrf = vrf_lookup_by_name(eigrp_cli_vrf_name(vrf_name));
-	eigrp = eigrp_get(as, vrf ? vrf->vrf_id : VRF_DEFAULT);
-	eigrp_name_set(eigrp, name);
-	VTY_PUSH_XPATH(EIGRP_NODE, xpath);
-	return CMD_SUCCESS;
+	if (rv == CMD_SUCCESS)
+		VTY_PUSH_XPATH(EIGRP_NODE, xpath);
+	return rv;
 }
 
-static int eigrp_cli_named_instance_unset(struct vty *vty, const char *asn,
-					  const char *vrf_name)
+static int eigrp_cli_named_address_family_unset(struct vty *vty,
+						const char *name,
+						const char *afi,
+						const char *asn,
+						const char *vrf_name)
 {
 	char xpath[XPATH_MAXLEN];
 
-	eigrp_cli_instance_xpath(xpath, sizeof(xpath), asn,
-				 eigrp_cli_vrf_name(vrf_name));
+	eigrp_cli_named_af_xpath(xpath, sizeof(xpath), name, afi,
+				eigrp_cli_vrf_name(vrf_name), asn);
 	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes_clear_pending(vty, NULL);
 }
@@ -1342,46 +1851,36 @@ static int eigrp_cli_network_prefix_from_wildcard(const char *addr,
 	return 1;
 }
 
-static int eigrp_cli_af_interface_path(struct vty *vty, char *ifname,
-				       size_t ifname_len, char *asn, size_t asn_len)
+static int eigrp_cli_af_interface_path(struct vty *vty, char *interface_name,
+				       size_t interface_name_len)
 {
-	char vrf_name[VRF_NAMSIZ];
-
-	if (!eigrp_cli_xpath_get(VTY_CURR_XPATH, "ifname", ifname, ifname_len)
-	    && !eigrp_cli_xpath_get(VTY_CURR_XPATH, "interface", ifname,
-				      ifname_len)) {
+	if (!strstr(VTY_CURR_XPATH, "/named[")
+	    || !strstr(VTY_CURR_XPATH, "/address-family[")
+	    || !strstr(VTY_CURR_XPATH, "/af-interface[")
+	    || !eigrp_cli_xpath_get(VTY_CURR_XPATH, "interface",
+				   interface_name, interface_name_len)) {
 		vty_out(vty, "%% Enter named EIGRP af-interface mode first\n");
-		return 0;
-	}
-
-	if (!eigrp_cli_current_as_vrf(vty, asn, asn_len, vrf_name, sizeof(vrf_name))) {
-		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
 		return 0;
 	}
 
 	return 1;
 }
 
-
-static void eigrp_cli_interface_eigrp_xpath(char *xpath, size_t xpath_len,
-					    const char *ifname, const char *leaf)
+static bool eigrp_cli_named_af_context(struct vty *vty, char *name,
+				       size_t name_len, char *afi,
+				       size_t afi_len, char *vrf_name,
+				       size_t vrf_len, char *asn,
+				       size_t asn_len)
 {
-	snprintf(xpath, xpath_len,
-		 "/frr-interface:lib/interface[name='%s']/frr-eigrpd:eigrp/%s",
-		 ifname, leaf);
+	return strstr(VTY_CURR_XPATH, "/named[") != NULL
+	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "name", name, name_len)
+	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "afi", afi, afi_len)
+	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "vrf", vrf_name, vrf_len)
+	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "asn", asn, asn_len);
 }
 
-static void eigrp_cli_interface_instance_xpath(char *xpath, size_t xpath_len,
-					       const char *ifname, const char *asn,
-					       const char *leaf)
-{
-	snprintf(xpath, xpath_len,
-		 "/frr-interface:lib/interface[name='%s']/frr-eigrpd:eigrp/instance[asn='%s']/%s",
-		 ifname, asn, leaf);
-}
-
-DEFUN(router_eigrp_named,
-      router_eigrp_named_cmd,
+DEFUN_NOSH(router_eigrp_named,
+           router_eigrp_named_cmd,
       "router eigrp WORD",
       ROUTER_STR
       EIGRP_STR
@@ -1401,30 +1900,10 @@ DEFUN(no_router_eigrp_named,
       "EIGRP named-mode instance name\n")
 {
 	const char *name = eigrp_cli_token_last(argc, argv);
-	struct listnode *node, *nnode;
-	eigrp_instance_t *eigrp;
-	int matched = 0;
+	char xpath[XPATH_MAXLEN];
 
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-		struct vrf *vrf;
-		char xpath[XPATH_MAXLEN];
-
-		if (!eigrp->name || strcmp(eigrp->name, name) != 0)
-			continue;
-
-		vrf = vrf_lookup_by_id(eigrp->vrf_id);
-		snprintf(xpath, sizeof(xpath),
-			 "/frr-eigrpd:eigrpd/instance[asn='%u'][vrf='%s']",
-			 eigrp->AS, vrf ? vrf->name : VRF_DEFAULT_NAME);
-		nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
-		matched++;
-	}
-
-	if (!matched) {
-		vty_out(vty, "%% EIGRP named instance %s not found\n", name);
-		return CMD_SUCCESS;
-	}
-
+	eigrp_cli_named_xpath(xpath, sizeof(xpath), name);
+	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes_clear_pending(vty, NULL);
 }
 
@@ -1443,8 +1922,8 @@ DEFUN(eigrp_address_family_ipv4,
 	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
 
 	eigrp_cli_current_name(vty, name, sizeof(name));
-	return eigrp_cli_named_instance_set(vty, name, asn,
-					  eigrp_cli_vrf_name(vrf_name));
+	return eigrp_cli_named_address_family_set(vty, name, "ipv4", asn,
+						    eigrp_cli_vrf_name(vrf_name));
 }
 
 DEFUN(no_eigrp_address_family_ipv4,
@@ -1458,11 +1937,13 @@ DEFUN(no_eigrp_address_family_ipv4,
       "EIGRP autonomous system\n"
       AS_STR)
 {
+	char name[128];
 	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
 	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
 
-	return eigrp_cli_named_instance_unset(vty, asn,
-					    eigrp_cli_vrf_name(vrf_name));
+	eigrp_cli_current_name(vty, name, sizeof(name));
+	return eigrp_cli_named_address_family_unset(vty, name, "ipv4", asn,
+						      eigrp_cli_vrf_name(vrf_name));
 }
 
 DEFUN(eigrp_address_family_ipv6,
@@ -1475,7 +1956,13 @@ DEFUN(eigrp_address_family_ipv6,
       "EIGRP autonomous system\n"
       AS_STR)
 {
-	return eigrp_cli_not_configured(vty, "address-family ipv6");
+	char name[128];
+	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
+	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
+
+	eigrp_cli_current_name(vty, name, sizeof(name));
+	return eigrp_cli_named_address_family_set(vty, name, "ipv6", asn,
+						    eigrp_cli_vrf_name(vrf_name));
 }
 
 DEFUN(no_eigrp_address_family_ipv6,
@@ -1489,7 +1976,13 @@ DEFUN(no_eigrp_address_family_ipv6,
       "EIGRP autonomous system\n"
       AS_STR)
 {
-	return eigrp_cli_not_configured(vty, "no address-family ipv6");
+	char name[128];
+	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
+	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
+
+	eigrp_cli_current_name(vty, name, sizeof(name));
+	return eigrp_cli_named_address_family_unset(vty, name, "ipv6", asn,
+						      eigrp_cli_vrf_name(vrf_name));
 }
 
 DEFUN(eigrp_exit_address_family,
@@ -1497,10 +1990,11 @@ DEFUN(eigrp_exit_address_family,
       "exit-address-family",
       "Exit address-family configuration mode\n")
 {
-	char name[128];
-
-	eigrp_cli_current_name(vty, name, sizeof(name));
-	return eigrp_cli_push_named_root(vty, name);
+	if (vty->xpath_index > 1
+	    && strstr(VTY_CURR_XPATH, "/address-family[") != NULL)
+		vty->xpath_index--;
+	vty->node = EIGRP_NODE;
+	return CMD_SUCCESS;
 }
 
 DEFUN(eigrp_no_shutdown,
@@ -1509,11 +2003,25 @@ DEFUN(eigrp_no_shutdown,
       NO_STR
       "Shutdown EIGRP address-family or interface\n")
 {
-	if (strstr(VTY_CURR_XPATH, "af-interface"))
-		zlog_debug("EIGRP named-mode af-interface no shutdown accepted as current default behavior");
-	else
-		zlog_debug("EIGRP named-mode address-family no shutdown accepted as current default behavior");
-	return CMD_SUCCESS;
+	if (strstr(VTY_CURR_XPATH, "/af-interface[")) {
+		nb_cli_enqueue_change(vty, "./shutdown", NB_OP_DESTROY, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && strstr(VTY_CURR_XPATH, "/address-family[")) {
+		nb_cli_enqueue_change(vty, "./shutdown", NB_OP_DESTROY, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && strstr(VTY_CURR_XPATH, "/address-family[") == NULL) {
+		char name[128];
+
+		eigrp_cli_current_name(vty, name, sizeof(name));
+		return eigrp_cli_result_render(
+			vty, "named process no shutdown",
+			eigrp_named_process_shutdown_set(name, false));
+	}
+	return CMD_WARNING;
 }
 
 DEFUN(eigrp_shutdown,
@@ -1521,9 +2029,25 @@ DEFUN(eigrp_shutdown,
       "shutdown",
       "Shutdown EIGRP address-family or interface\n")
 {
-	if (strstr(VTY_CURR_XPATH, "af-interface"))
-		return eigrp_cli_not_configured(vty, "af-interface shutdown");
-	return eigrp_cli_not_configured(vty, "shutdown");
+	if (strstr(VTY_CURR_XPATH, "/af-interface[")) {
+		nb_cli_enqueue_change(vty, "./shutdown", NB_OP_CREATE, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && strstr(VTY_CURR_XPATH, "/address-family[")) {
+		nb_cli_enqueue_change(vty, "./shutdown", NB_OP_CREATE, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+	if (strstr(VTY_CURR_XPATH, "/named[")
+	    && strstr(VTY_CURR_XPATH, "/address-family[") == NULL) {
+		char name[128];
+
+		eigrp_cli_current_name(vty, name, sizeof(name));
+		return eigrp_cli_result_render(
+			vty, "named process shutdown",
+			eigrp_named_process_shutdown_set(name, true));
+	}
+	return CMD_WARNING;
 }
 
 DEFUN(eigrp_network_address,
@@ -1537,7 +2061,14 @@ DEFUN(eigrp_network_address,
 	const char *wildcard = NULL;
 	char prefix[INET_ADDRSTRLEN + 4];
 	char xpath[XPATH_MAXLEN];
+	char afi[8];
 	int i;
+
+	if (eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    && strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% network is valid only under named IPv4 address-family\n");
+		return CMD_WARNING;
+	}
 
 	for (i = 0; i < argc; i++) {
 		const char *value = eigrp_cli_token_value(argv[i]);
@@ -1581,7 +2112,14 @@ DEFUN(no_eigrp_network_address,
 	const char *wildcard = NULL;
 	char prefix[INET_ADDRSTRLEN + 4];
 	char xpath[XPATH_MAXLEN];
+	char afi[8];
 	int i;
+
+	if (eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    && strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% network is valid only under named IPv4 address-family\n");
+		return CMD_WARNING;
+	}
 
 	for (i = 0; i < argc; i++) {
 		const char *value = eigrp_cli_token_value(argv[i]);
@@ -1613,6 +2151,89 @@ DEFUN(no_eigrp_network_address,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+static int eigrp_cli_named_neighbor_set(struct vty *vty, const char *address,
+					 const char *interface_name, bool remove)
+{
+	char afi[8];
+	char xpath[XPATH_MAXLEN];
+
+	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))) {
+		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
+		return CMD_WARNING;
+	}
+
+	snprintf(xpath, sizeof(xpath),
+		 "./neighbor[address='%s'][interface='%s']", address,
+		 interface_name);
+	nb_cli_enqueue_change(vty, xpath,
+			      remove ? NB_OP_DESTROY : NB_OP_CREATE, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_named_neighbor_ipv4,
+      eigrp_named_neighbor_ipv4_cmd,
+      "neighbor A.B.C.D IFNAME",
+      "Specify a neighbor router\n"
+      "Neighbor IPv4 address\n"
+      "Interface used to reach the neighbor\n")
+{
+	char afi[8];
+
+	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    || strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% IPv4 neighbor is valid only under named IPv4 address-family\n");
+		return CMD_WARNING;
+	}
+	return eigrp_cli_named_neighbor_set(
+		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv), false);
+}
+
+DEFUN(no_eigrp_named_neighbor_ipv4,
+      no_eigrp_named_neighbor_ipv4_cmd,
+      "no neighbor A.B.C.D IFNAME",
+      NO_STR
+      "Specify a neighbor router\n"
+      "Neighbor IPv4 address\n"
+      "Interface used to reach the neighbor\n")
+{
+	return eigrp_cli_named_neighbor_set(
+		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv), true);
+}
+
+DEFUN(eigrp_named_neighbor_ipv6,
+      eigrp_named_neighbor_ipv6_cmd,
+      "neighbor X:X::X:X IFNAME",
+      "Specify a neighbor router\n"
+      "Neighbor IPv6 address\n"
+      "Interface used to reach the neighbor\n")
+{
+	char afi[8];
+
+	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    || strcmp(afi, "ipv6") != 0) {
+		vty_out(vty, "%% IPv6 neighbor is valid only under named IPv6 address-family\n");
+		return CMD_WARNING;
+	}
+	return eigrp_cli_named_neighbor_set(
+		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv), false);
+}
+
+DEFUN(no_eigrp_named_neighbor_ipv6,
+      no_eigrp_named_neighbor_ipv6_cmd,
+      "no neighbor X:X::X:X IFNAME",
+      NO_STR
+      "Specify a neighbor router\n"
+      "Neighbor IPv6 address\n"
+      "Interface used to reach the neighbor\n")
+{
+	return eigrp_cli_named_neighbor_set(
+		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv), true);
+}
+
 DEFUN(eigrp_af_interface,
       eigrp_af_interface_cmd,
       "af-interface <default|IFNAME>",
@@ -1620,25 +2241,56 @@ DEFUN(eigrp_af_interface,
       "Default interface template\n"
       "Interface name\n")
 {
-	const char *ifname = eigrp_cli_token_last(argc, argv);
+	const char *interface_name = eigrp_cli_token_last(argc, argv);
+	char name[128];
+	char afi[8];
 	char asn[16];
 	char vrf_name[VRF_NAMSIZ];
 	char xpath[XPATH_MAXLEN];
+	int rv;
 
-	if (!eigrp_cli_current_as_vrf(vty, asn, sizeof(asn), vrf_name,
-				       sizeof(vrf_name))) {
+	if (!eigrp_cli_named_af_context(vty, name, sizeof(name), afi,
+					 sizeof(afi), vrf_name, sizeof(vrf_name),
+					 asn, sizeof(asn))) {
 		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
 		return CMD_WARNING;
 	}
 
-	if (strcmp(ifname, "default") == 0)
-		return eigrp_cli_not_configured(vty, "af-interface default");
+	eigrp_cli_named_af_interface_xpath(xpath, sizeof(xpath), name, afi,
+					   vrf_name, asn, interface_name);
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	rv = nb_cli_apply_changes(vty, NULL);
+	if (rv == CMD_SUCCESS)
+		VTY_PUSH_XPATH(EIGRP_NODE, xpath);
+	return rv;
+}
 
-	snprintf(xpath, sizeof(xpath),
-		 "/frr-eigrpd:eigrpd/address-family[asn='%s'][vrf='%s']/af-interface[ifname='%s']",
-		 asn, vrf_name, ifname);
-	VTY_PUSH_XPATH(EIGRP_NODE, xpath);
-	return CMD_SUCCESS;
+DEFUN(no_eigrp_af_interface,
+      no_eigrp_af_interface_cmd,
+      "no af-interface <default|IFNAME>",
+      NO_STR
+      "Enter address-family interface configuration mode\n"
+      "Default interface template\n"
+      "Interface name\n")
+{
+	const char *interface_name = eigrp_cli_token_last(argc, argv);
+	char name[128];
+	char afi[8];
+	char asn[16];
+	char vrf_name[VRF_NAMSIZ];
+	char xpath[XPATH_MAXLEN];
+
+	if (!eigrp_cli_named_af_context(vty, name, sizeof(name), afi,
+					 sizeof(afi), vrf_name, sizeof(vrf_name),
+					 asn, sizeof(asn))) {
+		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
+		return CMD_WARNING;
+	}
+
+	eigrp_cli_named_af_interface_xpath(xpath, sizeof(xpath), name, afi,
+					   vrf_name, asn, interface_name);
+	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes_clear_pending(vty, NULL);
 }
 
 DEFUN(eigrp_exit_af_interface,
@@ -1646,17 +2298,43 @@ DEFUN(eigrp_exit_af_interface,
       "exit-af-interface",
       "Exit address-family interface configuration mode\n")
 {
-	char asn[16];
-	char vrf_name[VRF_NAMSIZ];
-	char xpath[XPATH_MAXLEN];
-
-	if (!eigrp_cli_current_as_vrf(vty, asn, sizeof(asn), vrf_name,
-				       sizeof(vrf_name)))
-		return CMD_SUCCESS;
-
-	eigrp_cli_instance_xpath(xpath, sizeof(xpath), asn, vrf_name);
-	VTY_PUSH_XPATH(EIGRP_NODE, xpath);
+	if (vty->xpath_index > 1
+	    && strstr(VTY_CURR_XPATH, "/af-interface[") != NULL)
+		vty->xpath_index--;
+	vty->node = EIGRP_NODE;
 	return CMD_SUCCESS;
+}
+
+DEFUN(eigrp_af_interface_bandwidth_percent,
+      eigrp_af_interface_bandwidth_percent_cmd,
+      "bandwidth-percent (1-999999)",
+      "Set EIGRP bandwidth percentage\n"
+      "Percentage of interface bandwidth\n")
+{
+	const char *percent = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./bandwidth-percent", NB_OP_MODIFY, percent);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_af_interface_bandwidth_percent,
+      no_eigrp_af_interface_bandwidth_percent_cmd,
+      "no bandwidth-percent [(1-999999)]",
+      NO_STR
+      "Set EIGRP bandwidth percentage\n"
+      "Percentage of interface bandwidth\n")
+{
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./bandwidth-percent", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
 }
 
 DEFUN(eigrp_af_interface_hello_interval,
@@ -1665,18 +2343,13 @@ DEFUN(eigrp_af_interface_hello_interval,
       "Configures EIGRP hello interval\n"
       "Seconds between hello transmissions\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
 	const char *hello = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_interface_eigrp_xpath(xpath, sizeof(xpath), ifname,
-					 "hello-interval");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, hello);
+	nb_cli_enqueue_change(vty, "./hello-interval", NB_OP_MODIFY, hello);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1687,17 +2360,12 @@ DEFUN(no_eigrp_af_interface_hello_interval,
       "Configures EIGRP hello interval\n"
       "Seconds between hello transmissions\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_interface_eigrp_xpath(xpath, sizeof(xpath), ifname,
-					 "hello-interval");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	nb_cli_enqueue_change(vty, "./hello-interval", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1707,18 +2375,13 @@ DEFUN(eigrp_af_interface_hold_time,
       "Configures EIGRP hold time\n"
       "Seconds before neighbor is considered down\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
 	const char *hold = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_interface_eigrp_xpath(xpath, sizeof(xpath), ifname,
-					 "hold-time");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, hold);
+	nb_cli_enqueue_change(vty, "./hold-time", NB_OP_MODIFY, hold);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1729,57 +2392,12 @@ DEFUN(no_eigrp_af_interface_hold_time,
       "Configures EIGRP hold time\n"
       "Seconds before neighbor is considered down\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_interface_eigrp_xpath(xpath, sizeof(xpath), ifname,
-					 "hold-time");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
-	return nb_cli_apply_changes(vty, NULL);
-}
-
-DEFUN(eigrp_af_interface_delay,
-      eigrp_af_interface_delay_cmd,
-      "delay (1-16777215)",
-      "Specify interface throughput delay\n"
-      "Throughput delay in tens of microseconds\n")
-{
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
-	const char *delay = eigrp_cli_token_last(argc, argv);
-
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
-		return CMD_WARNING;
-
-	eigrp_cli_interface_eigrp_xpath(xpath, sizeof(xpath), ifname, "delay");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, delay);
-	return nb_cli_apply_changes(vty, NULL);
-}
-
-DEFUN(no_eigrp_af_interface_delay,
-      no_eigrp_af_interface_delay_cmd,
-      "no delay [(1-16777215)]",
-      NO_STR
-      "Specify interface throughput delay\n"
-      "Throughput delay in tens of microseconds\n")
-{
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
-
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
-		return CMD_WARNING;
-
-	eigrp_cli_interface_eigrp_xpath(xpath, sizeof(xpath), ifname, "delay");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	nb_cli_enqueue_change(vty, "./hold-time", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1791,23 +2409,13 @@ DEFUN(eigrp_af_interface_authentication_mode,
       "Keyed message digest\n"
       "HMAC SHA256 algorithm\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
-	char instance_xpath[XPATH_MAXLEN];
 	const char *mode = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	snprintf(instance_xpath, sizeof(instance_xpath),
-		 "/frr-interface:lib/interface[name='%s']/frr-eigrpd:eigrp/instance[asn='%s']",
-		 ifname, asn);
-	nb_cli_enqueue_change(vty, instance_xpath, NB_OP_CREATE, NULL);
-	eigrp_cli_interface_instance_xpath(xpath, sizeof(xpath), ifname, asn,
-					    "authentication");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, mode);
+	nb_cli_enqueue_change(vty, "./authentication-mode", NB_OP_MODIFY, mode);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1820,17 +2428,12 @@ DEFUN(no_eigrp_af_interface_authentication_mode,
       "Keyed message digest\n"
       "HMAC SHA256 algorithm\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_interface_instance_xpath(xpath, sizeof(xpath), ifname, asn,
-					    "authentication");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, "none");
+	nb_cli_enqueue_change(vty, "./authentication-mode", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1841,23 +2444,14 @@ DEFUN(eigrp_af_interface_keychain,
       "Key-chain\n"
       "Name of key-chain\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
-	char instance_xpath[XPATH_MAXLEN];
-	const char *name = eigrp_cli_token_last(argc, argv);
+	const char *keychain = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	snprintf(instance_xpath, sizeof(instance_xpath),
-		 "/frr-interface:lib/interface[name='%s']/frr-eigrpd:eigrp/instance[asn='%s']",
-		 ifname, asn);
-	nb_cli_enqueue_change(vty, instance_xpath, NB_OP_CREATE, NULL);
-	eigrp_cli_interface_instance_xpath(xpath, sizeof(xpath), ifname, asn,
-					    "keychain");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, name);
+	nb_cli_enqueue_change(vty, "./authentication-key-chain", NB_OP_MODIFY,
+			      keychain);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1869,17 +2463,13 @@ DEFUN(no_eigrp_af_interface_keychain,
       "Key-chain\n"
       "Name of key-chain\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char xpath[XPATH_MAXLEN];
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_af_interface_path(vty, ifname, sizeof(ifname), asn,
-					   sizeof(asn)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_interface_instance_xpath(xpath, sizeof(xpath), ifname, asn,
-					    "keychain");
-	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	nb_cli_enqueue_change(vty, "./authentication-key-chain", NB_OP_DESTROY,
+			      NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1888,21 +2478,12 @@ DEFUN(eigrp_af_interface_passive,
       "passive-interface",
       "Suppress routing updates on this interface\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char vrf_name[VRF_NAMSIZ];
-	char xpath[XPATH_MAXLEN];
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_xpath_get(VTY_CURR_XPATH, "ifname", ifname,
-				  sizeof(ifname))
-	    || !eigrp_cli_current_as_vrf(vty, asn, sizeof(asn), vrf_name,
-					 sizeof(vrf_name)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_instance_xpath(xpath, sizeof(xpath), asn, vrf_name);
-	snprintf(xpath + strlen(xpath), sizeof(xpath) - strlen(xpath),
-		 "/passive-interface[.='%s']", ifname);
-	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	nb_cli_enqueue_change(vty, "./passive-interface", NB_OP_CREATE, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1912,60 +2493,43 @@ DEFUN(no_eigrp_af_interface_passive,
       NO_STR
       "Suppress routing updates on this interface\n")
 {
-	char ifname[IFNAMSIZ];
-	char asn[16];
-	char vrf_name[VRF_NAMSIZ];
-	char xpath[XPATH_MAXLEN];
+	char interface_name[IFNAMSIZ];
 
-	if (!eigrp_cli_xpath_get(VTY_CURR_XPATH, "ifname", ifname,
-				  sizeof(ifname))
-	    || !eigrp_cli_current_as_vrf(vty, asn, sizeof(asn), vrf_name,
-					 sizeof(vrf_name)))
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
 		return CMD_WARNING;
-
-	eigrp_cli_instance_xpath(xpath, sizeof(xpath), asn, vrf_name);
-	snprintf(xpath + strlen(xpath), sizeof(xpath) - strlen(xpath),
-		 "/passive-interface[.='%s']", ifname);
-	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+	nb_cli_enqueue_change(vty, "./passive-interface", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
-DEFUN(eigrp_af_interface_bandwidth_percent,
-      eigrp_af_interface_bandwidth_percent_cmd,
-      "bandwidth-percent (1-999999)",
-      "Set EIGRP bandwidth percentage\n"
-      "Percentage of interface bandwidth\n")
+DEFUN(eigrp_af_interface_next_hop_self,
+      eigrp_af_interface_next_hop_self_cmd,
+      "next-hop-self",
+      "Advertise the local outbound interface as next hop\n")
 {
-	return eigrp_cli_not_configured(vty, "bandwidth-percent");
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	/* true is the documented default, so remove the explicit false leaf. */
+	nb_cli_enqueue_change(vty, "./next-hop-self", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
 }
 
-DEFUN(no_eigrp_af_interface_bandwidth_percent,
-      no_eigrp_af_interface_bandwidth_percent_cmd,
-      "no bandwidth-percent [(1-999999)]",
+DEFUN(no_eigrp_af_interface_next_hop_self,
+      no_eigrp_af_interface_next_hop_self_cmd,
+      "no next-hop-self",
       NO_STR
-      "Set EIGRP bandwidth percentage\n"
-      "Percentage of interface bandwidth\n")
+      "Advertise the local outbound interface as next hop\n")
 {
-	return eigrp_cli_not_configured(vty, "no bandwidth-percent");
-}
+	char interface_name[IFNAMSIZ];
 
-DEFUN(eigrp_af_interface_summary_address,
-      eigrp_af_interface_summary_address_cmd,
-      "summary-address A.B.C.D/M",
-      "Perform address summarization\n"
-      "Summary prefix\n")
-{
-	return eigrp_cli_not_configured(vty, "summary-address");
-}
-
-DEFUN(no_eigrp_af_interface_summary_address,
-      no_eigrp_af_interface_summary_address_cmd,
-      "no summary-address A.B.C.D/M",
-      NO_STR
-      "Perform address summarization\n"
-      "Summary prefix\n")
-{
-	return eigrp_cli_not_configured(vty, "no summary-address");
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./next-hop-self", NB_OP_MODIFY, "false");
+	return nb_cli_apply_changes(vty, NULL);
 }
 
 DEFUN(eigrp_af_interface_split_horizon,
@@ -1973,7 +2537,14 @@ DEFUN(eigrp_af_interface_split_horizon,
       "split-horizon",
       "Perform split horizon\n")
 {
-	return eigrp_cli_not_configured(vty, "split-horizon");
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	/* true is the documented default, so remove the explicit false leaf. */
+	nb_cli_enqueue_change(vty, "./split-horizon", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
 }
 
 DEFUN(no_eigrp_af_interface_split_horizon,
@@ -1982,7 +2553,92 @@ DEFUN(no_eigrp_af_interface_split_horizon,
       NO_STR
       "Perform split horizon\n")
 {
-	return eigrp_cli_not_configured(vty, "no split-horizon");
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./split-horizon", NB_OP_MODIFY, "false");
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+static int eigrp_cli_af_interface_summary_set(struct vty *vty,
+					       const char *address,
+					       const char *mask, bool remove)
+{
+	char interface_name[IFNAMSIZ];
+	char afi[8];
+	char xpath[XPATH_MAXLEN];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    || strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% summary-address is valid only under named IPv4 address-family\n");
+		return CMD_WARNING;
+	}
+
+	snprintf(xpath, sizeof(xpath),
+		 "./summary-address[address='%s'][mask='%s']", address, mask);
+	nb_cli_enqueue_change(vty, xpath,
+			      remove ? NB_OP_DESTROY : NB_OP_CREATE, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_af_interface_summary_address,
+      eigrp_af_interface_summary_address_cmd,
+      "summary-address A.B.C.D A.B.C.D",
+      "Perform address summarization\n"
+      "Summary IPv4 address\n"
+      "Summary subnet mask\n")
+{
+	const char *address = NULL;
+	const char *mask = NULL;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		const char *value = eigrp_cli_token_value(argv[i]);
+		struct in_addr parsed;
+
+		if (!value || inet_aton(value, &parsed) == 0)
+			continue;
+		if (!address)
+			address = value;
+		else if (!mask)
+			mask = value;
+	}
+	if (!address || !mask)
+		return CMD_WARNING;
+	return eigrp_cli_af_interface_summary_set(vty, address, mask, false);
+}
+
+DEFUN(no_eigrp_af_interface_summary_address,
+      no_eigrp_af_interface_summary_address_cmd,
+      "no summary-address A.B.C.D A.B.C.D",
+      NO_STR
+      "Perform address summarization\n"
+      "Summary IPv4 address\n"
+      "Summary subnet mask\n")
+{
+	const char *address = NULL;
+	const char *mask = NULL;
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		const char *value = eigrp_cli_token_value(argv[i]);
+		struct in_addr parsed;
+
+		if (!value || inet_aton(value, &parsed) == 0)
+			continue;
+		if (!address)
+			address = value;
+		else if (!mask)
+			mask = value;
+	}
+	if (!address || !mask)
+		return CMD_WARNING;
+	return eigrp_cli_af_interface_summary_set(vty, address, mask, true);
 }
 
 DEFUN(eigrp_topology_base,
@@ -1991,11 +2647,28 @@ DEFUN(eigrp_topology_base,
       "Configure EIGRP topology\n"
       "Base topology\n")
 {
+	char name[128];
+	char afi[8];
+	char asn[16];
+	char vrf_name[VRF_NAMSIZ];
 	char xpath[XPATH_MAXLEN];
+	int rv;
 
-	snprintf(xpath, sizeof(xpath), "%s", VTY_CURR_XPATH);
-	VTY_PUSH_XPATH(EIGRP_NODE, xpath);
-	return CMD_SUCCESS;
+	if (!eigrp_cli_named_af_context(vty, name, sizeof(name), afi,
+					 sizeof(afi), vrf_name, sizeof(vrf_name),
+					 asn, sizeof(asn))
+	    || strstr(VTY_CURR_XPATH, "/af-interface[") != NULL) {
+		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
+		return CMD_WARNING;
+	}
+
+	eigrp_cli_named_topology_xpath(xpath, sizeof(xpath), name, afi, vrf_name,
+				       asn);
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	rv = nb_cli_apply_changes(vty, NULL);
+	if (rv == CMD_SUCCESS)
+		VTY_PUSH_XPATH(EIGRP_NODE, xpath);
+	return rv;
 }
 
 DEFUN(eigrp_exit_af_topology,
@@ -2003,22 +2676,225 @@ DEFUN(eigrp_exit_af_topology,
       "exit-af-topology",
       "Exit address-family topology mode\n")
 {
+	if (vty->xpath_index > 1
+	    && strstr(VTY_CURR_XPATH, "/topology") != NULL)
+		vty->xpath_index--;
+	vty->node = EIGRP_NODE;
 	return CMD_SUCCESS;
 }
 
-DEFUN(eigrp_distance_stub,
-      eigrp_distance_stub_cmd,
+DEFUN(eigrp_auto_summary,
+      eigrp_auto_summary_cmd,
+      "auto-summary",
+      "Enable automatic network summarization\n")
+{
+	char afi[8];
+
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    || strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% auto-summary is valid only under named IPv4 topology\n");
+		return CMD_WARNING;
+	}
+	nb_cli_enqueue_change(vty, "./auto-summary", NB_OP_CREATE, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_auto_summary,
+      no_eigrp_auto_summary_cmd,
+      "no auto-summary",
+      NO_STR
+      "Enable automatic network summarization\n")
+{
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./auto-summary", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+static int eigrp_cli_default_information_set(struct vty *vty,
+					     const char *direction,
+					     bool remove)
+{
+	char xpath[64];
+
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	if (!direction
+	    || (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0))
+		return CMD_WARNING;
+
+	snprintf(xpath, sizeof(xpath), "./default-information-%s", direction);
+	nb_cli_enqueue_change(vty, xpath, remove ? NB_OP_DESTROY : NB_OP_CREATE,
+			      NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_default_information,
+      eigrp_default_information_cmd,
+      "default-information <in|out>",
+      "Control exterior or default routing information\n"
+      "Accept exterior or default routing information\n"
+      "Advertise exterior or default routing information\n")
+{
+	return eigrp_cli_default_information_set(
+		vty, eigrp_cli_token_last(argc, argv), false);
+}
+
+DEFUN(no_eigrp_default_information,
+      no_eigrp_default_information_cmd,
+      "no default-information <in|out>",
+      NO_STR
+      "Control exterior or default routing information\n"
+      "Accept exterior or default routing information\n"
+      "Advertise exterior or default routing information\n")
+{
+	return eigrp_cli_default_information_set(
+		vty, eigrp_cli_token_last(argc, argv), true);
+}
+
+DEFUN(eigrp_default_metric,
+      eigrp_default_metric_cmd,
+      "default-metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)",
+      "Set metric for redistributed routes\n"
+      "Bandwidth metric in Kbits per second\n"
+      "EIGRP delay metric\n"
+      "EIGRP reliability metric\n"
+      "EIGRP load metric\n"
+      "EIGRP MTU\n")
+{
+	const char *args[5] = {0};
+
+	if (!eigrp_cli_named_topology_required(vty)
+	    || eigrp_cli_token_values_after(argc, argv, "default-metric", args, 5) != 5)
+		return CMD_WARNING;
+
+	nb_cli_enqueue_change(vty, "./default-metric", NB_OP_CREATE, NULL);
+	nb_cli_enqueue_change(vty, "./default-metric/bandwidth", NB_OP_MODIFY,
+			      args[0]);
+	nb_cli_enqueue_change(vty, "./default-metric/delay", NB_OP_MODIFY,
+			      args[1]);
+	nb_cli_enqueue_change(vty, "./default-metric/reliability", NB_OP_MODIFY,
+			      args[2]);
+	nb_cli_enqueue_change(vty, "./default-metric/load", NB_OP_MODIFY,
+			      args[3]);
+	nb_cli_enqueue_change(vty, "./default-metric/mtu", NB_OP_MODIFY,
+			      args[4]);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_default_metric,
+      no_eigrp_default_metric_cmd,
+      "no default-metric [(1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)]",
+      NO_STR
+      "Set metric for redistributed routes\n"
+      "Bandwidth metric in Kbits per second\n"
+      "EIGRP delay metric\n"
+      "EIGRP reliability metric\n"
+      "EIGRP load metric\n"
+      "EIGRP MTU\n")
+{
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./default-metric", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_distance,
+      eigrp_distance_cmd,
       "distance eigrp (1-255) (1-255)",
       "Define an administrative distance\n"
       EIGRP_STR
       "Internal route distance\n"
       "External route distance\n")
 {
-	return eigrp_cli_not_configured(vty, "distance eigrp");
+	const char *args[2] = {0};
+
+	if (!eigrp_cli_named_topology_required(vty)
+	    || eigrp_cli_token_values_after(argc, argv, "eigrp", args, 2) != 2)
+		return CMD_WARNING;
+
+	nb_cli_enqueue_change(vty, "./distance", NB_OP_CREATE, NULL);
+	nb_cli_enqueue_change(vty, "./distance/internal", NB_OP_MODIFY, args[0]);
+	nb_cli_enqueue_change(vty, "./distance/external", NB_OP_MODIFY, args[1]);
+	return nb_cli_apply_changes(vty, NULL);
 }
 
-DEFUN(eigrp_offset_list_stub,
-      eigrp_offset_list_stub_cmd,
+DEFUN(no_eigrp_distance,
+      no_eigrp_distance_cmd,
+      "no distance eigrp [(1-255) (1-255)]",
+      NO_STR
+      "Define an administrative distance\n"
+      EIGRP_STR
+      "Internal route distance\n"
+      "External route distance\n")
+{
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./distance", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_maximum_prefix,
+      eigrp_maximum_prefix_cmd,
+      "maximum-prefix (1-4294967295)",
+      "Limit prefixes accepted under an EIGRP address family\n"
+      "Maximum number of prefixes\n")
+{
+	const char *maximum = eigrp_cli_token_last(argc, argv);
+
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./maximum-prefix", NB_OP_MODIFY, maximum);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_maximum_prefix,
+      no_eigrp_maximum_prefix_cmd,
+      "no maximum-prefix [(1-4294967295)]",
+      NO_STR
+      "Limit prefixes accepted under an EIGRP address family\n"
+      "Maximum number of prefixes\n")
+{
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./maximum-prefix", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+static int eigrp_cli_offset_list_change(struct vty *vty, int argc,
+					struct cmd_token *argv[], bool remove)
+{
+	const char *args[4] = {0};
+	const char *interface_name;
+	char xpath[XPATH_MAXLEN];
+	int count;
+
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	count = eigrp_cli_token_values_after(argc, argv, "offset-list", args, 4);
+	if (count < 3)
+		return CMD_WARNING;
+	interface_name = count > 3 ? args[3] : "";
+	snprintf(xpath, sizeof(xpath),
+		 "./offset-list[access-list='%s'][direction='%s'][interface='%s']",
+		 args[0], args[1], interface_name);
+	if (remove) {
+		nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+	snprintf(xpath, sizeof(xpath),
+		 "./offset-list[access-list='%s'][direction='%s'][interface='%s']/offset",
+		 args[0], args[1], interface_name);
+	nb_cli_enqueue_change(vty, xpath, NB_OP_MODIFY, args[2]);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_offset_list,
+      eigrp_offset_list_cmd,
       "offset-list WORD <in|out> (0-2147483647) [IFNAME]",
       "Add or subtract offset from EIGRP metrics\n"
       "Access-list name\n"
@@ -2027,22 +2903,120 @@ DEFUN(eigrp_offset_list_stub,
       "Metric offset\n"
       "Interface name\n")
 {
-	return eigrp_cli_not_configured(vty, "offset-list");
+	return eigrp_cli_offset_list_change(vty, argc, argv, false);
 }
 
-DEFUN(eigrp_summary_metric_stub,
-      eigrp_summary_metric_stub_cmd,
-      "summary-metric A.B.C.D/M metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)",
-      "Configure summary metric\n"
-      "Summary prefix\n"
-      "Metric values\n"
-      "Bandwidth metric in Kbits per second\n"
-      "EIGRP delay metric, in 10 microsecond units\n"
-      "EIGRP reliability metric where 255 is 100% reliable\n"
-      "EIGRP Effective bandwidth metric where 255 is 100% loaded\n"
-      "EIGRP MTU of the path\n")
+DEFUN(no_eigrp_offset_list,
+      no_eigrp_offset_list_cmd,
+      "no offset-list WORD <in|out> (0-2147483647) [IFNAME]",
+      NO_STR
+      "Add or subtract offset from EIGRP metrics\n"
+      "Access-list name\n"
+      "Incoming updates\n"
+      "Outgoing updates\n"
+      "Metric offset\n"
+      "Interface name\n")
 {
-	return eigrp_cli_not_configured(vty, "summary-metric");
+	return eigrp_cli_offset_list_change(vty, argc, argv, true);
+}
+
+static int eigrp_cli_summary_metric_change(struct vty *vty, int argc,
+					   struct cmd_token *argv[], bool remove)
+{
+	const char *args[7] = {0};
+	char afi[8];
+	char xpath[XPATH_MAXLEN];
+	int count;
+
+	if (!eigrp_cli_named_topology_required(vty)
+	    || !eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    || strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% summary-metric is valid only under named IPv4 topology\n");
+		return CMD_WARNING;
+	}
+
+	count = eigrp_cli_token_values_after(argc, argv, "summary-metric", args, 7);
+	if ((!remove && count != 7) || (remove && count < 2))
+		return CMD_WARNING;
+
+	snprintf(xpath, sizeof(xpath),
+		 "./summary-metric[address='%s'][mask='%s']", args[0], args[1]);
+	if (remove) {
+		nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+		return nb_cli_apply_changes(vty, NULL);
+	}
+
+	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+#define EIGRP_SUMMARY_METRIC_LEAF(leaf, value)                              \
+	do {                                                                  \
+		char leaf_xpath[XPATH_MAXLEN];                                  \
+		if (!eigrp_cli_xpath_leaf_build(leaf_xpath,                   \
+					       sizeof(leaf_xpath), xpath, leaf)) {    \
+			vty_out(vty, "%% EIGRP summary-metric XPath is too long\n"); \
+			return CMD_WARNING;                                       \
+		}                                                             \
+		nb_cli_enqueue_change(vty, leaf_xpath, NB_OP_MODIFY, value);     \
+	} while (0)
+	EIGRP_SUMMARY_METRIC_LEAF("bandwidth", args[2]);
+	EIGRP_SUMMARY_METRIC_LEAF("delay", args[3]);
+	EIGRP_SUMMARY_METRIC_LEAF("reliability", args[4]);
+	EIGRP_SUMMARY_METRIC_LEAF("load", args[5]);
+	EIGRP_SUMMARY_METRIC_LEAF("mtu", args[6]);
+#undef EIGRP_SUMMARY_METRIC_LEAF
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_summary_metric,
+      eigrp_summary_metric_cmd,
+      "summary-metric A.B.C.D A.B.C.D (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)",
+      "Configure summary metric\n"
+      "Summary IPv4 address\n"
+      "Summary subnet mask\n"
+      "Bandwidth metric in Kbits per second\n"
+      "EIGRP delay metric\n"
+      "EIGRP reliability metric\n"
+      "EIGRP load metric\n"
+      "EIGRP MTU\n")
+{
+	return eigrp_cli_summary_metric_change(vty, argc, argv, false);
+}
+
+DEFUN(no_eigrp_summary_metric,
+      no_eigrp_summary_metric_cmd,
+      "no summary-metric A.B.C.D A.B.C.D",
+      NO_STR
+      "Configure summary metric\n"
+      "Summary IPv4 address\n"
+      "Summary subnet mask\n")
+{
+	return eigrp_cli_summary_metric_change(vty, argc, argv, true);
+}
+
+DEFUN(eigrp_traffic_share_balanced,
+      eigrp_traffic_share_balanced_cmd,
+      "traffic-share balanced",
+      "Control traffic sharing among EIGRP routes\n"
+      "Balance traffic in proportion to metrics\n")
+{
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	/* Balanced is the protocol default; remove an explicit disabled value. */
+	nb_cli_enqueue_change(vty, "./traffic-share-balanced", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_traffic_share_balanced,
+      no_eigrp_traffic_share_balanced_cmd,
+      "no traffic-share balanced",
+      NO_STR
+      "Control traffic sharing among EIGRP routes\n"
+      "Balance traffic in proportion to metrics\n")
+{
+	if (!eigrp_cli_named_topology_required(vty))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./traffic-share-balanced", NB_OP_MODIFY,
+			      "false");
+	return nb_cli_apply_changes(vty, NULL);
 }
 
 /*
@@ -2074,9 +3048,12 @@ static int eigrp_config_write(struct vty *vty)
 void
 eigrp_cli_init(void)
 {
-	/* Both EIGRP configuration entry forms are valid.  FRR's CLI matcher
-	 * gives the numeric RANGE token priority over WORD, so an ASN selects
-	 * classic mode while a non-numeric token selects named mode.
+	/* Both EIGRP configuration entry forms are valid.  The FRR vtysh
+	 * integration patch owns the local EIGRP_NODE transition for both the
+	 * numeric and named entry forms.  Keep the named daemon command NOSH so
+	 * vtysh does not learn a second overlapping `router eigrp WORD` grammar.
+	 * eigrpd still installs the command locally so direct daemon CLI users
+	 * can enter named mode.
 	 */
 	install_element(CONFIG_NODE, &router_eigrp_cmd);
 	install_element(CONFIG_NODE, &no_router_eigrp_cmd);
@@ -2094,8 +3071,19 @@ eigrp_cli_init(void)
 	install_element(EIGRP_NODE, &eigrp_no_shutdown_cmd);
 	install_element(EIGRP_NODE, &eigrp_shutdown_cmd);
 	install_element(EIGRP_NODE, &eigrp_af_interface_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_af_interface_cmd);
 	install_element(EIGRP_NODE, &eigrp_topology_base_cmd);
 	install_element(EIGRP_NODE, &eigrp_exit_af_topology_cmd);
+	install_element(EIGRP_NODE, &eigrp_auto_summary_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_auto_summary_cmd);
+	install_element(EIGRP_NODE, &eigrp_default_information_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_default_information_cmd);
+	install_element(EIGRP_NODE, &eigrp_default_metric_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_default_metric_cmd);
+	install_element(EIGRP_NODE, &eigrp_maximum_prefix_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_maximum_prefix_cmd);
+	install_element(EIGRP_NODE, &eigrp_traffic_share_balanced_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_traffic_share_balanced_cmd);
 
 	install_element(EIGRP_NODE, &eigrp_router_id_cmd);
 	install_element(EIGRP_NODE, &no_eigrp_router_id_cmd);
@@ -2111,15 +3099,22 @@ eigrp_cli_init(void)
 	install_element(EIGRP_NODE, &eigrp_network_cmd);
 	install_element(EIGRP_NODE, &eigrp_network_address_cmd);
 	install_element(EIGRP_NODE, &no_eigrp_network_address_cmd);
+	install_element(EIGRP_NODE, &eigrp_named_neighbor_ipv4_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_named_neighbor_ipv4_cmd);
+	install_element(EIGRP_NODE, &eigrp_named_neighbor_ipv6_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_named_neighbor_ipv6_cmd);
 	install_element(EIGRP_NODE, &eigrp_neighbor_cmd);
 	install_element(EIGRP_NODE, &eigrp_distribute_list_cmd);
 	install_element(EIGRP_NODE, &eigrp_distribute_list_prefix_cmd);
 	install_element(EIGRP_NODE, &eigrp_no_distribute_list_cmd);
 	install_element(EIGRP_NODE, &eigrp_no_distribute_list_prefix_cmd);
 	install_element(EIGRP_NODE, &eigrp_redistribute_source_metric_cmd);
-	install_element(EIGRP_NODE, &eigrp_distance_stub_cmd);
-	install_element(EIGRP_NODE, &eigrp_offset_list_stub_cmd);
-	install_element(EIGRP_NODE, &eigrp_summary_metric_stub_cmd);
+	install_element(EIGRP_NODE, &eigrp_distance_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_distance_cmd);
+	install_element(EIGRP_NODE, &eigrp_offset_list_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_offset_list_cmd);
+	install_element(EIGRP_NODE, &eigrp_summary_metric_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_summary_metric_cmd);
 
 	vrf_cmd_init(NULL);
 
@@ -2130,8 +3125,6 @@ eigrp_cli_init(void)
 	install_element(EIGRP_NODE, &no_eigrp_af_interface_hello_interval_cmd);
 	install_element(EIGRP_NODE, &eigrp_af_interface_hold_time_cmd);
 	install_element(EIGRP_NODE, &no_eigrp_af_interface_hold_time_cmd);
-	install_element(EIGRP_NODE, &eigrp_af_interface_delay_cmd);
-	install_element(EIGRP_NODE, &no_eigrp_af_interface_delay_cmd);
 	install_element(EIGRP_NODE, &eigrp_af_interface_authentication_mode_cmd);
 	install_element(EIGRP_NODE, &no_eigrp_af_interface_authentication_mode_cmd);
 	install_element(EIGRP_NODE, &eigrp_af_interface_keychain_cmd);
@@ -2142,6 +3135,8 @@ eigrp_cli_init(void)
 	install_element(EIGRP_NODE, &no_eigrp_af_interface_bandwidth_percent_cmd);
 	install_element(EIGRP_NODE, &eigrp_af_interface_summary_address_cmd);
 	install_element(EIGRP_NODE, &no_eigrp_af_interface_summary_address_cmd);
+	install_element(EIGRP_NODE, &eigrp_af_interface_next_hop_self_cmd);
+	install_element(EIGRP_NODE, &no_eigrp_af_interface_next_hop_self_cmd);
 	install_element(EIGRP_NODE, &eigrp_af_interface_split_horizon_cmd);
 	install_element(EIGRP_NODE, &no_eigrp_af_interface_split_horizon_cmd);
 }

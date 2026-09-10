@@ -15,6 +15,7 @@
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
+#include "eigrpd/eigrp_named.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_errors.h"
@@ -260,6 +261,7 @@ void eigrp_terminate(void)
 		eigrp_finish(eigrp);
 	}
 
+	eigrp_named_finish();
 	eigrp_zebra_stop();
 	vrf_terminate();
 	frr_fini();

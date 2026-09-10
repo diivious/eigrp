@@ -12,16 +12,27 @@ Project layout
 
 ```text
 eigrp/
-  specs/          Project design and protocol implementation notes
-  tools/          Local build, install, setup, backup, and test helpers
-  eigrpd/         Daemon source copied to frr/eigrpd/
-  build/          Standalone compile-smoke harness
+  eigrpd/         Common EIGRP daemon/core source
+  frr/            FRR-specific adapters and integration payload
+    patch/        Required changes outside FRR/eigrpd/
+    test/         FRR-native test payload
+  bsd/            Future BSD-specific adapters/integration
   test/
+    build/        Standalone compile-smoke harness
     common/       Shared fixtures and packet samples
     portable/     Python/source-level tests that do not need FRR
-    frr/          FRR-native test payload copied to frr/tests/eigrpd/
-    bsd/          Future BSD-hosted tests
+  specs/          Project design, code conventions, refactor parking lot, and protocol notes
+  tools/          Build, install, setup, backup, and UUT helpers
 ```
+
+
+Project guidance
+----------------
+
+`PROJECT-INSTRUCTIONS.md` is the concise project-instruction version of the
+governing rules. Detailed development naming/navigation rules live in
+`specs/code-conventions.md`; deferred pre-production cleanup is tracked in
+`specs/refactor-work.md`.
 
 FRR staging
 -----------
@@ -33,21 +44,32 @@ git clone https://github.com/frrouting/frr.git frr
 git clone git@github.com:diivious/eigrp.git eigrp
 ```
 
-Stage EIGRP into FRR:
+Install EIGRP into FRR and apply the required managed FRR-wide patches:
 
 ```sh
 cd eigrp
-tools/frr-install.sh --frr-root ../frr
+tools/frr.sh --install --frr-root ../frr
 ```
 
-This copies:
+To update only the managed FRR-wide patch state:
+
+```sh
+tools/frr.sh --patch --frr-root ../frr
+```
+
+The installer projects the repository layout into FRR:
 
 ```text
-eigrpd/    -> ../frr/eigrpd/
-test/frr/  -> ../frr/tests/eigrpd/
+eigrpd/ + frr/*    -> ../frr/eigrpd/
+frr/test/           -> ../frr/tests/eigrpd/
+frr/patch/series    -> ordered patches applied at ../frr/ repository root
 ```
 
-Build FRR normally, or use the helper:
+FRR-wide patches are applied idempotently.  An already-applied patch is left
+unchanged; a patch that is neither applicable nor reverse-applicable stops the
+install so source drift can be reviewed.
+
+Build FRR normally, or use the helper. Build/configure/UUT staging never applies FRR-wide patches; use `--install` or `--patch` explicitly for that:
 
 ```sh
 tools/frr.sh --configure --frr-root ../frr
@@ -61,7 +83,7 @@ The standalone smoke harness catches syntax/prototype drift in selected daemon
 files without requiring a full FRR build:
 
 ```sh
-make -C build
+make -C test/build
 ```
 
 or:
@@ -76,7 +98,8 @@ Tests
 -----
 
 `tools/frr-uut.sh` is the FRR UUT driver. A normal UUT run stages the current
-EIGRP source into FRR, builds FRR/eigrpd, and only then runs the selected tests.
+EIGRP source into FRR without applying patches, builds FRR/eigrpd, and only then
+runs the selected tests. Required managed patches must already be installed.
 The default test selection is the portable and FRR-native test suites.
 
 On a Linux machine that is itself the UUT:

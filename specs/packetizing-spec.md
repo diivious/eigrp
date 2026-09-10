@@ -2,9 +2,13 @@
 
 Copyright (C) 2026 Donnie V. Savage
 
-This file is a new project design document. New files created for this EIGRP work use Donnie V. Savage as the copyright owner unless stated otherwise.
+This file is a new project design document. New files created for this
+EIGRP work use Donnie V. Savage as the copyright owner unless stated
+otherwise.
 
-Existing source files must preserve all prior copyright notices, SPDX identifiers, and author history. Refactoring an existing file is not permission to remove earlier authorship.
+Existing source files must preserve all prior copyright notices, SPDX
+identifiers, and author history. Refactoring an existing file is not
+permission to remove earlier authorship.
 
 ## 1. Purpose
 
@@ -199,7 +203,9 @@ Core packetizer code must not call FRR `work_queue` APIs directly. It calls:
 eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
 ```
 
-The FRR build implements that API in `eigrp_southbound.[c|h]` using FRR `work_queue`. A future BSD build replaces the southbound implementation without changing packetizer, DUAL, topology, or TLV code.
+The FRR build implements that API in `eigrp_southbound.[c|h]` using FRR `work_queue`. A future BSD build replaces the southbound implementation without changing packetizer, DUAL, topology, or TLV code. `eigrp_southbound` is the runtime adapter; CLI/VTY/northbound management code must not reach around this boundary to call FRR work-queue/event APIs on behalf of portable packetizer logic.
+
+FRR Zebra/RIB integration remains in `eigrp_zebra.[c|h]` as a specialized southbound adapter. Packetizer and other portable core modules operate on EIGRP-owned route/interface/neighbor representations and do not accept Zebra-native objects.
 
 There is no public packetizer `wakeup` API. Scheduling is an internal side effect of enqueueing work.
 

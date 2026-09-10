@@ -20,6 +20,8 @@ Future focused specifications may be added as the design gets deeper, including:
 - `tlv-spec.md`
 - `packetizing-spec.md`
 - `cli-spec.md`
+- `code-conventions.md`
+- `refactor-work.md`
 - `rfc-current.md`
 
 Those documents must not conflict with this file unless they explicitly update it.
@@ -46,65 +48,46 @@ If the behavior clarifies or updates the RFC, the note should eventually be capt
 
 ## 3. Repository Role
 
-This repository is a project repository, not just the FRR daemon directory.
-
-The daemon source is maintained under:
+This repository is a project repository, not just the FRR daemon directory. Canonical source is organized by ownership:
 
 ```text
-eigrp/eigrpd/
+eigrp/eigrpd/       portable/common EIGRP source
+eigrp/frr/          FRR-specific adapters, integration payload, patches, and FRR tests
+eigrp/bsd/          future BSD-specific adapters/integration
+eigrp/test/         portable/common/build-smoke tests
+eigrp/specs/        design and protocol specifications
+eigrp/tools/        platform build/install/UUT orchestration
 ```
 
-and is staged as a drop-in replacement for:
+FRR staging assembles the daemon tree from both common and FRR-specific project source:
 
 ```text
-frr/eigrpd/
+eigrp/eigrpd/*      -> frr/eigrpd/
+eigrp/frr/*         -> frr/eigrpd/ as appropriate
+eigrp/frr/test/*    -> frr/tests/eigrpd/
+eigrp/frr/patch/*   -> managed patches applied at the FRR repository root
 ```
 
-FRR-native EIGRP tests are maintained under:
+The expected workflow is driven by `tools/frr.sh` / `tools/frr-install.sh`; canonical project files are not moved as a side effect of staging. FRR-wide patches must be applied idempotently and must fail on unrecognized source drift rather than being silently fuzzed or forced. Patch application is an explicit install-time operation: `tools/frr.sh --install` applies required patches while installing/staging the project, and `tools/frr.sh --patch` applies only the managed patches. Build, check, configure, and UUT actions may restage project source but must not apply or modify FRR-wide patches.
 
-```text
-eigrp/test/frr/
-```
-
-and are staged into:
-
-```text
-frr/tests/eigrpd/
-```
-
-The expected workflow is:
-
-```sh
-git clone https://github.com/frrouting/frr.git frr
-git clone git@github.com:diivious/eigrp.git eigrp
-cd eigrp
-tools/frr.sh --all --frr-root ../frr
-```
-
-The project must remain build-compatible with FRR when `eigrp/eigrpd/` is copied into `frr/eigrpd/`.
+The project must remain build-compatible with FRR while keeping common EIGRP code independent of FRR-native types and lifecycle assumptions.
 
 ## 4. FRR Boundary Rule
 
-This project must not pollute or leak into FRR.
+This project must not pollute or leak FRR-specific assumptions into portable EIGRP logic. FRR is the current host and integration target.
 
-Default rule:
+Canonical ownership is:
 
 ```text
-Allowed:
-- change files under frr/eigrpd
-- update eigrpd/subdir.am when needed
-- use FRR libraries and APIs from EIGRP adapter code
-
-Not allowed by default:
-- require FRR-wide source changes
-- change FRR behavior outside eigrpd
-- add FRR global assumptions into portable EIGRP logic
-- create hidden dependencies on FRR internals outside adapter modules
+eigrp/eigrpd/    portable/common EIGRP code
+eigrp/frr/       FRR-specific adapters/integration and managed FRR patches
 ```
 
-Any change outside `frr/eigrpd` requires explicit approval.
+FRR-specific source may use FRR-native libraries and objects where required. Portable/common EIGRP source must not depend on FRR-native CLI, VTY, YANG, Zebra, event, stream, or interface objects at its public/core boundaries.
 
-FRR adapter code may use FRR-native objects directly where required. Portable EIGRP logic should not.
+Changes outside the staged FRR `eigrpd/` tree are exceptional. When required, they must be explicit managed patches under `eigrp/frr/patch/`, applied by the project tooling with idempotent forward/reverse detection. A patch that is neither applicable nor already applied must stop so source drift can be reviewed; do not silently fuzz or force it.
+
+FRR-wide changes should be kept as small as practical and must not alter unrelated FRR behavior.
 
 ## 5. Portability Direction
 
@@ -128,15 +111,61 @@ FRR-specific code may be ugly where necessary. EIGRP core code must stay clean.
 
 ### 5.1 Northbound and Southbound Boundary
 
-`eigrp_northbound` isolates EIGRP core from host management, configuration, CLI, show, debug, and management API behavior.
+The host-facing files have distinct responsibilities. `eigrp_cli.[c|h]` and `eigrp_vty.[c|h]` are the FRR user/management front ends. They own command syntax, mode transitions, VTY presentation, show/clear/debug presentation, running-configuration interaction, and submission into FRR management machinery. They are allowed to use FRR-native CLI, VTY, YANG, and management objects.
 
-`eigrp_southbound` isolates EIGRP core from host runtime and operating-system behavior, including event queues, work queues, timers, sockets, interface state, route installation, and host framework callbacks.
+`eigrp_northbound.c` is the FRR management-to-EIGRP adapter. It owns the committed configuration/application boundary: host/YANG management state is translated into normalized EIGRP-owned values and then applied through the real EIGRP feature target functions. CLI/VTY front ends are not themselves the portable core boundary and must not bypass the northbound application path by directly mutating portable EIGRP runtime state after a management transaction.
 
-Core EIGRP modules must not call FRR `work_queue`, `struct event`, zebra, VTY, or future BSD APIs directly. Core modules call EIGRP-owned abstractions such as `eigrp_work_queue_enqueue()`. The FRR implementation of those abstractions lives in `eigrp_southbound.[c|h]`; a future BSD implementation replaces only the southbound and northbound adapter files.
+`eigrp_southbound.[c|h]` is the EIGRP-to-host runtime adapter. It isolates EIGRP core from host runtime and operating-system behavior, including event queues, work queues, timers, sockets, interface state, and host framework callbacks.
+
+`eigrp_zebra.[c|h]` is FRR-specific southbound/RIB integration. Zebra-specific route, interface, and RIB objects may remain in that adapter. They must not leak into portable EIGRP target APIs merely because Zebra is the current host.
+
+The boundary is therefore:
+
+```text
+user / management
+  -> eigrp_cli / eigrp_vty
+  -> FRR management / YANG machinery
+  -> eigrp_northbound
+  -> normalized EIGRP-owned APIs and core state
+  -> eigrp_southbound / eigrp_zebra
+  -> FRR / operating system runtime
+```
+
+Core EIGRP modules must not call FRR `work_queue`, `struct event`, zebra, VTY, YANG callbacks, or future BSD APIs directly. Core modules call EIGRP-owned abstractions such as `eigrp_work_queue_enqueue()`. The FRR implementation of those abstractions lives in the appropriate adapter module; a future BSD implementation replaces the host adapters without changing packetizer, DUAL, topology, metric, neighbor, or TLV core logic.
+
+### 5.2 Normalized Management Boundary
+
+Northbound code is responsible for translating committed host management objects and configuration values into EIGRP-owned data before invoking portable EIGRP logic.
+
+The required configuration application path is:
+
+```text
+CLI / management input
+  -> retain/commit host configuration
+  -> eigrp_northbound callback
+  -> normalize into EIGRP-owned data
+  -> real EIGRP feature target function
+  -> EIGRP-owned structured result
+  -> host adapter renders/logs the result
+```
+
+A CLI command may perform syntax normalization needed to construct the host management transaction, but the portable runtime side effect belongs to the northbound callback or a portable target called by it. The CLI must not perform a second direct runtime mutation after submitting the same configuration change through northbound management.
+
+Portable EIGRP target functions must not receive a host object merely recast or typedefed with an `eigrp_` name. A wrapper is acceptable only when it owns or exposes a stable EIGRP-defined representation independent of the host implementation.
+
+Examples of host objects that must stop at the adapter boundary include FRR `struct vty`, `struct stream`, `struct interface`, `struct event`, YANG/libyang nodes and callback objects, Zebra-native objects, and equivalent host-specific management/runtime structures.
+
+Address-family-neutral EIGRP objects should carry an explicit AF/type and normalized address/prefix data so the same core API can operate on IPv4 or IPv6 where the protocol semantics are otherwise identical.
+
+### 5.3 Adapter Header Rule
+
+Do not create adapter headers merely for naming symmetry. `eigrp_northbound.h` is required only if another module needs a genuine exported northbound API. FRR/YANG callback registration may continue to be exposed through the existing YANG ownership where appropriate, while callback implementation details remain private to `eigrp_northbound.c`.
 
 ## 6. Production-Ready Code Only
 
-No legacy code. No alias code. No temporary compatibility layers.
+No new legacy code, alias code, or temporary compatibility layers may be introduced.
+
+Existing classic EIGRP CLI that is explicitly preserved by `cli-spec.md` is a compatibility exception and must not be expanded as part of named-mode development. Preserving that existing command surface does not authorize new legacy wrappers, duplicate implementations, or compatibility aliases in the EIGRP core.
 
 All new or refactored code must be written as production code.
 
@@ -154,49 +183,52 @@ If code is replaced, update the callers and remove the old path.
 
 This is a hard rule to prevent future cleanup debt.
 
-## 7. Function Naming Rule
+## 7. Function and Module Naming Rule
 
-For this project, the module name is always:
+The primary purpose of the naming convention is human code navigation. A developer who knows the EIGRP protocol area should be able to predict the source file to inspect and the function prefix to search without already knowing the implementation.
 
-```text
-eigrp
-```
-
-All new or refactored EIGRP-owned functions must follow:
+The normal pattern is:
 
 ```text
-eigrp_<object>_<action>()
+eigrp_<module>.c
+eigrp_<module>.h
+eigrp_<module>_<object>_<action>()
 ```
 
-Do not use:
-
-```text
-eigrp_<action>_<object>()
-```
+The module name and function prefix should normally align. The object/detail narrows the operation and the action normally appears last.
 
 Correct examples:
 
 ```c
-eigrp_queue_read();
-eigrp_queue_write();
-eigrp_packet_encode();
-eigrp_packet_decode();
-eigrp_neighbor_create();
-eigrp_neighbor_delete();
+/* eigrp_query.c */
+eigrp_query_receive();
+eigrp_query_send();
+
+/* eigrp_interface.c */
+eigrp_interface_create();
+eigrp_interface_delete();
+
+/* eigrp_metric.c */
 eigrp_metric_calculate();
-eigrp_zebra_connected();
+eigrp_metric_weights_set();
+eigrp_metric_weights_reset();
+eigrp_metric_variance_set();
+eigrp_metric_variance_reset();
 ```
 
-Incorrect examples:
+Do not invert the action and object merely to make a phrase read like English:
 
 ```c
-eigrp_read_queue();
-eigrp_write_queue();
-eigrp_encode_packet();
-eigrp_decode_packet();
-eigrp_create_neighbor();
-eigrp_calculate_metric();
+eigrp_metric_set_variance();     /* avoid */
+eigrp_create_neighbor();         /* avoid */
+eigrp_decode_packet();           /* avoid */
 ```
+
+Do not derive portable function names from the CLI/YANG hierarchy. A command that appears beneath `topology base` does not automatically belong to the `eigrp_topology_*` namespace. The function namespace follows the implementation/protocol module a human would reasonably search.
+
+File proliferation must be balanced against naming consistency. Closely related small feature families may share a file when splitting them would create trivial modules. Existing `eigrp_filter.c` containing `eigrp_distribute_*` and `eigrp_offset_*` is an intentional model: the searchable feature prefixes remain distinct even though their implementations are grouped. Exceptions should remain uncommon and defensible.
+
+See `code-conventions.md` for the detailed convention.
 
 ### 7.1 Callback Rule
 
@@ -221,9 +253,9 @@ void eigrp_zebra_init(void)
 
 ### 7.2 Static Helper Rule
 
-Static/private helper functions should follow the same naming rule unless there is a strong local readability reason not to.
+Static/private helpers should normally follow the same module navigation prefix. A private shared helper may use an internal operation enum when that reduces duplicated implementation, but the public feature targets remain explicit and searchable.
 
-Do not create broad naming exceptions just because a function is private.
+Do not create broad naming exceptions merely because a function is private.
 
 ### 7.3 Rename Rule
 
@@ -238,39 +270,49 @@ Apply naming cleanup to:
 
 When a function is renamed, update callers directly. Do not leave alias wrappers.
 
-## 8. Preferred Action Verbs
+### 7.4 Feature Target Function Rule
 
-Use precise action verbs.
+Management and CLI work must terminate in the real EIGRP function that owns the requested feature. Do not create a generic CLI stub, generic `not configured`, generic `not implemented`, or unrelated-command dispatcher.
 
-Preferred verbs:
+Examples of real target namespaces include:
 
-```text
-create
-init
-start
-stop
-read
-write
-send
-receive
-encode
-decode
-parse
-build
-validate
-calculate
-update
-delete
-clear
-find
-lookup
-insert
-remove
-walk
-dump
+```c
+eigrp_metric_variance_set(...);
+eigrp_metric_variance_reset(...);
+eigrp_redistribute_add(...);
+eigrp_redistribute_remove(...);
+eigrp_neighbor_clear(...);
+eigrp_packet_debug(...);
 ```
 
-Avoid vague verbs unless there is no better option:
+A target whose runtime body is incomplete still exists under its real module/feature name and may return the structured EIGRP `not implemented` result. Implementing the feature later must extend that target rather than redesign the CLI call path.
+
+Prefer separate public functions for distinct actions such as `set/reset`, `add/remove`, and `create/delete`. An internal helper may combine those operations when useful.
+
+IPv4 and IPv6 do not require separate target functions when one AF-aware EIGRP object can represent both correctly. Duplicate AF-specific functions should exist only when the behavior is genuinely address-family specific.
+
+## 8. Preferred Action Verbs
+
+Use precise action verbs and normally place the action last.
+
+Preferred verbs include:
+
+```text
+create / delete        object lifecycle
+add / remove           keyed collection membership
+set / reset            retained configuration and return-to-default
+init / start / stop    lifecycle phases
+read / write
+send / receive
+encode / decode
+parse / build / validate
+calculate / update
+find / lookup
+insert / walk / dump
+clear                   operational state/counters/neighbors, not normal config reset
+```
+
+Avoid vague verbs unless there is no better protocol-specific action:
 
 ```text
 process
@@ -280,6 +322,8 @@ run
 manage
 check
 ```
+
+`reset` is preferred for a configuration `no` operation that restores a default. `clear` should normally mean an operational action such as clearing neighbors, counters, or protocol state.
 
 ## 9. Type and Typedef Rules
 
@@ -313,6 +357,26 @@ struct event *thread;
 ```
 
 Exceptions are allowed in FRR adapter modules or where direct FRR integration is the purpose of the function.
+
+### 9.1 EIGRP Result Types
+
+Portable EIGRP APIs that can fail or report incomplete support should return an EIGRP-owned structured result/status rather than reducing every outcome to a generic boolean success/failure value.
+
+The result model must be able to distinguish conditions such as:
+
+```text
+success
+not implemented
+invalid input/configuration
+not found
+conflict
+unsupported AF/capability
+internal failure
+```
+
+The EIGRP core determines the semantic result. Northbound/southbound adapters decide how that result is rendered through VTY, logs, management APIs, or a future BSD host interface.
+
+Core code must not call `vty_out()` or otherwise depend on FRR just to communicate an operation result.
 
 ## 10. Header Ownership
 
@@ -379,36 +443,25 @@ dump        - debug dump and packet/structure print helpers
 
 These boundaries are a first pass. They may be refined as code is reviewed.
 
-### 11.1 Topology Object Lifecycle Naming
+### 11.1 DUAL Topology Descriptor Terminology
 
-Topology-owned prefix and route descriptor allocation/free functions belong to the topology module.
-
-Use topology-module names for lifecycle operations:
-
-```c
-eigrp_topology_prefix_create();
-eigrp_topology_prefix_free();
-eigrp_topology_route_create();
-eigrp_topology_route_free();
-```
-
-Do not use descriptor-first lifecycle names for these objects:
-
-```c
-eigrp_prefix_descriptor_new();
-eigrp_prefix_descriptor_free();
-eigrp_route_descriptor_new();
-eigrp_route_descriptor_free();
-```
-
-Reason:
+The DUAL topology database owns two related descriptor object classes:
 
 ```text
-- prefix and route descriptors are topology-owned objects
-- lifecycle functions should expose the owning module
-- this keeps the eigrp_<object>_<action>() rule consistent
-- no alias wrappers should be left behind
+prefix_descriptor    destination/prefix-level topology object
+route_descriptor     one path/neighbor-derived route for that prefix
 ```
+
+Cisco historically used DNDB/NDB and DRDB/RDB terminology for these concepts. That terminology is concise, familiar in EIGRP debugging, and avoids collision with a host platform's broader use of `route`. The current descriptive names also provide useful separation from Cisco's historical implementation naming.
+
+The final source/API naming convention for these descriptor blocks is deliberately deferred to the pre-production review in `refactor-work.md`. Until then:
+
+- do not perform rename-only churn in this area;
+- preserve current names unless a functional change requires touching them;
+- avoid introducing new ambiguous bare `route` APIs where a topology descriptor, prefix, Zebra RIB route, or kernel route is actually meant;
+- comments/debug output may identify the DNDB/DRDB terminology where that improves understanding.
+
+Topology remains the owning protocol module for DUAL topology database operations. The exact final lifecycle/member verbs (`create/delete`, `add/remove`, etc.) should follow the actual ownership relationship when the pre-production naming review is performed.
 
 ### 11.2 DUAL FSM Active-State Invariant
 
@@ -528,7 +581,9 @@ When implementation work clarifies, updates, or intentionally differs from RFC 7
 design-spec.md       - development/code structure rule
 tlv-spec.md          - TLV-specific design
 packetizing-spec.md  - packetizing/queueing design
-cli-spec.md          - CLI/VTY/debug command surface, naming, modes, and stub rules
+cli-spec.md          - CLI/VTY/debug command surface, modes, retention, and target rules
+code-conventions.md  - human-navigation function/module naming conventions
+refactor-work.md     - deferred pre-production architectural/naming cleanup
 rfc-current.md       - current protocol clarification/update against RFC 7868 sections 1-8
 ```
 
@@ -576,7 +631,7 @@ Target smoke gate:
 Portable compile smoke gate:
 
 ```text
-- make -C build
+- make -C test/build
 - uses narrow FRR stub headers to catch syntax, prototype, and command macro errors
 - does not replace the full FRR build/link gate
 ```
@@ -635,13 +690,16 @@ The goal is not cosmetic churn. The goal is a clean, production-ready EIGRP code
 - Donnie V. Savage is the top project/protocol authority.
 - RFC 7868 is the protocol reference unless intentionally clarified or superseded.
 - FRR is only the build/library/daemon host authority.
-- The `eigrpd/` tree is a drop-in replacement for frr/eigrpd.
-- Do not require FRR-wide changes by default.
+- FRR staging assembles frr/eigrpd from portable `eigrpd/` plus FRR-specific `frr/` source.
+- FRR-wide changes are exceptional and must be managed under `frr/patch/`.
 - Do not pollute FRR or leak FRR assumptions into EIGRP core logic.
-- New/refactored functions use eigrp_<object>_<action>().
-- EIGRP APIs use EIGRP typedef primitives and wrapper types where practical.
+- New/refactored functions follow the navigation-first eigrp_<module>_<object>_<action>() convention, with deliberate grouped-module exceptions documented by code-conventions.md.
+- EIGRP APIs use EIGRP-owned normalized types rather than host structs at portable boundaries.
+- CLI/management input is normalized before entering EIGRP core logic.
+- Each feature calls its real EIGRP target function; no generic CLI stub dispatcher.
+- Portable operations return EIGRP-owned structured results rather than only pass/fail.
 - Header ownership must stay clear.
-- No legacy code.
+- No new legacy code; existing classic CLI is preserved only as defined by cli-spec.md.
 - No alias code.
 - No temporary compatibility layers.
 - Packet encode/decode must be bounds-safe and endian-safe.

@@ -6,7 +6,7 @@
 all: smoke
 
 smoke compile-smoke:
-	$(MAKE) -C build
+	$(MAKE) -C test/build
 
 portable-test:
 	python3 -m pytest test/portable
@@ -14,4 +14,4 @@ portable-test:
 test: smoke portable-test
 
 clean:
-	$(MAKE) -C build clean
+	$(MAKE) -C test/build clean

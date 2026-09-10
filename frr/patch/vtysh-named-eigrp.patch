@@ -1,0 +1,18 @@
+diff --git a/vtysh/vtysh.c b/vtysh/vtysh.c
+index 28bbe33f39..4f0721fc19 100644
+--- a/vtysh/vtysh.c
++++ b/vtysh/vtysh.c
+@@ -2148,10 +2148,12 @@ DEFUNSH(VTYSH_OSPFD, router_ospf, router_ospf_cmd,
+ #endif /* HAVE_OSPFD */
+ 
+ #ifdef HAVE_EIGRPD
+-DEFUNSH(VTYSH_EIGRPD, router_eigrp, router_eigrp_cmd, "router eigrp (1-65535) [vrf NAME]",
++DEFUNSH(VTYSH_EIGRPD, router_eigrp, router_eigrp_cmd,
++	"router eigrp <(1-65535)|WORD> [vrf NAME]",
+ 	"Enable a routing process\n"
+ 	"Start EIGRP configuration\n"
+ 	"AS number to use\n"
++	"EIGRP named-mode instance name\n"
+ 	VRF_CMD_HELP_STR)
+ {
+ 	vty->node = EIGRP_NODE;

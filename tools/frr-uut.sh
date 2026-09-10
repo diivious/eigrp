@@ -33,15 +33,20 @@ usage: $script_name [options] [-- pytest-args]
 
 Default workflow:
   1. Sync to the remote UUT when --host is supplied.
-  2. Stage EIGRP into the FRR checkout.
+  2. Stage EIGRP into the FRR checkout without modifying FRR-wide patches.
   3. Build FRR/eigrpd.
   4. Run portable and FRR-native EIGRP tests.
+
+Required FRR-wide patches must already have been applied with
+  tools/frr.sh --install
+or
+  tools/frr.sh --patch
 
 Test selection:
   --all                 Build, then run portable and FRR-native tests. Default.
   --packet              Build, then run portable packet tests only.
   --portable            Build, then run all portable tests only.
-  --frr                 Build, then run FRR-native tests only.
+  --frr                 Build, then run live named-mode UUT and FRR-native tests.
   --build-only          Build the UUT and do not run tests.
   --list                List available EIGRP tests and exit without building.
 
@@ -75,7 +80,7 @@ examples:
 
 layout:
   portable tests:       test/portable/
-  FRR test source:      test/frr/
+  FRR test source:      frr/test/
   FRR installed tests:  frr/tests/eigrpd/
 USAGE
 }
@@ -162,9 +167,9 @@ print_available_tests() {
 
 	echo
 	echo "FRR-native test payload:"
-	if has_frr_tests "$eigrp_root/test/frr"; then
-		find "$eigrp_root/test/frr" -mindepth 1 -maxdepth 2 -type f \
-			| sed "s#^$eigrp_root/test/frr/#  #" | sort
+	if has_frr_tests "$eigrp_root/frr/test"; then
+		find "$eigrp_root/frr/test" -mindepth 1 -maxdepth 2 -type f \
+			| sed "s#^$eigrp_root/frr/test/#  #" | sort
 	else
 		echo "  none"
 	fi
@@ -207,8 +212,8 @@ sync_remote_project() {
 		--exclude '*.lo' \
 		--exclude '*.la' \
 		--exclude '*~' \
-		--exclude 'build/obj/' \
-		--exclude 'build/logs/' \
+		--exclude 'test/build/obj/' \
+		--exclude 'test/build/logs/' \
 		"$eigrp_root"/ "$host:$remote_project"/
 }
 
@@ -271,8 +276,69 @@ run_portable_tests() {
 	)
 }
 
+start_eigrpd_uut() {
+	local frrcommon="/usr/lib/frr/frrcommon.sh"
+	local i
+
+	[[ -r "$frrcommon" ]] || fail "FRR daemon helper not found: $frrcommon"
+
+	echo "start: eigrpd manually for UUT (watchfrr remains disabled for eigrpd)"
+	sudo bash -s -- "$frrcommon" <<'EOS'
+frrcommon="$1"
+log_success_msg() { echo "$@"; }
+log_warning_msg() { echo "$@" >&2; }
+log_failure_msg() { echo "$@" >&2; }
+. "$frrcommon"
+
+# The UUT owns this daemon instance.  Stop a stale manually-started eigrpd,
+# then start the freshly installed binary directly through FRR's daemon helper.
+# daemon_start() does not require eigrpd=yes and therefore does not register the
+# daemon with watchfrr.
+if daemon_status eigrpd >/dev/null 2>&1; then
+	daemon_stop eigrpd --quiet || true
+fi
+daemon_start eigrpd
+EOS
+
+	for i in $(seq 1 30); do
+		if sudo vtysh -d eigrpd -c 'show version' >/dev/null 2>&1; then
+			echo "ready: eigrpd"
+			return 0
+		fi
+		sleep 1
+	done
+
+	echo "error: eigrpd did not become VTY-ready within 30 seconds" >&2
+	echo "diagnostic: /etc/frr/daemons" >&2
+	grep '^eigrpd=' /etc/frr/daemons 2>/dev/null >&2 || true
+	echo "diagnostic: eigrpd process" >&2
+	pgrep -a eigrpd >&2 || true
+	echo "diagnostic: FRR service" >&2
+	sudo systemctl status frr --no-pager >&2 || true
+	echo "diagnostic: recent FRR journal" >&2
+	sudo journalctl -u frr -n 80 --no-pager >&2 || true
+	return 1
+}
+activate_local_uut() {
+	echo "install: activating FRR build under test"
+	sudo make -C "$frr_root" install
+	echo "restart: frr"
+	sudo systemctl restart frr
+	start_eigrpd_uut
+}
+
 run_frr_tests() {
 	local frr_test_dir="$frr_root/tests/eigrpd"
+
+	# The live VTY test must exercise the binary just built, not an older
+	# installed daemon.  Activate the build and restart FRR before vtysh.
+	activate_local_uut
+
+	# First prove the built daemon accepts, retains, changes, and removes the
+	# complete Step-1 named-mode configuration surface through the real VTY.
+	# This intentionally uses sudo vtysh -d eigrpd rather than a parser-only
+	# harness.
+	"$script_dir/frr-named-uut.sh"
 
 	[[ -d "$frr_test_dir" ]] || fail "FRR EIGRP test directory not found: $frr_test_dir"
 	if ! has_frr_tests "$frr_test_dir"; then

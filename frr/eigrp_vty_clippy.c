@@ -251,15 +251,11 @@ DEFUN_CMD_FUNC_DECL(show_eigrp_traffic)
 funcdecl_show_eigrp_traffic;
 DEFUN_CMD_FUNC_TEXT(show_eigrp_traffic) { return show_eigrp_traffic_magic(self, vty, argc, argv, NULL, NULL, 0, NULL); }
 
-/* simple show stubs */
+/* simple show commands */
 DEFUN_CMD_FUNC_DECL(show_eigrp_protocol)
 #define funcdecl_show_eigrp_protocol static int show_eigrp_protocol_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)))
 funcdecl_show_eigrp_protocol;
 DEFUN_CMD_FUNC_TEXT(show_eigrp_protocol) { return show_eigrp_protocol_magic(self, vty, argc, argv); }
-DEFUN_CMD_FUNC_DECL(show_eigrp_plugin)
-#define funcdecl_show_eigrp_plugin static int show_eigrp_plugin_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)))
-funcdecl_show_eigrp_plugin;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_plugin) { return show_eigrp_plugin_magic(self, vty, argc, argv); }
 DEFUN_CMD_FUNC_DECL(show_eigrp_tech_support)
 #define funcdecl_show_eigrp_tech_support static int show_eigrp_tech_support_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)))
 funcdecl_show_eigrp_tech_support;

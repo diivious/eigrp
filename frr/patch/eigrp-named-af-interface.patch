@@ -1,0 +1,105 @@
+diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang
+index 7ca0296..6c498ee 100644
+--- a/yang/frr-eigrpd.yang
++++ b/yang/frr-eigrpd.yang
+@@ -103,6 +103,100 @@ module frr-eigrpd {
+     description "Authentication types";
+   }
+ 
++  /*
++   * Named-mode address-family interface configuration.  The interface key is
++   * a string because the Cisco named hierarchy also has the special
++   * "af-interface default" template, which is not a host interface object.
++   *
++   * This augment intentionally appears before the eigrpd container. YANG
++   * absolute-schema-nodeid augments are resolved against the completed module
++   * schema, and keeping this patch away from the named parent/AF patch hunks
++   * preserves independent patch detection during FRR installation.
++   */
++  augment "/eigrpd/named/address-family" {
++    list af-interface {
++      key "interface";
++      description "Interface or default interface template configuration";
++
++      leaf interface {
++        type string {
++          length "1..255";
++        }
++        description "Host interface name or the special default template";
++      }
++
++      leaf bandwidth-percent {
++        type uint32 {
++          range "1..999999";
++        }
++        description "Maximum percentage of interface bandwidth used by EIGRP";
++      }
++
++      leaf hello-interval {
++        type uint16 {
++          range "1..65535";
++        }
++        units seconds;
++        description "EIGRP hello interval";
++      }
++
++      leaf hold-time {
++        type uint16 {
++          range "1..65535";
++        }
++        units seconds;
++        description "EIGRP neighbor hold time";
++      }
++
++      leaf passive-interface {
++        type empty;
++        description "Suppress EIGRP hello packets and updates";
++      }
++
++      leaf authentication-mode {
++        type authentication-type;
++        description "EIGRP packet authentication mode";
++      }
++
++      leaf authentication-key-chain {
++        type string;
++        description "Host key-chain name used for EIGRP authentication";
++      }
++
++      leaf next-hop-self {
++        type boolean;
++        default true;
++        description "Advertise the local outbound interface as next hop";
++      }
++
++      leaf split-horizon {
++        type boolean;
++        default true;
++        description "Enable EIGRP split horizon on this interface";
++      }
++
++      list summary-address {
++        key "address mask";
++        description "IPv4 manual summary configured on this interface";
++
++        leaf address {
++          type inet:ipv4-address;
++          description "IPv4 summary network address";
++        }
++
++        leaf mask {
++          type inet:ipv4-address;
++          description "IPv4 summary subnet mask";
++        }
++      }
++
++      leaf shutdown {
++        type empty;
++        description "Administratively disable EIGRP on this AF interface";
++      }
++    }
++  }
++
+   /*
+    * EIGRP operational data.
+    */

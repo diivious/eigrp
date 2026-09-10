@@ -21,8 +21,8 @@ __pycache__/
 .libs/
 
 # Standalone compile-smoke generated output
-build/obj/
-build/logs/
+test/build/obj/
+test/build/logs/
 
 # FRR/generated daemon artifacts when this tree is staged inside FRR
 eigrpd/.deps/
