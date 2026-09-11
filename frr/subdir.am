@@ -10,7 +10,8 @@ endif
 
 eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_auth.c \
-	eigrpd/eigrp_cli.c \
+	eigrpd/eigrp_cli_classic.c \
+	eigrpd/eigrp_cli_named.c \
 	eigrpd/eigrp_dump.c \
 	eigrpd/eigrp_errors.c \
 	eigrpd/eigrp_event.c \
@@ -55,13 +56,15 @@ eigrpdheader_HEADERS = \
 	# end
 
 clippy_scan += \
-	eigrpd/eigrp_cli.c \
+	eigrpd/eigrp_cli_classic.c \
+	eigrpd/eigrp_cli_named.c \
 	eigrpd/eigrp_vty.c \
 	# end
 
 noinst_HEADERS += \
 	eigrpd/eigrp_auth.h \
-	eigrpd/eigrp_cli.h \
+	eigrpd/eigrp_cli_classic.h \
+	eigrpd/eigrp_cli_named.h \
 	eigrpd/eigrp_const.h \
 	eigrpd/eigrp_errors.h \
 	eigrpd/eigrp_event.h \

@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-CLI = ROOT / "frr" / "eigrp_cli.c"
+CLI = ROOT / "frr" / "eigrp_cli_named.c"
+CLASSIC_CLI = ROOT / "frr" / "eigrp_cli_classic.c"
 SPEC = ROOT / "specs" / "cli-spec.md"
 
 
@@ -24,7 +25,7 @@ def function_body(source: str, name: str) -> str:
 
 def test_named_router_command_is_installed():
     cli = read(CLI)
-    init = function_body(cli, "eigrp_cli_init")
+    init = function_body(cli, "eigrp_cli_named_init")
 
     assert "install_element(CONFIG_NODE, &router_eigrp_named_cmd);" in init
     assert "install_element(CONFIG_NODE, &no_router_eigrp_named_cmd);" in init
@@ -37,7 +38,7 @@ def test_named_router_command_is_installed():
 
 def test_named_address_family_commands_are_installed():
     cli = read(CLI)
-    init = function_body(cli, "eigrp_cli_init")
+    init = function_body(cli, "eigrp_cli_named_init")
 
     named_commands = {
         "eigrp_address_family_ipv4_cmd",
@@ -59,7 +60,7 @@ def test_named_address_family_commands_are_installed():
 
 
 def test_named_af_interface_commands_are_installed():
-    init = function_body(read(CLI), "eigrp_cli_init")
+    init = function_body(read(CLI), "eigrp_cli_named_init")
 
     named_commands = {
         "eigrp_exit_af_interface_cmd",
@@ -106,7 +107,8 @@ def test_cli_spec_documents_named_mode_cli_direction():
     assert "router eigrp <name>" in spec
     assert "address-family ipv4 unicast" in spec
     assert "address-family ipv6 unicast" in spec
-    assert "eigrp_cli.[c|h]" in spec
+    assert "eigrp_cli_classic.[c|h]" in spec
+    assert "eigrp_cli_named.[c|h]" in spec
     assert "eigrp_vty.[c|h]" in spec
     assert "eigrp_northbound.c" in spec
 
@@ -288,7 +290,7 @@ def test_frr_patch_series_orders_af_interface_after_named_af_config():
 
 def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api():
     cli = read(CLI)
-    header = read(ROOT / "frr" / "eigrp_cli.h")
+    header = read(ROOT / "frr" / "eigrp_cli_named.h")
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     adapter = cli + nb
 
@@ -324,7 +326,9 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     patch = read(ROOT / "frr" / "patch" / "eigrp-named-topology.patch")
     cli = read(CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
-    init = function_body(cli, "eigrp_cli_init")
+    init = function_body(cli, "eigrp_cli_named_init")
+    classic_init = function_body(read(CLASSIC_CLI), "eigrp_cli_classic_init")
+    all_init = init + classic_init
 
     assert 'container topology {' in patch
     assert 'presence "Configure the EIGRP base topology";' in patch
@@ -373,7 +377,18 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
         "no_eigrp_variance_cmd",
         "eigrp_exit_af_topology_cmd",
     ):
-        assert f"install_element(EIGRP_NODE, &{cmd});" in init
+        assert f"install_element(EIGRP_NODE, &{cmd});" in all_init
+
+    # Identical classic/named grammars are installed once by the classic parser
+    # object and dispatch named semantics through helpers in eigrp_cli_named.c.
+    for helper in (
+        "eigrp_cli_named_active_time_apply",
+        "eigrp_cli_named_variance_apply",
+        "eigrp_cli_named_metric_weights_apply",
+        "eigrp_cli_named_redistribute_apply",
+    ):
+        assert helper in read(CLASSIC_CLI)
+        assert helper in cli
 
     # Named topology mode must be a real YANG context, not a second push of
     # the address-family XPath.  Relative command changes then land under it.
@@ -386,7 +401,7 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     # test the generated numeric k6 value for presence because K5=0 is valid
     # and is the normal default.  The generated *_str pointer is NULL only
     # when the optional sixth token was omitted.
-    assert 'if (!k6_str || strcmp(k1_str, "0") != 0)' in cli
+    assert 'if (!has_k5 || !tos || strcmp(tos, "0") != 0)' in cli
 
     assert 'eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",' in cli
     assert '"./maximum-prefix", false' in cli
@@ -395,7 +410,7 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     assert '"./summary-metric[address=' in cli
     assert '"./traffic-share-balanced", NB_OP_MODIFY' in cli
     assert 'nb_cli_enqueue_change(vty, "./metric-weights", NB_OP_CREATE, NULL);' in cli
-    assert 'snprintf(xpath_metric, sizeof(xpath_metric), "%s/metrics", xpath);' in cli
+    assert 'snprintf(child, sizeof(child), "%s/metrics", xpath);' in cli
 
 
 def test_named_topology_uses_generic_portable_lifecycle_api():
@@ -501,6 +516,7 @@ def test_frr_eigrp_yang_patch_is_last_and_patch_detection_is_semantic():
 def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
     patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
     cli = read(CLI)
+    cli_surface = cli + "\n" + read(CLASSIC_CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     spec = read(ROOT / "specs" / "cli-spec.md")
     uut = read(ROOT / "tools" / "frr-named-uut.sh")
@@ -524,8 +540,8 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         ("summary-metric A.B.C.D A.B.C.D distance", "no summary-metric A.B.C.D A.B.C.D"),
     )
     for positive, negative in command_pairs:
-        assert positive in cli
-        assert negative in cli
+        assert positive in cli_surface
+        assert negative in cli_surface
 
     for xpath in (
         "neighbor-policy/description",
@@ -645,40 +661,81 @@ def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
         assert ".modify =" not in block
 
 
-def test_classic_dead_cli_and_placeholder_backends_are_not_carried_forward():
-    cli = read(CLI)
-    nb = read(ROOT / "frr" / "eigrp_northbound.c")
-    header = read(ROOT / "frr" / "eigrp_cli.h")
+def test_classic_frr_cli_and_exec_surface_is_restored_without_named_mixing():
+    classic = read(CLASSIC_CLI)
+    classic_header = read(ROOT / "frr" / "eigrp_cli_classic.h")
+    vty = read(ROOT / "frr" / "eigrp_vty.c")
+    named = read(CLI)
     spec = read(ROOT / "specs" / "cli-spec.md")
 
-    # These old interface-mode handlers were never registered and are not part
-    # of the supported project surface. Named af-interface owns these features.
-    for symbol in (
+    # Every command object installed by the original FRR classic CLI remains
+    # installed after the split.
+    classic_commands = (
+        "router_eigrp_cmd",
+        "no_router_eigrp_cmd",
+        "eigrp_router_id_cmd",
+        "no_eigrp_router_id_cmd",
+        "eigrp_passive_interface_cmd",
+        "eigrp_timers_active_cmd",
+        "no_eigrp_timers_active_cmd",
+        "eigrp_variance_cmd",
+        "no_eigrp_variance_cmd",
+        "eigrp_maximum_paths_cmd",
+        "no_eigrp_maximum_paths_cmd",
+        "eigrp_metric_weights_cmd",
+        "no_eigrp_metric_weights_cmd",
+        "eigrp_network_cmd",
+        "eigrp_neighbor_cmd",
+        "eigrp_distribute_list_cmd",
+        "eigrp_distribute_list_prefix_cmd",
+        "eigrp_no_distribute_list_cmd",
+        "eigrp_no_distribute_list_prefix_cmd",
+        "eigrp_redistribute_source_metric_cmd",
         "eigrp_if_delay_cmd",
+        "no_eigrp_if_delay_cmd",
         "eigrp_if_bandwidth_cmd",
+        "no_eigrp_if_bandwidth_cmd",
         "eigrp_if_ip_hellointerval_cmd",
+        "no_eigrp_if_ip_hellointerval_cmd",
         "eigrp_if_ip_holdinterval_cmd",
+        "no_eigrp_if_ip_holdinterval_cmd",
         "eigrp_ip_summary_address_cmd",
+        "no_eigrp_ip_summary_address_cmd",
         "eigrp_authentication_mode_cmd",
+        "no_eigrp_authentication_mode_cmd",
         "eigrp_authentication_keychain_cmd",
+        "no_eigrp_authentication_keychain_cmd",
+    )
+    classic_init = function_body(classic, "eigrp_cli_classic_init")
+    for command in classic_commands:
+        assert f"&{command}" in classic_init
+
+    assert "install_element(EIGRP_NODE, &eigrp_neighbor_cmd);" in classic
+    assert '"router eigrp (1-65535)$as [vrf NAME]"' in classic
+
+    # Original classic operational surface remains in eigrp_vty.c.
+    for command in (
+        "show_ip_eigrp_topology_all_cmd",
+        "show_ip_eigrp_topology_cmd",
+        "show_ip_eigrp_interfaces_cmd",
+        "show_ip_eigrp_neighbors_cmd",
+        "clear_ip_eigrp_neighbors_cmd",
+        "clear_ip_eigrp_neighbors_int_cmd",
+        "clear_ip_eigrp_neighbors_IP_cmd",
+        "clear_ip_eigrp_neighbors_soft_cmd",
+        "clear_ip_eigrp_neighbors_int_soft_cmd",
+        "clear_ip_eigrp_neighbors_IP_soft_cmd",
     ):
-        assert symbol not in cli
+        assert command in vty
 
-    assert "install_element(EIGRP_NODE, &eigrp_neighbor_cmd)" not in cli
-    assert "not implemented yet" not in nb.lower()
-    assert "NOT implemented" not in cli
+    # Named syntax and operational commands live in the named adapter, not in
+    # the restored classic source.
+    assert '"router eigrp WORD"' in named
+    assert "DEFPY(show_eigrp_neighbor," in named
+    assert "DEFPY(clear_eigrp_neighbor," in named
+    assert '"router eigrp WORD"' not in classic
+    assert "DEFPY(show_eigrp_neighbor," not in vty
 
-    # FRR's existing classic YANG still requires callback shapes for several
-    # unsupported nodes. They reject new configuration instead of pretending to
-    # apply it, while destroy callbacks allow stale configuration to be removed.
-    for message in (
-        "classic EIGRP active-time configuration is unsupported",
-        "classic EIGRP static-neighbor configuration is unsupported",
-        "classic EIGRP redistribute route-map configuration is unsupported",
-        "classic EIGRP interface split-horizon configuration is unsupported",
-        "classic EIGRP interface summary configuration is unsupported",
-    ):
-        assert message in nb
-
-    assert "eigrp_cli_show_delay" not in header
-    assert "Classic-mode completion is not a prerequisite for named-mode completion" in spec
+    assert "eigrp_cli_classic_init" in classic_header
+    assert "eigrp_cli_named.[c|h]" in spec
+    assert "eigrp_cli_classic.[c|h]" in spec

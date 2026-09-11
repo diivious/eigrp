@@ -21,7 +21,8 @@
 #include "eigrpd/eigrp_timer.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrp_zebra.h"
-#include "eigrp_cli.h"
+#include "eigrp_cli_classic.h"
+#include "eigrp_cli_named.h"
 
 #include "lib/keychain.h"
 #include "lib/distribute.h"
@@ -3410,8 +3411,8 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_create,
 				.destroy = eigrpd_named_destroy,
-				.cli_show = eigrp_cli_show_named_header,
-				.cli_show_end = eigrp_cli_show_named_end,
+				.cli_show = eigrp_cli_named_show_header,
+				.cli_show_end = eigrp_cli_named_show_end,
 			}
 		},
 		{
@@ -3419,8 +3420,8 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_address_family_create,
 				.destroy = eigrpd_named_address_family_destroy,
-				.cli_show = eigrp_cli_show_named_address_family,
-				.cli_show_end = eigrp_cli_show_named_address_family_end,
+				.cli_show = eigrp_cli_named_show_address_family,
+				.cli_show_end = eigrp_cli_named_show_address_family_end,
 			}
 		},
 		{
@@ -3428,7 +3429,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_router_id_modify,
 				.destroy = eigrpd_named_router_id_destroy,
-				.cli_show = eigrp_cli_show_router_id,
+				.cli_show = eigrp_cli_named_show_router_id,
 			}
 		},
 		{
@@ -3436,7 +3437,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_network_create,
 				.destroy = eigrpd_named_network_destroy,
-				.cli_show = eigrp_cli_show_network,
+				.cli_show = eigrp_cli_named_show_network,
 			}
 		},
 		{
@@ -3444,7 +3445,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_neighbor_create,
 				.destroy = eigrpd_named_neighbor_destroy,
-				.cli_show = eigrp_cli_show_named_neighbor,
+				.cli_show = eigrp_cli_named_show_neighbor,
 			}
 		},
 		{
@@ -3460,7 +3461,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_neighbor_description_modify,
 				.destroy = eigrpd_named_neighbor_description_destroy,
-				.cli_show = eigrp_cli_show_named_neighbor_description,
+				.cli_show = eigrp_cli_named_show_neighbor_description,
 			}
 		},
 		{
@@ -3469,7 +3470,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_neighbor_prefix_limit_create,
 				.destroy = eigrpd_named_neighbor_prefix_limit_destroy,
 				.apply_finish = eigrpd_named_neighbor_prefix_limit_apply_finish,
-				.cli_show = eigrp_cli_show_named_neighbor_maximum_prefix,
+				.cli_show = eigrp_cli_named_show_neighbor_maximum_prefix,
 			}
 		},
 		{
@@ -3524,7 +3525,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_neighbor_prefix_limit_all_create,
 				.destroy = eigrpd_named_neighbor_prefix_limit_all_destroy,
 				.apply_finish = eigrpd_named_neighbor_prefix_limit_all_apply_finish,
-				.cli_show = eigrp_cli_show_named_neighbor_maximum_prefix_all,
+				.cli_show = eigrp_cli_named_show_neighbor_maximum_prefix_all,
 			}
 		},
 		{
@@ -3578,7 +3579,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_log_neighbor_changes_modify,
 				.destroy = eigrpd_named_log_neighbor_changes_destroy,
-				.cli_show = eigrp_cli_show_named_log_neighbor_changes,
+				.cli_show = eigrp_cli_named_show_log_neighbor_changes,
 			}
 		},
 		{
@@ -3587,7 +3588,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_log_neighbor_warnings_create,
 				.destroy = eigrpd_named_log_neighbor_warnings_destroy,
 				.apply_finish = eigrpd_named_log_neighbor_warnings_apply_finish,
-				.cli_show = eigrp_cli_show_named_log_neighbor_warnings,
+				.cli_show = eigrp_cli_named_show_log_neighbor_warnings,
 			}
 		},
 		{
@@ -3606,7 +3607,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_shutdown_create,
 				.destroy = eigrpd_named_shutdown_destroy,
-				.cli_show = eigrp_cli_show_named_shutdown,
+				.cli_show = eigrp_cli_named_show_shutdown,
 			}
 		},
 		{
@@ -3614,8 +3615,8 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_af_interface_create,
 				.destroy = eigrpd_named_af_interface_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface,
-				.cli_show_end = eigrp_cli_show_named_af_interface_end,
+				.cli_show = eigrp_cli_named_show_af_interface,
+				.cli_show_end = eigrp_cli_named_show_af_interface_end,
 			}
 		},
 		{
@@ -3623,7 +3624,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_af_interface_bandwidth_modify,
 				.destroy = eigrpd_named_af_interface_bandwidth_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_bandwidth,
+				.cli_show = eigrp_cli_named_show_af_interface_bandwidth,
 			}
 		},
 		{
@@ -3631,7 +3632,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_af_interface_hello_modify,
 				.destroy = eigrpd_named_af_interface_hello_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_hello,
+				.cli_show = eigrp_cli_named_show_af_interface_hello,
 			}
 		},
 		{
@@ -3639,7 +3640,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_af_interface_hold_modify,
 				.destroy = eigrpd_named_af_interface_hold_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_hold,
+				.cli_show = eigrp_cli_named_show_af_interface_hold,
 			}
 		},
 		{
@@ -3647,7 +3648,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_af_interface_passive_create,
 				.destroy = eigrpd_named_af_interface_passive_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_passive,
+				.cli_show = eigrp_cli_named_show_af_interface_passive,
 			}
 		},
 		{
@@ -3655,7 +3656,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_af_interface_authentication_modify,
 				.destroy = eigrpd_named_af_interface_authentication_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_authentication,
+				.cli_show = eigrp_cli_named_show_af_interface_authentication,
 			}
 		},
 		{
@@ -3677,21 +3678,21 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_af_interface_keychain_modify,
 				.destroy = eigrpd_named_af_interface_keychain_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_keychain,
+				.cli_show = eigrp_cli_named_show_af_interface_keychain,
 			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/next-hop-self",
 			.cbs = {
 				.modify = eigrpd_named_af_interface_next_hop_modify,
-				.cli_show = eigrp_cli_show_named_af_interface_next_hop_self,
+				.cli_show = eigrp_cli_named_show_af_interface_next_hop_self,
 			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/split-horizon",
 			.cbs = {
 				.modify = eigrpd_named_af_interface_split_horizon_modify,
-				.cli_show = eigrp_cli_show_named_af_interface_split_horizon,
+				.cli_show = eigrp_cli_named_show_af_interface_split_horizon,
 			}
 		},
 		{
@@ -3699,7 +3700,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_af_interface_summary_create,
 				.destroy = eigrpd_named_af_interface_summary_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_summary,
+				.cli_show = eigrp_cli_named_show_af_interface_summary,
 			}
 		},
 		{
@@ -3721,7 +3722,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_af_interface_shutdown_create,
 				.destroy = eigrpd_named_af_interface_shutdown_destroy,
-				.cli_show = eigrp_cli_show_named_af_interface_shutdown,
+				.cli_show = eigrp_cli_named_show_af_interface_shutdown,
 			}
 		},
 		{
@@ -3729,8 +3730,8 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_topology_create,
 				.destroy = eigrpd_named_topology_destroy,
-				.cli_show = eigrp_cli_show_named_topology,
-				.cli_show_end = eigrp_cli_show_named_topology_end,
+				.cli_show = eigrp_cli_named_show_topology,
+				.cli_show_end = eigrp_cli_named_show_topology_end,
 			}
 		},
 		{
@@ -3738,7 +3739,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_auto_summary_create,
 				.destroy = eigrpd_named_auto_summary_destroy,
-				.cli_show = eigrp_cli_show_named_auto_summary,
+				.cli_show = eigrp_cli_named_show_auto_summary,
 			}
 		},
 		{
@@ -3747,7 +3748,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_default_information_in_create,
 				.destroy = eigrpd_named_default_information_in_destroy,
 				.apply_finish = eigrpd_named_default_information_in_apply_finish,
-				.cli_show = eigrp_cli_show_named_default_information_in,
+				.cli_show = eigrp_cli_named_show_default_information_in,
 			}
 		},
 		{
@@ -3763,7 +3764,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_default_information_out_create,
 				.destroy = eigrpd_named_default_information_out_destroy,
 				.apply_finish = eigrpd_named_default_information_out_apply_finish,
-				.cli_show = eigrp_cli_show_named_default_information_out,
+				.cli_show = eigrp_cli_named_show_default_information_out,
 			}
 		},
 		{
@@ -3778,7 +3779,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_default_metric_create,
 				.destroy = eigrpd_named_default_metric_destroy,
-				.cli_show = eigrp_cli_show_named_default_metric,
+				.cli_show = eigrp_cli_named_show_default_metric,
 			}
 		},
 		{
@@ -3806,7 +3807,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_distance_create,
 				.destroy = eigrpd_named_distance_destroy,
-				.cli_show = eigrp_cli_show_named_distance,
+				.cli_show = eigrp_cli_named_show_distance,
 			}
 		},
 		{
@@ -3823,7 +3824,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_maximum_prefix_create,
 				.destroy = eigrpd_named_maximum_prefix_destroy,
 				.apply_finish = eigrpd_named_maximum_prefix_apply_finish,
-				.cli_show = eigrp_cli_show_named_maximum_prefix,
+				.cli_show = eigrp_cli_named_show_maximum_prefix,
 			}
 		},
 		{
@@ -3877,7 +3878,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_maximum_paths_modify,
 				.destroy = eigrpd_named_maximum_paths_destroy,
-				.cli_show = eigrp_cli_show_named_maximum_paths,
+				.cli_show = eigrp_cli_named_show_maximum_paths,
 			}
 		},
 		{
@@ -3885,7 +3886,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_metric_maximum_hops_modify,
 				.destroy = eigrpd_named_metric_maximum_hops_destroy,
-				.cli_show = eigrp_cli_show_named_metric_maximum_hops,
+				.cli_show = eigrp_cli_named_show_metric_maximum_hops,
 			}
 		},
 		{
@@ -3893,7 +3894,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_metric_holddown_create,
 				.destroy = eigrpd_named_metric_holddown_destroy,
-				.cli_show = eigrp_cli_show_named_metric_holddown,
+				.cli_show = eigrp_cli_named_show_metric_holddown,
 			}
 		},
 		{
@@ -3901,7 +3902,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_event_log_size_modify,
 				.destroy = eigrpd_named_event_log_size_destroy,
-				.cli_show = eigrp_cli_show_named_event_log_size,
+				.cli_show = eigrp_cli_named_show_event_log_size,
 			}
 		},
 		{
@@ -3909,7 +3910,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_metric_weights_create,
 				.destroy = eigrpd_named_metric_weights_destroy,
-				.cli_show = eigrp_cli_show_named_metric_weights,
+				.cli_show = eigrp_cli_named_show_metric_weights,
 			}
 		},
 		{
@@ -3949,7 +3950,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_distribute_list_modify,
 				.destroy = eigrpd_named_distribute_list_destroy,
-				.cli_show = eigrp_cli_show_named_distribute_list,
+				.cli_show = eigrp_cli_named_show_distribute_list,
 			}
 		},
 		{
@@ -3957,7 +3958,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_distribute_list_modify,
 				.destroy = eigrpd_named_distribute_list_destroy,
-				.cli_show = eigrp_cli_show_named_distribute_list,
+				.cli_show = eigrp_cli_named_show_distribute_list,
 			}
 		},
 		{
@@ -3965,7 +3966,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_distribute_list_modify,
 				.destroy = eigrpd_named_distribute_list_destroy,
-				.cli_show = eigrp_cli_show_named_distribute_list,
+				.cli_show = eigrp_cli_named_show_distribute_list,
 			}
 		},
 		{
@@ -3973,7 +3974,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_distribute_list_modify,
 				.destroy = eigrpd_named_distribute_list_destroy,
-				.cli_show = eigrp_cli_show_named_distribute_list,
+				.cli_show = eigrp_cli_named_show_distribute_list,
 			}
 		},
 		{
@@ -3981,7 +3982,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_offset_list_create,
 				.destroy = eigrpd_named_offset_list_destroy,
-				.cli_show = eigrp_cli_show_named_offset_list,
+				.cli_show = eigrp_cli_named_show_offset_list,
 			}
 		},
 		{
@@ -3994,7 +3995,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_redistribute_create,
 				.destroy = eigrpd_named_redistribute_destroy,
 				.apply_finish = eigrpd_named_redistribute_apply_finish,
-				.cli_show = eigrp_cli_show_named_redistribute,
+				.cli_show = eigrp_cli_named_show_redistribute,
 			}
 		},
 		{
@@ -4037,7 +4038,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_redistribute_maximum_prefix_create,
 				.destroy = eigrpd_named_redistribute_maximum_prefix_destroy,
 				.apply_finish = eigrpd_named_redistribute_maximum_prefix_apply_finish,
-				.cli_show = eigrp_cli_show_named_redistribute_maximum_prefix,
+				.cli_show = eigrp_cli_named_show_redistribute_maximum_prefix,
 			}
 		},
 		{
@@ -4092,7 +4093,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_summary_metric_create,
 				.destroy = eigrpd_named_summary_metric_destroy,
 				.apply_finish = eigrpd_named_summary_metric_apply_finish,
-				.cli_show = eigrp_cli_show_named_summary_metric,
+				.cli_show = eigrp_cli_named_show_summary_metric,
 			}
 		},
 		{
@@ -4142,7 +4143,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_active_time_modify,
 				.destroy = eigrpd_named_active_time_destroy,
-				.cli_show = eigrp_cli_show_named_active_time,
+				.cli_show = eigrp_cli_named_show_active_time,
 			}
 		},
 		{
@@ -4150,7 +4151,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_traffic_share_modify,
 				.destroy = eigrpd_named_traffic_share_destroy,
-				.cli_show = eigrp_cli_show_named_traffic_share_balanced,
+				.cli_show = eigrp_cli_named_show_traffic_share_balanced,
 			}
 		},
 		{
@@ -4158,7 +4159,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_named_variance_modify,
 				.destroy = eigrpd_named_variance_destroy,
-				.cli_show = eigrp_cli_show_named_variance,
+				.cli_show = eigrp_cli_named_show_variance,
 			}
 		},
 		{
@@ -4166,8 +4167,8 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_instance_create,
 				.destroy = eigrpd_instance_destroy,
-				.cli_show = eigrp_cli_show_header,
-				.cli_show_end = eigrp_cli_show_end_header,
+				.cli_show = eigrp_cli_classic_show_header,
+				.cli_show_end = eigrp_cli_classic_show_end_header,
 			}
 		},
 		{
@@ -4175,7 +4176,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_instance_router_id_modify,
 				.destroy = eigrpd_instance_router_id_destroy,
-				.cli_show = eigrp_cli_show_router_id,
+				.cli_show = eigrp_cli_classic_show_router_id,
 			}
 		},
 		{
@@ -4183,13 +4184,14 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_instance_passive_interface_create,
 				.destroy = eigrpd_instance_passive_interface_destroy,
-				.cli_show = eigrp_cli_show_passive_interface,
+				.cli_show = eigrp_cli_classic_show_passive_interface,
 			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/instance/active-time",
 			.cbs = {
 				.modify = eigrpd_instance_active_time_modify,
+				.cli_show = eigrp_cli_classic_show_active_time,
 			}
 		},
 		{
@@ -4197,7 +4199,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_instance_variance_modify,
 				.destroy = eigrpd_instance_variance_destroy,
-				.cli_show = eigrp_cli_show_variance,
+				.cli_show = eigrp_cli_classic_show_variance,
 			}
 		},
 		{
@@ -4205,13 +4207,13 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = eigrpd_instance_maximum_paths_modify,
 				.destroy = eigrpd_instance_maximum_paths_destroy,
-				.cli_show = eigrp_cli_show_maximum_paths,
+				.cli_show = eigrp_cli_classic_show_maximum_paths,
 			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/instance/metric-weights",
 			.cbs = {
-				.cli_show = eigrp_cli_show_metrics,
+				.cli_show = eigrp_cli_classic_show_metrics,
 			}
 		},
 		{
@@ -4261,7 +4263,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_instance_network_create,
 				.destroy = eigrpd_instance_network_destroy,
-				.cli_show = eigrp_cli_show_network,
+				.cli_show = eigrp_cli_classic_show_network,
 			}
 		},
 		{
@@ -4269,6 +4271,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_instance_neighbor_create,
 				.destroy = eigrpd_instance_neighbor_destroy,
+				.cli_show = eigrp_cli_classic_show_neighbor,
 			}
 		},
 		{
@@ -4315,7 +4318,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_instance_redistribute_create,
 				.destroy = eigrpd_instance_redistribute_destroy,
-				.cli_show = eigrp_cli_show_redistribute,
+				.cli_show = eigrp_cli_classic_show_redistribute,
 			}
 		},
 		{
@@ -4364,24 +4367,28 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/delay",
 			.cbs = {
 				.modify = lib_interface_eigrp_delay_modify,
+				.cli_show = eigrp_cli_classic_show_delay,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/bandwidth",
 			.cbs = {
 				.modify = lib_interface_eigrp_bandwidth_modify,
+				.cli_show = eigrp_cli_classic_show_bandwidth,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/hello-interval",
 			.cbs = {
 				.modify = lib_interface_eigrp_hello_interval_modify,
+				.cli_show = eigrp_cli_classic_show_hello_interval,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/hold-time",
 			.cbs = {
 				.modify = lib_interface_eigrp_hold_time_modify,
+				.cli_show = eigrp_cli_classic_show_hold_time,
 			}
 		},
 		{
@@ -4402,12 +4409,14 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = lib_interface_eigrp_instance_summarize_addresses_create,
 				.destroy = lib_interface_eigrp_instance_summarize_addresses_destroy,
+				.cli_show = eigrp_cli_classic_show_summarize_address,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/instance/authentication",
 			.cbs = {
 				.modify = lib_interface_eigrp_instance_authentication_modify,
+				.cli_show = eigrp_cli_classic_show_authentication,
 			}
 		},
 		{
@@ -4415,6 +4424,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = lib_interface_eigrp_instance_keychain_modify,
 				.destroy = lib_interface_eigrp_instance_keychain_destroy,
+				.cli_show = eigrp_cli_classic_show_keychain,
 			}
 		},
 		{

@@ -150,7 +150,7 @@ exit
 
 Named mode inherits the complete classic EIGRP configuration feature set unless a feature is explicitly excluded by this specification. Cisco named-mode documentation determines named CLI placement and grammar where documented, but omission from a named-mode command reference does not by itself exclude a classic EIGRP feature. Named mode may relocate a classic feature into address-family, `af-interface`, or topology configuration mode rather than reproduce the classic syntax literally.
 
-Classic-mode completion is not a prerequisite for named-mode completion. Existing classic commands that have a working backend may remain, but unregistered classic handlers and classic commands whose backend is only a placeholder are not compatibility requirements for this project and may be removed or rejected rather than completed. This does not weaken the named-mode inheritance rule: a classic EIGRP feature still requires a named-mode implementation unless it is explicitly excluded above.
+Classic-mode completion is not a prerequisite for named-mode completion, but the existing FRR classic command surface is a compatibility requirement. The original FRR classic configuration and operational commands are retained even where runtime behavior is incomplete; named-mode development must not remove, hide, or repurpose those commands. This does not weaken the named-mode inheritance rule: a classic EIGRP feature still requires a named-mode implementation unless it is explicitly excluded above.
 
 Every supported configuration feature must implement its applicable `no` form. The `no` form must remove the retained configuration or restore the documented default, invoke the same EIGRP-owned semantic target family as the positive form, and remain independently testable through running-config writeback and mutation.
 
@@ -160,9 +160,11 @@ The initial implementation may map named-mode CLI onto current FRR/YANG storage 
 
 ## 5. CLI-to-Core Boundary
 
-`eigrp_cli.[c|h]` and `eigrp_vty.[c|h]` are the explicit FRR-facing user interaction contract for EIGRP. They are adapter/front-end code, not portable EIGRP core modules.
+`eigrp_cli_classic.[c|h]`, `eigrp_cli_named.[c|h]`, and `eigrp_vty.[c|h]` are the explicit FRR-facing user interaction contract for EIGRP. They are adapter/front-end code, not portable EIGRP core modules.
 
-`eigrp_cli` owns configuration command syntax, parser/mode behavior, construction/submission of FRR management transactions, and running-configuration interaction. `eigrp_vty` owns operational VTY interaction such as show, clear, debug, command installation, selection arguments, and user-facing presentation. FRR-native CLI/VTY/YANG types are legal within those front-end files.
+`eigrp_cli_classic` preserves the original FRR classic configuration command surface. `eigrp_vty` preserves the original FRR classic operational `show ip eigrp ...` and `clear ip eigrp ...` command surface. `eigrp_cli_named` owns named-mode configuration syntax and named-mode operational `show eigrp ...` / `clear eigrp ...` commands. Debug command ownership remains with the existing debug module. FRR-native CLI/VTY/YANG types are legal within these front-end files.
+
+Where classic and named mode have identical grammar, a parser command object may be installed once and dispatch to mode-appropriate adapter helpers rather than duplicating the grammar. That sharing must stop at the adapter boundary: both modes should call the same EIGRP-owned target functions when the protocol semantics are the same, while retaining separate classic and named management paths where their YANG/configuration structure differs.
 
 For configuration that changes EIGRP protocol state, the committed management boundary is `eigrp_northbound.c`. The required path is:
 

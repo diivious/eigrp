@@ -8,9 +8,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-VTY = ROOT / "frr" / "eigrp_vty.c"
+VTY = ROOT / "frr" / "eigrp_cli_named.c"
+CLASSIC_VTY = ROOT / "frr" / "eigrp_vty.c"
 DUMP = ROOT / "eigrpd" / "eigrp_dump.c"
-CLIPPY = ROOT / "frr" / "eigrp_vty_clippy.c"
+CLIPPY = ROOT / "frr" / "eigrp_cli_named_clippy.c"
 
 
 def read(path: Path) -> str:
@@ -25,7 +26,7 @@ def function_body(source: str, name: str) -> str:
 
 def test_named_show_commands_are_defpy_and_installed():
     vty = read(VTY)
-    init = function_body(vty, "eigrp_vty_show_init")
+    init = function_body(vty, "eigrp_cli_named_init")
 
     for name in (
         "show_eigrp_neighbor",
@@ -47,7 +48,7 @@ def test_named_show_commands_are_defpy_and_installed():
 
 def test_named_clear_commands_are_defpy_and_installed():
     vty = read(VTY)
-    init = function_body(vty, "eigrp_vty_init")
+    init = function_body(vty, "eigrp_cli_named_init")
 
     for name in (
         "clear_eigrp_neighbor",
@@ -63,12 +64,23 @@ def test_named_clear_commands_are_defpy_and_installed():
 def test_vty_command_names_follow_mode_eigrp_command_pattern():
     vty = read(VTY)
 
-    command_definition_region = vty.rsplit("void eigrp_vty_show_init", 1)[0]
+    command_definition_region = vty.rsplit("void eigrp_cli_named_init", 1)[0]
 
     assert "eigrp_vty_show" not in command_definition_region
     assert "eigrp_vty_clear" not in command_definition_region
     assert "show_eigrp_neighbor_cmd" in vty
     assert "clear_eigrp_neighbor_cmd" in vty
+
+
+def test_classic_operational_commands_remain_in_eigrp_vty():
+    classic = read(CLASSIC_VTY)
+
+    assert '"show ip eigrp [vrf NAME] topology' in classic
+    assert '"show ip eigrp [vrf NAME] interfaces' in classic
+    assert '"show ip eigrp [vrf NAME] neighbors' in classic
+    assert '"clear ip eigrp [vrf NAME] neighbors' in classic
+    assert "show_eigrp_neighbor_cmd" not in classic
+    assert "clear_eigrp_neighbor_cmd" not in classic
 
 
 def test_named_vty_clippy_matches_new_defpy_commands():

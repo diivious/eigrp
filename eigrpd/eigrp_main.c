@@ -51,7 +51,8 @@
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_errors.h"
 #include "eigrpd/eigrp_vrf.h"
-#include "eigrpd/eigrp_cli.h"
+#include "eigrpd/eigrp_cli_classic.h"
+#include "eigrpd/eigrp_cli_named.h"
 #include "eigrpd/eigrp_yang.h"
 
 /* EIGRPd options. */
@@ -176,7 +177,8 @@ int main(int argc, char **argv, char **envp)
 	eigrp_vty_init();
 	keychain_init();
 	eigrp_vty_show_init();
-	eigrp_cli_init();
+	eigrp_cli_classic_init();
+	eigrp_cli_named_init();
 
 #ifdef HAVE_SNMP
 	eigrp_snmp_init();
