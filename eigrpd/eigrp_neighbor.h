@@ -79,6 +79,26 @@ typedef struct eigrp_neighbor {
 
 } eigrp_neighbor_t;
 
+typedef struct eigrp_neighbor_state {
+	eigrp_address_t address;
+	const char *interface_name;
+	const char *state_name;
+	bool static_configured;
+	bool runtime_present;
+	uint16_t hold_time;
+	unsigned long reliable_queue_count;
+	uint32_t sequence_number;
+	uint8_t retransmit_count;
+	uint8_t os_major;
+	uint8_t os_minor;
+	uint8_t tlv_major;
+	uint8_t tlv_minor;
+	uint8_t tlv_version;
+} eigrp_neighbor_state_t;
+
+typedef eigrp_result_t (*eigrp_neighbor_state_walk_cb)(
+	const eigrp_neighbor_state_t *state, void *arg);
+
 
 /* Prototypes */
 extern eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *, struct eigrp_header *,
@@ -114,6 +134,10 @@ eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name);
 void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_neighbor_state_walk(
+	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+	const char *interface_name, bool static_only,
+	eigrp_neighbor_state_walk_cb callback, void *arg);
 
 eigrp_result_t eigrp_neighbor_description_update(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,

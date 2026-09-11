@@ -11,7 +11,7 @@
 #include "eigrp_types.h"
 #include "eigrp_instance.h"
 
-eigrp_result_t eigrp_event_show(const eigrp_state_request_t *request);
+eigrp_result_t eigrp_event_show(const eigrp_instance_context_t *context);
 eigrp_result_t eigrp_event_log_size_update(eigrp_instance_context_t *context,
 					   uint32_t size);
 eigrp_result_t eigrp_event_log_size_delete(eigrp_instance_context_t *context);

@@ -32,6 +32,12 @@ def test_named_show_commands_are_defpy_and_installed():
         "show_eigrp_interface",
         "show_eigrp_topology",
         "show_eigrp_topology_all",
+        "show_eigrp_accounting",
+        "show_eigrp_event",
+        "show_eigrp_timer",
+        "show_eigrp_traffic",
+        "show_eigrp_protocol",
+        "show_eigrp_tech_support",
     ):
         assert f"DEFPY({name}," in vty
         assert f"&{name}_cmd" in init
@@ -72,6 +78,10 @@ def test_named_vty_clippy_matches_new_defpy_commands():
         "show_eigrp_neighbor",
         "show_eigrp_interface",
         "show_eigrp_topology",
+        "show_eigrp_accounting",
+        "show_eigrp_event",
+        "show_eigrp_timer",
+        "show_eigrp_traffic",
         "clear_eigrp_neighbor",
     ):
         assert f"DEFUN_CMD_FUNC_DECL({name})" in clippy
@@ -120,6 +130,9 @@ def test_cli_implementation_notes_are_in_cli_spec():
 def test_named_operational_commands_use_owner_specific_targets():
     vty = read(VTY)
     targets = {
+        "eigrp_interface_state_walk": ROOT / "eigrpd" / "eigrp_interface.c",
+        "eigrp_neighbor_state_walk": ROOT / "eigrpd" / "eigrp_neighbor.c",
+        "eigrp_topology_state_walk": ROOT / "eigrpd" / "eigrp_topology.c",
         "eigrp_statistics_accounting_show": ROOT / "eigrpd" / "eigrp_statistics.c",
         "eigrp_event_show": ROOT / "eigrpd" / "eigrp_event.c",
         "eigrp_timer_show": ROOT / "eigrpd" / "eigrp_timer.c",
@@ -138,3 +151,59 @@ def test_named_operational_commands_use_owner_specific_targets():
 
     # Explicitly excluded by cli-spec.md.
     assert "install_element(VIEW_NODE, &show_eigrp_plugin_cmd);" not in vty
+
+
+def test_named_show_path_does_not_fall_back_to_legacy_vty_dumpers():
+    vty = read(VTY)
+    show_region = vty[vty.index("DEFPY(show_eigrp_interface,"):vty.index("DEFPY(clear_eigrp_neighbor,")]
+
+    assert "show_ip_eigrp_" not in show_region
+    assert "struct vty *" not in read(ROOT / "eigrpd" / "eigrp_statistics.h")
+    assert "struct vty *" not in read(ROOT / "eigrpd" / "eigrp_status.h")
+    assert "struct vty *" not in read(ROOT / "eigrpd" / "eigrp_timer.h")
+
+
+def test_named_topology_destination_accepts_ipv4_and_ipv6_text():
+    vty = read(VTY)
+    clippy = read(CLIPPY)
+
+    assert "topology WORD$target [all-links]$all" in vty
+    assert "inet_pton(family, address, destination->address.bytes)" in vty
+    assert "EIGRP_ADDRESS_FAMILY_IPV6" in vty
+    assert "const char * target" in clippy
+    assert 'varname, "target"' in clippy
+
+
+def test_named_show_clippy_forwards_address_family_filters():
+    clippy = read(CLIPPY)
+
+    for name in (
+        "show_eigrp_accounting",
+        "show_eigrp_event",
+        "show_eigrp_timer",
+        "show_eigrp_traffic",
+    ):
+        start = clippy.index(f"/* {name} =>")
+        end = clippy.find("\n/* ", start + 4)
+        block = clippy[start:end if end != -1 else None]
+        assert f"return {name}_magic(self, vty, argc, argv, afi, vrf, as, as_str);" in block
+        assert f"{name}_magic(self, vty, argc, argv, NULL, NULL, 0, NULL)" not in block
+
+
+def test_traffic_show_marks_unmaintained_counters_unavailable():
+    statistics = read(ROOT / "eigrpd" / "eigrp_statistics.c")
+    vty = read(VTY)
+
+    assert "sent_valid" in statistics
+    assert "received_valid" in statistics
+    assert "state->sent_valid & field" in vty
+    assert "state->received_valid & field" in vty
+    assert "n/a means the current packet path does not maintain that counter" in vty
+
+
+def test_protocol_and_tech_support_walk_all_named_vrfs():
+    status = read(ROOT / "eigrpd" / "eigrp_status.c")
+    types = read(ROOT / "eigrpd" / "eigrp_types.h")
+
+    assert "bool all_vrfs" in types
+    assert ".all_vrfs = true" in status

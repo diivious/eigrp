@@ -46,6 +46,126 @@ static char *eigrp_interface_string_duplicate(const char *value)
 	return copy;
 }
 
+static unsigned long eigrp_interface_reliable_queue_count(eigrp_interface_t *ei)
+{
+	eigrp_neighbor_t *nbr;
+	struct listnode *node;
+	unsigned long count = 0;
+
+	if (!ei || !ei->nbrs)
+		return 0;
+
+	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+		if (nbr->retrans_queue)
+			count += nbr->retrans_queue->count;
+	}
+	return count;
+}
+
+static void eigrp_interface_state_from_config(eigrp_interface_state_t *state,
+					      eigrp_interface_config_t *config)
+{
+	if (!state || !config)
+		return;
+
+	state->config_present = true;
+	state->shutdown = config->shutdown;
+	state->passive = config->passive;
+	state->authentication_configured = config->authentication_mode_configured;
+	state->authentication_mode = config->authentication_mode;
+	state->bandwidth_configured = config->bandwidth_percent_configured;
+	state->hello_interval_configured = config->hello_interval_configured;
+	state->hold_time_configured = config->hold_time_configured;
+	if (config->bandwidth_percent_configured)
+		state->bandwidth_percent = config->bandwidth_percent;
+	if (config->hello_interval_configured)
+		state->hello_interval = config->hello_interval;
+	if (config->hold_time_configured)
+		state->hold_time = config->hold_time;
+}
+
+static eigrp_result_t eigrp_interface_state_emit(
+	eigrp_interface_t *ei, eigrp_interface_config_t *config,
+	eigrp_interface_state_walk_cb callback, void *arg)
+{
+	eigrp_interface_state_t state = {0};
+
+	if (config) {
+		state.interface_name = config->interface_name;
+		eigrp_interface_state_from_config(&state, config);
+	}
+	if (ei) {
+		state.interface_name = eigrp_intf_name_string(ei);
+		state.runtime_present = true;
+		state.passive = eigrp_intf_is_passive(ei);
+		state.multicast_enabled = ei->member_allrouters;
+		state.authentication_configured = ei->params.auth_type != 0;
+		state.authentication_mode = (uint8_t)ei->params.auth_type;
+		state.bandwidth = ei->params.bandwidth;
+		state.delay = ei->params.delay;
+		state.mtu = ei->curr_mtu;
+		state.hello_interval = ei->params.v_hello;
+		state.hold_time = ei->params.v_wait;
+		state.peer_count = ei->nbrs ? ei->nbrs->count : 0;
+		state.output_queue_count = ei->obuf ? ei->obuf->count : 0;
+		state.reliable_queue_count = eigrp_interface_reliable_queue_count(ei);
+		state.reliability = ei->params.reliability;
+		state.load = ei->params.load;
+		state.tlv1_peer_count = ei->tlv1_peer_count;
+		state.tlv2_peer_count = ei->tlv2_peer_count;
+	}
+
+	return callback(&state, arg);
+}
+
+eigrp_result_t eigrp_interface_state_walk(
+	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+	const char *interface_name, eigrp_interface_state_walk_cb callback,
+	void *arg)
+{
+	eigrp_interface_t *ei;
+	eigrp_interface_config_t *configured;
+	struct listnode *node;
+	bool matched = false;
+	eigrp_result_t result;
+
+	if (!callback || (!config && !runtime))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (runtime && runtime->eiflist) {
+		for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+			const char *name = eigrp_intf_name_string(ei);
+
+			if (interface_name && strcmp(name, interface_name) != 0)
+				continue;
+			configured = config ? eigrp_interface_config_read(config, name) : NULL;
+			result = eigrp_interface_state_emit(ei, configured, callback, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+			matched = true;
+		}
+	}
+
+	if (config) {
+		for (configured = config->interfaces; configured;
+		     configured = configured->next) {
+			if (interface_name
+			    && strcmp(configured->interface_name, interface_name) != 0)
+				continue;
+			if (runtime
+			    && eigrp_intf_lookup_by_name(runtime,
+							configured->interface_name))
+				continue;
+			result = eigrp_interface_state_emit(NULL, configured, callback, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+			matched = true;
+		}
+	}
+
+	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
+}
+
 eigrp_interface_config_t *eigrp_interface_config_read(
 	eigrp_address_family_config_t *af, const char *interface_name)
 {

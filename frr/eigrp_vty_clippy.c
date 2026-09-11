@@ -162,7 +162,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_topology_all)
 	return show_eigrp_topology_all_magic(self, vty, argc, argv, afi, vrf, as, as_str, all);
 }
 
-/* show_eigrp_topology => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology <A.B.C.D$address|A.B.C.D/M$prefix> [all-links]$all" */
+/* show_eigrp_topology => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology WORD$target [all-links]$all" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_topology)
 #define funcdecl_show_eigrp_topology static int show_eigrp_topology_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -173,10 +173,7 @@ DEFUN_CMD_FUNC_DECL(show_eigrp_topology)
 	const char * vrf,\
 	int64_t as,\
 	const char * as_str __attribute__ ((unused)),\
-	struct in_addr address,\
-	const char * address_str __attribute__ ((unused)),\
-	const struct prefix_ipv4 * prefix,\
-	const char * prefix_str __attribute__ ((unused)),\
+	const char * target,\
 	const char * all)
 funcdecl_show_eigrp_topology;
 DEFUN_CMD_FUNC_TEXT(show_eigrp_topology)
@@ -187,10 +184,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_topology)
 	const char *vrf = NULL;
 	int64_t as = 0;
 	const char *as_str = NULL;
-	struct in_addr address = { INADDR_ANY };
-	const char *address_str = NULL;
-	struct prefix_ipv4 prefix = { };
-	const char *prefix_str = NULL;
+	const char *target = NULL;
 	const char *all = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
@@ -207,14 +201,8 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_topology)
 			as = strtoll(argv[_i]->arg, &_end, 10);
 			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
-		if (!strcmp(argv[_i]->varname, "address")) {
-			address_str = argv[_i]->arg;
-			_fail = !inet_aton(argv[_i]->arg, &address);
-		}
-		if (!strcmp(argv[_i]->varname, "prefix")) {
-			prefix_str = argv[_i]->arg;
-			_fail = !str2prefix_ipv4(argv[_i]->arg, &prefix);
-		}
+		if (!strcmp(argv[_i]->varname, "target"))
+			target = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
 		if (!strcmp(argv[_i]->varname, "all"))
 			all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
 		if (_fail)
@@ -227,29 +215,204 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_topology)
 		vty_out(vty, "Internal CLI error [%s]\n", "afi");
 		return CMD_WARNING;
 	}
-	return show_eigrp_topology_magic(self, vty, argc, argv, afi, vrf, as, as_str, address, address_str, &prefix, prefix_str, all);
+	if (!target) {
+		vty_out(vty, "Internal CLI error [%s]\n", "target");
+		return CMD_WARNING;
+	}
+	return show_eigrp_topology_magic(self, vty, argc, argv, afi, vrf, as, as_str, target, all);
 }
 
-/* show_eigrp_accounting */
+/* show_eigrp_accounting => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] accounting" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_accounting)
-#define funcdecl_show_eigrp_accounting static int show_eigrp_accounting_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi __attribute__ ((unused)), const char * vrf __attribute__ ((unused)), int64_t as __attribute__ ((unused)), const char * as_str __attribute__ ((unused)))
+#define funcdecl_show_eigrp_accounting static int show_eigrp_accounting_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * afi,\
+	const char * vrf,\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)))
 funcdecl_show_eigrp_accounting;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_accounting) { return show_eigrp_accounting_magic(self, vty, argc, argv, NULL, NULL, 0, NULL); }
-/* show_eigrp_event */
+DEFUN_CMD_FUNC_TEXT(show_eigrp_accounting)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	const char *afi = NULL;
+	const char *vrf = NULL;
+	int64_t as = 0;
+	const char *as_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi) {
+		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+		return CMD_WARNING;
+	}
+	return show_eigrp_accounting_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+}
+
+/* show_eigrp_event => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] events" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_event)
-#define funcdecl_show_eigrp_event static int show_eigrp_event_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi __attribute__ ((unused)), const char * vrf __attribute__ ((unused)), int64_t as __attribute__ ((unused)), const char * as_str __attribute__ ((unused)))
+#define funcdecl_show_eigrp_event static int show_eigrp_event_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * afi,\
+	const char * vrf,\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)))
 funcdecl_show_eigrp_event;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_event) { return show_eigrp_event_magic(self, vty, argc, argv, NULL, NULL, 0, NULL); }
-/* show_eigrp_timer */
+DEFUN_CMD_FUNC_TEXT(show_eigrp_event)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	const char *afi = NULL;
+	const char *vrf = NULL;
+	int64_t as = 0;
+	const char *as_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi) {
+		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+		return CMD_WARNING;
+	}
+	return show_eigrp_event_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+}
+
+/* show_eigrp_timer => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] timers" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_timer)
-#define funcdecl_show_eigrp_timer static int show_eigrp_timer_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi __attribute__ ((unused)), const char * vrf __attribute__ ((unused)), int64_t as __attribute__ ((unused)), const char * as_str __attribute__ ((unused)))
+#define funcdecl_show_eigrp_timer static int show_eigrp_timer_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * afi,\
+	const char * vrf,\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)))
 funcdecl_show_eigrp_timer;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_timer) { return show_eigrp_timer_magic(self, vty, argc, argv, NULL, NULL, 0, NULL); }
-/* show_eigrp_traffic */
+DEFUN_CMD_FUNC_TEXT(show_eigrp_timer)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	const char *afi = NULL;
+	const char *vrf = NULL;
+	int64_t as = 0;
+	const char *as_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi) {
+		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+		return CMD_WARNING;
+	}
+	return show_eigrp_timer_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+}
+
+/* show_eigrp_traffic => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] traffic" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_traffic)
-#define funcdecl_show_eigrp_traffic static int show_eigrp_traffic_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi __attribute__ ((unused)), const char * vrf __attribute__ ((unused)), int64_t as __attribute__ ((unused)), const char * as_str __attribute__ ((unused)))
+#define funcdecl_show_eigrp_traffic static int show_eigrp_traffic_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * afi,\
+	const char * vrf,\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)))
 funcdecl_show_eigrp_traffic;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_traffic) { return show_eigrp_traffic_magic(self, vty, argc, argv, NULL, NULL, 0, NULL); }
+DEFUN_CMD_FUNC_TEXT(show_eigrp_traffic)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	const char *afi = NULL;
+	const char *vrf = NULL;
+	int64_t as = 0;
+	const char *as_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi) {
+		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+		return CMD_WARNING;
+	}
+	return show_eigrp_traffic_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+}
 
 /* simple show commands */
 DEFUN_CMD_FUNC_DECL(show_eigrp_protocol)

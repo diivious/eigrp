@@ -47,6 +47,36 @@ typedef struct eigrp_interface_context {
 	eigrp_interface_t *runtime;
 } eigrp_interface_context_t;
 
+typedef struct eigrp_interface_state {
+	const char *interface_name;
+	bool config_present;
+	bool runtime_present;
+	bool passive;
+	bool shutdown;
+	bool multicast_enabled;
+	bool authentication_configured;
+	uint8_t authentication_mode;
+	uint32_t bandwidth;
+	uint32_t bandwidth_percent;
+	uint32_t delay;
+	uint32_t mtu;
+	uint32_t hello_interval;
+	uint16_t hold_time;
+	uint32_t peer_count;
+	unsigned long output_queue_count;
+	unsigned long reliable_queue_count;
+	uint8_t reliability;
+	uint8_t load;
+	uint16_t tlv1_peer_count;
+	uint16_t tlv2_peer_count;
+	bool bandwidth_configured;
+	bool hello_interval_configured;
+	bool hold_time_configured;
+} eigrp_interface_state_t;
+
+typedef eigrp_result_t (*eigrp_interface_state_walk_cb)(
+	const eigrp_interface_state_t *state, void *arg);
+
 /*Prototypes*/
 extern void eigrp_intf_init(void);
 extern int eigrp_intf_new_hook(struct interface *);
@@ -79,6 +109,11 @@ extern eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *,
 							  struct in_addr);
 extern eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *,
 						    const char *);
+
+eigrp_result_t eigrp_interface_state_walk(
+	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+	const char *interface_name, eigrp_interface_state_walk_cb callback,
+	void *arg);
 
 /* Simulate down/up on the interface. */
 extern void eigrp_intf_reset(struct interface *);

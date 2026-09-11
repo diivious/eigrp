@@ -172,6 +172,45 @@ eigrp_result_t eigrp_instance_address_family_delete(
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
+eigrp_result_t eigrp_instance_address_family_walk(
+	const eigrp_state_request_t *request,
+	eigrp_instance_address_family_walk_cb callback, void *arg)
+{
+	eigrp_instance_parent_config_t *parent;
+	eigrp_address_family_config_t *af;
+	eigrp_result_t result;
+	const char *vrf_name;
+	bool matched = false;
+
+	if (!request || !callback)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (request->afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    && request->afi != EIGRP_ADDRESS_FAMILY_IPV6)
+		return EIGRP_RESULT_UNSUPPORTED;
+
+	/* A normal show request without an explicit VRF is scoped to default. */
+	vrf_name = request->vrf_name ? request->vrf_name : "default";
+
+	for (parent = eigrp_instance_parents; parent; parent = parent->next) {
+		for (af = parent->address_families; af; af = af->next) {
+			if (af->afi != request->afi)
+				continue;
+			if (request->asn && af->asn != request->asn)
+				continue;
+			if (!request->all_vrfs
+			    && strcmp(af->vrf_name, vrf_name) != 0)
+				continue;
+
+			matched = true;
+			result = callback(parent->name, af, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+		}
+	}
+
+	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
+}
+
 eigrp_result_t eigrp_instance_parent_delete(const char *name)
 {
 	eigrp_instance_parent_config_t **cursor;

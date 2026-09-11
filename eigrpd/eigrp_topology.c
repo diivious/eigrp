@@ -15,6 +15,7 @@
  */
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
+#include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_dump.h"
@@ -569,6 +570,175 @@ void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
 	    && prefix->nt != EIGRP_TOPOLOGY_TYPE_CONNECTED) {
 		eigrp_prefix_descriptor_delete(eigrp, table, prefix);
 	}
+}
+
+static void eigrp_topology_prefix_export(const struct prefix *source,
+					 eigrp_prefix_t *destination)
+{
+	memset(destination, 0, sizeof(*destination));
+	destination->prefix_length = source->prefixlen;
+	if (source->family == AF_INET6) {
+		destination->address.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		memcpy(destination->address.bytes, &source->u.prefix6, 16);
+		return;
+	}
+	destination->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	memcpy(destination->address.bytes, &source->u.prefix4, 4);
+}
+
+static bool eigrp_topology_prefix_import(const eigrp_prefix_t *source,
+					 struct prefix *destination)
+{
+	memset(destination, 0, sizeof(*destination));
+	if (source->address.afi == EIGRP_ADDRESS_FAMILY_IPV6) {
+		if (source->prefix_length > 128)
+			return false;
+		destination->family = AF_INET6;
+		destination->prefixlen = source->prefix_length;
+		memcpy(&destination->u.prefix6, source->address.bytes, 16);
+		return true;
+	}
+	if (source->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || source->prefix_length > 32)
+		return false;
+	destination->family = AF_INET;
+	destination->prefixlen = source->prefix_length;
+	memcpy(&destination->u.prefix4, source->address.bytes, 4);
+	return true;
+}
+
+static uint32_t eigrp_topology_successor_count(eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_route_descriptor_t *route;
+	struct listnode *node;
+	uint32_t count = 0;
+
+	for (ALL_LIST_ELEMENTS_RO(prefix->entries, node, route))
+		if (route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)
+			count++;
+	return count;
+}
+
+static void eigrp_topology_route_next_hop_export(
+	const eigrp_route_descriptor_t *route, eigrp_topology_route_state_t *state)
+{
+	memset(&state->next_hop, 0, sizeof(state->next_hop));
+	if (!route->adv_router)
+		return;
+	if (route->adv_router->src.afi == AF_INET6) {
+		state->next_hop.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		memcpy(state->next_hop.bytes, &route->adv_router->src.ip.v6, 16);
+		return;
+	}
+	state->next_hop.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	memcpy(state->next_hop.bytes, &route->adv_router->src.ip.v4, 4);
+}
+
+static eigrp_result_t eigrp_topology_state_emit_prefix(
+	eigrp_instance_t *runtime, eigrp_prefix_descriptor_t *prefix, bool all_links,
+	eigrp_topology_prefix_state_cb prefix_callback,
+	eigrp_topology_route_state_cb route_callback, void *arg)
+{
+	eigrp_topology_prefix_state_t prefix_state = {0};
+	eigrp_topology_route_state_t route_state;
+	eigrp_route_descriptor_t *route;
+	struct listnode *node;
+	eigrp_result_t result;
+
+	eigrp_topology_prefix_export(prefix->destination, &prefix_state.destination);
+	prefix_state.active = prefix->state != 0;
+	prefix_state.feasible_distance = prefix->fdistance;
+	prefix_state.successor_count = eigrp_topology_successor_count(prefix);
+	prefix_state.serial_number = prefix->serno;
+
+	result = prefix_callback(&prefix_state, arg);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+
+	for (ALL_LIST_ELEMENTS_RO(prefix->entries, node, route)) {
+		bool successor =
+			(route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG) != 0;
+		bool feasible =
+			(route->flags & EIGRP_ROUTE_DESCRIPTOR_FSUCCESSOR_FLAG) != 0;
+
+		if (route->reported_distance == EIGRP_MAX_METRIC)
+			continue;
+		if (!all_links && !successor && !feasible)
+			continue;
+
+		memset(&route_state, 0, sizeof(route_state));
+		route_state.connected = route->adv_router == runtime->neighbor_self;
+		route_state.successor = successor;
+		route_state.feasible_successor = feasible;
+		route_state.distance = route->distance;
+		route_state.reported_distance = route->reported_distance;
+		route_state.interface_name = route->ei ? eigrp_intf_name_string(route->ei)
+						       : NULL;
+		if (!route_state.connected)
+			eigrp_topology_route_next_hop_export(route, &route_state);
+
+		result = route_callback(&route_state, arg);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return result;
+	}
+
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_topology_state_walk(
+	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+	const eigrp_prefix_t *destination, bool all_links,
+	eigrp_topology_prefix_state_cb prefix_callback,
+	eigrp_topology_route_state_cb route_callback, void *arg)
+{
+	eigrp_prefix_descriptor_t *prefix;
+	struct route_node *node;
+	struct prefix lookup;
+	eigrp_result_t result;
+	bool matched = false;
+
+	if (!prefix_callback || !route_callback || (!config && !runtime))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!runtime) {
+		if (config && config->afi == EIGRP_ADDRESS_FAMILY_IPV6)
+			return EIGRP_RESULT_UNSUPPORTED;
+		return EIGRP_RESULT_NOT_FOUND;
+	}
+	if (!runtime->topology_table)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (destination) {
+		if (!eigrp_topology_prefix_import(destination, &lookup))
+			return EIGRP_RESULT_INVALID_ARGUMENT;
+		node = route_node_match(runtime->topology_table, &lookup);
+		if (!node)
+			return EIGRP_RESULT_NOT_FOUND;
+		prefix = node->info;
+		if (!prefix) {
+			route_unlock_node(node);
+			return EIGRP_RESULT_NOT_FOUND;
+		}
+		result = eigrp_topology_state_emit_prefix(runtime, prefix, all_links,
+							 prefix_callback, route_callback,
+							 arg);
+		route_unlock_node(node);
+		return result;
+	}
+
+	for (node = route_top(runtime->topology_table); node;
+	     node = route_next(node)) {
+		prefix = node->info;
+		if (!prefix)
+			continue;
+		result = eigrp_topology_state_emit_prefix(runtime, prefix, all_links,
+							 prefix_callback, route_callback,
+							 arg);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return result;
+		matched = true;
+	}
+
+	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
 
 static eigrp_result_t

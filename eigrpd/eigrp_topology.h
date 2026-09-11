@@ -26,6 +26,29 @@ typedef enum eigrp_default_information_direction {
 	EIGRP_DEFAULT_INFORMATION_OUT,
 } eigrp_default_information_direction_t;
 
+typedef struct eigrp_topology_prefix_state {
+	eigrp_prefix_t destination;
+	bool active;
+	uint32_t feasible_distance;
+	uint32_t successor_count;
+	uint64_t serial_number;
+} eigrp_topology_prefix_state_t;
+
+typedef struct eigrp_topology_route_state {
+	eigrp_address_t next_hop;
+	const char *interface_name;
+	bool connected;
+	bool successor;
+	bool feasible_successor;
+	uint32_t distance;
+	uint32_t reported_distance;
+} eigrp_topology_route_state_t;
+
+typedef eigrp_result_t (*eigrp_topology_prefix_state_cb)(
+	const eigrp_topology_prefix_state_t *state, void *arg);
+typedef eigrp_result_t (*eigrp_topology_route_state_cb)(
+	const eigrp_topology_route_state_t *state, void *arg);
+
 /* EIGRP Route Descriptor related functions. */
 extern eigrp_route_descriptor_t *eigrp_topology_route_create(eigrp_interface_t *);
 extern void eigrp_route_descriptor_add(eigrp_instance_t *,
@@ -73,6 +96,12 @@ extern void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp,
 extern void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
 					       struct route_table *table,
 					       eigrp_prefix_descriptor_t *pe);
+
+eigrp_result_t eigrp_topology_state_walk(
+	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+	const eigrp_prefix_t *destination, bool all_links,
+	eigrp_topology_prefix_state_cb prefix_callback,
+	eigrp_topology_route_state_cb route_callback, void *arg);
 
 /* Static inline functions */
 /* IPv4/IPv6 prefix and address management functions

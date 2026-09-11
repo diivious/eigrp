@@ -126,6 +126,97 @@ void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af)
 	af->neighbors = NULL;
 }
 
+static void eigrp_neighbor_runtime_address(const eigrp_neighbor_t *nbr,
+					   eigrp_address_t *address)
+{
+	memset(address, 0, sizeof(*address));
+	if (nbr->src.afi == AF_INET6) {
+		address->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		memcpy(address->bytes, &nbr->src.ip.v6, 16);
+		return;
+	}
+	address->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	memcpy(address->bytes, &nbr->src.ip.v4, 4);
+}
+
+eigrp_result_t eigrp_neighbor_state_walk(
+	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+	const char *interface_name, bool static_only,
+	eigrp_neighbor_state_walk_cb callback, void *arg)
+{
+	eigrp_neighbor_config_t *configured;
+	eigrp_interface_t *ei;
+	eigrp_neighbor_t *nbr;
+	struct listnode *if_node;
+	struct listnode *nbr_node;
+	eigrp_neighbor_state_t state;
+	eigrp_result_t result;
+	bool matched = false;
+
+	if (!callback || (!config && !runtime))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (static_only) {
+		if (!config)
+			return EIGRP_RESULT_NOT_FOUND;
+		for (configured = config->neighbors; configured;
+		     configured = configured->next) {
+			if (interface_name
+			    && strcmp(configured->interface_name, interface_name) != 0)
+				continue;
+			memset(&state, 0, sizeof(state));
+			state.address = configured->address;
+			state.interface_name = configured->interface_name;
+			state.state_name = "configured";
+			state.static_configured = true;
+			result = callback(&state, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+			matched = true;
+		}
+		return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
+	}
+
+	if (!runtime) {
+		if (config && config->afi == EIGRP_ADDRESS_FAMILY_IPV6)
+			return EIGRP_RESULT_UNSUPPORTED;
+		return EIGRP_RESULT_NOT_FOUND;
+	}
+
+	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+		const char *name = eigrp_intf_name_string(ei);
+
+		if (interface_name && strcmp(name, interface_name) != 0)
+			continue;
+		for (ALL_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+			/* Normal neighbor output contains established adjacencies only. */
+			if (nbr->state != EIGRP_NEIGHBOR_UP)
+				continue;
+			memset(&state, 0, sizeof(state));
+			eigrp_neighbor_runtime_address(nbr, &state.address);
+			state.interface_name = name;
+			state.state_name = eigrp_nbr_state_str(nbr);
+			state.runtime_present = true;
+			state.hold_time = nbr->v_holddown;
+			state.reliable_queue_count =
+				nbr->retrans_queue ? nbr->retrans_queue->count : 0;
+			state.sequence_number = nbr->recv_sequence_number;
+			state.retransmit_count = nbr->retrans_counter;
+			state.os_major = nbr->os_rel_major;
+			state.os_minor = nbr->os_rel_minor;
+			state.tlv_major = nbr->tlv_rel_major;
+			state.tlv_minor = nbr->tlv_rel_minor;
+			state.tlv_version = nbr->tlv_version;
+			result = callback(&state, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+			matched = true;
+		}
+	}
+
+	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
+}
+
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_NEIGHBOR, "EIGRP neighbor");
 
 

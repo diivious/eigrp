@@ -7,13 +7,10 @@
 
 #include "eigrp_event.h"
 
-eigrp_result_t eigrp_event_show(const eigrp_state_request_t *request)
+eigrp_result_t eigrp_event_show(const eigrp_instance_context_t *context)
 {
-	if (!request)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (request->afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    && request->afi != EIGRP_ADDRESS_FAMILY_IPV6)
-		return EIGRP_RESULT_UNSUPPORTED;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 

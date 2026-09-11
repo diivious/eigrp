@@ -40,6 +40,9 @@ typedef struct eigrp_instance_context {
 	eigrp_topology_id_t topology_id;
 } eigrp_instance_context_t;
 
+typedef eigrp_result_t (*eigrp_instance_address_family_walk_cb)(
+	const char *instance_name, eigrp_address_family_config_t *af, void *arg);
+
 eigrp_result_t eigrp_instance_parent_create(const char *name);
 eigrp_instance_parent_config_t *eigrp_instance_parent_read(const char *name);
 eigrp_result_t eigrp_instance_parent_delete(const char *name);
@@ -53,6 +56,9 @@ eigrp_address_family_config_t *eigrp_instance_address_family_read(
 eigrp_result_t eigrp_instance_address_family_delete(
 	const char *name, eigrp_address_family_t afi, const char *vrf_name,
 	uint16_t asn);
+eigrp_result_t eigrp_instance_address_family_walk(
+	const eigrp_state_request_t *request,
+	eigrp_instance_address_family_walk_cb callback, void *arg);
 
 eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
 					       uint32_t router_id);

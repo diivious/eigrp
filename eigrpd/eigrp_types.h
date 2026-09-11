@@ -91,6 +91,7 @@ typedef struct eigrp_state_request {
 	eigrp_address_family_t afi;
 	const char *vrf_name;
 	uint16_t asn; /* zero means all configured AS contexts */
+	bool all_vrfs; /* otherwise a NULL VRF name means the default VRF */
 } eigrp_state_request_t;
 
 // basic packet processor definitions
