@@ -16,6 +16,8 @@
 
 #include "lib/table.h"
 #include "lib/sockopt.h"
+#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_types.h"
 
 /* Static inline functions */
 /* IPv4/IPv6 prefix and address management functions
@@ -52,6 +54,12 @@ eigrp_print_ifname(struct eigrp_interface *ei)
 extern int eigrp_sock_init(struct vrf *vrf);
 extern int eigrp_network_set(eigrp_instance_t *eigrp, struct prefix *p);
 extern int eigrp_network_unset(eigrp_instance_t *eigrp, struct prefix *p);
+
+eigrp_result_t eigrp_network_create(eigrp_address_family_config_t *af,
+				    const eigrp_prefix_t *prefix);
+eigrp_result_t eigrp_network_delete(eigrp_address_family_config_t *af,
+				    const eigrp_prefix_t *prefix);
+void eigrp_network_config_delete_all(eigrp_address_family_config_t *af);
 
 extern void eigrp_adjust_sndbuflen(eigrp_instance_t *, unsigned int);
 

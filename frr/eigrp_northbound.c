@@ -10,7 +10,16 @@
 #include "eigrp_structs.h"
 #include "eigrp_interface.h"
 #include "eigrp_network.h"
-#include "eigrp_named.h"
+#include "eigrp_neighbor.h"
+#include "eigrpd/eigrp_auth.h"
+#include "eigrpd/eigrp_filter.h"
+#include "eigrpd/eigrp_event.h"
+#include "eigrpd/eigrp_instance.h"
+#include "eigrpd/eigrp_metric.h"
+#include "eigrpd/eigrp_redistribute.h"
+#include "eigrpd/eigrp_summary.h"
+#include "eigrpd/eigrp_timer.h"
+#include "eigrpd/eigrp_topology.h"
 #include "eigrp_zebra.h"
 #include "eigrp_cli.h"
 
@@ -20,6 +29,9 @@
 #include "lib/zclient.h"
 
 /* Helper functions. */
+static int eigrpd_named_config_result(eigrp_result_t result, bool removing);
+static void eigrpd_named_prefix_limit_get(const struct lyd_node *dnode,
+                                          eigrp_prefix_limit_t *limit);
 static void redistribute_get_metrics(const struct lyd_node *dnode,
 				     eigrp_metrics_t *em)
 {
@@ -69,7 +81,7 @@ static int eigrpd_named_create(struct nb_cb_create_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_named_process_create(
+		result = eigrp_instance_parent_create(
 			yang_dnode_get_string(args->dnode, "name"));
 		if (result != EIGRP_RESULT_SUCCESS)
 			return NB_ERR_INCONSISTENCY;
@@ -88,7 +100,7 @@ static int eigrpd_named_destroy(struct nb_cb_destroy_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_named_process_delete(
+		result = eigrp_instance_parent_delete(
 			yang_dnode_get_string(args->dnode, "name"));
 		if (result != EIGRP_RESULT_SUCCESS
 		    && result != EIGRP_RESULT_NOT_FOUND)
@@ -119,7 +131,7 @@ eigrpd_named_address_family_create(struct nb_cb_create_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_named_address_family_create(
+		result = eigrp_instance_address_family_create(
 			yang_dnode_get_string(args->dnode, "../name"),
 			eigrpd_named_address_family_afi(args->dnode),
 			yang_dnode_get_string(args->dnode, "vrf"),
@@ -142,7 +154,7 @@ eigrpd_named_address_family_destroy(struct nb_cb_destroy_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_named_address_family_delete(
+		result = eigrp_instance_address_family_delete(
 			yang_dnode_get_string(args->dnode, "../name"),
 			eigrpd_named_address_family_afi(args->dnode),
 			yang_dnode_get_string(args->dnode, "vrf"),
@@ -181,9 +193,44 @@ static bool eigrpd_named_child_context(const struct lyd_node *dnode,
 	return *name && *vrf && *asn != 0;
 }
 
+static eigrp_address_family_config_t *eigrpd_named_address_family_config_read(
+	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn)
+{
+	return eigrp_instance_address_family_read(name, afi, vrf, asn);
+}
+
+static bool eigrpd_named_instance_context_resolve(
+	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn,
+	eigrp_instance_context_t *context)
+{
+	if (!context)
+		return false;
+	memset(context, 0, sizeof(*context));
+	context->config =
+		eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	context->topology_id = EIGRP_TOPOLOGY_ID_BASE;
+	return context->config != NULL;
+}
+
+static bool eigrpd_named_interface_context_resolve(
+	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn,
+	const char *interface_name, eigrp_interface_context_t *context)
+{
+	eigrp_address_family_config_t *af;
+
+	if (!context)
+		return false;
+	memset(context, 0, sizeof(*context));
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	if (!af)
+		return false;
+	context->config = eigrp_interface_config_read(af, interface_name);
+	return context->config != NULL;
+}
+
 static bool eigrpd_named_address_parse(const char *text,
 				       eigrp_address_family_t afi,
-				       eigrp_named_address_t *address)
+				       eigrp_address_t *address)
 {
 	int family;
 
@@ -197,7 +244,7 @@ static bool eigrpd_named_address_parse(const char *text,
 }
 
 static bool eigrpd_named_prefix_parse(const char *text,
-				      eigrp_named_prefix_t *prefix)
+				      eigrp_prefix_t *prefix)
 {
 	char address[INET_ADDRSTRLEN];
 	const char *slash;
@@ -233,14 +280,17 @@ static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
 	const char *vrf;
 	const char *router_id;
 	eigrp_address_family_t afi;
-	eigrp_named_address_t address;
+	eigrp_address_t address;
+	eigrp_instance_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 	uint32_t value;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 
 	router_id = yang_dnode_get_string(args->dnode, NULL);
@@ -249,7 +299,7 @@ static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
 		return NB_ERR_INCONSISTENCY;
 	memcpy(&value, address.bytes, sizeof(value));
 	value = ntohl(value);
-	result = eigrp_named_router_id_set(name, afi, vrf, asn, value);
+	result = eigrp_instance_router_id_update(&context, value);
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
@@ -258,14 +308,17 @@ static int eigrpd_named_router_id_destroy(struct nb_cb_destroy_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_router_id_clear(name, afi, vrf, asn);
+	result = eigrp_instance_router_id_delete(&context);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -276,7 +329,8 @@ static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
-	eigrp_named_prefix_t prefix;
+	eigrp_address_family_config_t *af;
+	eigrp_prefix_t prefix;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -287,7 +341,10 @@ static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 	    || !eigrpd_named_prefix_parse(yang_dnode_get_string(args->dnode, NULL),
 					 &prefix))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_network_add(name, afi, vrf, asn, &prefix);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	if (!af)
+		return NB_ERR_INCONSISTENCY;
+	result = eigrp_network_create(af, &prefix);
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
@@ -296,7 +353,8 @@ static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
-	eigrp_named_prefix_t prefix;
+	eigrp_address_family_config_t *af;
+	eigrp_prefix_t prefix;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -306,7 +364,10 @@ static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 	    || !eigrpd_named_prefix_parse(yang_dnode_get_string(args->dnode, NULL),
 					 &prefix))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_network_remove(name, afi, vrf, asn, &prefix);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	if (!af)
+		return NB_OK;
+	result = eigrp_network_delete(af, &prefix);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -318,7 +379,8 @@ static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_address_family_t afi;
-	eigrp_named_address_t address;
+	eigrp_address_family_config_t *af;
+	eigrp_address_t address;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -329,9 +391,11 @@ static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
 	if (!eigrpd_named_address_parse(
 		    yang_dnode_get_string(args->dnode, "address"), afi, &address))
 		return NB_ERR_INCONSISTENCY;
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	if (!af)
+		return NB_ERR_INCONSISTENCY;
 	interface_name = yang_dnode_get_string(args->dnode, "interface");
-	result = eigrp_named_neighbor_add(name, afi, vrf, asn, &address,
-					  interface_name);
+	result = eigrp_neighbor_static_create(af, &address, interface_name);
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
@@ -341,7 +405,8 @@ static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_address_family_t afi;
-	eigrp_named_address_t address;
+	eigrp_address_family_config_t *af;
+	eigrp_address_t address;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -352,9 +417,11 @@ static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
 	if (!eigrpd_named_address_parse(
 		    yang_dnode_get_string(args->dnode, "address"), afi, &address))
 		return NB_ERR_INCONSISTENCY;
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	if (!af)
+		return NB_OK;
 	interface_name = yang_dnode_get_string(args->dnode, "interface");
-	result = eigrp_named_neighbor_remove(name, afi, vrf, asn, &address,
-					     interface_name);
+	result = eigrp_neighbor_static_delete(af, &address, interface_name);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -365,6 +432,7 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
+	eigrp_address_family_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -372,7 +440,8 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 		return NB_OK;
 	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_address_family_shutdown_set(name, afi, vrf, asn, true);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	result = eigrp_instance_address_family_shutdown_update(af, true);
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
@@ -381,6 +450,7 @@ static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
+	eigrp_address_family_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -388,7 +458,8 @@ static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 		return NB_OK;
 	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_address_family_shutdown_set(name, afi, vrf, asn, false);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	result = eigrp_instance_address_family_shutdown_update(af, false);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -429,6 +500,7 @@ static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_address_family_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -438,8 +510,8 @@ static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
 						 &vrf, &asn,
 						 &interface_name))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_create(name, afi, vrf, asn,
-						 interface_name);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	result = eigrp_interface_config_create(af, interface_name);
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
@@ -449,6 +521,7 @@ static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_address_family_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -458,18 +531,20 @@ static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 						 &vrf, &asn,
 						 &interface_name))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_delete(name, afi, vrf, asn,
-						 interface_name);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	if (!af)
+		return NB_OK;
+	result = eigrp_interface_config_delete(af, interface_name);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
 }
 
-static int eigrpd_named_af_interface_bandwidth_modify(
-	struct nb_cb_modify_args *args)
+static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -477,19 +552,21 @@ static int eigrpd_named_af_interface_bandwidth_modify(
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_bandwidth_percent_set(
-		name, afi, vrf, asn, interface_name,
-		yang_dnode_get_uint32(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_bandwidth_percent_update(&context, yang_dnode_get_uint32(args->dnode, NULL));
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
-static int eigrpd_named_af_interface_bandwidth_destroy(
-	struct nb_cb_destroy_args *args)
+static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -497,10 +574,11 @@ static int eigrpd_named_af_interface_bandwidth_destroy(
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_bandwidth_percent_clear(
-		name, afi, vrf, asn, interface_name);
+	result = eigrp_interface_bandwidth_percent_delete(&context);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -510,6 +588,7 @@ static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -517,18 +596,21 @@ static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_hello_interval_set(
-		name, afi, vrf, asn, interface_name,
-		yang_dnode_get_uint16(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_hello_interval_update(&context, yang_dnode_get_uint16(args->dnode, NULL));
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
 static int eigrpd_named_af_interface_hello_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -536,10 +618,11 @@ static int eigrpd_named_af_interface_hello_destroy(struct nb_cb_destroy_args *ar
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_hello_interval_clear(
-		name, afi, vrf, asn, interface_name);
+	result = eigrp_interface_hello_interval_delete(&context);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -549,6 +632,7 @@ static int eigrpd_named_af_interface_hold_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -556,18 +640,21 @@ static int eigrpd_named_af_interface_hold_modify(struct nb_cb_modify_args *args)
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_hold_time_set(
-		name, afi, vrf, asn, interface_name,
-		yang_dnode_get_uint16(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_hold_time_update(&context, yang_dnode_get_uint16(args->dnode, NULL));
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
 static int eigrpd_named_af_interface_hold_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -575,10 +662,11 @@ static int eigrpd_named_af_interface_hold_destroy(struct nb_cb_destroy_args *arg
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_hold_time_clear(
-		name, afi, vrf, asn, interface_name);
+	result = eigrp_interface_hold_time_delete(&context);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -588,6 +676,7 @@ static int eigrpd_named_af_interface_passive_create(struct nb_cb_create_args *ar
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -595,17 +684,21 @@ static int eigrpd_named_af_interface_passive_create(struct nb_cb_create_args *ar
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_passive_set(name, afi, vrf, asn,
-						      interface_name, true);
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_passive_update(&context, true);
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
 static int eigrpd_named_af_interface_passive_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -613,48 +706,87 @@ static int eigrpd_named_af_interface_passive_destroy(struct nb_cb_destroy_args *
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_passive_set(name, afi, vrf, asn,
-						      interface_name, false);
+	result = eigrp_interface_passive_update(&context, false);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
 }
 
-static int eigrpd_named_af_interface_authentication_modify(
-	struct nb_cb_modify_args *args)
+static int eigrpd_named_af_interface_authentication_apply(
+    const struct lyd_node *interface_dnode)
 {
-	const char *name, *vrf, *interface_name;
-	const char *mode_text;
-	eigrp_address_family_t afi;
-	eigrp_named_authentication_mode_t mode;
-	eigrp_result_t result;
-	uint16_t asn;
+    const char *name, *vrf, *interface_name, *mode_text;
+    eigrp_address_family_t afi;
+    eigrp_authentication_mode_t mode;
+    eigrp_auth_hmac_config_t hmac = {0};
+    const eigrp_auth_hmac_config_t *hmac_ptr = NULL;
+    eigrp_interface_context_t context;
+    uint16_t asn;
 
-	if (args->event != NB_EV_APPLY)
-		return NB_OK;
-	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
-						 &vrf, &asn,
-						 &interface_name))
-		return NB_ERR_INCONSISTENCY;
-	mode_text = yang_dnode_get_string(args->dnode, NULL);
-	if (strcmp(mode_text, "md5") == 0)
-		mode = EIGRP_NAMED_AUTHENTICATION_MD5;
-	else if (strcmp(mode_text, "hmac-sha-256") == 0)
-		mode = EIGRP_NAMED_AUTHENTICATION_HMAC_SHA256;
-	else
-		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_authentication_mode_set(
-		name, afi, vrf, asn, interface_name, mode);
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+    if (!yang_dnode_exists(interface_dnode, "authentication-mode"))
+        return NB_OK;
+    if (!eigrpd_named_af_interface_context(interface_dnode, false, &name, &afi,
+                                            &vrf, &asn, &interface_name)
+        || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+                                                    interface_name, &context))
+        return NB_ERR_INCONSISTENCY;
+    mode_text = yang_dnode_get_string(interface_dnode, "authentication-mode");
+    if (strcmp(mode_text, "md5") == 0)
+        mode = EIGRP_AUTHENTICATION_MD5;
+    else if (strcmp(mode_text, "hmac-sha-256") == 0) {
+        mode = EIGRP_AUTHENTICATION_HMAC_SHA256;
+        if (!yang_dnode_exists(interface_dnode, "authentication-encryption-type")
+            || !yang_dnode_exists(interface_dnode, "authentication-password"))
+            return NB_ERR_INCONSISTENCY;
+        hmac.encryption_type = yang_dnode_get_uint8(
+            interface_dnode, "authentication-encryption-type");
+        hmac.password = yang_dnode_get_string(interface_dnode,
+                                               "authentication-password");
+        hmac_ptr = &hmac;
+    } else
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(
+        eigrp_auth_mode_update(&context, mode, hmac_ptr), false);
 }
 
-static int eigrpd_named_af_interface_authentication_destroy(
+static int eigrpd_named_af_interface_authentication_modify(
+    struct nb_cb_modify_args *args)
+{
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_af_interface_authentication_apply(
+                     lyd_parent(args->dnode))
+               : NB_OK;
+}
+
+static int eigrpd_named_af_interface_authentication_detail_modify(
+    struct nb_cb_modify_args *args)
+{
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_af_interface_authentication_apply(
+                     lyd_parent(args->dnode))
+               : NB_OK;
+}
+
+static int eigrpd_named_af_interface_authentication_detail_destroy(
 	struct nb_cb_destroy_args *args)
+{
+	/* The mode callback owns the portable authentication object.  The detail
+	 * leaves are removed in the same transaction when HMAC is changed or
+	 * disabled; their individual destroy callbacks exist to satisfy FRR's
+	 * optional-leaf callback contract. */
+	(void)args;
+	return NB_OK;
+}
+
+static int eigrpd_named_af_interface_authentication_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -662,10 +794,11 @@ static int eigrpd_named_af_interface_authentication_destroy(
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_authentication_mode_clear(
-		name, afi, vrf, asn, interface_name);
+	result = eigrp_auth_mode_delete(&context);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -675,6 +808,7 @@ static int eigrpd_named_af_interface_keychain_modify(struct nb_cb_modify_args *a
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -682,18 +816,21 @@ static int eigrpd_named_af_interface_keychain_modify(struct nb_cb_modify_args *a
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_keychain_set(
-		name, afi, vrf, asn, interface_name,
-		yang_dnode_get_string(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_auth_keychain_update(&context, yang_dnode_get_string(args->dnode, NULL));
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
 static int eigrpd_named_af_interface_keychain_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -701,10 +838,11 @@ static int eigrpd_named_af_interface_keychain_destroy(struct nb_cb_destroy_args 
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_keychain_clear(name, afi, vrf, asn,
-							 interface_name);
+	result = eigrp_auth_keychain_delete(&context);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -714,49 +852,7 @@ static int eigrpd_named_af_interface_next_hop_modify(struct nb_cb_modify_args *a
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
-	eigrp_result_t result;
-	uint16_t asn;
-
-	if (args->event != NB_EV_APPLY)
-		return NB_OK;
-	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
-						 &vrf, &asn,
-						 &interface_name))
-		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_next_hop_self_set(
-		name, afi, vrf, asn, interface_name,
-		yang_dnode_get_bool(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
-}
-
-
-static int eigrpd_named_af_interface_split_horizon_modify(
-	struct nb_cb_modify_args *args)
-{
-	const char *name, *vrf, *interface_name;
-	eigrp_address_family_t afi;
-	eigrp_result_t result;
-	uint16_t asn;
-
-	if (args->event != NB_EV_APPLY)
-		return NB_OK;
-	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
-						 &vrf, &asn,
-						 &interface_name))
-		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_split_horizon_set(
-		name, afi, vrf, asn, interface_name,
-		yang_dnode_get_bool(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
-}
-
-
-static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *args)
-{
-	const char *name, *vrf, *interface_name;
-	eigrp_address_family_t afi;
-	eigrp_named_address_t address;
-	eigrp_named_address_t mask;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -765,31 +861,121 @@ static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *ar
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
 						 &interface_name)
-	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || !eigrpd_named_address_parse(
-		    yang_dnode_get_string(args->dnode, "address"), afi, &address)
-	    || !eigrpd_named_address_parse(
-		    yang_dnode_get_string(args->dnode, "mask"), afi, &mask))
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_summary_add(name, afi, vrf, asn,
-						      interface_name, &address, &mask);
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_next_hop_self_update(&context, yang_dnode_get_bool(args->dnode, NULL));
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
+}
+
+
+static int eigrpd_named_af_interface_split_horizon_modify(struct nb_cb_modify_args *args)
+{
+	const char *name, *vrf, *interface_name;
+	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
+	eigrp_result_t result;
+	uint16_t asn;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
+						 &vrf, &asn,
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
+		return NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_split_horizon_update(&context, yang_dnode_get_bool(args->dnode, NULL));
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
+}
+
+
+static int eigrpd_named_af_interface_summary_apply_options(
+	const struct lyd_node *dnode, bool omit_distance, bool omit_leak_map)
+{
+	const char *name, *vrf, *interface_name;
+	eigrp_address_family_t afi;
+	eigrp_address_t address, mask;
+	eigrp_interface_context_t context;
+	eigrp_summary_options_t options = {0};
+	uint16_t asn;
+
+	if (!eigrpd_named_af_interface_context(dnode, true, &name, &afi,
+						    &vrf, &asn, &interface_name)
+	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context)
+	    || !eigrpd_named_address_parse(yang_dnode_get_string(dnode, "address"),
+					      afi, &address)
+	    || !eigrpd_named_address_parse(yang_dnode_get_string(dnode, "mask"),
+					      afi, &mask))
+		return NB_ERR_INCONSISTENCY;
+	if (!omit_distance && yang_dnode_exists(dnode, "administrative-distance"))
+		options.administrative_distance =
+			yang_dnode_get_uint8(dnode, "administrative-distance");
+	if (!omit_leak_map && yang_dnode_exists(dnode, "leak-map"))
+		options.leak_map = yang_dnode_get_string(dnode, "leak-map");
+	return eigrpd_named_config_result(
+		eigrp_summary_create(&context, &address, &mask, &options), false);
+}
+
+static int eigrpd_named_af_interface_summary_apply(const struct lyd_node *dnode)
+{
+	return eigrpd_named_af_interface_summary_apply_options(dnode, false, false);
+}
+
+static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *args)
+{
+	return args->event == NB_EV_APPLY
+		       ? eigrpd_named_af_interface_summary_apply(args->dnode)
+		       : NB_OK;
+}
+
+static int eigrpd_named_af_interface_summary_modify(struct nb_cb_modify_args *args)
+{
+	return args->event == NB_EV_APPLY
+		       ? eigrpd_named_af_interface_summary_apply(lyd_parent(args->dnode))
+		       : NB_OK;
+}
+
+static int eigrpd_named_af_interface_summary_detail_destroy(
+	struct nb_cb_destroy_args *args)
+{
+	const char *detail;
+	bool omit_distance;
+	bool omit_leak_map;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	detail = args->dnode->schema->name;
+	omit_distance = strcmp(detail, "administrative-distance") == 0;
+	omit_leak_map = strcmp(detail, "leak-map") == 0;
+	if (!omit_distance && !omit_leak_map)
+		return NB_ERR_INCONSISTENCY;
+	return eigrpd_named_af_interface_summary_apply_options(
+		lyd_parent(args->dnode), omit_distance, omit_leak_map);
 }
 
 static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
-	eigrp_named_address_t address;
-	eigrp_named_address_t mask;
+	eigrp_address_t address;
+	eigrp_address_t mask;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
-						 &vrf, &asn,
-						 &interface_name)
+						 &vrf, &asn, &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context)
 	    || !eigrpd_named_address_parse(
 		    yang_dnode_get_string(args->dnode, "address"),
 		    EIGRP_ADDRESS_FAMILY_IPV4, &address)
@@ -797,8 +983,7 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
 		    yang_dnode_get_string(args->dnode, "mask"),
 		    EIGRP_ADDRESS_FAMILY_IPV4, &mask))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_summary_remove(name, afi, vrf, asn,
-							 interface_name, &address, &mask);
+	result = eigrp_summary_delete(&context, &address, &mask);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
@@ -808,6 +993,7 @@ static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *a
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -815,17 +1001,21 @@ static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *a
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_shutdown_set(name, afi, vrf, asn,
-						       interface_name, true);
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_shutdown_update(&context, true);
+	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
 static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -833,15 +1023,205 @@ static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args 
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn,
-						 &interface_name))
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_af_interface_shutdown_set(name, afi, vrf, asn,
-						       interface_name, false);
+	result = eigrp_interface_shutdown_update(&context, false);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
 }
 
+
+static int eigrpd_named_neighbor_policy_create(struct nb_cb_create_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static int eigrpd_named_neighbor_policy_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static int eigrpd_named_neighbor_description_modify(struct nb_cb_modify_args *args)
+{
+    const struct lyd_node *policy = lyd_parent(args->dnode);
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_address_t address;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_child_context(policy, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)
+        || !eigrpd_named_address_parse(yang_dnode_get_string(policy, "address"), afi, &address))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_description_update(
+        &context, &address, yang_dnode_get_string(args->dnode, NULL)), false);
+}
+
+static int eigrpd_named_neighbor_description_destroy(struct nb_cb_destroy_args *args)
+{
+    const struct lyd_node *policy = lyd_parent(args->dnode);
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_address_t address;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_child_context(policy, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)
+        || !eigrpd_named_address_parse(yang_dnode_get_string(policy, "address"), afi, &address))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_description_delete(&context, &address), true);
+}
+
+static int eigrpd_named_neighbor_prefix_limit_apply(const struct lyd_node *dnode)
+{
+    const struct lyd_node *policy = lyd_parent(dnode);
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_address_t address;
+    eigrp_prefix_limit_t limit;
+    uint16_t asn;
+    if (!eigrpd_named_child_context(policy, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)
+        || !eigrpd_named_address_parse(yang_dnode_get_string(policy, "address"), afi, &address))
+        return NB_ERR_INCONSISTENCY;
+    eigrpd_named_prefix_limit_get(dnode, &limit);
+    return eigrpd_named_config_result(eigrp_neighbor_maximum_prefix_update(
+        &context, &address, &limit), false);
+}
+
+static int eigrpd_named_neighbor_prefix_limit_create(struct nb_cb_create_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_apply(args->dnode) : NB_OK; }
+static int eigrpd_named_neighbor_prefix_limit_modify(struct nb_cb_modify_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_apply(lyd_parent(args->dnode)) : NB_OK; }
+static int eigrpd_named_neighbor_prefix_limit_empty_create(struct nb_cb_create_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static int eigrpd_named_neighbor_prefix_limit_detail_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static void eigrpd_named_neighbor_prefix_limit_apply_finish(struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_neighbor_prefix_limit_apply(args->dnode);
+}
+static int eigrpd_named_neighbor_prefix_limit_destroy(struct nb_cb_destroy_args *args)
+{
+    const struct lyd_node *policy = lyd_parent(args->dnode);
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_address_t address;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_child_context(policy, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)
+        || !eigrpd_named_address_parse(yang_dnode_get_string(policy, "address"), afi, &address))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_maximum_prefix_delete(&context, &address), true);
+}
+
+static int eigrpd_named_neighbor_prefix_limit_all_apply(const struct lyd_node *dnode)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit;
+    uint16_t asn;
+    if (!eigrpd_named_child_context(dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    eigrpd_named_prefix_limit_get(dnode, &limit);
+    return eigrpd_named_config_result(eigrp_neighbor_maximum_prefix_all_update(&context, &limit), false);
+}
+static int eigrpd_named_neighbor_prefix_limit_all_create(struct nb_cb_create_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_all_apply(args->dnode) : NB_OK; }
+static int eigrpd_named_neighbor_prefix_limit_all_modify(struct nb_cb_modify_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_all_apply(lyd_parent(args->dnode)) : NB_OK; }
+static int eigrpd_named_neighbor_prefix_limit_all_empty_create(struct nb_cb_create_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static int eigrpd_named_neighbor_prefix_limit_all_detail_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static void eigrpd_named_neighbor_prefix_limit_all_apply_finish(struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_neighbor_prefix_limit_all_apply(args->dnode);
+}
+static int eigrpd_named_neighbor_prefix_limit_all_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_maximum_prefix_all_delete(&context), true);
+}
+
+static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *args)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_log_changes_update(
+        &context, yang_dnode_get_bool(args->dnode, NULL)), false);
+}
+static int eigrpd_named_log_neighbor_changes_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_log_changes_update(&context, true), true);
+}
+
+static int eigrpd_named_log_neighbor_warnings_apply(const struct lyd_node *dnode)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    bool enabled; uint16_t seconds = 10;
+    if (!eigrpd_named_child_context(dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    enabled = yang_dnode_get_bool(dnode, "enabled");
+    if (yang_dnode_exists(dnode, "interval")) seconds = yang_dnode_get_uint16(dnode, "interval");
+    return eigrpd_named_config_result(eigrp_neighbor_log_warnings_update(&context, enabled, seconds), false);
+}
+static int eigrpd_named_log_neighbor_warnings_create(struct nb_cb_create_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_log_neighbor_warnings_apply(args->dnode) : NB_OK; }
+static int eigrpd_named_log_neighbor_warnings_modify(struct nb_cb_modify_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_log_neighbor_warnings_apply(lyd_parent(args->dnode)) : NB_OK; }
+static int eigrpd_named_log_neighbor_warnings_interval_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static void eigrpd_named_log_neighbor_warnings_apply_finish(struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_log_neighbor_warnings_apply(args->dnode);
+}
+static int eigrpd_named_log_neighbor_warnings_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_neighbor_log_warnings_delete(&context), true);
+}
 
 static int eigrpd_named_config_result(eigrp_result_t result, bool removing)
 {
@@ -872,7 +1252,7 @@ static bool eigrpd_named_topology_child_context(
 
 static void eigrpd_named_metric_values_get(const struct lyd_node *dnode,
 					   const char *prefix,
-					   eigrp_named_metric_values_t *metric)
+					   eigrp_metric_values_t *metric)
 {
 	memset(metric, 0, sizeof(*metric));
 
@@ -897,8 +1277,25 @@ static void eigrpd_named_metric_values_get(const struct lyd_node *dnode,
 	metric->mtu = yang_dnode_get_uint16(dnode, "mtu");
 }
 
+static void eigrpd_named_prefix_limit_get(const struct lyd_node *dnode,
+                                           eigrp_prefix_limit_t *limit)
+{
+    memset(limit, 0, sizeof(*limit));
+    limit->maximum = yang_dnode_get_uint32(dnode, "maximum");
+    if (yang_dnode_exists(dnode, "threshold"))
+        limit->threshold = yang_dnode_get_uint8(dnode, "threshold");
+    limit->warning_only = yang_dnode_exists(dnode, "warning-only");
+    limit->dampened = yang_dnode_exists(dnode, "dampened");
+    if (yang_dnode_exists(dnode, "reset-time"))
+        limit->reset_time_minutes = yang_dnode_get_uint16(dnode, "reset-time");
+    if (yang_dnode_exists(dnode, "restart"))
+        limit->restart_minutes = yang_dnode_get_uint16(dnode, "restart");
+    if (yang_dnode_exists(dnode, "restart-count"))
+        limit->restart_count = yang_dnode_get_uint16(dnode, "restart-count");
+}
+
 static bool eigrpd_named_summary_prefix_get(const struct lyd_node *dnode,
-					     eigrp_named_prefix_t *prefix)
+					     eigrp_prefix_t *prefix)
 {
 	struct in_addr address;
 	struct in_addr mask;
@@ -932,60 +1329,64 @@ static int eigrpd_named_topology_create(struct nb_cb_create_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
-	eigrp_result_t result;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_topology_base_create(name, afi, vrf, asn);
-	return eigrpd_named_config_result(result, false);
+	return eigrpd_named_config_result(eigrp_topology_create(&context), false);
 }
 
 static int eigrpd_named_topology_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
-	eigrp_result_t result;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_named_topology_base_delete(name, afi, vrf, asn);
-	return eigrpd_named_config_result(result, true);
+	return eigrpd_named_config_result(eigrp_topology_delete(&context), true);
 }
 
 static int eigrpd_named_auto_summary_create(struct nb_cb_create_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_auto_summary_set(name, afi, vrf, asn, true), false);
+	return eigrpd_named_config_result(eigrp_summary_auto_update(&context, true), false);
 }
 
 static int eigrpd_named_auto_summary_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_auto_summary_set(name, afi, vrf, asn, false), true);
+	return eigrpd_named_config_result(eigrp_summary_auto_update(&context, false), true);
 }
 
 static int eigrpd_named_default_information_apply(const struct lyd_node *dnode,
@@ -993,16 +1394,22 @@ static int eigrpd_named_default_information_apply(const struct lyd_node *dnode,
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	return eigrpd_named_config_result(
-		eigrp_named_default_information_set(
-			name, afi, vrf, asn,
-			inbound ? EIGRP_NAMED_DEFAULT_INFORMATION_IN
-				: EIGRP_NAMED_DEFAULT_INFORMATION_OUT,
-			enabled),
+		eigrp_topology_default_information_update(
+			&context,
+			inbound ? EIGRP_DEFAULT_INFORMATION_IN
+				: EIGRP_DEFAULT_INFORMATION_OUT,
+			enabled,
+			yang_dnode_exists(dnode, "access-list")
+				? yang_dnode_get_string(dnode, "access-list")
+				: NULL),
 		!enabled);
 }
 
@@ -1038,18 +1445,54 @@ static int eigrpd_named_default_information_out_destroy(
 		       : NB_OK;
 }
 
+static int eigrpd_named_default_information_in_modify(struct nb_cb_modify_args *args)
+{
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_default_information_apply(lyd_parent(args->dnode), true, true)
+               : NB_OK;
+}
+
+static int eigrpd_named_default_information_out_modify(struct nb_cb_modify_args *args)
+{
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_default_information_apply(lyd_parent(args->dnode), false, true)
+               : NB_OK;
+}
+
+static int eigrpd_named_default_information_access_list_destroy(
+	struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static void eigrpd_named_default_information_in_apply_finish(
+	struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_default_information_apply(args->dnode, true, true);
+}
+
+static void eigrpd_named_default_information_out_apply_finish(
+	struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_default_information_apply(args->dnode, false, true);
+}
+
 static int eigrpd_named_default_metric_apply(const struct lyd_node *dnode)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
-	eigrp_named_metric_values_t metric;
+	eigrp_instance_context_t context;
+	eigrp_metric_values_t metric;
 	uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	eigrpd_named_metric_values_get(dnode, "", &metric);
 	return eigrpd_named_config_result(
-		eigrp_named_default_metric_set(name, afi, vrf, asn, &metric), false);
+		eigrp_metric_default_update(&context, &metric), false);
 }
 
 static int eigrpd_named_default_metric_create(struct nb_cb_create_args *args)
@@ -1070,28 +1513,31 @@ static int eigrpd_named_default_metric_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_default_metric_clear(name, afi, vrf, asn), true);
+	return eigrpd_named_config_result(eigrp_metric_default_delete(&context), true);
 }
 
 static int eigrpd_named_distance_apply(const struct lyd_node *dnode)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_address_family_config_t *af;
 	uint16_t asn;
 
 	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
 		return NB_ERR_INCONSISTENCY;
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
 	return eigrpd_named_config_result(
-		eigrp_named_distance_set(name, afi, vrf, asn,
-			yang_dnode_get_uint8(dnode, "internal"),
+		eigrp_instance_distance_update(
+			af, yang_dnode_get_uint8(dnode, "internal"),
 			yang_dnode_get_uint8(dnode, "external")),
 		false);
 }
@@ -1114,6 +1560,7 @@ static int eigrpd_named_distance_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_address_family_config_t *af;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
@@ -1121,50 +1568,197 @@ static int eigrpd_named_distance_destroy(struct nb_cb_destroy_args *args)
 	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
 						  &asn))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_distance_clear(name, afi, vrf, asn), true);
+	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	return eigrpd_named_config_result(eigrp_instance_distance_delete(af), true);
+}
+
+static int eigrpd_named_maximum_prefix_apply(const struct lyd_node *dnode)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit;
+    uint16_t asn;
+
+    if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    eigrpd_named_prefix_limit_get(dnode, &limit);
+    return eigrpd_named_config_result(
+        eigrp_topology_maximum_prefix_update(&context, &limit), false);
+}
+
+static int eigrpd_named_maximum_prefix_create(struct nb_cb_create_args *args)
+{
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_maximum_prefix_apply(args->dnode) : NB_OK;
 }
 
 static int eigrpd_named_maximum_prefix_modify(struct nb_cb_modify_args *args)
 {
-	const char *name, *vrf;
-	eigrp_address_family_t afi;
-	uint16_t asn;
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_maximum_prefix_apply(lyd_parent(args->dnode)) : NB_OK;
+}
 
-	if (args->event != NB_EV_APPLY)
-		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
-		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_maximum_prefix_set(
-			name, afi, vrf, asn, yang_dnode_get_uint32(args->dnode, NULL)),
-		false);
+static int eigrpd_named_maximum_prefix_empty_create(struct nb_cb_create_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static int eigrpd_named_maximum_prefix_detail_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static void eigrpd_named_maximum_prefix_apply_finish(struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_maximum_prefix_apply(args->dnode);
 }
 
 static int eigrpd_named_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
 {
-	const char *name, *vrf;
-	eigrp_address_family_t afi;
-	uint16_t asn;
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
 
-	if (args->event != NB_EV_APPLY)
-		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
-		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_maximum_prefix_clear(name, afi, vrf, asn), true);
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(
+        eigrp_topology_maximum_prefix_delete(&context), true);
+}
+
+static int eigrpd_named_maximum_paths_modify(struct nb_cb_modify_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_topology_maximum_paths_update(
+        &context, yang_dnode_get_uint8(args->dnode, NULL)), false);
+}
+
+static int eigrpd_named_maximum_paths_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_topology_maximum_paths_delete(&context), true);
+}
+
+static int eigrpd_named_metric_maximum_hops_modify(struct nb_cb_modify_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_metric_maximum_hops_update(
+        &context, yang_dnode_get_uint8(args->dnode, NULL)), false);
+}
+
+static int eigrpd_named_metric_maximum_hops_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_metric_maximum_hops_delete(&context), true);
+}
+
+static int eigrpd_named_metric_holddown_create(struct nb_cb_create_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_metric_holddown_update(&context, true), false);
+}
+
+static int eigrpd_named_metric_holddown_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_metric_holddown_delete(&context), true);
+}
+
+static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_event_log_size_update(
+        &context, yang_dnode_get_uint32(args->dnode, NULL)), false);
+}
+
+static int eigrpd_named_event_log_size_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_event_log_size_delete(&context), true);
 }
 
 static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
-	eigrp_named_metric_weights_t weights;
+	eigrp_instance_context_t context;
+	eigrp_metric_weights_t weights;
 	uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	weights.tos = yang_dnode_get_uint8(dnode, "tos");
 	weights.k1 = yang_dnode_get_uint8(dnode, "K1");
@@ -1173,7 +1767,7 @@ static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
 	weights.k4 = yang_dnode_get_uint8(dnode, "K4");
 	weights.k5 = yang_dnode_get_uint8(dnode, "K5");
 	return eigrpd_named_config_result(
-		eigrp_named_metric_weights_set(name, afi, vrf, asn, &weights), false);
+		eigrp_metric_weights_update(&context, &weights), false);
 }
 
 static int eigrpd_named_metric_weights_create(struct nb_cb_create_args *args)
@@ -1194,35 +1788,39 @@ static int eigrpd_named_metric_weights_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_metric_weights_clear(name, afi, vrf, asn), true);
+	return eigrpd_named_config_result(eigrp_metric_weights_delete(&context), true);
 }
 
 static int eigrpd_named_offset_list_apply(const struct lyd_node *dnode)
 {
 	const char *name, *vrf, *direction, *interface_name, *access_list;
 	eigrp_address_family_t afi;
-	eigrp_named_offset_direction_t offset_direction;
+	eigrp_instance_context_t context;
+	eigrp_offset_direction_t offset_direction;
 	uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	access_list = yang_dnode_get_string(dnode, "access-list");
 	direction = yang_dnode_get_string(dnode, "direction");
 	interface_name = yang_dnode_get_string(dnode, "interface");
 	offset_direction = direction && strcmp(direction, "out") == 0
-				   ? EIGRP_NAMED_OFFSET_OUT
-				   : EIGRP_NAMED_OFFSET_IN;
+				   ? EIGRP_OFFSET_OUT
+				   : EIGRP_OFFSET_IN;
 	return eigrpd_named_config_result(
-		eigrp_named_offset_list_set(
-			name, afi, vrf, asn, access_list, offset_direction,
+		eigrp_offset_update(
+			&context, access_list, offset_direction,
 			yang_dnode_get_uint32(dnode, "offset"),
 			interface_name && interface_name[0] ? interface_name : NULL),
 		false);
@@ -1246,23 +1844,26 @@ static int eigrpd_named_offset_list_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *direction, *interface_name, *access_list;
 	eigrp_address_family_t afi;
-	eigrp_named_offset_direction_t offset_direction;
+	eigrp_instance_context_t context;
+	eigrp_offset_direction_t offset_direction;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
 	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+						  &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	access_list = yang_dnode_get_string(args->dnode, "access-list");
 	direction = yang_dnode_get_string(args->dnode, "direction");
 	interface_name = yang_dnode_get_string(args->dnode, "interface");
 	offset_direction = direction && strcmp(direction, "out") == 0
-				   ? EIGRP_NAMED_OFFSET_OUT
-				   : EIGRP_NAMED_OFFSET_IN;
+				   ? EIGRP_OFFSET_OUT
+				   : EIGRP_OFFSET_IN;
 	return eigrpd_named_config_result(
-		eigrp_named_offset_list_remove(
-			name, afi, vrf, asn, access_list, offset_direction,
+		eigrp_offset_delete(
+			&context, access_list, offset_direction,
 			yang_dnode_exists(args->dnode, "offset")
 				? yang_dnode_get_uint32(args->dnode, "offset")
 				: 0,
@@ -1270,16 +1871,20 @@ static int eigrpd_named_offset_list_destroy(struct nb_cb_destroy_args *args)
 		true);
 }
 
-static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
-					     bool include_metrics)
+static int eigrpd_named_redistribute_apply_options(const struct lyd_node *dnode,
+					     bool include_metrics,
+					     bool omit_route_map)
 {
 	const char *name, *vrf, *protocol;
 	eigrp_address_family_t afi;
-	eigrp_named_metric_values_t metric;
-	eigrp_named_metric_values_t *metric_ptr = NULL;
+	eigrp_instance_context_t context;
+	eigrp_metric_values_t metric;
+	eigrp_metric_values_t *metric_ptr = NULL;
 	uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
+	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	protocol = yang_dnode_get_string(dnode, "protocol");
 	if (include_metrics && yang_dnode_exists(dnode, "metrics")) {
@@ -1287,9 +1892,18 @@ static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
 		metric_ptr = &metric;
 	}
 	return eigrpd_named_config_result(
-		eigrp_named_redistribute_set(name, afi, vrf, asn, protocol,
-					     metric_ptr),
+		eigrp_redistribute_update(
+			&context, protocol, metric_ptr,
+			!omit_route_map && yang_dnode_exists(dnode, "route-map")
+				? yang_dnode_get_string(dnode, "route-map")
+				: NULL),
 		false);
+}
+
+static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
+					     bool include_metrics)
+{
+	return eigrpd_named_redistribute_apply_options(dnode, include_metrics, false);
 }
 
 static int eigrpd_named_redistribute_create(struct nb_cb_create_args *args)
@@ -1323,40 +1937,161 @@ static int eigrpd_named_redistribute_metrics_destroy(
 		       : NB_OK;
 }
 
+static int eigrpd_named_redistribute_route_map_modify(struct nb_cb_modify_args *args)
+{
+    return args->event == NB_EV_APPLY
+               ? eigrpd_named_redistribute_apply(lyd_parent(args->dnode), true)
+               : NB_OK;
+}
+
+static int eigrpd_named_redistribute_route_map_destroy(
+	struct nb_cb_destroy_args *args)
+{
+	return args->event == NB_EV_APPLY
+		       ? eigrpd_named_redistribute_apply_options(
+			       lyd_parent(args->dnode), true, true)
+		       : NB_OK;
+}
+
+static void eigrpd_named_redistribute_apply_finish(
+	struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_redistribute_apply(args->dnode, true);
+}
+
 static int eigrpd_named_redistribute_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
 	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+						  &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
 	return eigrpd_named_config_result(
-		eigrp_named_redistribute_remove(
-			name, afi, vrf, asn,
-			yang_dnode_get_string(args->dnode, "protocol")),
+		eigrp_redistribute_delete(
+			&context, yang_dnode_get_string(args->dnode, "protocol")),
 		true);
+}
+
+static int eigrpd_named_redistribute_maximum_prefix_apply(const struct lyd_node *dnode)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit; uint16_t asn;
+    if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    eigrpd_named_prefix_limit_get(dnode, &limit);
+    return eigrpd_named_config_result(eigrp_redistribute_maximum_prefix_update(&context, &limit), false);
+}
+static int eigrpd_named_redistribute_maximum_prefix_create(struct nb_cb_create_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_redistribute_maximum_prefix_apply(args->dnode) : NB_OK; }
+static int eigrpd_named_redistribute_maximum_prefix_modify(struct nb_cb_modify_args *args)
+{ return args->event == NB_EV_APPLY ? eigrpd_named_redistribute_maximum_prefix_apply(lyd_parent(args->dnode)) : NB_OK; }
+static int eigrpd_named_redistribute_maximum_prefix_empty_create(struct nb_cb_create_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static int eigrpd_named_redistribute_maximum_prefix_detail_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+static void eigrpd_named_redistribute_maximum_prefix_apply_finish(
+	struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_redistribute_maximum_prefix_apply(args->dnode);
+}
+static int eigrpd_named_redistribute_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_redistribute_maximum_prefix_delete(&context), true);
+}
+
+static int eigrpd_named_distribute_list_entry_create(struct nb_cb_create_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static int eigrpd_named_distribute_list_entry_destroy(struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static int eigrpd_named_distribute_list_modify(struct nb_cb_modify_args *args)
+{
+    const struct lyd_node *direction_node = lyd_parent(args->dnode);
+    const struct lyd_node *list_node = lyd_parent(direction_node);
+    const char *name, *vrf, *ifname, *direction;
+    eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    eigrp_distribute_list_type_t type;
+    eigrp_offset_direction_t dir;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_topology_child_context(list_node, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    type = strcmp(args->dnode->schema->name, "prefix-list") == 0
+               ? EIGRP_DISTRIBUTE_PREFIX_LIST : EIGRP_DISTRIBUTE_ACCESS_LIST;
+    direction = direction_node->schema->name;
+    dir = strcmp(direction, "out") == 0 ? EIGRP_OFFSET_OUT : EIGRP_OFFSET_IN;
+    ifname = yang_dnode_get_string(list_node, "interface");
+    return eigrpd_named_config_result(eigrp_distribute_list_update(
+        &context, type, yang_dnode_get_string(args->dnode, NULL), dir,
+        ifname && ifname[0] ? ifname : NULL), false);
+}
+static int eigrpd_named_distribute_list_destroy(struct nb_cb_destroy_args *args)
+{
+    const struct lyd_node *direction_node = lyd_parent(args->dnode);
+    const struct lyd_node *list_node = lyd_parent(direction_node);
+    const char *name, *vrf, *ifname, *direction;
+    eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
+    eigrp_distribute_list_type_t type; eigrp_offset_direction_t dir;
+    if (args->event != NB_EV_APPLY) return NB_OK;
+    if (!eigrpd_named_topology_child_context(list_node, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+    type = strcmp(args->dnode->schema->name, "prefix-list") == 0
+               ? EIGRP_DISTRIBUTE_PREFIX_LIST : EIGRP_DISTRIBUTE_ACCESS_LIST;
+    direction = direction_node->schema->name;
+    dir = strcmp(direction, "out") == 0 ? EIGRP_OFFSET_OUT : EIGRP_OFFSET_IN;
+    ifname = yang_dnode_get_string(list_node, "interface");
+    return eigrpd_named_config_result(eigrp_distribute_list_delete(
+        &context, type, yang_dnode_get_string(args->dnode, NULL), dir,
+        ifname && ifname[0] ? ifname : NULL), true);
 }
 
 static int eigrpd_named_summary_metric_apply(const struct lyd_node *dnode)
 {
-	const char *name, *vrf;
-	eigrp_address_family_t afi;
-	eigrp_named_prefix_t prefix;
-	eigrp_named_metric_values_t metric;
-	uint16_t asn;
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    eigrp_prefix_t prefix;
+    eigrp_summary_metric_config_t config = {0};
+    uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
-	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || !eigrpd_named_summary_prefix_get(dnode, &prefix))
-		return NB_ERR_INCONSISTENCY;
-	eigrpd_named_metric_values_get(dnode, "", &metric);
-	return eigrpd_named_config_result(
-		eigrp_named_summary_metric_set(name, afi, vrf, asn, &prefix, &metric),
-		false);
+    if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+        || afi != EIGRP_ADDRESS_FAMILY_IPV4
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)
+        || !eigrpd_named_summary_prefix_get(dnode, &prefix))
+        return NB_ERR_INCONSISTENCY;
+    if (yang_dnode_exists(dnode, "bandwidth")) {
+        config.metric_configured = true;
+        eigrpd_named_metric_values_get(dnode, "", &config.metric);
+    }
+    if (yang_dnode_exists(dnode, "distance")) {
+        config.distance_configured = true;
+        config.distance = yang_dnode_get_uint8(dnode, "distance");
+    }
+    return eigrpd_named_config_result(
+        eigrp_summary_metric_update(&context, &prefix, &config), false);
 }
 
 static int eigrpd_named_summary_metric_create(struct nb_cb_create_args *args)
@@ -1373,117 +2108,133 @@ static int eigrpd_named_summary_metric_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+static int eigrpd_named_summary_metric_detail_destroy(
+	struct nb_cb_destroy_args *args)
+{
+	(void)args;
+	return NB_OK;
+}
+
+static void eigrpd_named_summary_metric_apply_finish(
+	struct nb_cb_apply_finish_args *args)
+{
+	(void)eigrpd_named_summary_metric_apply(args->dnode);
+}
+
 static int eigrpd_named_summary_metric_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
-	eigrp_named_prefix_t prefix;
+	eigrp_instance_context_t context;
+	eigrp_prefix_t prefix;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
 	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
 						  &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context)
 	    || !eigrpd_named_summary_prefix_get(args->dnode, &prefix))
 		return NB_ERR_INCONSISTENCY;
 	return eigrpd_named_config_result(
-		eigrp_named_summary_metric_remove(name, afi, vrf, asn, &prefix), true);
+		eigrp_summary_metric_delete(&context, &prefix), true);
 }
 
 static int eigrpd_named_active_time_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_active_time_set(name, afi, vrf, asn,
-					    yang_dnode_get_uint16(args->dnode, NULL)),
-		false);
+	return eigrpd_named_config_result(eigrp_timer_active_time_update(&context, yang_dnode_get_uint16(args->dnode, NULL)), false);
 }
 
 static int eigrpd_named_active_time_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_active_time_clear(name, afi, vrf, asn), true);
+	return eigrpd_named_config_result(eigrp_timer_active_time_delete(&context), true);
 }
 
 static int eigrpd_named_traffic_share_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_traffic_share_balanced_set(
-			name, afi, vrf, asn, yang_dnode_get_bool(args->dnode, NULL)),
-		false);
+	return eigrpd_named_config_result(eigrp_metric_traffic_share_balanced_update(&context, yang_dnode_get_bool(args->dnode, NULL)), false);
 }
 
 static int eigrpd_named_traffic_share_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_traffic_share_balanced_set(name, afi, vrf, asn, true), true);
+	return eigrpd_named_config_result(eigrp_metric_traffic_share_balanced_update(&context, true), true);
 }
 
 static int eigrpd_named_variance_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_variance_set(name, afi, vrf, asn,
-					 yang_dnode_get_uint8(args->dnode, NULL)),
-		false);
+	return eigrpd_named_config_result(eigrp_metric_variance_update(&context, yang_dnode_get_uint8(args->dnode, NULL)), false);
 }
 
 static int eigrpd_named_variance_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
-						  &asn))
+	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(
-		eigrp_named_variance_clear(name, afi, vrf, asn), true);
+	return eigrpd_named_config_result(eigrp_metric_variance_delete(&context), true);
 }
 
 /*
@@ -1549,17 +2300,23 @@ static int eigrpd_instance_destroy(struct nb_cb_destroy_args *args)
 static int eigrpd_instance_router_id_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context = {0};
+	struct in_addr router_id;
+	eigrp_result_t result;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		yang_dnode_get_ipv4(&eigrp->router_id_static, args->dnode,
-				    NULL);
+		yang_dnode_get_ipv4(&router_id, args->dnode, NULL);
+		context.runtime = eigrp;
+		result = eigrp_instance_router_id_update(
+			&context, ntohl(router_id.s_addr));
+		if (result != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -1569,16 +2326,20 @@ static int eigrpd_instance_router_id_modify(struct nb_cb_modify_args *args)
 static int eigrpd_instance_router_id_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context = {0};
+	eigrp_result_t result;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->router_id_static.s_addr = INADDR_ANY;
+		context.runtime = eigrp;
+		result = eigrp_instance_router_id_delete(&context);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -1593,19 +2354,14 @@ eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
 {
 	eigrp_interface_t *intf;
 	eigrp_instance_t *eigrp;
+	eigrp_interface_context_t context = {0};
 	const char *ifname;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 		eigrp = nb_running_get_entry(args->dnode, NULL, false);
-		if (eigrp == NULL) {
-			/*
-			 * XXX: we can't verify if the interface exists
-			 * and is active until EIGRP is up.
-			 */
+		if (eigrp == NULL)
 			break;
-		}
-
 		ifname = yang_dnode_get_string(args->dnode, NULL);
 		intf = eigrp_interface_lookup(eigrp, ifname);
 		if (intf == NULL)
@@ -1613,7 +2369,6 @@ eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
 		break;
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
@@ -1621,8 +2376,10 @@ eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
 		intf = eigrp_interface_lookup(eigrp, ifname);
 		if (intf == NULL)
 			return NB_ERR_INCONSISTENCY;
-
-		intf->params.passive_interface = EIGRP_INTF_PASSIVE;
+		context.runtime = intf;
+		if (eigrp_interface_passive_update(&context, true)
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -1634,13 +2391,13 @@ eigrpd_instance_passive_interface_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_interface_t *intf;
 	eigrp_instance_t *eigrp;
+	eigrp_interface_context_t context = {0};
 	const char *ifname;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
@@ -1648,8 +2405,10 @@ eigrpd_instance_passive_interface_destroy(struct nb_cb_destroy_args *args)
 		intf = eigrp_interface_lookup(eigrp, ifname);
 		if (intf == NULL)
 			break;
-
-		intf->params.passive_interface = EIGRP_INTF_ACTIVE;
+		context.runtime = intf;
+		if (eigrp_interface_passive_update(&context, false)
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -1661,17 +2420,10 @@ eigrpd_instance_passive_interface_destroy(struct nb_cb_destroy_args *args)
  */
 static int eigrpd_instance_active_time_modify(struct nb_cb_modify_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
+	if (args->event == NB_EV_VALIDATE) {
 		snprintf(args->errmsg, args->errmsg_len,
-			 "active time not implemented yet");
-		/* NOTHING */
-		break;
+			 "classic EIGRP active-time configuration is unsupported");
+		return NB_ERR_VALIDATION;
 	}
 
 	return NB_OK;
@@ -1683,16 +2435,20 @@ static int eigrpd_instance_active_time_modify(struct nb_cb_modify_args *args)
 static int eigrpd_instance_variance_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context = {0};
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->variance = yang_dnode_get_uint8(args->dnode, NULL);
+		context.runtime = eigrp;
+		if (eigrp_metric_variance_update(
+			    &context, yang_dnode_get_uint8(args->dnode, NULL))
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -1702,16 +2458,18 @@ static int eigrpd_instance_variance_modify(struct nb_cb_modify_args *args)
 static int eigrpd_instance_variance_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context = {0};
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->variance = EIGRP_VARIANCE_DEFAULT;
+		context.runtime = eigrp;
+		if (eigrp_metric_variance_delete(&context) != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -1724,40 +2482,71 @@ static int eigrpd_instance_variance_destroy(struct nb_cb_destroy_args *args)
 static int eigrpd_instance_maximum_paths_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->max_paths = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	memset(&context, 0, sizeof(context));
+	context.runtime = eigrp;
+	return eigrp_topology_maximum_paths_update(
+		       &context, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
 eigrpd_instance_maximum_paths_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	memset(&context, 0, sizeof(context));
+	context.runtime = eigrp;
+	return eigrp_topology_maximum_paths_delete(&context)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
+}
+
+static eigrp_result_t eigrpd_instance_metric_weight_update(
+	eigrp_instance_t *eigrp, unsigned int index, uint8_t value)
+{
+	eigrp_instance_context_t context = {.runtime = eigrp};
+	eigrp_metric_weights_t weights;
+
+	if (!eigrp || index >= 5)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	weights.tos = 0;
+	weights.k1 = eigrp->k_values[0];
+	weights.k2 = eigrp->k_values[1];
+	weights.k3 = eigrp->k_values[2];
+	weights.k4 = eigrp->k_values[3];
+	weights.k5 = eigrp->k_values[4];
+	switch (index) {
+	case 0:
+		weights.k1 = value;
 		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
+	case 1:
+		weights.k2 = value;
 		break;
+	case 2:
+		weights.k3 = value;
+		break;
+	case 3:
+		weights.k4 = value;
+		break;
+	case 4:
+		weights.k5 = value;
+		break;
+	default:
+		return EIGRP_RESULT_INVALID_ARGUMENT;
 	}
-
-	return NB_OK;
+	return eigrp_metric_weights_update(&context, &weights);
 }
 
 /*
@@ -1768,19 +2557,14 @@ eigrpd_instance_metric_weights_K1_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[0] = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(
+		       eigrp, 0, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
@@ -1788,19 +2572,13 @@ eigrpd_instance_metric_weights_K1_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[0] = EIGRP_K1_DEFAULT;
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(eigrp, 0, EIGRP_K1_DEFAULT)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 /*
@@ -1811,19 +2589,14 @@ eigrpd_instance_metric_weights_K2_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[1] = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(
+		       eigrp, 1, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
@@ -1831,19 +2604,13 @@ eigrpd_instance_metric_weights_K2_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[1] = EIGRP_K2_DEFAULT;
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(eigrp, 1, EIGRP_K2_DEFAULT)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 /*
@@ -1854,19 +2621,14 @@ eigrpd_instance_metric_weights_K3_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[2] = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(
+		       eigrp, 2, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
@@ -1874,19 +2636,13 @@ eigrpd_instance_metric_weights_K3_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[2] = EIGRP_K3_DEFAULT;
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(eigrp, 2, EIGRP_K3_DEFAULT)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 /*
@@ -1897,19 +2653,14 @@ eigrpd_instance_metric_weights_K4_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[3] = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(
+		       eigrp, 3, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
@@ -1917,19 +2668,13 @@ eigrpd_instance_metric_weights_K4_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[3] = EIGRP_K4_DEFAULT;
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(eigrp, 3, EIGRP_K4_DEFAULT)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 /*
@@ -1940,19 +2685,14 @@ eigrpd_instance_metric_weights_K5_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[4] = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(
+		       eigrp, 4, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
@@ -1960,19 +2700,13 @@ eigrpd_instance_metric_weights_K5_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[4] = EIGRP_K5_DEFAULT;
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(eigrp, 4, EIGRP_K5_DEFAULT)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 /*
@@ -2097,16 +2831,10 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
  */
 static int eigrpd_instance_neighbor_create(struct nb_cb_create_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
+	if (args->event == NB_EV_VALIDATE) {
 		snprintf(args->errmsg, args->errmsg_len,
-			 "neighbor Command is not implemented yet");
-		break;
+			 "classic EIGRP static-neighbor configuration is unsupported");
+		return NB_ERR_VALIDATION;
 	}
 
 	return NB_OK;
@@ -2114,18 +2842,8 @@ static int eigrpd_instance_neighbor_create(struct nb_cb_create_args *args)
 
 static int eigrpd_instance_neighbor_destroy(struct nb_cb_destroy_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
-		snprintf(args->errmsg, args->errmsg_len,
-			 "no neighbor Command is not implemented yet");
-		break;
-	}
-
+	(void)args;
+	/* Permit deletion of stale classic configuration if it already exists. */
 	return NB_OK;
 }
 
@@ -2214,17 +2932,10 @@ static int eigrpd_instance_redistribute_destroy(struct nb_cb_destroy_args *args)
 static int
 eigrpd_instance_redistribute_route_map_modify(struct nb_cb_modify_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
-		snprintf(
-			args->errmsg, args->errmsg_len,
-			"'redistribute X route-map FOO' command not implemented yet");
-		break;
+	if (args->event == NB_EV_VALIDATE) {
+		snprintf(args->errmsg, args->errmsg_len,
+			 "classic EIGRP redistribute route-map configuration is unsupported");
+		return NB_ERR_VALIDATION;
 	}
 
 	return NB_OK;
@@ -2233,19 +2944,8 @@ eigrpd_instance_redistribute_route_map_modify(struct nb_cb_modify_args *args)
 static int
 eigrpd_instance_redistribute_route_map_destroy(struct nb_cb_destroy_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
-		snprintf(
-			args->errmsg, args->errmsg_len,
-			"'no redistribute X route-map FOO' command not implemented yet");
-		break;
-	}
-
+	(void)args;
+	/* Permit deletion of stale classic configuration if it already exists. */
 	return NB_OK;
 }
 
@@ -2450,33 +3150,30 @@ lib_interface_eigrp_hello_interval_modify(struct nb_cb_modify_args *args)
 {
 	struct interface *ifp;
 	eigrp_interface_t *ei;
+	eigrp_interface_context_t context = {0};
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 		ifp = nb_running_get_entry(args->dnode, NULL, false);
-		if (ifp == NULL) {
-			/*
-			 * XXX: we can't verify if the interface exists
-			 * and is active until EIGRP is up.
-			 */
+		if (ifp == NULL)
 			break;
-		}
-
 		ei = ifp->info;
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
 		ei = ifp->info;
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
-
-		ei->params.v_hello = yang_dnode_get_uint16(args->dnode, NULL);
+		context.runtime = ei;
+		if (eigrp_interface_hello_interval_update(
+			    &context, yang_dnode_get_uint16(args->dnode, NULL))
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -2490,33 +3187,30 @@ static int lib_interface_eigrp_hold_time_modify(struct nb_cb_modify_args *args)
 {
 	struct interface *ifp;
 	eigrp_interface_t *ei;
+	eigrp_interface_context_t context = {0};
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 		ifp = nb_running_get_entry(args->dnode, NULL, false);
-		if (ifp == NULL) {
-			/*
-			 * XXX: we can't verify if the interface exists
-			 * and is active until EIGRP is up.
-			 */
+		if (ifp == NULL)
 			break;
-		}
-
 		ei = ifp->info;
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
 		ei = ifp->info;
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
-
-		ei->params.v_wait = yang_dnode_get_uint16(args->dnode, NULL);
+		context.runtime = ei;
+		if (eigrp_interface_hold_time_update(
+			    &context, yang_dnode_get_uint16(args->dnode, NULL))
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -2529,17 +3223,10 @@ static int lib_interface_eigrp_hold_time_modify(struct nb_cb_modify_args *args)
 static int
 lib_interface_eigrp_split_horizon_modify(struct nb_cb_modify_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
+	if (args->event == NB_EV_VALIDATE) {
 		snprintf(args->errmsg, args->errmsg_len,
-			 "split-horizon command not implemented yet");
-		/* NOTHING */
-		break;
+			 "classic EIGRP interface split-horizon configuration is unsupported");
+		return NB_ERR_VALIDATION;
 	}
 
 	return NB_OK;
@@ -2613,16 +3300,10 @@ static int lib_interface_eigrp_instance_destroy(struct nb_cb_destroy_args *args)
 static int lib_interface_eigrp_instance_summarize_addresses_create(
 	struct nb_cb_create_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
+	if (args->event == NB_EV_VALIDATE) {
 		snprintf(args->errmsg, args->errmsg_len,
-			 "summary command not implemented yet");
-		break;
+			 "classic EIGRP interface summary configuration is unsupported");
+		return NB_ERR_VALIDATION;
 	}
 
 	return NB_OK;
@@ -2631,19 +3312,8 @@ static int lib_interface_eigrp_instance_summarize_addresses_create(
 static int lib_interface_eigrp_instance_summarize_addresses_destroy(
 	struct nb_cb_destroy_args *args)
 {
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-		/* TODO: Not implemented. */
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		return NB_OK;
-	case NB_EV_APPLY:
-		snprintf(args->errmsg, args->errmsg_len,
-			 "no summary command not implemented yet");
-		/* NOTHING */
-		break;
-	}
-
+	(void)args;
+	/* Permit deletion of stale classic configuration if it already exists. */
 	return NB_OK;
 }
 
@@ -2778,6 +3448,160 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			}
 		},
 		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy",
+			.cbs = {
+				.create = eigrpd_named_neighbor_policy_create,
+				.destroy = eigrpd_named_neighbor_policy_destroy,
+				.flags = F_NB_CB_DESTROY_RECURSE,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_description_modify,
+				.destroy = eigrpd_named_neighbor_description_destroy,
+				.cli_show = eigrp_cli_show_named_neighbor_description,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix",
+			.cbs = {
+				.create = eigrpd_named_neighbor_prefix_limit_create,
+				.destroy = eigrpd_named_neighbor_prefix_limit_destroy,
+				.apply_finish = eigrpd_named_neighbor_prefix_limit_apply_finish,
+				.cli_show = eigrp_cli_show_named_neighbor_maximum_prefix,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/maximum",
+			.cbs = { .modify = eigrpd_named_neighbor_prefix_limit_modify }
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/threshold",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/warning-only",
+			.cbs = {
+				.create = eigrpd_named_neighbor_prefix_limit_empty_create,
+				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/dampened",
+			.cbs = {
+				.create = eigrpd_named_neighbor_prefix_limit_empty_create,
+				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/reset-time",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/restart",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/restart-count",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix",
+			.cbs = {
+				.create = eigrpd_named_neighbor_prefix_limit_all_create,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_destroy,
+				.apply_finish = eigrpd_named_neighbor_prefix_limit_all_apply_finish,
+				.cli_show = eigrp_cli_show_named_neighbor_maximum_prefix_all,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/maximum",
+			.cbs = { .modify = eigrpd_named_neighbor_prefix_limit_all_modify }
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/threshold",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_all_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/warning-only",
+			.cbs = {
+				.create = eigrpd_named_neighbor_prefix_limit_all_empty_create,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/dampened",
+			.cbs = {
+				.create = eigrpd_named_neighbor_prefix_limit_all_empty_create,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/reset-time",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_all_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/restart",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_all_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/restart-count",
+			.cbs = {
+				.modify = eigrpd_named_neighbor_prefix_limit_all_modify,
+				.destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes",
+			.cbs = {
+				.modify = eigrpd_named_log_neighbor_changes_modify,
+				.destroy = eigrpd_named_log_neighbor_changes_destroy,
+				.cli_show = eigrp_cli_show_named_log_neighbor_changes,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings",
+			.cbs = {
+				.create = eigrpd_named_log_neighbor_warnings_create,
+				.destroy = eigrpd_named_log_neighbor_warnings_destroy,
+				.apply_finish = eigrpd_named_log_neighbor_warnings_apply_finish,
+				.cli_show = eigrp_cli_show_named_log_neighbor_warnings,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings/enabled",
+			.cbs = { .modify = eigrpd_named_log_neighbor_warnings_modify }
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings/interval",
+			.cbs = {
+				.modify = eigrpd_named_log_neighbor_warnings_modify,
+				.destroy = eigrpd_named_log_neighbor_warnings_interval_destroy,
+			}
+		},
+		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/shutdown",
 			.cbs = {
 				.create = eigrpd_named_shutdown_create,
@@ -2835,6 +3659,20 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			}
 		},
 		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-encryption-type",
+			.cbs = {
+				.modify = eigrpd_named_af_interface_authentication_detail_modify,
+				.destroy = eigrpd_named_af_interface_authentication_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-password",
+			.cbs = {
+				.modify = eigrpd_named_af_interface_authentication_detail_modify,
+				.destroy = eigrpd_named_af_interface_authentication_detail_destroy,
+			}
+		},
+		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain",
 			.cbs = {
 				.modify = eigrpd_named_af_interface_keychain_modify,
@@ -2862,6 +3700,20 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_af_interface_summary_create,
 				.destroy = eigrpd_named_af_interface_summary_destroy,
 				.cli_show = eigrp_cli_show_named_af_interface_summary,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address/administrative-distance",
+			.cbs = {
+				.modify = eigrpd_named_af_interface_summary_modify,
+				.destroy = eigrpd_named_af_interface_summary_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address/leak-map",
+			.cbs = {
+				.modify = eigrpd_named_af_interface_summary_modify,
+				.destroy = eigrpd_named_af_interface_summary_detail_destroy,
 			}
 		},
 		{
@@ -2894,7 +3746,15 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_default_information_in_create,
 				.destroy = eigrpd_named_default_information_in_destroy,
+				.apply_finish = eigrpd_named_default_information_in_apply_finish,
 				.cli_show = eigrp_cli_show_named_default_information_in,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/default-information-in/access-list",
+			.cbs = {
+				.modify = eigrpd_named_default_information_in_modify,
+				.destroy = eigrpd_named_default_information_access_list_destroy,
 			}
 		},
 		{
@@ -2902,7 +3762,15 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_default_information_out_create,
 				.destroy = eigrpd_named_default_information_out_destroy,
+				.apply_finish = eigrpd_named_default_information_out_apply_finish,
 				.cli_show = eigrp_cli_show_named_default_information_out,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/default-information-out/access-list",
+			.cbs = {
+				.modify = eigrpd_named_default_information_out_modify,
+				.destroy = eigrpd_named_default_information_access_list_destroy,
 			}
 		},
 		{
@@ -2952,9 +3820,88 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix",
 			.cbs = {
-				.modify = eigrpd_named_maximum_prefix_modify,
+				.create = eigrpd_named_maximum_prefix_create,
 				.destroy = eigrpd_named_maximum_prefix_destroy,
+				.apply_finish = eigrpd_named_maximum_prefix_apply_finish,
 				.cli_show = eigrp_cli_show_named_maximum_prefix,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/maximum",
+			.cbs = { .modify = eigrpd_named_maximum_prefix_modify }
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/threshold",
+			.cbs = {
+				.modify = eigrpd_named_maximum_prefix_modify,
+				.destroy = eigrpd_named_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/warning-only",
+			.cbs = {
+				.create = eigrpd_named_maximum_prefix_empty_create,
+				.destroy = eigrpd_named_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/dampened",
+			.cbs = {
+				.create = eigrpd_named_maximum_prefix_empty_create,
+				.destroy = eigrpd_named_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/reset-time",
+			.cbs = {
+				.modify = eigrpd_named_maximum_prefix_modify,
+				.destroy = eigrpd_named_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/restart",
+			.cbs = {
+				.modify = eigrpd_named_maximum_prefix_modify,
+				.destroy = eigrpd_named_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/restart-count",
+			.cbs = {
+				.modify = eigrpd_named_maximum_prefix_modify,
+				.destroy = eigrpd_named_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths",
+			.cbs = {
+				.modify = eigrpd_named_maximum_paths_modify,
+				.destroy = eigrpd_named_maximum_paths_destroy,
+				.cli_show = eigrp_cli_show_named_maximum_paths,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops",
+			.cbs = {
+				.modify = eigrpd_named_metric_maximum_hops_modify,
+				.destroy = eigrpd_named_metric_maximum_hops_destroy,
+				.cli_show = eigrp_cli_show_named_metric_maximum_hops,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown",
+			.cbs = {
+				.create = eigrpd_named_metric_holddown_create,
+				.destroy = eigrpd_named_metric_holddown_destroy,
+				.cli_show = eigrp_cli_show_named_metric_holddown,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/event-log-size",
+			.cbs = {
+				.modify = eigrpd_named_event_log_size_modify,
+				.destroy = eigrpd_named_event_log_size_destroy,
+				.cli_show = eigrp_cli_show_named_event_log_size,
 			}
 		},
 		{
@@ -2990,6 +3937,46 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
 		},
 		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list",
+			.cbs = {
+				.create = eigrpd_named_distribute_list_entry_create,
+				.destroy = eigrpd_named_distribute_list_entry_destroy,
+				.flags = F_NB_CB_DESTROY_RECURSE,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/in/access-list",
+			.cbs = {
+				.modify = eigrpd_named_distribute_list_modify,
+				.destroy = eigrpd_named_distribute_list_destroy,
+				.cli_show = eigrp_cli_show_named_distribute_list,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/in/prefix-list",
+			.cbs = {
+				.modify = eigrpd_named_distribute_list_modify,
+				.destroy = eigrpd_named_distribute_list_destroy,
+				.cli_show = eigrp_cli_show_named_distribute_list,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/out/access-list",
+			.cbs = {
+				.modify = eigrpd_named_distribute_list_modify,
+				.destroy = eigrpd_named_distribute_list_destroy,
+				.cli_show = eigrp_cli_show_named_distribute_list,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/out/prefix-list",
+			.cbs = {
+				.modify = eigrpd_named_distribute_list_modify,
+				.destroy = eigrpd_named_distribute_list_destroy,
+				.cli_show = eigrp_cli_show_named_distribute_list,
+			}
+		},
+		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/offset-list",
 			.cbs = {
 				.create = eigrpd_named_offset_list_create,
@@ -3006,6 +3993,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_named_redistribute_create,
 				.destroy = eigrpd_named_redistribute_destroy,
+				.apply_finish = eigrpd_named_redistribute_apply_finish,
 				.cli_show = eigrp_cli_show_named_redistribute,
 			}
 		},
@@ -3037,32 +4025,117 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = { .modify = eigrpd_named_redistribute_metrics_modify }
 		},
 		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute/route-map",
+			.cbs = {
+				.modify = eigrpd_named_redistribute_route_map_modify,
+				.destroy = eigrpd_named_redistribute_route_map_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix",
+			.cbs = {
+				.create = eigrpd_named_redistribute_maximum_prefix_create,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_destroy,
+				.apply_finish = eigrpd_named_redistribute_maximum_prefix_apply_finish,
+				.cli_show = eigrp_cli_show_named_redistribute_maximum_prefix,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/maximum",
+			.cbs = { .modify = eigrpd_named_redistribute_maximum_prefix_modify }
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/threshold",
+			.cbs = {
+				.modify = eigrpd_named_redistribute_maximum_prefix_modify,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/warning-only",
+			.cbs = {
+				.create = eigrpd_named_redistribute_maximum_prefix_empty_create,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/dampened",
+			.cbs = {
+				.create = eigrpd_named_redistribute_maximum_prefix_empty_create,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/reset-time",
+			.cbs = {
+				.modify = eigrpd_named_redistribute_maximum_prefix_modify,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/restart",
+			.cbs = {
+				.modify = eigrpd_named_redistribute_maximum_prefix_modify,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/restart-count",
+			.cbs = {
+				.modify = eigrpd_named_redistribute_maximum_prefix_modify,
+				.destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy,
+			}
+		},
+		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric",
 			.cbs = {
 				.create = eigrpd_named_summary_metric_create,
 				.destroy = eigrpd_named_summary_metric_destroy,
+				.apply_finish = eigrpd_named_summary_metric_apply_finish,
 				.cli_show = eigrp_cli_show_named_summary_metric,
 			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/bandwidth",
-			.cbs = { .modify = eigrpd_named_summary_metric_modify }
+			.cbs = {
+				.modify = eigrpd_named_summary_metric_modify,
+				.destroy = eigrpd_named_summary_metric_detail_destroy,
+			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/delay",
-			.cbs = { .modify = eigrpd_named_summary_metric_modify }
+			.cbs = {
+				.modify = eigrpd_named_summary_metric_modify,
+				.destroy = eigrpd_named_summary_metric_detail_destroy,
+			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/reliability",
-			.cbs = { .modify = eigrpd_named_summary_metric_modify }
+			.cbs = {
+				.modify = eigrpd_named_summary_metric_modify,
+				.destroy = eigrpd_named_summary_metric_detail_destroy,
+			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/load",
-			.cbs = { .modify = eigrpd_named_summary_metric_modify }
+			.cbs = {
+				.modify = eigrpd_named_summary_metric_modify,
+				.destroy = eigrpd_named_summary_metric_detail_destroy,
+			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/mtu",
-			.cbs = { .modify = eigrpd_named_summary_metric_modify }
+			.cbs = {
+				.modify = eigrpd_named_summary_metric_modify,
+				.destroy = eigrpd_named_summary_metric_detail_destroy,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/distance",
+			.cbs = {
+				.modify = eigrpd_named_summary_metric_modify,
+				.destroy = eigrpd_named_summary_metric_detail_destroy,
+			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/active-time",
@@ -3117,7 +4190,6 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.xpath = "/frr-eigrpd:eigrpd/instance/active-time",
 			.cbs = {
 				.modify = eigrpd_instance_active_time_modify,
-				.cli_show = eigrp_cli_show_active_time,
 			}
 		},
 		{
@@ -3197,7 +4269,6 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = eigrpd_instance_neighbor_create,
 				.destroy = eigrpd_instance_neighbor_destroy,
-				.cli_show = eigrp_cli_show_neighbor,
 			}
 		},
 		{
@@ -3293,28 +4364,24 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/delay",
 			.cbs = {
 				.modify = lib_interface_eigrp_delay_modify,
-				.cli_show = eigrp_cli_show_delay,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/bandwidth",
 			.cbs = {
 				.modify = lib_interface_eigrp_bandwidth_modify,
-				.cli_show = eigrp_cli_show_bandwidth,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/hello-interval",
 			.cbs = {
 				.modify = lib_interface_eigrp_hello_interval_modify,
-				.cli_show = eigrp_cli_show_hello_interval,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/hold-time",
 			.cbs = {
 				.modify = lib_interface_eigrp_hold_time_modify,
-				.cli_show = eigrp_cli_show_hold_time,
 			}
 		},
 		{
@@ -3335,14 +4402,12 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.create = lib_interface_eigrp_instance_summarize_addresses_create,
 				.destroy = lib_interface_eigrp_instance_summarize_addresses_destroy,
-				.cli_show = eigrp_cli_show_summarize_address,
 			}
 		},
 		{
 			.xpath = "/frr-interface:lib/interface/frr-eigrpd:eigrp/instance/authentication",
 			.cbs = {
 				.modify = lib_interface_eigrp_instance_authentication_modify,
-				.cli_show = eigrp_cli_show_authentication,
 			}
 		},
 		{
@@ -3350,7 +4415,6 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			.cbs = {
 				.modify = lib_interface_eigrp_instance_keychain_modify,
 				.destroy = lib_interface_eigrp_instance_keychain_destroy,
-				.cli_show = eigrp_cli_show_keychain,
 			}
 		},
 		{

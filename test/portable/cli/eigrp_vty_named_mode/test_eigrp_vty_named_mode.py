@@ -117,22 +117,24 @@ def test_cli_implementation_notes_are_in_cli_spec():
     assert "show_eigrp_neighbor_cmd" in cli
 
 
-def test_named_operational_commands_use_feature_specific_targets():
+def test_named_operational_commands_use_owner_specific_targets():
     vty = read(VTY)
-    operational = read(ROOT / "eigrpd" / "eigrp_operational.c")
+    targets = {
+        "eigrp_statistics_accounting_show": ROOT / "eigrpd" / "eigrp_statistics.c",
+        "eigrp_event_show": ROOT / "eigrpd" / "eigrp_event.c",
+        "eigrp_timer_show": ROOT / "eigrpd" / "eigrp_timer.c",
+        "eigrp_statistics_traffic_show": ROOT / "eigrpd" / "eigrp_statistics.c",
+        "eigrp_status_protocol_show": ROOT / "eigrpd" / "eigrp_status.c",
+        "eigrp_status_tech_support_show": ROOT / "eigrpd" / "eigrp_status.c",
+    }
 
     assert "show_eigrp_stub" not in vty
     assert "eigrp_cli_not_configured" not in vty
-    for target in (
-        "eigrp_accounting_show",
-        "eigrp_event_show",
-        "eigrp_timer_show",
-        "eigrp_traffic_show",
-        "eigrp_protocol_show",
-        "eigrp_tech_support_show",
-    ):
+    assert not (ROOT / "eigrpd" / "eigrp_operational.c").exists()
+    assert not (ROOT / "eigrpd" / "eigrp_operational.h").exists()
+    for target, source in targets.items():
         assert target in vty
-        assert f"{target}(" in operational
+        assert f"{target}(" in read(source)
 
     # Explicitly excluded by cli-spec.md.
     assert "install_element(VIEW_NODE, &show_eigrp_plugin_cmd);" not in vty

@@ -297,3 +297,68 @@ void eigrp_distribute_timer_interface(struct event *event)
 
 	return;
 }
+
+eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
+				   const char *access_list,
+				   eigrp_offset_direction_t direction,
+				   uint32_t offset,
+				   const char *interface_name)
+{
+	(void)offset;
+	(void)interface_name;
+	if (!access_list || !access_list[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (direction != EIGRP_OFFSET_IN && direction != EIGRP_OFFSET_OUT)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
+				   const char *access_list,
+				   eigrp_offset_direction_t direction,
+				   uint32_t offset,
+				   const char *interface_name)
+{
+	return eigrp_offset_update(context, access_list, direction, offset,
+				   interface_name);
+}
+
+static eigrp_result_t eigrp_distribute_list_validate(
+	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
+	const char *name, eigrp_offset_direction_t direction)
+{
+	if (!name || !name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (type != EIGRP_DISTRIBUTE_ACCESS_LIST
+	    && type != EIGRP_DISTRIBUTE_PREFIX_LIST)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (direction != EIGRP_OFFSET_IN && direction != EIGRP_OFFSET_OUT)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_distribute_list_update(
+	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
+	const char *name, eigrp_offset_direction_t direction,
+	const char *interface_name)
+{
+	eigrp_result_t result;
+
+	(void)interface_name;
+	result = eigrp_distribute_list_validate(context, type, name, direction);
+	return result == EIGRP_RESULT_SUCCESS ? EIGRP_RESULT_NOT_IMPLEMENTED
+					      : result;
+}
+
+eigrp_result_t eigrp_distribute_list_delete(
+	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
+	const char *name, eigrp_offset_direction_t direction,
+	const char *interface_name)
+{
+	return eigrp_distribute_list_update(context, type, name, direction,
+					   interface_name);
+}

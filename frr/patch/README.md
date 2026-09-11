@@ -36,6 +36,11 @@ Current integration patches:
 - `eigrp-named-topology-callbacks.patch` tightens compound topology command
   leaves to mandatory values so FRR northbound callback validation matches the
   parent create/destroy plus child modify ownership model.
+- `frr-eigrp-yang.patch` extends the retained EIGRP named-mode
+  configuration schema for the classic-inherited command surface: logging,
+  neighbor metadata/prefix limits, full prefix-limit policy, maximum paths,
+  metric holddown/maximum hops, event-log size, distribute-list, redistribution
+  route-map/prefix limits, HMAC-SHA-256 credentials, and complete summary forms.
 
 The YANG patches modify only `yang/frr-eigrpd.yang`. After patch installation,
 `tools/frr-install.sh` regenerates FRR's `yang/frr-eigrpd.yang.c` using

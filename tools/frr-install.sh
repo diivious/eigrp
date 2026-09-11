@@ -208,6 +208,9 @@ patch_semantically_applied() {
 		eigrp-named-topology-callbacks.patch)
 			grep -Fq 'EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY' "$yang"
 			;;
+		frr-eigrp-yang.patch)
+			grep -Fq 'EIGRP_STEP1_CONFIG_COMPLETE' "$yang"
+			;;
 		*)
 			return 1
 			;;

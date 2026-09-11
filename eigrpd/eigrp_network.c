@@ -12,9 +12,93 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
+
+struct eigrp_network_config {
+	eigrp_prefix_t prefix;
+	eigrp_network_config_t *next;
+};
+
+static bool eigrp_network_address_equal(const eigrp_address_t *a,
+					const eigrp_address_t *b)
+{
+	size_t len;
+
+	if (!a || !b || a->afi != b->afi)
+		return false;
+	len = a->afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
+	return memcmp(a->bytes, b->bytes, len) == 0;
+}
+
+static bool eigrp_network_prefix_equal(const eigrp_prefix_t *a,
+				       const eigrp_prefix_t *b)
+{
+	return a && b && a->prefix_length == b->prefix_length
+	       && eigrp_network_address_equal(&a->address, &b->address);
+}
+
+eigrp_result_t eigrp_network_create(eigrp_address_family_config_t *af,
+				    const eigrp_prefix_t *prefix)
+{
+	eigrp_network_config_t *network;
+
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!prefix || prefix->address.afi != af->afi
+	    || af->afi != EIGRP_ADDRESS_FAMILY_IPV4 || prefix->prefix_length > 32)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	for (network = af->networks; network; network = network->next)
+		if (eigrp_network_prefix_equal(&network->prefix, prefix))
+			return EIGRP_RESULT_SUCCESS;
+
+	network = calloc(1, sizeof(*network));
+	if (!network)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	network->prefix = *prefix;
+	network->next = af->networks;
+	af->networks = network;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_network_delete(eigrp_address_family_config_t *af,
+				    const eigrp_prefix_t *prefix)
+{
+	eigrp_network_config_t **cursor;
+	eigrp_network_config_t *network;
+
+	if (!prefix)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	for (cursor = &af->networks; *cursor; cursor = &(*cursor)->next) {
+		network = *cursor;
+		if (!eigrp_network_prefix_equal(&network->prefix, prefix))
+			continue;
+		*cursor = network->next;
+		free(network);
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_FOUND;
+}
+
+void eigrp_network_config_delete_all(eigrp_address_family_config_t *af)
+{
+	eigrp_network_config_t *network;
+	eigrp_network_config_t *next;
+
+	if (!af)
+		return;
+	for (network = af->networks; network; network = next) {
+		next = network->next;
+		free(network);
+	}
+	af->networks = NULL;
+}
 
 static int eigrp_network_match_iface(const struct prefix *connected_prefix,
 				     const struct prefix *prefix);

@@ -122,3 +122,133 @@ bool eigrp_metrics_is_same(eigrp_metrics_t metric1, eigrp_metrics_t metric2)
 
 	return FALSE; // if different
 }
+
+static bool eigrp_metric_context_valid(const eigrp_instance_context_t *context)
+{
+	return context && (context->config || context->runtime);
+}
+
+static bool eigrp_metric_values_valid(const eigrp_metric_values_t *metric)
+{
+	return metric && metric->bandwidth && metric->load && metric->mtu;
+}
+
+eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
+					   const eigrp_metric_values_t *metric)
+{
+	if (!eigrp_metric_values_valid(metric))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_default_delete(eigrp_instance_context_t *context)
+{
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
+					   const eigrp_metric_weights_t *weights)
+{
+	if (!weights || weights->tos != 0)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (context->runtime) {
+		context->runtime->k_values[0] = weights->k1;
+		context->runtime->k_values[1] = weights->k2;
+		context->runtime->k_values[2] = weights->k3;
+		context->runtime->k_values[3] = weights->k4;
+		context->runtime->k_values[4] = weights->k5;
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
+{
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (context->runtime) {
+		context->runtime->k_values[0] = EIGRP_K1_DEFAULT;
+		context->runtime->k_values[1] = EIGRP_K2_DEFAULT;
+		context->runtime->k_values[2] = EIGRP_K3_DEFAULT;
+		context->runtime->k_values[3] = EIGRP_K4_DEFAULT;
+		context->runtime->k_values[4] = EIGRP_K5_DEFAULT;
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_variance_update(eigrp_instance_context_t *context,
+					    uint8_t variance)
+{
+	if (variance < 1 || variance > 128)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (context->runtime) {
+		context->runtime->variance = variance;
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_variance_delete(eigrp_instance_context_t *context)
+{
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (context->runtime) {
+		context->runtime->variance = EIGRP_VARIANCE_DEFAULT;
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_traffic_share_balanced_update(
+	eigrp_instance_context_t *context, bool enabled)
+{
+	(void)enabled;
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_maximum_hops_update(
+	eigrp_instance_context_t *context, uint8_t maximum_hops)
+{
+	if (!maximum_hops)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_maximum_hops_delete(
+	eigrp_instance_context_t *context)
+{
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
+					    bool enabled)
+{
+	(void)enabled;
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_metric_holddown_delete(eigrp_instance_context_t *context)
+{
+	return eigrp_metric_holddown_update(context, true);
+}

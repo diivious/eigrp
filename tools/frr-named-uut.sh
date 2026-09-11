@@ -497,6 +497,13 @@ phase "stage 1: configure and verify every Step-1 named IPv4/4453 command"
 set_af_expect "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.1"
 set_af_expect "$uut_name" ipv4 4453 "network 10.44.0.0 0.0.255.255" "network 10.44.0.0/16"
 set_af_expect "$uut_name" ipv4 4453 "neighbor 10.0.0.1 $uut_if"
+set_af_expect "$uut_name" ipv4 4453 "neighbor 10.0.0.1 description STEP1-PEER"
+set_af_expect "$uut_name" ipv4 4453 "neighbor 10.0.0.1 maximum-prefix 100 80 dampened reset-time 15 restart 5 restart-count 3"
+set_af_expect "$uut_name" ipv4 4453 "neighbor maximum-prefix 500 75 warning-only"
+# Neighbor-change logging is enabled by default, so its meaningful retained
+# configuration is the documented no form.
+set_af_expect "$uut_name" ipv4 4453 "no eigrp log-neighbor-changes"
+set_af_expect "$uut_name" ipv4 4453 "eigrp log-neighbor-warnings 30"
 set_af_expect "$uut_name" ipv4 4453 "shutdown"
 
 # Exercise both named af-interface forms.  The default template gets one
@@ -509,22 +516,33 @@ set_if_expect "$uut_name" ipv4 4453 "$uut_if" "hold-time 21"
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "passive-interface"
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "authentication key-chain EIGRP-UUT-4453"
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "authentication mode md5"
+# Exercise the full named HMAC-SHA-256 form, including encryption selector
+# and password retention/writeback.
+set_if_expect "$uut_name" ipv4 4453 "$uut_if" "authentication mode hmac-sha-256 0 Step1Secret"
 # next-hop-self and split-horizon are enabled by default.  Their documented
 # no forms are the non-default configurations that must survive writeback.
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "no next-hop-self"
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "no split-horizon"
-set_if_expect "$uut_name" ipv4 4453 "$uut_if" "summary-address 10.44.0.0 255.255.0.0"
+set_if_expect "$uut_name" ipv4 4453 "$uut_if" "summary-address 10.44.0.0 255.255.0.0 5 leak-map STEP1-LEAK"
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "shutdown"
 
 set_topology_expect "$uut_name" ipv4 4453 "auto-summary"
-set_topology_expect "$uut_name" ipv4 4453 "default-information in"
+set_topology_expect "$uut_name" ipv4 4453 "default-information in STEP1-IN"
+set_topology_expect "$uut_name" ipv4 4453 "default-information out STEP1-OUT"
 set_topology_expect "$uut_name" ipv4 4453 "default-metric 10000 100 255 1 1500"
 set_topology_expect "$uut_name" ipv4 4453 "distance eigrp 91 171"
-set_topology_expect "$uut_name" ipv4 4453 "maximum-prefix 1000"
+set_topology_expect "$uut_name" ipv4 4453 "maximum-prefix 1000 80 dampened reset-time 15 restart 5 restart-count 3"
+set_topology_expect "$uut_name" ipv4 4453 "maximum-paths 8"
+set_topology_expect "$uut_name" ipv4 4453 "metric maximum-hops 200"
+set_topology_expect "$uut_name" ipv4 4453 "metric holddown"
+set_topology_expect "$uut_name" ipv4 4453 "eigrp event-log-size 1000"
 set_topology_expect "$uut_name" ipv4 4453 "metric weights 0 1 0 1 0 0"
-set_topology_expect "$uut_name" ipv4 4453 "offset-list EIGRP-UUT in 100"
-set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 10000 100 255 1 1500"
-set_topology_expect "$uut_name" ipv4 4453 "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500"
+set_topology_expect "$uut_name" ipv4 4453 "distribute-list STEP1-ACL-IN in"
+set_topology_expect "$uut_name" ipv4 4453 "distribute-list prefix STEP1-PFX-OUT out"
+set_topology_expect "$uut_name" ipv4 4453 "offset-list EIGRP-UUT in 100 $uut_if"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 10000 100 255 1 1500 route-map STEP1-RM"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute maximum-prefix 300 70 dampened reset-time 20 restart 6 restart-count 4"
+set_topology_expect "$uut_name" ipv4 4453 "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500 distance 20"
 set_topology_expect "$uut_name" ipv4 4453 "timers active-time 180"
 # balanced is the default.  The no form is the retained non-default state and
 # proves the documented no form survives configuration writeback.
@@ -536,6 +554,16 @@ set_af_expect "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.2"
 config="$(show_run)"
 assert_af_line_absent_in "$config" "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.1"
 
+set_af_expect "$uut_name" ipv4 4453 "neighbor 10.0.0.1 description STEP1-PEER-UPDATED"
+config="$(show_run)"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 4453 "neighbor 10.0.0.1 description STEP1-PEER"
+set_af_expect "$uut_name" ipv4 4453 "neighbor 10.0.0.1 maximum-prefix 120 85 warning-only"
+config="$(show_run)"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 4453 "neighbor 10.0.0.1 maximum-prefix 100 80 dampened reset-time 15 restart 5 restart-count 3"
+set_af_expect "$uut_name" ipv4 4453 "eigrp log-neighbor-warnings 45"
+config="$(show_run)"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 4453 "eigrp log-neighbor-warnings 30"
+
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "hello-interval 9"
 config="$(show_run)"
 assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "af-interface $uut_if" "exit-af-interface" "hello-interval 7"
@@ -543,6 +571,15 @@ assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "af-interface $uut_if
 set_if_expect "$uut_name" ipv4 4453 "$uut_if" "bandwidth-percent 80"
 config="$(show_run)"
 assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "af-interface $uut_if" "exit-af-interface" "bandwidth-percent 75"
+
+set_if_expect "$uut_name" ipv4 4453 "$uut_if" "authentication mode hmac-sha-256 7 Step1Secret7"
+config="$(show_run)"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "af-interface $uut_if" "exit-af-interface" "authentication mode hmac-sha-256 0 Step1Secret"
+# Re-enter the same summary without options; omitted options must be removed,
+# not left stale in YANG.
+set_if_expect "$uut_name" ipv4 4453 "$uut_if" "summary-address 10.44.0.0 255.255.0.0"
+config="$(show_run)"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "af-interface $uut_if" "exit-af-interface" "summary-address 10.44.0.0 255.255.0.0 5 leak-map STEP1-LEAK"
 
 set_topology_expect "$uut_name" ipv4 4453 "default-metric 20000 200 250 2 1400"
 config="$(show_run)"
@@ -552,13 +589,28 @@ set_topology_expect "$uut_name" ipv4 4453 "distance eigrp 93 173"
 config="$(show_run)"
 assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "distance eigrp 91 171"
 
+set_topology_expect "$uut_name" ipv4 4453 "default-information in STEP1-IN-2"
+set_topology_expect "$uut_name" ipv4 4453 "maximum-prefix 1100 85 warning-only"
+config="$(show_run)"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "maximum-prefix 1000 80 dampened reset-time 15 restart 5 restart-count 3"
+set_topology_expect "$uut_name" ipv4 4453 "maximum-paths 12"
+set_topology_expect "$uut_name" ipv4 4453 "metric maximum-hops 220"
+set_topology_expect "$uut_name" ipv4 4453 "eigrp event-log-size 1200"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 15000 150 252 2 1450 route-map STEP1-RM-2"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute maximum-prefix 350 75 warning-only"
+config="$(show_run)"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute maximum-prefix 300 70 dampened reset-time 20 restart 6 restart-count 4"
+set_topology_expect "$uut_name" ipv4 4453 "summary-metric 10.44.0.0 255.255.0.0 distance 25"
+config="$(show_run)"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500 distance 20"
+
 set_topology_expect "$uut_name" ipv4 4453 "metric weights 0 2 1 3 1 0"
 config="$(show_run)"
 assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "metric weights 0 1 0 1 0 0"
 
-set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 20000 200 250 2 1400"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 20000 200 250 2 1400 route-map STEP1-RM-3"
 config="$(show_run)"
-assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute connected metric 10000 100 255 1 1500"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute connected metric 15000 150 252 2 1450 route-map STEP1-RM-2"
 
 set_topology_expect "$uut_name" ipv4 4453 "timers active-time 240"
 config="$(show_run)"
@@ -571,6 +623,14 @@ assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit
 phase "stage 1: remove every IPv4/4453 child command individually"
 remove_af_expect "$uut_name" ipv4 4453 "no eigrp router-id" "eigrp router-id 10.44.53.2"
 remove_af_expect "$uut_name" ipv4 4453 "no network 10.44.0.0 0.0.255.255" "network 10.44.0.0/16"
+remove_af_expect "$uut_name" ipv4 4453 "no neighbor 10.0.0.1 description" "neighbor 10.0.0.1 description STEP1-PEER-UPDATED"
+remove_af_expect "$uut_name" ipv4 4453 "no neighbor 10.0.0.1 maximum-prefix" "neighbor 10.0.0.1 maximum-prefix 120 85 warning-only"
+remove_af_expect "$uut_name" ipv4 4453 "no neighbor maximum-prefix" "neighbor maximum-prefix 500 75 warning-only"
+# The positive form restores the default and removes the retained no form.
+remove_af_expect "$uut_name" ipv4 4453 "eigrp log-neighbor-changes" "no eigrp log-neighbor-changes"
+# First prove the warnings no form is itself retained, then restore the default.
+set_af_expect "$uut_name" ipv4 4453 "no eigrp log-neighbor-warnings"
+remove_af_expect "$uut_name" ipv4 4453 "eigrp log-neighbor-warnings" "no eigrp log-neighbor-warnings"
 remove_af_expect "$uut_name" ipv4 4453 "no neighbor 10.0.0.1 $uut_if" "neighbor 10.0.0.1 $uut_if"
 remove_af_expect "$uut_name" ipv4 4453 "no shutdown" "shutdown"
 
@@ -580,21 +640,29 @@ remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no hello-interval" "hello-inte
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no hold-time" "hold-time 21"
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no passive-interface" "passive-interface"
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no authentication key-chain" "authentication key-chain EIGRP-UUT-4453"
-remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no authentication mode" "authentication mode md5"
+remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no authentication mode" "authentication mode hmac-sha-256 7 Step1Secret7"
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "next-hop-self" "no next-hop-self"
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "split-horizon" "no split-horizon"
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no summary-address 10.44.0.0 255.255.0.0" "summary-address 10.44.0.0 255.255.0.0"
 remove_if_expect "$uut_name" ipv4 4453 "$uut_if" "no shutdown" "shutdown"
 
 remove_topology_expect "$uut_name" ipv4 4453 "no auto-summary" "auto-summary"
-remove_topology_expect "$uut_name" ipv4 4453 "no default-information in" "default-information in"
+remove_topology_expect "$uut_name" ipv4 4453 "no default-information in" "default-information in STEP1-IN-2"
+remove_topology_expect "$uut_name" ipv4 4453 "no default-information out" "default-information out STEP1-OUT"
 remove_topology_expect "$uut_name" ipv4 4453 "no default-metric 20000 200 250 2 1400" "default-metric 20000 200 250 2 1400"
 remove_topology_expect "$uut_name" ipv4 4453 "no distance eigrp" "distance eigrp 93 173"
-remove_topology_expect "$uut_name" ipv4 4453 "no maximum-prefix" "maximum-prefix 1000"
+remove_topology_expect "$uut_name" ipv4 4453 "no maximum-prefix" "maximum-prefix 1100 85 warning-only"
+remove_topology_expect "$uut_name" ipv4 4453 "no maximum-paths" "maximum-paths 12"
+remove_topology_expect "$uut_name" ipv4 4453 "no metric maximum-hops" "metric maximum-hops 220"
+remove_topology_expect "$uut_name" ipv4 4453 "no metric holddown" "metric holddown"
+remove_topology_expect "$uut_name" ipv4 4453 "no eigrp event-log-size" "eigrp event-log-size 1200"
 remove_topology_expect "$uut_name" ipv4 4453 "no metric weights" "metric weights 0 2 1 3 1 0"
-remove_topology_expect "$uut_name" ipv4 4453 "no offset-list EIGRP-UUT in 100" "offset-list EIGRP-UUT in 100"
-remove_topology_expect "$uut_name" ipv4 4453 "no redistribute connected" "redistribute connected metric 20000 200 250 2 1400"
-remove_topology_expect "$uut_name" ipv4 4453 "no summary-metric 10.44.0.0 255.255.0.0" "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500"
+remove_topology_expect "$uut_name" ipv4 4453 "no distribute-list STEP1-ACL-IN in" "distribute-list STEP1-ACL-IN in"
+remove_topology_expect "$uut_name" ipv4 4453 "no distribute-list prefix STEP1-PFX-OUT out" "distribute-list prefix STEP1-PFX-OUT out"
+remove_topology_expect "$uut_name" ipv4 4453 "no offset-list EIGRP-UUT in 100 $uut_if" "offset-list EIGRP-UUT in 100 $uut_if"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute maximum-prefix" "redistribute maximum-prefix 350 75 warning-only"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute connected" "redistribute connected metric 20000 200 250 2 1400 route-map STEP1-RM-3"
+remove_topology_expect "$uut_name" ipv4 4453 "no summary-metric 10.44.0.0 255.255.0.0" "summary-metric 10.44.0.0 255.255.0.0 distance 25"
 remove_topology_expect "$uut_name" ipv4 4453 "no timers active-time" "timers active-time 240"
 remove_topology_expect "$uut_name" ipv4 4453 "traffic-share balanced" "no traffic-share balanced"
 remove_topology_expect "$uut_name" ipv4 4453 "no variance" "variance 4"
@@ -681,23 +749,152 @@ assert_af_exists_in "$config" "$uut_name" ipv6 4453
 phase "stage 3: add second AS 6473 contexts"
 create_af_expect "$uut_name" ipv4 6473
 create_af_expect "$uut_name" ipv6 6473
-set_af_expect "$uut_name" ipv4 6473 "eigrp router-id 10.64.73.1"
-set_af_expect "$uut_name" ipv6 6473 "eigrp router-id 10.64.73.6"
+
+# The important multiple-AS test is not merely that two AF nodes can coexist.
+# Give the IPv4 4453 and 6473 contexts distinct AF-, interface-, and topology-
+# level configuration and prove writeback remains keyed to the selected AS.
+phase "stage 3: verify IPv4 AS 4453/6473 configuration isolation"
+set_af_expect "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.31"
+set_af_expect "$uut_name" ipv4 4453 "network 10.44.0.0 0.0.255.255" "network 10.44.0.0/16"
+set_if_expect "$uut_name" ipv4 4453 "$uut_if" "hello-interval 13"
+set_topology_expect "$uut_name" ipv4 4453 "variance 5"
+
+set_af_expect "$uut_name" ipv4 6473 "eigrp router-id 10.64.73.31"
+set_af_expect "$uut_name" ipv4 6473 "network 10.64.0.0 0.0.255.255" "network 10.64.0.0/16"
+set_if_expect "$uut_name" ipv4 6473 "$uut_if" "hello-interval 17"
+set_topology_expect "$uut_name" ipv4 6473 "variance 7"
 
 config="$(show_run)"
 assert_af_exists_in "$config" "$uut_name" ipv4 4453
-assert_af_exists_in "$config" "$uut_name" ipv6 4453
 assert_af_exists_in "$config" "$uut_name" ipv4 6473
+assert_af_line_in "$config" "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.31"
+assert_af_line_in "$config" "$uut_name" ipv4 6473 "eigrp router-id 10.64.73.31"
+assert_af_line_in "$config" "$uut_name" ipv4 4453 "network 10.44.0.0/16"
+assert_af_line_in "$config" "$uut_name" ipv4 6473 "network 10.64.0.0/16"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 4453 "eigrp router-id 10.64.73.31"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 6473 "eigrp router-id 10.44.53.31"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 4453 "network 10.64.0.0/16"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 6473 "network 10.44.0.0/16"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 13"
+assert_mode_line_in "$config" "$uut_name" ipv4 6473 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 17"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 17"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 6473 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 13"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 \
+	"topology base" "exit-af-topology" "variance 5"
+assert_mode_line_in "$config" "$uut_name" ipv4 6473 \
+	"topology base" "exit-af-topology" "variance 7"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 \
+	"topology base" "exit-af-topology" "variance 7"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 6473 \
+	"topology base" "exit-af-topology" "variance 5"
+
+# Mutate only 6473.  The 4453 values must remain byte-for-byte distinct in
+# running-config, proving update lookup is scoped by the AF/AS context.
+phase "stage 3: mutate IPv4 AS 6473 without changing AS 4453"
+set_af_expect "$uut_name" ipv4 6473 "eigrp router-id 10.64.73.32"
+set_if_expect "$uut_name" ipv4 6473 "$uut_if" "hello-interval 19"
+set_topology_expect "$uut_name" ipv4 6473 "variance 9"
+
+config="$(show_run)"
+assert_af_line_absent_in "$config" "$uut_name" ipv4 6473 "eigrp router-id 10.64.73.31"
+assert_af_line_in "$config" "$uut_name" ipv4 6473 "network 10.64.0.0/16"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 6473 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 17"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 6473 \
+	"topology base" "exit-af-topology" "variance 7"
+assert_af_line_in "$config" "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.31"
+assert_af_line_in "$config" "$uut_name" ipv4 4453 "network 10.44.0.0/16"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 13"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 \
+	"topology base" "exit-af-topology" "variance 5"
+
+# Exercise the same multiple-AS isolation for IPv6.  IPv6 does not have the
+# IPv4 network command, so use a configured neighbor as the AF-level keyed
+# object in addition to router-id.
+phase "stage 3: verify IPv6 AS 4453/6473 configuration isolation"
+set_af_expect "$uut_name" ipv6 4453 "eigrp router-id 10.44.53.61"
+set_af_expect "$uut_name" ipv6 4453 "neighbor 2001:db8:4453::31 $uut_if"
+set_if_expect "$uut_name" ipv6 4453 "$uut_if" "hello-interval 23"
+set_topology_expect "$uut_name" ipv6 4453 "variance 11"
+
+set_af_expect "$uut_name" ipv6 6473 "eigrp router-id 10.64.73.61"
+set_af_expect "$uut_name" ipv6 6473 "neighbor 2001:db8:6473::31 $uut_if"
+set_if_expect "$uut_name" ipv6 6473 "$uut_if" "hello-interval 29"
+set_topology_expect "$uut_name" ipv6 6473 "variance 13"
+
+config="$(show_run)"
+assert_af_exists_in "$config" "$uut_name" ipv6 4453
 assert_af_exists_in "$config" "$uut_name" ipv6 6473
+assert_af_line_in "$config" "$uut_name" ipv6 4453 "eigrp router-id 10.44.53.61"
+assert_af_line_in "$config" "$uut_name" ipv6 6473 "eigrp router-id 10.64.73.61"
+assert_af_line_in "$config" "$uut_name" ipv6 4453 "neighbor 2001:db8:4453::31 $uut_if"
+assert_af_line_in "$config" "$uut_name" ipv6 6473 "neighbor 2001:db8:6473::31 $uut_if"
+assert_af_line_absent_in "$config" "$uut_name" ipv6 4453 "eigrp router-id 10.64.73.61"
+assert_af_line_absent_in "$config" "$uut_name" ipv6 6473 "eigrp router-id 10.44.53.61"
+assert_af_line_absent_in "$config" "$uut_name" ipv6 4453 "neighbor 2001:db8:6473::31 $uut_if"
+assert_af_line_absent_in "$config" "$uut_name" ipv6 6473 "neighbor 2001:db8:4453::31 $uut_if"
+assert_mode_line_in "$config" "$uut_name" ipv6 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 23"
+assert_mode_line_in "$config" "$uut_name" ipv6 6473 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 29"
+assert_mode_line_absent_in "$config" "$uut_name" ipv6 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 29"
+assert_mode_line_absent_in "$config" "$uut_name" ipv6 6473 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 23"
+assert_mode_line_in "$config" "$uut_name" ipv6 4453 \
+	"topology base" "exit-af-topology" "variance 11"
+assert_mode_line_in "$config" "$uut_name" ipv6 6473 \
+	"topology base" "exit-af-topology" "variance 13"
+assert_mode_line_absent_in "$config" "$uut_name" ipv6 4453 \
+	"topology base" "exit-af-topology" "variance 13"
+assert_mode_line_absent_in "$config" "$uut_name" ipv6 6473 \
+	"topology base" "exit-af-topology" "variance 11"
+
+phase "stage 3: mutate IPv6 AS 6473 without changing AS 4453"
+set_af_expect "$uut_name" ipv6 6473 "eigrp router-id 10.64.73.62"
+set_if_expect "$uut_name" ipv6 6473 "$uut_if" "hello-interval 31"
+set_topology_expect "$uut_name" ipv6 6473 "variance 15"
+
+config="$(show_run)"
+assert_af_line_absent_in "$config" "$uut_name" ipv6 6473 "eigrp router-id 10.64.73.61"
+assert_af_line_in "$config" "$uut_name" ipv6 6473 "neighbor 2001:db8:6473::31 $uut_if"
+assert_mode_line_absent_in "$config" "$uut_name" ipv6 6473 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 29"
+assert_mode_line_absent_in "$config" "$uut_name" ipv6 6473 \
+	"topology base" "exit-af-topology" "variance 13"
+assert_af_line_in "$config" "$uut_name" ipv6 4453 "eigrp router-id 10.44.53.61"
+assert_af_line_in "$config" "$uut_name" ipv6 4453 "neighbor 2001:db8:4453::31 $uut_if"
+assert_mode_line_in "$config" "$uut_name" ipv6 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 23"
+assert_mode_line_in "$config" "$uut_name" ipv6 4453 \
+	"topology base" "exit-af-topology" "variance 11"
 
 phase "stage 3: remove second-AS contexts with no address-family"
 remove_af_context_expect "$uut_name" ipv4 6473
 remove_af_context_expect "$uut_name" ipv6 6473
 
-# The proven 4453 contexts must remain untouched by deleting 6473.
+# Deleting 6473 must not merely leave the 4453 node behind; its retained
+# child configuration must remain intact as well.
 config="$(show_run)"
 assert_af_exists_in "$config" "$uut_name" ipv4 4453
 assert_af_exists_in "$config" "$uut_name" ipv6 4453
+assert_af_line_in "$config" "$uut_name" ipv4 4453 "eigrp router-id 10.44.53.31"
+assert_af_line_in "$config" "$uut_name" ipv4 4453 "network 10.44.0.0/16"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 13"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 \
+	"topology base" "exit-af-topology" "variance 5"
+assert_af_line_in "$config" "$uut_name" ipv6 4453 "eigrp router-id 10.44.53.61"
+assert_af_line_in "$config" "$uut_name" ipv6 4453 "neighbor 2001:db8:4453::31 $uut_if"
+assert_mode_line_in "$config" "$uut_name" ipv6 4453 \
+	"af-interface $uut_if" "exit-af-interface" "hello-interval 23"
+assert_mode_line_in "$config" "$uut_name" ipv6 4453 \
+	"topology base" "exit-af-topology" "variance 11"
 
 # Clean the single-parent matrix before the final case-sensitive name test.
 remove_af_context_expect "$uut_name" ipv4 4453

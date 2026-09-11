@@ -15,7 +15,7 @@
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
-#include "eigrpd/eigrp_named.h"
+#include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_errors.h"
@@ -127,7 +127,8 @@ static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
 	/* init internal data structures */
 	eigrp->eiflist = list_new();
 	eigrp->passive_interface_default = EIGRP_INTF_ACTIVE;
-	eigrp->networks = eigrp_topology_new();
+	/* Configured network statements are not a topology table. */
+	eigrp->networks = route_table_init();
 
 	eigrp->fd = eigrp_sock_init(vrf_lookup_by_id(vrf_id));
 
@@ -152,7 +153,7 @@ static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
 	src.ip.v4.s_addr = INADDR_ANY;
 
 	eigrp->neighbor_self = eigrp_nbr_create(NULL, &src);
-	eigrp->topology_table = route_table_init();
+	eigrp->topology_table = eigrp_topology_table_create();
 	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
 	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
 
@@ -261,7 +262,7 @@ void eigrp_terminate(void)
 		eigrp_finish(eigrp);
 	}
 
-	eigrp_named_finish();
+	eigrp_instance_config_finish();
 	eigrp_zebra_stop();
 	vrf_terminate();
 	frr_fini();
@@ -300,7 +301,7 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	list_delete(&eigrp->eiflist);
 	list_delete(&eigrp->oi_write_q);
 
-	eigrp_topology_free(eigrp, eigrp->topology_table);
+	eigrp_topology_table_delete(eigrp, eigrp->topology_table);
 	eigrp_nbr_delete(eigrp->neighbor_self);
 
 	list_delete(&eigrp->topology_changes);

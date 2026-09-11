@@ -50,12 +50,12 @@ eigrp_instance_lookup();
 
 /* eigrp_metric.c */
 eigrp_metric_calculate();
-eigrp_metric_weights_set();
-eigrp_metric_weights_reset();
-eigrp_metric_variance_set();
-eigrp_metric_variance_reset();
-eigrp_metric_default_set();
-eigrp_metric_default_reset();
+eigrp_metric_weights_update();
+eigrp_metric_weights_delete();
+eigrp_metric_variance_update();
+eigrp_metric_variance_delete();
+eigrp_metric_default_update();
+eigrp_metric_default_delete();
 ```
 
 The point is that a developer debugging metrics can search for `eigrp_metric_` and find the metric implementation family. A developer debugging query processing can go to `eigrp_query.c` and search for `eigrp_query_`.
@@ -85,39 +85,38 @@ When a grouped feature grows enough to become a meaningful subsystem, it may be 
 Actions normally appear last:
 
 ```c
-eigrp_metric_variance_set();
-eigrp_metric_variance_reset();
+eigrp_metric_variance_update();
+eigrp_metric_variance_delete();
 eigrp_neighbor_create();
 eigrp_neighbor_delete();
 eigrp_query_receive();
 ```
 
-Prefer separate public target functions for distinct actions rather than an operation enum used as a public dispatcher:
+Use modern CRUD terminology as the default for configuration and object lifecycle APIs when it accurately describes the operation:
 
-```c
-eigrp_metric_variance_set(...);
-eigrp_metric_variance_reset(...);
+```text
+create  introduce a configured/keyed object or relationship
+read    retrieve configuration or state without side effects
+update  change an existing object or configurable value
+delete  remove explicit configuration or an owned object/relationship
 ```
 
-instead of:
+Do not invent a complete CRUD quartet where the feature does not need it. A scalar configuration commonly needs only `update()` and `delete()`; a keyed relationship may need only `create()` and `delete()`.
+
+For example:
 
 ```c
-eigrp_metric_variance(EIGRP_SET, ...);
-eigrp_metric_variance(EIGRP_RESET, ...);
+eigrp_metric_variance_update(...);
+eigrp_metric_variance_delete(...);
 ```
 
-A private helper may use an internal operation enum when that genuinely removes duplicated implementation:
+A CLI `no` command frequently maps to `delete()` because it removes explicit configuration so default or inherited behavior applies.
 
-```c
-static eigrp_result_t
-eigrp_metric_variance_update(..., enum eigrp_config_operation operation, ...);
-```
+Use `set/reset`, `add/remove`, and similar verbs only after considering whether CRUD terminology is genuinely inappropriate. They are not the default for new or materially refactored configuration APIs.
 
-The public API remains explicit and searchable.
+Do not force CRUD terminology onto protocol/domain actions where a semantic verb is clearer. Operations such as `advertise`, `withdraw`, `install`, `uninstall`, `enable`, `disable`, `attach`, `detach`, and operational `clear` remain appropriate when they describe what EIGRP is actually doing.
 
-Use `reset` for a configuration `no` operation that restores a default. Reserve `clear` primarily for operational behavior such as clearing neighbors, counters, or protocol state.
-
-Use `add/remove` for membership in keyed collections where that better expresses the data relationship, and `create/delete` for object lifecycle where the implementation owns allocation/lifetime.
+Prefer separate public target functions for distinct actions rather than a public operation-enum dispatcher. Private helpers and enums are acceptable when they remove duplicated implementation without obscuring the public target.
 
 ## 5. Feature Target Rule
 
@@ -126,7 +125,7 @@ Every implemented CLI or management feature must terminate at its own real EIGRP
 An incomplete target is still a real target:
 
 ```c
-eigrp_metric_variance_set(...)
+eigrp_metric_variance_update(...)
 {
     return EIGRP_RESULT_NOT_IMPLEMENTED;
 }

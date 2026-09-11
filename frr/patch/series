@@ -5,3 +5,4 @@ eigrp-named-af-config.patch
 eigrp-named-af-interface.patch
 eigrp-named-topology.patch
 eigrp-named-topology-callbacks.patch
+frr-eigrp-yang.patch

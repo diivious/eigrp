@@ -18,6 +18,35 @@
 #ifndef _ZEBRA_EIGRP_INTERFACE_H_
 #define _ZEBRA_EIGRP_INTERFACE_H_
 
+#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_types.h"
+
+struct eigrp_interface_config {
+	char *interface_name;
+	bool bandwidth_percent_configured;
+	uint32_t bandwidth_percent;
+	bool hello_interval_configured;
+	uint16_t hello_interval;
+	bool hold_time_configured;
+	uint16_t hold_time;
+	bool passive;
+	bool authentication_mode_configured;
+	uint8_t authentication_mode;
+	uint8_t authentication_encryption_type;
+	char *authentication_password;
+	char *keychain;
+	bool next_hop_self;
+	bool split_horizon;
+	bool shutdown;
+	eigrp_summary_config_t *summaries;
+	eigrp_interface_config_t *next;
+};
+
+typedef struct eigrp_interface_context {
+	eigrp_interface_config_t *config;
+	eigrp_interface_t *runtime;
+} eigrp_interface_context_t;
+
 /*Prototypes*/
 extern void eigrp_intf_init(void);
 extern int eigrp_intf_new_hook(struct interface *);
@@ -53,5 +82,34 @@ extern eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *,
 
 /* Simulate down/up on the interface. */
 extern void eigrp_intf_reset(struct interface *);
+
+/* Portable interface configuration targets. */
+eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af,
+					     const char *interface_name);
+eigrp_interface_config_t *eigrp_interface_config_read(
+	eigrp_address_family_config_t *af, const char *interface_name);
+eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af,
+					     const char *interface_name);
+void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af);
+
+eigrp_result_t eigrp_interface_bandwidth_percent_update(
+	eigrp_interface_context_t *context, uint32_t percent);
+eigrp_result_t eigrp_interface_bandwidth_percent_delete(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_hello_interval_update(
+	eigrp_interface_context_t *context, uint16_t seconds);
+eigrp_result_t eigrp_interface_hello_interval_delete(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *context,
+					       uint16_t seconds);
+eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context,
+					      bool passive);
+eigrp_result_t eigrp_interface_next_hop_self_update(
+	eigrp_interface_context_t *context, bool enabled);
+eigrp_result_t eigrp_interface_split_horizon_update(
+	eigrp_interface_context_t *context, bool enabled);
+eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *context,
+					       bool shutdown);
 
 #endif /* ZEBRA_EIGRP_INTERFACE_H_ */

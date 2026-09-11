@@ -236,9 +236,9 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
  * del - assigned function executed before deleting topology node by list
  * function
  */
-struct route_table *eigrp_topology_new(void)
+struct route_table *eigrp_topology_table_create(void)
 {
-       return route_table_init();
+	return route_table_init();
 }
 
 /*
@@ -263,8 +263,11 @@ void eigrp_topology_delete_all(eigrp_instance_t *eigrp,
 /*
  * Freeing topology table list
  */
-void eigrp_topology_free(eigrp_instance_t *eigrp, struct route_table *table)
+void eigrp_topology_table_delete(eigrp_instance_t *eigrp,
+				 struct route_table *table)
 {
+	if (!table)
+		return;
 	eigrp_topology_delete_all(eigrp, table);
 	route_table_finish(table);
 }
@@ -566,4 +569,97 @@ void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
 	    && prefix->nt != EIGRP_TOPOLOGY_TYPE_CONNECTED) {
 		eigrp_prefix_descriptor_delete(eigrp, table, prefix);
 	}
+}
+
+static eigrp_result_t
+eigrp_topology_context_validate(const eigrp_instance_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (context->topology_id != EIGRP_TOPOLOGY_ID_BASE)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context)
+{
+	eigrp_result_t result;
+
+	/*
+	 * Step 1 implements only TID 0.  Keep the public lifecycle generic so a
+	 * future non-zero TID does not require a second portable API family.
+	 * Runtime support for additional topologies is not part of this cleanup.
+	 */
+	result = eigrp_topology_context_validate(context);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context)
+{
+	eigrp_result_t result;
+
+	result = eigrp_topology_context_validate(context);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_topology_default_information_update(
+	eigrp_instance_context_t *context,
+	eigrp_default_information_direction_t direction, bool enabled,
+	const char *access_list)
+{
+	(void)enabled;
+	if (direction != EIGRP_DEFAULT_INFORMATION_IN
+	    && direction != EIGRP_DEFAULT_INFORMATION_OUT)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (access_list && !access_list[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_topology_maximum_prefix_update(
+	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
+{
+	if (!limit || !limit->maximum || limit->threshold > 100)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_topology_maximum_paths_update(
+	eigrp_instance_context_t *context, uint8_t maximum_paths)
+{
+	if (!maximum_paths || maximum_paths > 32)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		context->runtime->max_paths = maximum_paths;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_topology_maximum_paths_delete(
+	eigrp_instance_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		context->runtime->max_paths = EIGRP_MAX_PATHS_DEFAULT;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_topology_maximum_prefix_delete(
+	eigrp_instance_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }

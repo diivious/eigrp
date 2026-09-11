@@ -121,7 +121,7 @@ Before production, perform a focused navigation/naming audit using `code-convent
 - filename/module and `eigrp_<module>_` prefix normally align;
 - object/detail narrows after the module name;
 - action normally appears last;
-- configuration `set/reset` functions are explicit and searchable;
+- configuration/object APIs use CRUD actions where they accurately describe lifecycle semantics;
 - generic CLI/not-implemented dispatchers do not exist;
 - grouped-module exceptions such as filter/distribute/offset remain intentional;
 - no alias wrappers remain after approved renames.

@@ -28,6 +28,14 @@
 #include "lib/checksum.h"
 #include "lib/md5.h"
 #include "lib/sha256.h"
+#include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_result.h"
+
+typedef enum eigrp_authentication_mode {
+	EIGRP_AUTHENTICATION_NONE = 0,
+	EIGRP_AUTHENTICATION_MD5,
+	EIGRP_AUTHENTICATION_HMAC_SHA256,
+} eigrp_authentication_mode_t;
 
 /*
  * These externs need to cleaned up
@@ -53,6 +61,19 @@ extern uint16_t eigrp_add_authTLV_MD5_encode(struct stream *,
 					     eigrp_interface_t *);
 extern uint16_t eigrp_add_authTLV_SHA256_encode(struct stream *,
 						eigrp_interface_t *);
+
+typedef struct eigrp_auth_hmac_config {
+	uint8_t encryption_type;
+	const char *password;
+} eigrp_auth_hmac_config_t;
+
+eigrp_result_t eigrp_auth_mode_update(
+	eigrp_interface_context_t *context, eigrp_authentication_mode_t mode,
+	const eigrp_auth_hmac_config_t *hmac);
+eigrp_result_t eigrp_auth_mode_delete(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
+					  const char *keychain);
+eigrp_result_t eigrp_auth_keychain_delete(eigrp_interface_context_t *context);
 
 #endif /* _ZEBRA_EIGRP_AUTH_H */
 

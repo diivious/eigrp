@@ -81,6 +81,28 @@ extern void eigrp_cli_show_named_traffic_share_balanced(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_show_named_variance(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_neighbor_description(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_neighbor_maximum_prefix(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_neighbor_maximum_prefix_all(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_log_neighbor_changes(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_log_neighbor_warnings(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_maximum_paths(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_metric_maximum_hops(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_metric_holddown(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_event_log_size(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_redistribute_maximum_prefix(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_show_named_distribute_list(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
 
 extern void eigrp_cli_show_header(struct vty *vty, const struct lyd_node *dnode,
 				  bool show_defaults);
@@ -92,9 +114,6 @@ extern void eigrp_cli_show_router_id(struct vty *vty,
 extern void eigrp_cli_show_passive_interface(struct vty *vty,
 					     const struct lyd_node *dnode,
 					     bool show_defaults);
-extern void eigrp_cli_show_active_time(struct vty *vty,
-				       const struct lyd_node *dnode,
-				       bool show_defaults);
 extern void eigrp_cli_show_variance(struct vty *vty,
 				    const struct lyd_node *dnode,
 				    bool show_defaults);
@@ -107,32 +126,9 @@ extern void eigrp_cli_show_metrics(struct vty *vty,
 extern void eigrp_cli_show_network(struct vty *vty,
 				   const struct lyd_node *dnode,
 				   bool show_defaults);
-extern void eigrp_cli_show_neighbor(struct vty *vty,
-				    const struct lyd_node *dnode,
-				    bool show_defaults);
 extern void eigrp_cli_show_redistribute(struct vty *vty,
 					const struct lyd_node *dnode,
 					bool show_defaults);
-extern void eigrp_cli_show_delay(struct vty *vty, const struct lyd_node *dnode,
-				 bool show_defaults);
-extern void eigrp_cli_show_bandwidth(struct vty *vty,
-				     const struct lyd_node *dnode,
-				     bool show_defaults);
-extern void eigrp_cli_show_hello_interval(struct vty *vty,
-					  const struct lyd_node *dnode,
-					  bool show_defaults);
-extern void eigrp_cli_show_hold_time(struct vty *vty,
-				     const struct lyd_node *dnode,
-				     bool show_defaults);
-extern void eigrp_cli_show_summarize_address(struct vty *vty,
-					     const struct lyd_node *dnode,
-					     bool show_defaults);
-extern void eigrp_cli_show_authentication(struct vty *vty,
-					  const struct lyd_node *dnode,
-					  bool show_defaults);
-extern void eigrp_cli_show_keychain(struct vty *vty,
-				    const struct lyd_node *dnode,
-				    bool show_defaults);
 extern int eigrp_cli_result_render(struct vty *vty, const char *operation,
 				   eigrp_result_t result);
 extern void eigrp_cli_init(void);

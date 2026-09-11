@@ -16,11 +16,115 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_neighbor.h"
+#include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_zebra.h"
+
+struct eigrp_neighbor_config {
+	eigrp_address_t address;
+	char *interface_name;
+	eigrp_neighbor_config_t *next;
+};
+
+static char *eigrp_neighbor_string_duplicate(const char *value)
+{
+	size_t len;
+	char *copy;
+
+	if (!value)
+		return NULL;
+	len = strlen(value) + 1;
+	copy = malloc(len);
+	if (!copy)
+		return NULL;
+	memcpy(copy, value, len);
+	return copy;
+}
+
+static bool eigrp_neighbor_address_equal(const eigrp_address_t *a,
+					 const eigrp_address_t *b)
+{
+	size_t len;
+
+	if (!a || !b || a->afi != b->afi)
+		return false;
+	len = a->afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
+	return memcmp(a->bytes, b->bytes, len) == 0;
+}
+
+eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
+					    const eigrp_address_t *address,
+					    const char *interface_name)
+{
+	eigrp_neighbor_config_t *neighbor;
+
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!address || address->afi != af->afi || !interface_name
+	    || !interface_name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	for (neighbor = af->neighbors; neighbor; neighbor = neighbor->next)
+		if (eigrp_neighbor_address_equal(&neighbor->address, address)
+		    && strcmp(neighbor->interface_name, interface_name) == 0)
+			return EIGRP_RESULT_SUCCESS;
+
+	neighbor = calloc(1, sizeof(*neighbor));
+	if (!neighbor)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	neighbor->interface_name = eigrp_neighbor_string_duplicate(interface_name);
+	if (!neighbor->interface_name) {
+		free(neighbor);
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
+	neighbor->address = *address;
+	neighbor->next = af->neighbors;
+	af->neighbors = neighbor;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
+					    const eigrp_address_t *address,
+					    const char *interface_name)
+{
+	eigrp_neighbor_config_t **cursor;
+	eigrp_neighbor_config_t *neighbor;
+
+	if (!address || !interface_name)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	for (cursor = &af->neighbors; *cursor; cursor = &(*cursor)->next) {
+		neighbor = *cursor;
+		if (!eigrp_neighbor_address_equal(&neighbor->address, address)
+		    || strcmp(neighbor->interface_name, interface_name) != 0)
+			continue;
+		*cursor = neighbor->next;
+		free(neighbor->interface_name);
+		free(neighbor);
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_FOUND;
+}
+
+void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af)
+{
+	eigrp_neighbor_config_t *neighbor;
+	eigrp_neighbor_config_t *next;
+
+	if (!af)
+		return;
+	for (neighbor = af->neighbors; neighbor; neighbor = next) {
+		next = neighbor->next;
+		free(neighbor->interface_name);
+		free(neighbor);
+	}
+	af->neighbors = NULL;
+}
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_NEIGHBOR, "EIGRP neighbor");
 
@@ -362,4 +466,100 @@ int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *erd,
 		return 0;
 
 	return (erd->ei == ei);
+}
+
+static bool eigrp_neighbor_config_address_valid(const eigrp_address_t *address)
+{
+	return address && (address->afi == EIGRP_ADDRESS_FAMILY_IPV4
+			   || address->afi == EIGRP_ADDRESS_FAMILY_IPV6);
+}
+
+eigrp_result_t eigrp_neighbor_description_update(
+	eigrp_instance_context_t *context, const eigrp_address_t *address,
+	const char *description)
+{
+	if (!eigrp_neighbor_config_address_valid(address) || !description
+	    || !description[0] || strlen(description) > 80)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_description_delete(
+	eigrp_instance_context_t *context, const eigrp_address_t *address)
+{
+	if (!eigrp_neighbor_config_address_valid(address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_maximum_prefix_update(
+	eigrp_instance_context_t *context, const eigrp_address_t *address,
+	const eigrp_prefix_limit_t *limit)
+{
+	if (!eigrp_neighbor_config_address_valid(address) || !limit
+	    || !limit->maximum || limit->threshold > 100)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
+	eigrp_instance_context_t *context, const eigrp_address_t *address)
+{
+	if (!eigrp_neighbor_config_address_valid(address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
+	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
+{
+	if (!limit || !limit->maximum || limit->threshold > 100)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
+	eigrp_instance_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_log_changes_update(
+	eigrp_instance_context_t *context, bool enabled)
+{
+	(void)enabled;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_log_warnings_update(
+	eigrp_instance_context_t *context, bool enabled, uint16_t seconds)
+{
+	(void)enabled;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (enabled && !seconds)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_neighbor_log_warnings_delete(
+	eigrp_instance_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }

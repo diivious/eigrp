@@ -1,0 +1,186 @@
+diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang
+index 8375e74..e08abbd 100644
+--- a/yang/frr-eigrpd.yang
++++ b/yang/frr-eigrpd.yang
+@@ -158,6 +158,16 @@ module frr-eigrpd {
+         description "EIGRP packet authentication mode";
+       }
+ 
++      leaf authentication-encryption-type {
++        type uint8 { range "0 | 7"; }
++        description "Cisco password encoding selector for HMAC SHA-256";
++      }
++
++      leaf authentication-password {
++        type string { length "1..32"; }
++        description "HMAC SHA-256 authentication password";
++      }
++
+       leaf authentication-key-chain {
+         type string;
+         description "Host key-chain name used for EIGRP authentication";
+@@ -188,6 +198,16 @@ module frr-eigrpd {
+           type inet:ipv4-address;
+           description "IPv4 summary subnet mask";
+         }
++
++        leaf administrative-distance {
++          type uint8 { range "1..255"; }
++          description "Administrative distance for the summary route";
++        }
++
++        leaf leak-map {
++          type string { length "1..255"; }
++          description "Route-map used to leak component routes";
++        }
+       }
+ 
+       leaf shutdown {
+@@ -544,6 +564,46 @@ module frr-eigrpd {
+       }
+     }
+ 
++    /* EIGRP_STEP1_CONFIG_COMPLETE */
++    list neighbor-policy {
++      key "address";
++      description "Per-neighbor EIGRP policy and metadata";
++      leaf address { type inet:ip-address; }
++      leaf description { type string { length "1..80"; } }
++      container maximum-prefix {
++        presence "Configure a per-neighbor prefix limit";
++        leaf maximum { type uint32 { range "1..4294967295"; } mandatory true; }
++        leaf threshold { type uint8 { range "1..100"; } }
++        leaf warning-only { type empty; }
++        leaf dampened { type empty; }
++        leaf reset-time { type uint16 { range "1..65535"; } }
++        leaf restart { type uint16 { range "1..65535"; } }
++        leaf restart-count { type uint16 { range "1..65535"; } }
++      }
++    }
++
++    container neighbor-maximum-prefix {
++      presence "Configure a prefix limit for all neighbors";
++      leaf maximum { type uint32 { range "1..4294967295"; } mandatory true; }
++      leaf threshold { type uint8 { range "1..100"; } }
++      leaf warning-only { type empty; }
++      leaf dampened { type empty; }
++      leaf reset-time { type uint16 { range "1..65535"; } }
++      leaf restart { type uint16 { range "1..65535"; } }
++      leaf restart-count { type uint16 { range "1..65535"; } }
++    }
++
++    leaf log-neighbor-changes {
++      type boolean;
++      description "Explicit neighbor adjacency-change logging state";
++    }
++
++    container log-neighbor-warnings {
++      presence "Configure neighbor warning logging";
++      leaf enabled { type boolean; mandatory true; }
++      leaf interval { type uint16 { range "1..65535"; } }
++    }
++
+     leaf shutdown {
+       type empty;
+       description "Administratively disable this address-family context";
+@@ -566,14 +626,14 @@ module frr-eigrpd {
+         description "Enable automatic classful summarization";
+       }
+ 
+-      leaf default-information-in {
+-        type empty;
+-        description "Accept exterior or default routing information";
++      container default-information-in {
++        presence "Accept exterior or default routing information";
++        leaf access-list { type string { length "1..255"; } }
+       }
+ 
+-      leaf default-information-out {
+-        type empty;
+-        description "Advertise exterior or default routing information";
++      container default-information-out {
++        presence "Advertise exterior or default routing information";
++        leaf access-list { type string { length "1..255"; } }
+       }
+ 
+       /* EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY */
+@@ -613,11 +673,22 @@ module frr-eigrpd {
+         }
+       }
+ 
+-      leaf maximum-prefix {
+-        type uint32 { range "1..4294967295"; }
+-        description "Maximum number of prefixes accepted under this topology";
++      container maximum-prefix {
++        presence "Configure a topology prefix limit";
++        leaf maximum { type uint32 { range "1..4294967295"; } mandatory true; }
++        leaf threshold { type uint8 { range "1..100"; } }
++        leaf warning-only { type empty; }
++        leaf dampened { type empty; }
++        leaf reset-time { type uint16 { range "1..65535"; } }
++        leaf restart { type uint16 { range "1..65535"; } }
++        leaf restart-count { type uint16 { range "1..65535"; } }
+       }
+ 
++      leaf maximum-paths { type uint8 { range "1..32"; } }
++      leaf metric-maximum-hops { type uint8 { range "1..255"; } }
++      leaf metric-holddown { type empty; }
++      leaf event-log-size { type uint32; }
++
+       container metric-weights {
+         presence "Configure EIGRP metric coefficients";
+         leaf tos {
+@@ -631,6 +702,8 @@ module frr-eigrpd {
+         leaf K5 { type uint8; mandatory true; }
+       }
+ 
++      uses frr-filter:distribute-list-group;
++
+       list offset-list {
+         key "access-list direction interface";
+         description "Metric offset applied to incoming or outgoing updates";
+@@ -659,6 +732,10 @@ module frr-eigrpd {
+         leaf protocol {
+           type string { length "1..32"; }
+         }
++        leaf route-map {
++          type string { length "1..255"; }
++          description "Route-map applied to redistributed routes";
++        }
+         container metrics {
+           presence "Configure an explicit redistribution metric";
+           leaf bandwidth {
+@@ -672,16 +749,28 @@ module frr-eigrpd {
+         }
+       }
+ 
++      container redistribute-maximum-prefix {
++        presence "Configure a redistributed-route prefix limit";
++        leaf maximum { type uint32 { range "1..4294967295"; } mandatory true; }
++        leaf threshold { type uint8 { range "1..100"; } }
++        leaf warning-only { type empty; }
++        leaf dampened { type empty; }
++        leaf reset-time { type uint16 { range "1..65535"; } }
++        leaf restart { type uint16 { range "1..65535"; } }
++        leaf restart-count { type uint16 { range "1..65535"; } }
++      }
++
+       list summary-metric {
+         key "address mask";
+         description "Fixed metric for an IPv4 summary aggregate";
+         leaf address { type inet:ipv4-address; }
+         leaf mask { type inet:ipv4-address; }
+-        leaf bandwidth { type uint32 { range "1..4294967295"; } mandatory true; }
+-        leaf delay { type uint32; mandatory true; }
+-        leaf reliability { type uint8; mandatory true; }
+-        leaf load { type uint8 { range "1..255"; } mandatory true; }
+-        leaf mtu { type uint16 { range "1..65535"; } mandatory true; }
++        leaf bandwidth { type uint32 { range "1..4294967295"; } }
++        leaf delay { type uint32; }
++        leaf reliability { type uint8; }
++        leaf load { type uint8 { range "1..255"; } }
++        leaf mtu { type uint16 { range "1..65535"; } }
++        leaf distance { type uint8 { range "1..255"; } }
+       }
+ 
+       leaf active-time {

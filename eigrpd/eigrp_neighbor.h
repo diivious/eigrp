@@ -18,6 +18,10 @@
 #ifndef _ZEBRA_EIGRP_NEIGHBOR_H
 #define _ZEBRA_EIGRP_NEIGHBOR_H
 
+#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_instance.h"
+#include "eigrpd/eigrp_types.h"
+
 /* Neighbor Data Structure */
 typedef struct eigrp_neighbor {
 
@@ -102,5 +106,34 @@ extern void eigrp_nbr_hard_restart(eigrp_instance_t *, eigrp_neighbor_t *,
 
 extern int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *,
 					 eigrp_interface_t *);
+
+eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
+					    const eigrp_address_t *address,
+					    const char *interface_name);
+eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
+					    const eigrp_address_t *address,
+					    const char *interface_name);
+void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af);
+
+eigrp_result_t eigrp_neighbor_description_update(
+	eigrp_instance_context_t *context, const eigrp_address_t *address,
+	const char *description);
+eigrp_result_t eigrp_neighbor_description_delete(
+	eigrp_instance_context_t *context, const eigrp_address_t *address);
+eigrp_result_t eigrp_neighbor_maximum_prefix_update(
+	eigrp_instance_context_t *context, const eigrp_address_t *address,
+	const eigrp_prefix_limit_t *limit);
+eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
+	eigrp_instance_context_t *context, const eigrp_address_t *address);
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
+	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
+	eigrp_instance_context_t *context);
+eigrp_result_t eigrp_neighbor_log_changes_update(
+	eigrp_instance_context_t *context, bool enabled);
+eigrp_result_t eigrp_neighbor_log_warnings_update(
+	eigrp_instance_context_t *context, bool enabled, uint16_t seconds);
+eigrp_result_t eigrp_neighbor_log_warnings_delete(
+	eigrp_instance_context_t *context);
 
 #endif /* _ZEBRA_EIGRP_NEIGHBOR_H */

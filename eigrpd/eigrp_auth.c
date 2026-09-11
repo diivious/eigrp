@@ -357,3 +357,109 @@ void eigrp_authTLV_SHA256_free(struct TLV_SHA256_Authentication_Type *authTLV)
 	XFREE(MTYPE_EIGRP_AUTH_SHA256_TLV, authTLV);
 }
 
+
+static char *eigrp_auth_string_duplicate(const char *value)
+{
+	size_t len;
+	char *copy;
+
+	if (!value)
+		return NULL;
+	len = strlen(value) + 1;
+	copy = malloc(len);
+	if (!copy)
+		return NULL;
+	memcpy(copy, value, len);
+	return copy;
+}
+
+eigrp_result_t eigrp_auth_mode_update(
+	eigrp_interface_context_t *context, eigrp_authentication_mode_t mode,
+	const eigrp_auth_hmac_config_t *hmac)
+{
+	char *password = NULL;
+
+	if (mode != EIGRP_AUTHENTICATION_MD5
+	    && mode != EIGRP_AUTHENTICATION_HMAC_SHA256)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256) {
+		if (!hmac || (hmac->encryption_type != 0 && hmac->encryption_type != 7)
+		    || !hmac->password || !hmac->password[0]
+		    || strlen(hmac->password) > 32)
+			return EIGRP_RESULT_INVALID_ARGUMENT;
+		if (context->config) {
+			password = eigrp_auth_string_duplicate(hmac->password);
+			if (!password)
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+		}
+	} else if (hmac) {
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	}
+
+	if (context->config) {
+		context->config->authentication_mode = (uint8_t)mode;
+		context->config->authentication_mode_configured = true;
+		free(context->config->authentication_password);
+		context->config->authentication_password = password;
+		context->config->authentication_encryption_type =
+			mode == EIGRP_AUTHENTICATION_HMAC_SHA256
+				? hmac->encryption_type
+				: 0;
+	}
+	if (context->runtime) {
+		/* Direct-password HMAC still needs runtime key material integration. */
+		if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256)
+			return EIGRP_RESULT_NOT_IMPLEMENTED;
+		context->runtime->params.auth_type = EIGRP_AUTH_TYPE_MD5;
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_auth_mode_delete(eigrp_interface_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->authentication_mode = EIGRP_AUTHENTICATION_NONE;
+		context->config->authentication_mode_configured = false;
+		context->config->authentication_encryption_type = 0;
+		free(context->config->authentication_password);
+		context->config->authentication_password = NULL;
+	}
+	if (context->runtime)
+		context->runtime->params.auth_type = EIGRP_AUTH_TYPE_NONE;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
+					  const char *keychain)
+{
+	char *copy;
+
+	if (!keychain || !keychain[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+
+	copy = eigrp_auth_string_duplicate(keychain);
+	if (!copy)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	free(context->config->keychain);
+	context->config->keychain = copy;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_auth_keychain_delete(eigrp_interface_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	free(context->config->keychain);
+	context->config->keychain = NULL;
+	return EIGRP_RESULT_SUCCESS;
+}

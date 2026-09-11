@@ -16,6 +16,7 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_tlv1.h"
@@ -25,9 +26,248 @@
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_metric.h"
+#include "eigrpd/eigrp_summary.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF,      "EIGRP interface");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF_INFO, "EIGRP Interface Information");
+
+static char *eigrp_interface_string_duplicate(const char *value)
+{
+	size_t len;
+	char *copy;
+
+	if (!value)
+		return NULL;
+	len = strlen(value) + 1;
+	copy = malloc(len);
+	if (!copy)
+		return NULL;
+	memcpy(copy, value, len);
+	return copy;
+}
+
+eigrp_interface_config_t *eigrp_interface_config_read(
+	eigrp_address_family_config_t *af, const char *interface_name)
+{
+	eigrp_interface_config_t *interface;
+
+	if (!af || !interface_name || !interface_name[0])
+		return NULL;
+	for (interface = af->interfaces; interface; interface = interface->next)
+		if (strcmp(interface->interface_name, interface_name) == 0)
+			return interface;
+	return NULL;
+}
+
+eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af,
+					     const char *interface_name)
+{
+	eigrp_interface_config_t *interface;
+
+	if (!interface_name || !interface_name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (eigrp_interface_config_read(af, interface_name))
+		return EIGRP_RESULT_SUCCESS;
+
+	interface = calloc(1, sizeof(*interface));
+	if (!interface)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	interface->interface_name = eigrp_interface_string_duplicate(interface_name);
+	if (!interface->interface_name) {
+		free(interface);
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
+	interface->next_hop_self = true;
+	interface->split_horizon = true;
+	interface->next = af->interfaces;
+	af->interfaces = interface;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+static void eigrp_interface_config_free(eigrp_interface_config_t *interface)
+{
+	if (!interface)
+		return;
+	eigrp_summary_delete_all(interface);
+	free(interface->authentication_password);
+	free(interface->keychain);
+	free(interface->interface_name);
+	free(interface);
+}
+
+eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af,
+					     const char *interface_name)
+{
+	eigrp_interface_config_t **cursor;
+	eigrp_interface_config_t *interface;
+
+	if (!interface_name || !interface_name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	for (cursor = &af->interfaces; *cursor; cursor = &(*cursor)->next) {
+		interface = *cursor;
+		if (strcmp(interface->interface_name, interface_name) != 0)
+			continue;
+		*cursor = interface->next;
+		eigrp_interface_config_free(interface);
+		return EIGRP_RESULT_SUCCESS;
+	}
+	return EIGRP_RESULT_NOT_FOUND;
+}
+
+void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af)
+{
+	eigrp_interface_config_t *interface;
+	eigrp_interface_config_t *next;
+
+	if (!af)
+		return;
+	for (interface = af->interfaces; interface; interface = next) {
+		next = interface->next;
+		eigrp_interface_config_free(interface);
+	}
+	af->interfaces = NULL;
+}
+
+static bool eigrp_interface_context_valid(const eigrp_interface_context_t *context)
+{
+	return context && (context->config || context->runtime);
+}
+
+eigrp_result_t eigrp_interface_bandwidth_percent_update(
+	eigrp_interface_context_t *context, uint32_t percent)
+{
+	if (percent == 0 || percent > 999999)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	context->config->bandwidth_percent = percent;
+	context->config->bandwidth_percent_configured = true;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_bandwidth_percent_delete(
+	eigrp_interface_context_t *context)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	context->config->bandwidth_percent = 0;
+	context->config->bandwidth_percent_configured = false;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_hello_interval_update(
+	eigrp_interface_context_t *context, uint16_t seconds)
+{
+	if (seconds == 0)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->hello_interval = seconds;
+		context->config->hello_interval_configured = true;
+	}
+	if (context->runtime)
+		context->runtime->params.v_hello = seconds;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_hello_interval_delete(
+	eigrp_interface_context_t *context)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->hello_interval = 0;
+		context->config->hello_interval_configured = false;
+	}
+	if (context->runtime)
+		context->runtime->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *context,
+					       uint16_t seconds)
+{
+	if (seconds == 0)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->hold_time = seconds;
+		context->config->hold_time_configured = true;
+	}
+	if (context->runtime)
+		context->runtime->params.v_wait = seconds;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *context)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->hold_time = 0;
+		context->config->hold_time_configured = false;
+	}
+	if (context->runtime)
+		context->runtime->params.v_wait = EIGRP_HOLD_INTERVAL_DEFAULT;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context,
+					      bool passive)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config)
+		context->config->passive = passive;
+	if (context->runtime)
+		context->runtime->params.passive_interface =
+			passive ? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_next_hop_self_update(
+	eigrp_interface_context_t *context, bool enabled)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	context->config->next_hop_self = enabled;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_split_horizon_update(
+	eigrp_interface_context_t *context, bool enabled)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	context->config->split_horizon = enabled;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *context,
+					       bool shutdown)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	context->config->shutdown = shutdown;
+	return EIGRP_RESULT_SUCCESS;
+}
 
 
 void eigrp_interface_encoder_clear(eigrp_interface_t *ei)

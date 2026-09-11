@@ -13,27 +13,32 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_cli.c \
 	eigrpd/eigrp_dump.c \
 	eigrpd/eigrp_errors.c \
+	eigrpd/eigrp_event.c \
 	eigrpd/eigrp_filter.c \
 	eigrpd/eigrp_fsm.c \
 	eigrpd/eigrp_hello.c \
 	eigrpd/eigrp_interface.c \
+	eigrpd/eigrp_instance.c \
 	eigrpd/eigrp_main.c \
 	eigrpd/eigrp_metric.c \
-	eigrpd/eigrp_named.c \
 	eigrpd/eigrp_neighbor.c \
 	eigrpd/eigrp_network.c \
 	eigrpd/eigrp_northbound.c \
-	eigrpd/eigrp_operational.c \
 	eigrpd/eigrp_packet.c \
 	eigrpd/eigrp_packetizer.c \
 	eigrpd/eigrp_query.c \
+	eigrpd/eigrp_redistribute.c \
 	eigrpd/eigrp_reply.c \
 	eigrpd/eigrp_siaquery.c \
 	eigrpd/eigrp_siareply.c \
 	eigrpd/eigrp_southbound.c \
 	eigrpd/eigrp_snmp.c \
+	eigrpd/eigrp_statistics.c \
+	eigrpd/eigrp_status.c \
+	eigrpd/eigrp_summary.c \
 	eigrpd/eigrp_tlv1.c \
 	eigrpd/eigrp_tlv2.c \
+	eigrpd/eigrp_timer.c \
 	eigrpd/eigrp_topology.c \
 	eigrpd/eigrp_update.c \
 	eigrpd/eigrp_vrf.c \
@@ -59,23 +64,28 @@ noinst_HEADERS += \
 	eigrpd/eigrp_cli.h \
 	eigrpd/eigrp_const.h \
 	eigrpd/eigrp_errors.h \
+	eigrpd/eigrp_event.h \
 	eigrpd/eigrp_filter.h \
 	eigrpd/eigrp_fsm.h \
 	eigrpd/eigrp_interface.h \
+	eigrpd/eigrp_instance.h \
 	eigrpd/eigrp_macros.h \
 	eigrpd/eigrp_metric.h \
-	eigrpd/eigrp_named.h \
 	eigrpd/eigrp_result.h \
 	eigrpd/eigrp_neighbor.h \
 	eigrpd/eigrp_network.h \
-	eigrpd/eigrp_operational.h \
 	eigrpd/eigrp_packet.h \
 	eigrpd/eigrp_packetizer.h \
+	eigrpd/eigrp_redistribute.h \
 	eigrpd/eigrp_snmp.h \
+	eigrpd/eigrp_statistics.h \
+	eigrpd/eigrp_status.h \
+	eigrpd/eigrp_summary.h \
 	eigrpd/eigrp_southbound.h \
 	eigrpd/eigrp_structs.h \
 	eigrpd/eigrp_tlv1.h \
 	eigrpd/eigrp_tlv2.h \
+	eigrpd/eigrp_timer.h \
 	eigrpd/eigrp_types.h \
 	eigrpd/eigrp_vrf.h \
 	eigrpd/eigrp_vty.h \

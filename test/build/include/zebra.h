@@ -133,15 +133,17 @@ struct route_map { int dummy; };
 struct if_rmap { char *ifname; char *routemap[2]; };
 struct distribute { char *ifname; char *list[4]; char *prefix[4]; };
 struct distribute_ctx { struct vrf *vrf; };
-struct lyd_node { int dummy; };
+struct lysc_node { const char *name; };
+struct lyd_node { const struct lysc_node *schema; int dummy; };
 struct nb_resource { void *ptr; };
 struct nb_cb_create_args { const char *xpath; const struct lyd_node *dnode; int event; struct nb_resource *resource; char *errmsg; size_t errmsg_len; };
 struct nb_cb_modify_args { const char *xpath; const struct lyd_node *dnode; int event; const char *value; struct nb_resource *resource; char *errmsg; size_t errmsg_len; };
 struct nb_cb_destroy_args { const char *xpath; const struct lyd_node *dnode; int event; struct nb_resource *resource; char *errmsg; size_t errmsg_len; };
 struct nb_cb_apply_finish_args { const char *xpath; const struct lyd_node *dnode; int event; struct nb_resource *resource; char *errmsg; size_t errmsg_len; };
-struct nb_callbacks { int (*create)(); int (*modify)(); int (*destroy)(); void (*cli_show)(struct vty *, const struct lyd_node *, bool); void (*cli_show_end)(struct vty *, const struct lyd_node *); };
+struct nb_callbacks { int (*create)(); int (*modify)(); int (*destroy)(); unsigned int flags; void (*apply_finish)(); void (*cli_show)(struct vty *, const struct lyd_node *, bool); void (*cli_show_end)(struct vty *, const struct lyd_node *); };
+#define F_NB_CB_DESTROY_RECURSE 0x01
 struct nb_node { const char *xpath; struct nb_callbacks cbs; };
-struct frr_yang_module_info { const char *name; struct nb_node nodes[128]; };
+struct frr_yang_module_info { const char *name; struct nb_node nodes[192]; };
 typedef int zebra_capabilities_t;
 struct zebra_privs_t { const char *user; const char *group; const char *vty_group; zebra_capabilities_t *caps_p; size_t cap_num_p; size_t cap_num_i; };
 struct zclient;
@@ -317,6 +319,7 @@ extern struct running_config_stub { struct lyd_node *dnode; } *running_config;
 #define NB_OK 0
 #define NB_ERR_INCONSISTENCY 1
 #define NB_ERR_RESOURCE 2
+#define NB_ERR_VALIDATION 3
 #define EC_LIB_SOCKET 20001
 #define EC_LIB_DEVELOPMENT 20002
 #define ZEBRA_IFA_SECONDARY 0x1

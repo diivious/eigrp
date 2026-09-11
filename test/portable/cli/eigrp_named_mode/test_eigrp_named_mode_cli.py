@@ -174,10 +174,20 @@ def test_frr_installer_prefers_already_applied_patch_state_and_regenerates_yang_
     assert "repair: remove one duplicate managed EIGRP named YANG schema block" in installer
 
 
-def test_named_af_children_use_real_northbound_targets_and_writeback():
+def test_named_af_children_use_semantic_core_targets_and_writeback():
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     cli = read(CLI)
-    named = read(ROOT / "eigrpd" / "eigrp_named.h")
+    modules = {
+        "eigrp_instance_router_id_update": read(ROOT / "eigrpd" / "eigrp_instance.h"),
+        "eigrp_instance_router_id_delete": read(ROOT / "eigrpd" / "eigrp_instance.h"),
+        "eigrp_network_create": read(ROOT / "eigrpd" / "eigrp_network.h"),
+        "eigrp_network_delete": read(ROOT / "eigrpd" / "eigrp_network.h"),
+        "eigrp_neighbor_static_create": read(ROOT / "eigrpd" / "eigrp_neighbor.h"),
+        "eigrp_neighbor_static_delete": read(ROOT / "eigrpd" / "eigrp_neighbor.h"),
+        "eigrp_instance_address_family_shutdown_update": read(
+            ROOT / "eigrpd" / "eigrp_instance.h"
+        ),
+    }
 
     for xpath in (
         "/frr-eigrpd:eigrpd/named/address-family/router-id",
@@ -187,15 +197,12 @@ def test_named_af_children_use_real_northbound_targets_and_writeback():
     ):
         assert xpath in nb
 
-    for target in (
-        "eigrp_named_router_id_set",
-        "eigrp_named_network_add",
-        "eigrp_named_neighbor_add",
-        "eigrp_named_address_family_shutdown_set",
-    ):
+    for target, header in modules.items():
         assert target in nb
-        assert target in named
+        assert target in header
 
+    assert not (ROOT / "eigrpd" / "eigrp_named.h").exists()
+    assert not (ROOT / "eigrpd" / "eigrp_named.c").exists()
     assert '"neighbor A.B.C.D IFNAME"' in cli
     assert '"neighbor X:X::X:X IFNAME"' in cli
     assert 'nb_cli_enqueue_change(vty, "./shutdown", NB_OP_CREATE, NULL);' in cli
@@ -212,11 +219,13 @@ def test_frr_patch_series_orders_named_schema_before_af_children():
     assert 'series_file="$frr_patch_src/series"' in installer
 
 
-def test_named_af_interface_schema_and_targets_are_real():
+def test_named_af_interface_schema_and_semantic_targets_are_real():
     patch = read(ROOT / "frr" / "patch" / "eigrp-named-af-interface.patch")
     cli = read(CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
-    named = read(ROOT / "eigrpd" / "eigrp_named.h")
+    interface = read(ROOT / "eigrpd" / "eigrp_interface.h")
+    auth = read(ROOT / "eigrpd" / "eigrp_auth.h")
+    summary = read(ROOT / "eigrpd" / "eigrp_summary.h")
 
     assert 'list af-interface {' in patch
     assert 'key "interface";' in patch
@@ -235,27 +244,35 @@ def test_named_af_interface_schema_and_targets_are_real():
         assert leaf in patch
         assert f"/frr-eigrpd:eigrpd/named/address-family/af-interface/{leaf}" in nb
 
-    for target in (
-        "eigrp_named_af_interface_create",
-        "eigrp_named_af_interface_bandwidth_percent_set",
-        "eigrp_named_af_interface_hello_interval_set",
-        "eigrp_named_af_interface_hold_time_set",
-        "eigrp_named_af_interface_passive_set",
-        "eigrp_named_af_interface_authentication_mode_set",
-        "eigrp_named_af_interface_keychain_set",
-        "eigrp_named_af_interface_next_hop_self_set",
-        "eigrp_named_af_interface_split_horizon_set",
-        "eigrp_named_af_interface_summary_add",
-        "eigrp_named_af_interface_shutdown_set",
-    ):
+    targets = {
+        "eigrp_interface_config_create": interface,
+        "eigrp_interface_config_delete": interface,
+        "eigrp_interface_bandwidth_percent_update": interface,
+        "eigrp_interface_bandwidth_percent_delete": interface,
+        "eigrp_interface_hello_interval_update": interface,
+        "eigrp_interface_hello_interval_delete": interface,
+        "eigrp_interface_hold_time_update": interface,
+        "eigrp_interface_hold_time_delete": interface,
+        "eigrp_interface_passive_update": interface,
+        "eigrp_auth_mode_update": auth,
+        "eigrp_auth_mode_delete": auth,
+        "eigrp_auth_keychain_update": auth,
+        "eigrp_auth_keychain_delete": auth,
+        "eigrp_interface_next_hop_self_update": interface,
+        "eigrp_interface_split_horizon_update": interface,
+        "eigrp_summary_create": summary,
+        "eigrp_summary_delete": summary,
+        "eigrp_interface_shutdown_update": interface,
+    }
+    for target, header in targets.items():
         assert target in nb
-        assert target in named
+        assert target in header
 
     assert 'eigrp_cli_not_configured(vty, "af-interface default")' not in cli
     assert 'eigrp_cli_not_configured(vty, "bandwidth-percent")' not in cli
     assert '"no af-interface <default|IFNAME>"' in cli
     assert '"no next-hop-self"' in cli
-    assert '"summary-address A.B.C.D A.B.C.D"' in cli
+    assert '"summary-address A.B.C.D A.B.C.D [(1-255)] [leak-map WORD]"' in cli
 
 
 def test_frr_patch_series_orders_af_interface_after_named_af_config():
@@ -269,10 +286,9 @@ def test_frr_patch_series_orders_af_interface_after_named_af_config():
     )
 
 
-def test_named_mode_has_no_generic_not_implemented_dispatcher():
+def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api():
     cli = read(CLI)
     header = read(ROOT / "frr" / "eigrp_cli.h")
-    named = read(ROOT / "eigrpd" / "eigrp_named.c")
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     adapter = cli + nb
 
@@ -282,14 +298,25 @@ def test_named_mode_has_no_generic_not_implemented_dispatcher():
     assert "eigrp_offset_list_stub" not in cli
     assert "eigrp_summary_metric_stub" not in cli
 
-    for target in (
-        "eigrp_named_distance_set",
-        "eigrp_named_offset_list_set",
-        "eigrp_named_summary_metric_set",
-        "eigrp_named_process_shutdown_set",
-    ):
+    targets = {
+        "eigrp_instance_distance_update": ROOT / "eigrpd" / "eigrp_instance.c",
+        "eigrp_offset_update": ROOT / "eigrpd" / "eigrp_filter.c",
+        "eigrp_summary_metric_update": ROOT / "eigrpd" / "eigrp_summary.c",
+        "eigrp_instance_parent_shutdown_update": ROOT / "eigrpd" / "eigrp_instance.c",
+    }
+    for target, source in targets.items():
         assert target in adapter
-        assert f"{target}(" in named
+        assert f"{target}(" in read(source)
+
+    assert not (ROOT / "eigrpd" / "eigrp_named.c").exists()
+    assert not (ROOT / "eigrpd" / "eigrp_named.h").exists()
+    portable = "\n".join(
+        path.read_text() for path in (ROOT / "eigrpd").glob("*.c")
+    )
+    portable += "\n" + "\n".join(
+        path.read_text() for path in (ROOT / "eigrpd").glob("*.h")
+    )
+    assert "eigrp_named_" not in portable
 
 
 
@@ -361,13 +388,38 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     # when the optional sixth token was omitted.
     assert 'if (!k6_str || strcmp(k1_str, "0") != 0)' in cli
 
-    assert 'nb_cli_enqueue_change(vty, "./maximum-prefix", NB_OP_MODIFY, maximum);' in cli
+    assert 'eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",' in cli
+    assert '"./maximum-prefix", false' in cli
     assert '"./offset-list[access-list=' in cli
     assert '"./redistribute[protocol=' in cli
     assert '"./summary-metric[address=' in cli
     assert '"./traffic-share-balanced", NB_OP_MODIFY' in cli
     assert 'nb_cli_enqueue_change(vty, "./metric-weights", NB_OP_CREATE, NULL);' in cli
     assert 'snprintf(xpath_metric, sizeof(xpath_metric), "%s/metrics", xpath);' in cli
+
+
+def test_named_topology_uses_generic_portable_lifecycle_api():
+    nb = read(ROOT / "frr" / "eigrp_northbound.c")
+    topology_c = read(ROOT / "eigrpd" / "eigrp_topology.c")
+    topology_h = read(ROOT / "eigrpd" / "eigrp_topology.h")
+    eigrpd_c = read(ROOT / "eigrpd" / "eigrpd.c")
+
+    assert "eigrp_topology_create(&context)" in nb
+    assert "eigrp_topology_delete(&context)" in nb
+    assert "context->topology_id = EIGRP_TOPOLOGY_ID_BASE;" in nb
+
+    portable = topology_c + topology_h
+    assert "eigrp_topology_base_create" not in portable
+    assert "eigrp_topology_base_delete" not in portable
+    assert "eigrp_topology_new" not in portable
+    assert "eigrp_topology_free" not in portable
+
+    # The legacy new/free helpers actually own route-table storage.  Keep
+    # that implementation detail named as storage and reserve the generic
+    # create/delete API for the EIGRP topology object/configuration target.
+    assert "eigrp_topology_table_create()" in eigrpd_c
+    assert "eigrp_topology_table_delete(eigrp, eigrp->topology_table)" in eigrpd_c
+    assert "eigrp->networks = route_table_init();" in eigrpd_c
 
 
 def test_frr_patch_series_orders_topology_after_named_af_interface():
@@ -429,15 +481,204 @@ def test_named_topology_callbacks_match_compound_yang_shape():
     assert "eigrpd_named_af_interface_split_horizon_destroy" not in nb
 
 
-def test_topology_callback_schema_patch_is_last_and_patch_detection_is_semantic():
+def test_frr_eigrp_yang_patch_is_last_and_patch_detection_is_semantic():
     series = [
         line.strip()
         for line in read(ROOT / "frr" / "patch" / "series").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    assert series[-1] == "eigrp-named-topology-callbacks.patch"
+    assert series[-1] == "frr-eigrp-yang.patch"
 
     installer = read(ROOT / "tools" / "frr-install.sh")
     assert "patch_semantically_applied()" in installer
     assert "eigrp-named-topology-callbacks.patch)" in installer
     assert "EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY" in installer
+    assert "frr-eigrp-yang.patch)" in installer
+    assert "EIGRP_STEP1_CONFIG_COMPLETE" in installer
+
+
+
+def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
+    patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
+    cli = read(CLI)
+    nb = read(ROOT / "frr" / "eigrp_northbound.c")
+    spec = read(ROOT / "specs" / "cli-spec.md")
+    uut = read(ROOT / "tools" / "frr-named-uut.sh")
+
+    assert "EIGRP_STEP1_CONFIG_COMPLETE" in patch
+    assert "Named mode inherits the complete classic EIGRP configuration feature set" in spec
+    assert "Every supported configuration feature must implement its applicable `no` form" in spec
+
+    command_pairs = (
+        ("eigrp event-log-size (0-4294967295)", "no eigrp event-log-size"),
+        ("eigrp log-neighbor-changes", "no eigrp log-neighbor-changes"),
+        ("eigrp log-neighbor-warnings", "no eigrp log-neighbor-warnings"),
+        ("metric maximum-hops (1-255)", "no metric maximum-hops"),
+        ("metric holddown", "no metric holddown"),
+        ("maximum-paths (1-32)", "no maximum-paths"),
+        ("neighbor <A.B.C.D|X:X::X:X> description LINE", "no neighbor <A.B.C.D|X:X::X:X> description"),
+        ("neighbor <A.B.C.D|X:X::X:X> maximum-prefix", "no neighbor <A.B.C.D|X:X::X:X> maximum-prefix"),
+        ("neighbor maximum-prefix", "no neighbor maximum-prefix"),
+        ("redistribute maximum-prefix", "no redistribute maximum-prefix"),
+        ("distribute-list ACCESSLIST4_NAME", "no distribute-list"),
+        ("summary-metric A.B.C.D A.B.C.D distance", "no summary-metric A.B.C.D A.B.C.D"),
+    )
+    for positive, negative in command_pairs:
+        assert positive in cli
+        assert negative in cli
+
+    for xpath in (
+        "neighbor-policy/description",
+        "neighbor-policy/maximum-prefix",
+        "neighbor-maximum-prefix",
+        "log-neighbor-changes",
+        "log-neighbor-warnings",
+        "af-interface/authentication-encryption-type",
+        "af-interface/authentication-password",
+        "af-interface/summary-address/administrative-distance",
+        "af-interface/summary-address/leak-map",
+        "topology/default-information-in/access-list",
+        "topology/default-information-out/access-list",
+        "topology/maximum-prefix/maximum",
+        "topology/maximum-paths",
+        "topology/metric-maximum-hops",
+        "topology/metric-holddown",
+        "topology/event-log-size",
+        "topology/distribute-list/in/access-list",
+        "topology/redistribute/route-map",
+        "topology/redistribute-maximum-prefix",
+        "topology/summary-metric/distance",
+    ):
+        assert f"/frr-eigrpd:eigrpd/named/address-family/{xpath}" in nb
+
+    targets = (
+        "eigrp_event_log_size_update",
+        "eigrp_neighbor_description_update",
+        "eigrp_neighbor_maximum_prefix_update",
+        "eigrp_neighbor_maximum_prefix_all_update",
+        "eigrp_neighbor_log_changes_update",
+        "eigrp_neighbor_log_warnings_update",
+        "eigrp_metric_maximum_hops_update",
+        "eigrp_metric_holddown_update",
+        "eigrp_topology_maximum_paths_update",
+        "eigrp_distribute_list_update",
+        "eigrp_redistribute_maximum_prefix_update",
+    )
+    for target in targets:
+        assert target in nb
+
+    # Stage 1 is the executable acceptance matrix for the added/expanded forms.
+    for line in (
+        "neighbor 10.0.0.1 description STEP1-PEER",
+        "neighbor 10.0.0.1 maximum-prefix 100 80 dampened",
+        "no eigrp log-neighbor-changes",
+        "eigrp log-neighbor-warnings 30",
+        "authentication mode hmac-sha-256 0 Step1Secret",
+        "summary-address 10.44.0.0 255.255.0.0 5 leak-map STEP1-LEAK",
+        "default-information out STEP1-OUT",
+        "maximum-paths 8",
+        "metric maximum-hops 200",
+        "metric holddown",
+        "eigrp event-log-size 1000",
+        "distribute-list STEP1-ACL-IN in",
+        "offset-list EIGRP-UUT in 100 $uut_if",
+        "redistribute connected metric 10000 100 255 1 1500 route-map STEP1-RM",
+        "redistribute maximum-prefix 300 70 dampened",
+        "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500 distance 20",
+    ):
+        assert line in uut
+
+
+def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
+    """Mirror FRR's northbound callback contract for Step-1-added nodes.
+
+    Optional scalar leaves require modify+destroy; empty leaves require
+    create+destroy; presence/list parents require create+destroy.  This catches
+    the class of error that otherwise appears only when eigrpd calls
+    nb_validate_callbacks() at startup.
+    """
+    nb = read(ROOT / "frr" / "eigrp_northbound.c")
+
+    required_snippets = (
+        # Structural list parents.
+        '.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy"',
+        ".create = eigrpd_named_neighbor_policy_create",
+        ".destroy = eigrpd_named_neighbor_policy_destroy",
+        '.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list"',
+        ".create = eigrpd_named_distribute_list_entry_create",
+        ".destroy = eigrpd_named_distribute_list_entry_destroy",
+        # Optional authentication/detail leaves.
+        ".destroy = eigrpd_named_af_interface_authentication_detail_destroy",
+        ".destroy = eigrpd_named_default_information_access_list_destroy",
+        ".destroy = eigrpd_named_log_neighbor_warnings_interval_destroy",
+        ".destroy = eigrpd_named_redistribute_route_map_destroy",
+        ".destroy = eigrpd_named_summary_metric_detail_destroy",
+        # Prefix-limit scalar and empty-leaf callback families.
+        ".destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy",
+        ".create = eigrpd_named_neighbor_prefix_limit_empty_create",
+        ".destroy = eigrpd_named_neighbor_prefix_limit_all_detail_destroy",
+        ".create = eigrpd_named_neighbor_prefix_limit_all_empty_create",
+        ".destroy = eigrpd_named_maximum_prefix_detail_destroy",
+        ".create = eigrpd_named_maximum_prefix_empty_create",
+        ".destroy = eigrpd_named_redistribute_maximum_prefix_detail_destroy",
+        ".create = eigrpd_named_redistribute_maximum_prefix_empty_create",
+    )
+    for snippet in required_snippets:
+        assert snippet in nb
+
+    # Empty YANG leaves must not be registered as MODIFY callbacks.  FRR's
+    # nb_validate_callbacks() treats that as unneeded and requires CREATE.
+    for xpath in (
+        "neighbor-policy/maximum-prefix/warning-only",
+        "neighbor-policy/maximum-prefix/dampened",
+        "neighbor-maximum-prefix/warning-only",
+        "neighbor-maximum-prefix/dampened",
+        "topology/maximum-prefix/warning-only",
+        "topology/maximum-prefix/dampened",
+        "topology/redistribute-maximum-prefix/warning-only",
+        "topology/redistribute-maximum-prefix/dampened",
+    ):
+        start = nb.index(f'/frr-eigrpd:eigrpd/named/address-family/{xpath}"')
+        block = nb[start : nb.index("\n\t\t},", start) + 6]
+        assert ".create =" in block
+        assert ".destroy =" in block
+        assert ".modify =" not in block
+
+
+def test_classic_dead_cli_and_placeholder_backends_are_not_carried_forward():
+    cli = read(CLI)
+    nb = read(ROOT / "frr" / "eigrp_northbound.c")
+    header = read(ROOT / "frr" / "eigrp_cli.h")
+    spec = read(ROOT / "specs" / "cli-spec.md")
+
+    # These old interface-mode handlers were never registered and are not part
+    # of the supported project surface. Named af-interface owns these features.
+    for symbol in (
+        "eigrp_if_delay_cmd",
+        "eigrp_if_bandwidth_cmd",
+        "eigrp_if_ip_hellointerval_cmd",
+        "eigrp_if_ip_holdinterval_cmd",
+        "eigrp_ip_summary_address_cmd",
+        "eigrp_authentication_mode_cmd",
+        "eigrp_authentication_keychain_cmd",
+    ):
+        assert symbol not in cli
+
+    assert "install_element(EIGRP_NODE, &eigrp_neighbor_cmd)" not in cli
+    assert "not implemented yet" not in nb.lower()
+    assert "NOT implemented" not in cli
+
+    # FRR's existing classic YANG still requires callback shapes for several
+    # unsupported nodes. They reject new configuration instead of pretending to
+    # apply it, while destroy callbacks allow stale configuration to be removed.
+    for message in (
+        "classic EIGRP active-time configuration is unsupported",
+        "classic EIGRP static-neighbor configuration is unsupported",
+        "classic EIGRP redistribute route-map configuration is unsupported",
+        "classic EIGRP interface split-horizon configuration is unsupported",
+        "classic EIGRP interface summary configuration is unsupported",
+    ):
+        assert message in nb
+
+    assert "eigrp_cli_show_delay" not in header
+    assert "Classic-mode completion is not a prerequisite for named-mode completion" in spec
