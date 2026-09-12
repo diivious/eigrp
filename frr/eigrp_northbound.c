@@ -23,6 +23,7 @@
 #include "eigrp_zebra.h"
 #include "eigrp_cli_classic.h"
 #include "eigrp_cli_named.h"
+#include "eigrp_northbound.h"
 
 #include "lib/keychain.h"
 #include "lib/distribute.h"
@@ -31,6 +32,48 @@
 
 /* Helper functions. */
 static int eigrpd_named_config_result(eigrp_result_t result, bool removing);
+
+static bool eigrp_northbound_neighbor_address_copy(
+	eigrp_addr_t *destination, eigrp_address_family_t afi,
+	const struct in_addr *ipv4_address,
+	const struct in6_addr *ipv6_address)
+{
+	if (!destination)
+		return false;
+
+	memset(destination, 0, sizeof(*destination));
+	if (afi == EIGRP_ADDRESS_FAMILY_IPV4 && ipv4_address) {
+		destination->afi = AF_INET;
+		destination->ip.v4 = *ipv4_address;
+		return true;
+	}
+	if (afi == EIGRP_ADDRESS_FAMILY_IPV6 && ipv6_address) {
+		destination->afi = AF_INET6;
+		destination->ip.v6 = *ipv6_address;
+		return true;
+	}
+	return false;
+}
+
+eigrp_result_t eigrp_northbound_neighbor_clear_address(
+	eigrp_instance_t *runtime, eigrp_address_family_t afi,
+	const struct in_addr *ipv4_address,
+	const struct in6_addr *ipv6_address, bool soft,
+	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count)
+{
+	eigrp_addr_t address;
+	eigrp_neighbor_clear_request_t request = {
+		.address = &address,
+		.soft = soft,
+	};
+
+	if (!eigrp_northbound_neighbor_address_copy(
+		    &address, afi, ipv4_address, ipv6_address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	return eigrp_neighbor_clear(runtime, &request, callback, arg,
+				    affected_count);
+}
 static void eigrpd_named_prefix_limit_get(const struct lyd_node *dnode,
                                           eigrp_prefix_limit_t *limit);
 static void redistribute_get_metrics(const struct lyd_node *dnode,

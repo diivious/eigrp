@@ -47,6 +47,7 @@
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_instance.h"
+#include "eigrpd/eigrp_northbound.h"
 
 #ifndef EIGRP_STANDALONE_BUILD
 #if defined(__GNUC__)
@@ -2698,8 +2699,12 @@ struct eigrp_vty_walk_context {
 	const char *all;
 	const char *target;
 	const struct prefix *prefix;
+	eigrp_address_family_t address_afi;
+	const struct in_addr *ipv4_address;
+	const struct in6_addr *ipv6_address;
 	bool soft;
 	int matched;
+	eigrp_result_t result;
 };
 
 typedef void (*eigrp_vty_walk_cb)(struct vty *vty, eigrp_instance_t *eigrp,
@@ -2792,6 +2797,24 @@ static const char *eigrp_vty_address_string(const eigrp_address_t *address,
 		return "<invalid>";
 	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
 	if (!inet_ntop(family, address->bytes, buffer, length))
+		return "<invalid>";
+	return buffer;
+}
+
+static const char *eigrp_vty_runtime_address_string(const eigrp_addr_t *address,
+						    char *buffer, size_t length)
+{
+	const void *source;
+
+	if (!address || !buffer || length == 0)
+		return "<invalid>";
+	if (address->afi == AF_INET6)
+		source = &address->ip.v6;
+	else if (address->afi == AF_INET)
+		source = &address->ip.v4;
+	else
+		return "<invalid>";
+	if (!inet_ntop(address->afi, source, buffer, length))
 		return "<invalid>";
 	return buffer;
 }
@@ -3222,8 +3245,17 @@ static const char *detail = NULL;
 static const char *all = NULL;
 static const char *target = NULL;
 static const char *soft = NULL;
-static struct in_addr nbr_addr;
-static const char *nbr_addr_str = NULL;
+static const char *vrf_all = NULL;
+static const char *ipv4_prefix_str = NULL;
+static const char *ipv6_prefix_str = NULL;
+static struct in_addr network;
+static const char *network_str = NULL;
+static struct in_addr mask;
+static const char *mask_str = NULL;
+static struct in_addr ipv4_addr;
+static const char *ipv4_addr_str = NULL;
+static struct in6_addr ipv6_addr;
+static const char *ipv6_addr_str = NULL;
 #endif
 
 DEFPY(show_eigrp_interface,
@@ -3749,103 +3781,247 @@ DEFPY(show_eigrp_tech_support,
 	return eigrp_cli_result_render(vty, "tech-support", result);
 }
 
-static void clear_eigrp_neighbor_all_cb(struct vty *vty, eigrp_instance_t *eigrp,
-					struct eigrp_vty_walk_context *ctx)
-{
-	eigrp_interface_t *ei;
-	struct listnode *node, *node2, *nnode2;
-	eigrp_neighbor_t *nbr;
 
-	if (ctx->soft) {
-		eigrp_update_send_process_GR(eigrp, EIGRP_GR_MANUAL, vty);
-		ctx->matched++;
+static bool eigrp_vty_ipv4_mask_prefix_length(const char *text,
+					       uint8_t *prefix_length)
+{
+	struct in_addr address;
+	uint32_t mask;
+	uint8_t length = 0;
+	bool zero_seen = false;
+	int bit;
+
+	if (!text || !prefix_length || inet_pton(AF_INET, text, &address) != 1)
+		return false;
+	mask = ntohl(address.s_addr);
+	for (bit = 31; bit >= 0; bit--) {
+		if (mask & (1U << bit)) {
+			if (zero_seen)
+				return false;
+			length++;
+		} else {
+			zero_seen = true;
+		}
+	}
+	*prefix_length = length;
+	return true;
+}
+
+struct eigrp_vty_topology_clear_context {
+	const eigrp_prefix_t *destination;
+	size_t affected;
+};
+
+static eigrp_result_t clear_eigrp_topology_context(
+	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	eigrp_instance_t *runtime, void *arg)
+{
+	struct eigrp_vty_topology_clear_context *clear = arg;
+	eigrp_instance_context_t context = {
+		.config = af,
+		.runtime = runtime,
+		.topology_id = EIGRP_TOPOLOGY_ID_BASE,
+	};
+	eigrp_topology_clear_request_t request = {
+		.destination = clear->destination,
+	};
+	size_t affected = 0;
+	eigrp_result_t result;
+
+	(void)vty;
+	(void)instance_name;
+	result = eigrp_topology_clear(&context, &request, &affected);
+	if (result == EIGRP_RESULT_NOT_FOUND && runtime && clear->destination)
+		return EIGRP_RESULT_SUCCESS;
+	if (result == EIGRP_RESULT_SUCCESS)
+		clear->affected += affected;
+	return result;
+}
+
+static int clear_eigrp_topology_execute(struct vty *vty, const char *afi_text,
+					int64_t asn, const char *vrf_name,
+					bool all_vrfs,
+					const eigrp_prefix_t *destination)
+{
+	eigrp_state_request_t state_request;
+	struct eigrp_vty_topology_clear_context clear = {
+		.destination = destination,
+	};
+	int rv;
+
+	if (!eigrp_vty_state_request_build(afi_text, asn, vrf_name,
+					   &state_request))
+		return CMD_WARNING;
+	state_request.all_vrfs = all_vrfs;
+	rv = eigrp_vty_named_state_walk(vty, &state_request, "topology clear",
+					clear_eigrp_topology_context, &clear);
+	if (rv == CMD_SUCCESS && destination && clear.affected == 0)
+		vty_out(vty, "%% Network not in EIGRP topology table\n");
+	return rv;
+}
+
+DEFPY(clear_eigrp_topology,
+      clear_eigrp_topology_cmd,
+      "clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology",
+      CLEAR_STR
+      EIGRP_STR
+      AS_STR
+      "Virtual Routing and Forwarding\n"
+      "VRF name\n"
+      "All VRFs\n"
+      "IPv4 address-family\n"
+      "IPv6 address-family\n"
+      "Clear EIGRP topology entries and relearn them\n")
+{
+	return clear_eigrp_topology_execute(vty, afi, as, vrf, vrf_all != NULL,
+					    NULL);
+}
+
+DEFPY(clear_eigrp_topology_prefix,
+      clear_eigrp_topology_prefix_cmd,
+      "clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology <A.B.C.D/M$ipv4_prefix|X:X::X:X/M$ipv6_prefix>",
+      CLEAR_STR
+      EIGRP_STR
+      AS_STR
+      "Virtual Routing and Forwarding\n"
+      "VRF name\n"
+      "All VRFs\n"
+      "IPv4 address-family\n"
+      "IPv6 address-family\n"
+      "Clear EIGRP topology entries and relearn them\n"
+      "IPv4 prefix\n"
+      "IPv6 prefix\n")
+{
+	eigrp_prefix_t destination;
+	const char *prefix_text = ipv4_prefix_str ? ipv4_prefix_str : ipv6_prefix_str;
+	eigrp_address_family_t address_family;
+
+	address_family = strcmp(afi, "ipv6") == 0 ? EIGRP_ADDRESS_FAMILY_IPV6
+						 : EIGRP_ADDRESS_FAMILY_IPV4;
+	if (!prefix_text
+	    || !eigrp_vty_destination_parse(prefix_text, address_family,
+					    &destination)) {
+		vty_out(vty, "%% Prefix does not match the selected EIGRP address family\n");
+		return CMD_WARNING;
+	}
+	return clear_eigrp_topology_execute(vty, afi, as, vrf, vrf_all != NULL,
+					    &destination);
+}
+
+DEFPY(clear_eigrp_topology_mask,
+      clear_eigrp_topology_mask_cmd,
+      "clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology A.B.C.D$network A.B.C.D$mask",
+      CLEAR_STR
+      EIGRP_STR
+      AS_STR
+      "Virtual Routing and Forwarding\n"
+      "VRF name\n"
+      "All VRFs\n"
+      "IPv4 address-family\n"
+      "IPv6 address-family\n"
+      "Clear EIGRP topology entries and relearn them\n"
+      "IPv4 network\n"
+      "IPv4 network mask\n")
+{
+	eigrp_prefix_t destination;
+	uint8_t prefix_length;
+
+	(void)network;
+	(void)mask;
+	if (strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% Dotted network masks are valid only for IPv4\n");
+		return CMD_WARNING;
+	}
+	if (!eigrp_vty_destination_parse(network_str, EIGRP_ADDRESS_FAMILY_IPV4,
+					 &destination)
+	    || !eigrp_vty_ipv4_mask_prefix_length(mask_str, &prefix_length)) {
+		vty_out(vty, "%% Invalid IPv4 prefix or network mask\n");
+		return CMD_WARNING;
+	}
+	destination.prefix_length = prefix_length;
+	return clear_eigrp_topology_execute(vty, afi, as, vrf, vrf_all != NULL,
+					    &destination);
+}
+
+static void clear_eigrp_neighbor_render(
+	const eigrp_neighbor_clear_state_t *state, void *arg)
+{
+	struct vty *vty = arg;
+	char address[INET6_ADDRSTRLEN];
+
+	vty_time_print(vty, 0);
+	vty_out(vty, "Neighbor %s (%s) is %s: manually cleared\n",
+		eigrp_vty_runtime_address_string(&state->address, address,
+					       sizeof(address)),
+		state->interface_name ? state->interface_name : "?",
+		state->soft ? "resync" : "down");
+}
+
+static void clear_eigrp_neighbor_result_apply(
+	struct eigrp_vty_walk_context *ctx, eigrp_result_t result,
+	size_t affected, bool soft_scope_matches)
+{
+	if (result == EIGRP_RESULT_NOT_FOUND)
+		return;
+	if (result != EIGRP_RESULT_SUCCESS) {
+		ctx->result = result;
 		return;
 	}
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
+	ctx->matched += (int)affected;
+	/* Preserve the existing soft-clear scope match even when it has no peers. */
+	if (ctx->soft && soft_scope_matches && affected == 0)
+		ctx->matched++;
+}
 
-		for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
-			if (nbr->state == EIGRP_NEIGHBOR_DOWN)
-				continue;
+static void clear_eigrp_neighbor_apply(struct vty *vty,
+				       eigrp_instance_t *eigrp,
+				       struct eigrp_vty_walk_context *ctx,
+				       const eigrp_neighbor_clear_request_t *request,
+				       bool soft_scope_matches)
+{
+	eigrp_result_t result;
+	size_t affected = 0;
 
-			zlog_debug("Neighbor %pI4 (%s) is down: manually cleared",
-				   &nbr->src.ip.v4,
-				   ifindex2ifname(nbr->ei->ifp->ifindex,
-						  eigrp->vrf_id));
-			vty_time_print(vty, 0);
-			vty_out(vty,
-				"Neighbor %pI4 (%s) is down: manually cleared\n",
-				&nbr->src.ip.v4,
-				ifindex2ifname(nbr->ei->ifp->ifindex,
-					       eigrp->vrf_id));
+	result = eigrp_neighbor_clear(eigrp, request, clear_eigrp_neighbor_render,
+				      vty, &affected);
+	clear_eigrp_neighbor_result_apply(ctx, result, affected,
+					  soft_scope_matches);
+}
 
-			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
-			eigrp_nbr_delete(nbr);
-			ctx->matched++;
-		}
-	}
+static void clear_eigrp_neighbor_all_cb(struct vty *vty, eigrp_instance_t *eigrp,
+					struct eigrp_vty_walk_context *ctx)
+{
+	const eigrp_neighbor_clear_request_t request = {
+		.soft = ctx->soft,
+	};
+
+	clear_eigrp_neighbor_apply(vty, eigrp, ctx, &request, true);
 }
 
 static void clear_eigrp_neighbor_interface_cb(struct vty *vty,
 					      eigrp_instance_t *eigrp,
 					      struct eigrp_vty_walk_context *ctx)
 {
-	eigrp_interface_t *ei;
-	struct listnode *node2, *nnode2;
-	eigrp_neighbor_t *nbr;
+	eigrp_neighbor_clear_request_t request = {
+		.interface_name = ctx->ifname,
+		.soft = ctx->soft,
+	};
 
-	ei = eigrp_intf_lookup_by_name(eigrp, ctx->ifname);
-	if (!ei)
-		return;
-
-	if (ctx->soft) {
-		eigrp_update_send_interface_GR(ei, EIGRP_GR_MANUAL, vty);
-		ctx->matched++;
-		return;
-	}
-
-	eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
-
-	for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
-		if (nbr->state == EIGRP_NEIGHBOR_DOWN)
-			continue;
-
-		zlog_debug("Neighbor %pI4 (%s) is down: manually cleared",
-			   &nbr->src.ip.v4,
-			   ifindex2ifname(nbr->ei->ifp->ifindex,
-					  eigrp->vrf_id));
-		vty_time_print(vty, 0);
-		vty_out(vty, "Neighbor %pI4 (%s) is down: manually cleared\n",
-			&nbr->src.ip.v4,
-			ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
-
-		eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
-		eigrp_nbr_delete(nbr);
-		ctx->matched++;
-	}
+	clear_eigrp_neighbor_apply(vty, eigrp, ctx, &request, true);
 }
 
 static void clear_eigrp_neighbor_address_cb(struct vty *vty,
 					    eigrp_instance_t *eigrp,
 					    struct eigrp_vty_walk_context *ctx)
 {
-	struct in_addr addr;
-	eigrp_neighbor_t *nbr;
+	eigrp_result_t result;
+	size_t affected = 0;
 
-	if (inet_aton(ctx->target, &addr) == 0)
-		return;
-
-	nbr = eigrp_nbr_lookup_by_addr_process(eigrp, addr);
-	if (!nbr)
-		return;
-
-	if (ctx->soft)
-		eigrp_update_send_GR(nbr, EIGRP_GR_MANUAL, vty);
-	else
-		eigrp_nbr_hard_restart(eigrp, nbr, vty);
-
-	ctx->matched++;
+	result = eigrp_northbound_neighbor_clear_address(
+		eigrp, ctx->address_afi, ctx->ipv4_address, ctx->ipv6_address,
+		ctx->soft, clear_eigrp_neighbor_render, vty, &affected);
+	clear_eigrp_neighbor_result_apply(ctx, result, affected, false);
 }
 
 DEFPY(clear_eigrp_neighbor,
@@ -3869,6 +4045,10 @@ DEFPY(clear_eigrp_neighbor,
 	rv = eigrp_vty_instance_walk(vty, afi, as, vrf,
 				      "clear eigrp address-family neighbors",
 				      clear_eigrp_neighbor_all_cb, &ctx);
+	if (rv == CMD_SUCCESS && ctx.result != EIGRP_RESULT_SUCCESS)
+		return eigrp_cli_result_render(vty,
+					       "clear eigrp address-family neighbors",
+					       ctx.result);
 	if (rv == CMD_SUCCESS && ctx.matched == 0)
 		vty_out(vty, "%% No EIGRP neighbors matched\n");
 	return rv;
@@ -3897,6 +4077,10 @@ DEFPY(clear_eigrp_neighbor_interface,
 	rv = eigrp_vty_instance_walk(vty, afi, as, vrf,
 				      "clear eigrp address-family neighbors",
 				      clear_eigrp_neighbor_interface_cb, &ctx);
+	if (rv == CMD_SUCCESS && ctx.result != EIGRP_RESULT_SUCCESS)
+		return eigrp_cli_result_render(vty,
+					       "clear eigrp address-family neighbors",
+					       ctx.result);
 	if (rv == CMD_SUCCESS && ctx.matched == 0)
 		vty_out(vty, "%% No EIGRP neighbors matched interface %s\n", ifname);
 	return rv;
@@ -3904,7 +4088,7 @@ DEFPY(clear_eigrp_neighbor_interface,
 
 DEFPY(clear_eigrp_neighbor_address,
       clear_eigrp_neighbor_address_cmd,
-      "clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors A.B.C.D$nbr_addr [soft]$soft",
+      "clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors <A.B.C.D$ipv4_addr|X:X::X:X$ipv6_addr> [soft]$soft",
       CLEAR_STR
       EIGRP_STR
       "Address-family information\n"
@@ -3913,24 +4097,51 @@ DEFPY(clear_eigrp_neighbor_address,
       VRF_CMD_HELP_STR
       AS_STR
       "Clear EIGRP neighbors\n"
-      "EIGRP neighbor address\n"
+      "IPv4 EIGRP neighbor address\n"
+      "IPv6 EIGRP neighbor address\n"
       "Resync with peers without adjacency reset\n")
 {
-	struct eigrp_vty_walk_context ctx = {
-		.target = nbr_addr_str,
-		.soft = !!soft,
-	};
+	eigrp_address_family_t address_afi;
+	const char *address_text;
+	struct eigrp_vty_walk_context ctx = {0};
 	int rv;
 
-	(void)nbr_addr;
+	if (strcmp(afi, "ipv6") == 0) {
+		if (!ipv6_addr_str) {
+			vty_out(vty,
+				"%% IPv6 EIGRP requires an IPv6 neighbor address\n");
+			return CMD_WARNING;
+		}
+		address_afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		address_text = ipv6_addr_str;
+		ctx.ipv6_address = &ipv6_addr;
+	} else {
+		if (!ipv4_addr_str) {
+			vty_out(vty,
+				"%% IPv4 EIGRP requires an IPv4 neighbor address\n");
+			return CMD_WARNING;
+		}
+		address_afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		address_text = ipv4_addr_str;
+		ctx.ipv4_address = &ipv4_addr;
+	}
+
+	ctx.target = address_text;
+	ctx.address_afi = address_afi;
+	ctx.soft = !!soft;
 
 	rv = eigrp_vty_instance_walk(vty, afi, as, vrf,
 				      "clear eigrp address-family neighbors",
 				      clear_eigrp_neighbor_address_cb, &ctx);
+	if (rv == CMD_SUCCESS && ctx.result != EIGRP_RESULT_SUCCESS)
+		return eigrp_cli_result_render(vty,
+					       "clear eigrp address-family neighbors",
+					       ctx.result);
 	if (rv == CMD_SUCCESS && ctx.matched == 0)
-		vty_out(vty, "%% No EIGRP neighbor matched %s\n", nbr_addr_str);
+		vty_out(vty, "%% No EIGRP neighbor matched %s\n", address_text);
 	return rv;
 }
+
 
 
 static void clear_eigrp_events_cb(struct vty *vty, eigrp_instance_t *eigrp,
@@ -4073,6 +4284,9 @@ void eigrp_cli_named_init(void)
     install_element(VIEW_NODE, &show_eigrp_traffic_cmd);
     install_element(VIEW_NODE, &show_eigrp_protocol_cmd);
     install_element(VIEW_NODE, &show_eigrp_tech_support_cmd);
+    install_element(ENABLE_NODE, &clear_eigrp_topology_cmd);
+    install_element(ENABLE_NODE, &clear_eigrp_topology_prefix_cmd);
+    install_element(ENABLE_NODE, &clear_eigrp_topology_mask_cmd);
     install_element(ENABLE_NODE, &clear_eigrp_neighbor_cmd);
     install_element(ENABLE_NODE, &clear_eigrp_neighbor_interface_cmd);
     install_element(ENABLE_NODE, &clear_eigrp_neighbor_address_cmd);
