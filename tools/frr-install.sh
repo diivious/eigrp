@@ -282,20 +282,19 @@ MSG
 	esac
 }
 
-refresh_eigrp_yang_embed() {
+invalidate_eigrp_yang_embed() {
 	local count
 	local previous_count
 	local yang_source="$frr_root/yang/frr-eigrpd.yang"
 	local yang_embed="$frr_root/yang/frr-eigrpd.yang.c"
-	local embed_tool="$frr_root/yang/embedmodel.py"
 	local named_patch="$frr_patch_src/eigrp-named-yang.patch"
 
 	[[ -f "$yang_source" ]] || fail "FRR EIGRP YANG source not found: $yang_source"
-	[[ -f "$embed_tool" ]] || fail "FRR YANG embed tool not found: $embed_tool"
 	[[ -f "$named_patch" ]] || fail "managed EIGRP named YANG patch not found: $named_patch"
 
-	# The .yang source is authoritative.  FRR generates frr-eigrpd.yang.c from
-	# it.  Do not maintain the same schema edit independently in both files.
+	# The .yang source is authoritative.  FRR generates frr-eigrpd.yang.c as a
+	# build artifact.  Keep duplicate-schema repair here, but never generate or
+	# copy the derived .yang.c file during installation.
 	count="$(grep -Ec '^[[:space:]]*list[[:space:]]+named[[:space:]]*\{' "$yang_source" || true)"
 
 	# Older versions of the installer checked forward applicability before the
@@ -327,12 +326,12 @@ refresh_eigrp_yang_embed() {
 	fi
 
 	if [[ "$dry_run" -eq 1 ]]; then
-		echo "would regenerate: yang/frr-eigrpd.yang.c from yang/frr-eigrpd.yang"
+		echo "would remove generated: yang/frr-eigrpd.yang.c"
 		return 0
 	fi
 
-	python3 "$embed_tool" "$yang_source" "$yang_embed"
-	echo "regenerated: yang/frr-eigrpd.yang.c from authoritative YANG source"
+	rm -f "$yang_embed"
+	echo "invalidated generated: yang/frr-eigrpd.yang.c (FRR build will regenerate it)"
 }
 
 install_frr_patches() {
@@ -375,7 +374,7 @@ install_frr_patches() {
 
 	# Keep FRR's generated embedded EIGRP model synchronized with the patched
 	# authoritative .yang source, including upgrades from older project patches.
-	refresh_eigrp_yang_embed
+	invalidate_eigrp_yang_embed
 }
 
 while [[ "$#" -gt 0 ]]; do

@@ -13,7 +13,7 @@
 #include "eigrp_neighbor.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_filter.h"
-#include "eigrpd/eigrp_event.h"
+#include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_redistribute.h"
@@ -211,6 +211,19 @@ static bool eigrpd_named_instance_context_resolve(
 		eigrpd_named_address_family_config_read(name, afi, vrf, asn);
 	context->topology_id = EIGRP_TOPOLOGY_ID_BASE;
 	return context->config != NULL;
+}
+
+static void eigrpd_named_eventlog_runtime_resolve(
+	eigrp_address_family_t afi, const char *vrf_name, uint16_t asn,
+	eigrp_instance_context_t *context)
+{
+	struct vrf *vrf;
+
+	if (!context || afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return;
+	vrf = vrf_lookup_by_name(vrf_name);
+	if (vrf)
+		context->runtime = eigrp_lookup_by_as_vrf(asn, vrf->vrf_id);
 }
 
 static bool eigrpd_named_interface_context_resolve(
@@ -1731,7 +1744,8 @@ static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
     if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
         return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_event_log_size_update(
+    eigrpd_named_eventlog_runtime_resolve(afi, vrf, asn, &context);
+    return eigrpd_named_config_result(eigrp_eventlog_size_update(
         &context, yang_dnode_get_uint32(args->dnode, NULL)), false);
 }
 
@@ -1746,7 +1760,8 @@ static int eigrpd_named_event_log_size_destroy(struct nb_cb_destroy_args *args)
     if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
         return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_event_log_size_delete(&context), true);
+    eigrpd_named_eventlog_runtime_resolve(afi, vrf, asn, &context);
+    return eigrpd_named_config_result(eigrp_eventlog_size_delete(&context), true);
 }
 
 static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
@@ -2512,6 +2527,42 @@ eigrpd_instance_maximum_paths_destroy(struct nb_cb_destroy_args *args)
 		       == EIGRP_RESULT_SUCCESS
 	       ? NB_OK
 	       : NB_ERR_INCONSISTENCY;
+}
+
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/event-log-size
+ */
+static int eigrpd_instance_event_log_size_modify(struct nb_cb_modify_args *args)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context = {0};
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	context.runtime = eigrp;
+	context.topology_id = EIGRP_TOPOLOGY_ID_BASE;
+	return eigrp_eventlog_size_update(
+		       &context, yang_dnode_get_uint32(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
+}
+
+static int eigrpd_instance_event_log_size_destroy(
+	struct nb_cb_destroy_args *args)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_instance_context_t context = {0};
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	context.runtime = eigrp;
+	context.topology_id = EIGRP_TOPOLOGY_ID_BASE;
+	return eigrp_eventlog_size_delete(&context) == EIGRP_RESULT_SUCCESS
+		       ? NB_OK
+		       : NB_ERR_INCONSISTENCY;
 }
 
 static eigrp_result_t eigrpd_instance_metric_weight_update(
@@ -4208,6 +4259,14 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.modify = eigrpd_instance_maximum_paths_modify,
 				.destroy = eigrpd_instance_maximum_paths_destroy,
 				.cli_show = eigrp_cli_classic_show_maximum_paths,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/instance/event-log-size",
+			.cbs = {
+				.modify = eigrpd_instance_event_log_size_modify,
+				.destroy = eigrpd_instance_event_log_size_destroy,
+				.cli_show = eigrp_cli_classic_show_event_log_size,
 			}
 		},
 		{

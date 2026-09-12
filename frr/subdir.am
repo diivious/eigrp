@@ -14,7 +14,7 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_cli_named.c \
 	eigrpd/eigrp_dump.c \
 	eigrpd/eigrp_errors.c \
-	eigrpd/eigrp_event.c \
+	eigrpd/eigrp_eventlog.c \
 	eigrpd/eigrp_filter.c \
 	eigrpd/eigrp_fsm.c \
 	eigrpd/eigrp_hello.c \
@@ -67,7 +67,7 @@ noinst_HEADERS += \
 	eigrpd/eigrp_cli_named.h \
 	eigrpd/eigrp_const.h \
 	eigrpd/eigrp_errors.h \
-	eigrpd/eigrp_event.h \
+	eigrpd/eigrp_eventlog.h \
 	eigrpd/eigrp_filter.h \
 	eigrpd/eigrp_fsm.h \
 	eigrpd/eigrp_interface.h \

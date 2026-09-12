@@ -1,479 +1,611 @@
-/* show_eigrp_interface => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_interface)
-#define funcdecl_show_eigrp_interface static int show_eigrp_interface_magic(\
+/* show_ip_eigrp_topology_all => "show ip eigrp [vrf NAME] topology [all-links$all]" */
+DEFUN_CMD_FUNC_DECL(show_ip_eigrp_topology_all)
+#define funcdecl_show_ip_eigrp_topology_all static int show_ip_eigrp_topology_all_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
 	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)),\
+	const char * all)
+funcdecl_show_ip_eigrp_topology_all;
+DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology_all)
+{
+#if 2 /* anything to parse? */
+	int _i;
+#if 0 /* anything that can fail? */
+	unsigned _fail = 0, _failcnt = 0;
+#endif
+	const char *vrf = NULL;
+	const char *all = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+#if 0 /* anything that can fail? */
+		_fail = 0;
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "all")) {
+			all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 0 /* anything that can fail? */
+		if (_fail)
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+#endif
+	}
+#if 0 /* anything that can fail? */
+	if (_failcnt)
+		return CMD_WARNING;
+#endif
+#endif
+
+	return show_ip_eigrp_topology_all_magic(self, vty, argc, argv, vrf, all);
+}
+
+/* show_ip_eigrp_topology => "show ip eigrp [vrf NAME] topology <A.B.C.D$address|A.B.C.D/M$prefix>" */
+DEFUN_CMD_FUNC_DECL(show_ip_eigrp_topology)
+#define funcdecl_show_ip_eigrp_topology static int show_ip_eigrp_topology_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * vrf,\
+	struct in_addr address,\
+	const char * address_str __attribute__ ((unused)),\
+	const struct prefix_ipv4 * prefix,\
+	const char * prefix_str __attribute__ ((unused)))
+funcdecl_show_ip_eigrp_topology;
+DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology)
+{
+#if 3 /* anything to parse? */
+	int _i;
+#if 1 /* anything that can fail? */
+	unsigned _fail = 0, _failcnt = 0;
+#endif
+	const char *vrf = NULL;
+	struct in_addr address = { INADDR_ANY };
+	const char *address_str = NULL;
+	struct prefix_ipv4 prefix = { };
+	const char *prefix_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+#if 1 /* anything that can fail? */
+		_fail = 0;
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "address")) {
+			address_str = argv[_i]->arg;
+			_fail = !inet_aton(argv[_i]->arg, &address);
+		}
+		if (!strcmp(argv[_i]->varname, "prefix")) {
+			prefix_str = argv[_i]->arg;
+			_fail = !str2prefix_ipv4(argv[_i]->arg, &prefix);
+		}
+#if 1 /* anything that can fail? */
+		if (_fail)
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+#endif
+	}
+#if 1 /* anything that can fail? */
+	if (_failcnt)
+		return CMD_WARNING;
+#endif
+#endif
+
+	return show_ip_eigrp_topology_magic(self, vty, argc, argv, vrf, address, address_str, &prefix, prefix_str);
+}
+
+/* show_ip_eigrp_interfaces => "show ip eigrp [vrf NAME] interfaces [IFNAME] [detail]$detail" */
+DEFUN_CMD_FUNC_DECL(show_ip_eigrp_interfaces)
+#define funcdecl_show_ip_eigrp_interfaces static int show_ip_eigrp_interfaces_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * vrf,\
 	const char * ifname,\
 	const char * detail)
-funcdecl_show_eigrp_interface;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_interface)
+funcdecl_show_ip_eigrp_interfaces;
+DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_interfaces)
 {
+#if 3 /* anything to parse? */
 	int _i;
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
 	const char *ifname = NULL;
 	const char *detail = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 0 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
-		if (!strcmp(argv[_i]->varname, "ifname"))
+		if (!strcmp(argv[_i]->varname, "ifname")) {
 			ifname = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "detail"))
+		}
+		if (!strcmp(argv[_i]->varname, "detail")) {
 			detail = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 0 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
-		return CMD_WARNING;
-	}
-	return show_eigrp_interface_magic(self, vty, argc, argv, afi, vrf, as, as_str, ifname, detail);
+#endif
+#endif
+
+	return show_ip_eigrp_interfaces_magic(self, vty, argc, argv, vrf, ifname, detail);
 }
 
-/* show_eigrp_neighbor => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] neighbors [static] [detail]$detail [IFNAME$ifname]" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_neighbor)
-#define funcdecl_show_eigrp_neighbor static int show_eigrp_neighbor_magic(\
+/* show_ip_eigrp_neighbors => "show ip eigrp [vrf NAME] neighbors [IFNAME] [detail]$detail" */
+DEFUN_CMD_FUNC_DECL(show_ip_eigrp_neighbors)
+#define funcdecl_show_ip_eigrp_neighbors static int show_ip_eigrp_neighbors_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
 	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)),\
-	const char * detail,\
+	const char * ifname,\
+	const char * detail)
+funcdecl_show_ip_eigrp_neighbors;
+DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_neighbors)
+{
+#if 3 /* anything to parse? */
+	int _i;
+#if 0 /* anything that can fail? */
+	unsigned _fail = 0, _failcnt = 0;
+#endif
+	const char *vrf = NULL;
+	const char *ifname = NULL;
+	const char *detail = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+#if 0 /* anything that can fail? */
+		_fail = 0;
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "ifname")) {
+			ifname = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "detail")) {
+			detail = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 0 /* anything that can fail? */
+		if (_fail)
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+#endif
+	}
+#if 0 /* anything that can fail? */
+	if (_failcnt)
+		return CMD_WARNING;
+#endif
+#endif
+
+	return show_ip_eigrp_neighbors_magic(self, vty, argc, argv, vrf, ifname, detail);
+}
+
+/* clear_ip_eigrp_neighbors => "clear ip eigrp [vrf NAME] neighbors" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_neighbors)
+#define funcdecl_clear_ip_eigrp_neighbors static int clear_ip_eigrp_neighbors_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * vrf)
+funcdecl_clear_ip_eigrp_neighbors;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_neighbors)
+{
+#if 1 /* anything to parse? */
+	int _i;
+#if 0 /* anything that can fail? */
+	unsigned _fail = 0, _failcnt = 0;
+#endif
+	const char *vrf = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+#if 0 /* anything that can fail? */
+		_fail = 0;
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 0 /* anything that can fail? */
+		if (_fail)
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+#endif
+	}
+#if 0 /* anything that can fail? */
+	if (_failcnt)
+		return CMD_WARNING;
+#endif
+#endif
+
+	return clear_ip_eigrp_neighbors_magic(self, vty, argc, argv, vrf);
+}
+
+/* clear_ip_eigrp_neighbors_int => "clear ip eigrp [vrf NAME] neighbors IFNAME" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_neighbors_int)
+#define funcdecl_clear_ip_eigrp_neighbors_int static int clear_ip_eigrp_neighbors_int_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * vrf,\
 	const char * ifname)
-funcdecl_show_eigrp_neighbor;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_neighbor)
+funcdecl_clear_ip_eigrp_neighbors_int;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_neighbors_int)
 {
+#if 2 /* anything to parse? */
 	int _i;
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
-	const char *detail = NULL;
 	const char *ifname = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 0 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
-		if (!strcmp(argv[_i]->varname, "detail"))
-			detail = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "ifname"))
+		if (!strcmp(argv[_i]->varname, "ifname")) {
 			ifname = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 0 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+#endif
+#endif
+	if (!ifname) {
+		vty_out(vty, "Internal CLI error [%s]\n", "ifname");
 		return CMD_WARNING;
 	}
-	return show_eigrp_neighbor_magic(self, vty, argc, argv, afi, vrf, as, as_str, detail, ifname);
+
+	return clear_ip_eigrp_neighbors_int_magic(self, vty, argc, argv, vrf, ifname);
 }
 
-/* show_eigrp_topology_all => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology [all-links]$all" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_topology_all)
-#define funcdecl_show_eigrp_topology_all static int show_eigrp_topology_all_magic(\
+/* clear_ip_eigrp_neighbors_IP => "clear ip eigrp [vrf NAME] neighbors A.B.C.D$nbr_addr" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_neighbors_IP)
+#define funcdecl_clear_ip_eigrp_neighbors_IP static int clear_ip_eigrp_neighbors_IP_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
 	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)),\
-	const char * all)
-funcdecl_show_eigrp_topology_all;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_topology_all)
+	struct in_addr nbr_addr,\
+	const char * nbr_addr_str __attribute__ ((unused)))
+funcdecl_clear_ip_eigrp_neighbors_IP;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_neighbors_IP)
 {
+#if 2 /* anything to parse? */
 	int _i;
+#if 1 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
-	const char *all = NULL;
+	struct in_addr nbr_addr = { INADDR_ANY };
+	const char *nbr_addr_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 1 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
-		if (!strcmp(argv[_i]->varname, "all"))
-			all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "nbr_addr")) {
+			nbr_addr_str = argv[_i]->arg;
+			_fail = !inet_aton(argv[_i]->arg, &nbr_addr);
+		}
+#if 1 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 1 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+#endif
+#endif
+	if (!nbr_addr_str) {
+		vty_out(vty, "Internal CLI error [%s]\n", "nbr_addr_str");
 		return CMD_WARNING;
 	}
-	return show_eigrp_topology_all_magic(self, vty, argc, argv, afi, vrf, as, as_str, all);
+
+	return clear_ip_eigrp_neighbors_IP_magic(self, vty, argc, argv, vrf, nbr_addr, nbr_addr_str);
 }
 
-/* show_eigrp_topology => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology WORD$target [all-links]$all" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_topology)
-#define funcdecl_show_eigrp_topology static int show_eigrp_topology_magic(\
+/* clear_ip_eigrp_neighbors_soft => "clear ip eigrp [vrf NAME] neighbors soft" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_neighbors_soft)
+#define funcdecl_clear_ip_eigrp_neighbors_soft static int clear_ip_eigrp_neighbors_soft_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
-	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)),\
-	const char * target,\
-	const char * all)
-funcdecl_show_eigrp_topology;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_topology)
+	const char * vrf)
+funcdecl_clear_ip_eigrp_neighbors_soft;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_neighbors_soft)
 {
+#if 1 /* anything to parse? */
 	int _i;
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
-	const char *target = NULL;
-	const char *all = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 0 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
-		if (!strcmp(argv[_i]->varname, "target"))
-			target = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "all"))
-			all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+#if 0 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
-		return CMD_WARNING;
-	}
-	if (!target) {
-		vty_out(vty, "Internal CLI error [%s]\n", "target");
-		return CMD_WARNING;
-	}
-	return show_eigrp_topology_magic(self, vty, argc, argv, afi, vrf, as, as_str, target, all);
+#endif
+#endif
+
+	return clear_ip_eigrp_neighbors_soft_magic(self, vty, argc, argv, vrf);
 }
 
-/* show_eigrp_accounting => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] accounting" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_accounting)
-#define funcdecl_show_eigrp_accounting static int show_eigrp_accounting_magic(\
+/* clear_ip_eigrp_neighbors_int_soft => "clear ip eigrp [vrf NAME] neighbors IFNAME soft" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_neighbors_int_soft)
+#define funcdecl_clear_ip_eigrp_neighbors_int_soft static int clear_ip_eigrp_neighbors_int_soft_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
 	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)))
-funcdecl_show_eigrp_accounting;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_accounting)
+	const char * ifname)
+funcdecl_clear_ip_eigrp_neighbors_int_soft;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_neighbors_int_soft)
 {
+#if 2 /* anything to parse? */
 	int _i;
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
+	const char *ifname = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 0 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
+		if (!strcmp(argv[_i]->varname, "ifname")) {
+			ifname = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 0 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+#endif
+#endif
+	if (!ifname) {
+		vty_out(vty, "Internal CLI error [%s]\n", "ifname");
 		return CMD_WARNING;
 	}
-	return show_eigrp_accounting_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+
+	return clear_ip_eigrp_neighbors_int_soft_magic(self, vty, argc, argv, vrf, ifname);
 }
 
-/* show_eigrp_event => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] events" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_event)
-#define funcdecl_show_eigrp_event static int show_eigrp_event_magic(\
+/* clear_ip_eigrp_neighbors_IP_soft => "clear ip eigrp [vrf NAME] neighbors A.B.C.D$nbr_addr soft" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_neighbors_IP_soft)
+#define funcdecl_clear_ip_eigrp_neighbors_IP_soft static int clear_ip_eigrp_neighbors_IP_soft_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
 	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)))
-funcdecl_show_eigrp_event;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_event)
+	struct in_addr nbr_addr,\
+	const char * nbr_addr_str __attribute__ ((unused)))
+funcdecl_clear_ip_eigrp_neighbors_IP_soft;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_neighbors_IP_soft)
 {
+#if 2 /* anything to parse? */
 	int _i;
+#if 1 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
+	struct in_addr nbr_addr = { INADDR_ANY };
+	const char *nbr_addr_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 1 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
+		if (!strcmp(argv[_i]->varname, "nbr_addr")) {
+			nbr_addr_str = argv[_i]->arg;
+			_fail = !inet_aton(argv[_i]->arg, &nbr_addr);
+		}
+#if 1 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 1 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+#endif
+#endif
+	if (!nbr_addr_str) {
+		vty_out(vty, "Internal CLI error [%s]\n", "nbr_addr_str");
 		return CMD_WARNING;
 	}
-	return show_eigrp_event_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+
+	return clear_ip_eigrp_neighbors_IP_soft_magic(self, vty, argc, argv, vrf, nbr_addr, nbr_addr_str);
 }
 
-/* show_eigrp_timer => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] timers" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_timer)
-#define funcdecl_show_eigrp_timer static int show_eigrp_timer_magic(\
+/* show_ip_eigrp_events => "show ip eigrp [vrf NAME$vrf] events" */
+DEFUN_CMD_FUNC_DECL(show_ip_eigrp_events)
+#define funcdecl_show_ip_eigrp_events static int show_ip_eigrp_events_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
-	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)))
-funcdecl_show_eigrp_timer;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_timer)
+	const char * vrf)
+funcdecl_show_ip_eigrp_events;
+DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_events)
 {
+#if 1 /* anything to parse? */
 	int _i;
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 0 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
+#if 0 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
-		return CMD_WARNING;
-	}
-	return show_eigrp_timer_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+#endif
+#endif
+
+	return show_ip_eigrp_events_magic(self, vty, argc, argv, vrf);
 }
 
-/* show_eigrp_traffic => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] traffic" */
-DEFUN_CMD_FUNC_DECL(show_eigrp_traffic)
-#define funcdecl_show_eigrp_traffic static int show_eigrp_traffic_magic(\
+/* clear_ip_eigrp_events => "clear ip eigrp [vrf NAME$vrf] events" */
+DEFUN_CMD_FUNC_DECL(clear_ip_eigrp_events)
+#define funcdecl_clear_ip_eigrp_events static int clear_ip_eigrp_events_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * afi,\
-	const char * vrf,\
-	int64_t as,\
-	const char * as_str __attribute__ ((unused)))
-funcdecl_show_eigrp_traffic;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_traffic)
+	const char * vrf)
+funcdecl_clear_ip_eigrp_events;
+DEFUN_CMD_FUNC_TEXT(clear_ip_eigrp_events)
 {
+#if 1 /* anything to parse? */
 	int _i;
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
-	const char *afi = NULL;
+#endif
 	const char *vrf = NULL;
-	int64_t as = 0;
-	const char *as_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
+#if 0 /* anything that can fail? */
 		_fail = 0;
-		if (!strcmp(argv[_i]->varname, "afi"))
-			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "vrf"))
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		if (!strcmp(argv[_i]->varname, "as")) {
-			as_str = argv[_i]->arg;
-			char *_end;
-			as = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
+#if 0 /* anything that can fail? */
 		if (_fail)
-			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg);
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
+#endif
 	}
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
-		return CMD_WARNING;
-	}
-	return show_eigrp_traffic_magic(self, vty, argc, argv, afi, vrf, as, as_str);
+#endif
+#endif
+
+	return clear_ip_eigrp_events_magic(self, vty, argc, argv, vrf);
 }
 
-/* simple show commands */
-DEFUN_CMD_FUNC_DECL(show_eigrp_protocol)
-#define funcdecl_show_eigrp_protocol static int show_eigrp_protocol_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)))
-funcdecl_show_eigrp_protocol;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_protocol) { return show_eigrp_protocol_magic(self, vty, argc, argv); }
-DEFUN_CMD_FUNC_DECL(show_eigrp_tech_support)
-#define funcdecl_show_eigrp_tech_support static int show_eigrp_tech_support_magic(const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)))
-funcdecl_show_eigrp_tech_support;
-DEFUN_CMD_FUNC_TEXT(show_eigrp_tech_support) { return show_eigrp_tech_support_magic(self, vty, argc, argv); }
-
-/* clear_eigrp_neighbor => "clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors [soft]$soft" */
-DEFUN_CMD_FUNC_DECL(clear_eigrp_neighbor)
-#define funcdecl_clear_eigrp_neighbor static int clear_eigrp_neighbor_magic(\
-	const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi, const char * vrf, int64_t as, const char * as_str __attribute__ ((unused)), const char * soft)
-funcdecl_clear_eigrp_neighbor;
-DEFUN_CMD_FUNC_TEXT(clear_eigrp_neighbor)
-{
-	int _i; unsigned _fail = 0, _failcnt = 0; const char *afi = NULL; const char *vrf = NULL; int64_t as = 0; const char *as_str = NULL; const char *soft = NULL;
-	for (_i = 0; _i < argc; _i++) { if (!argv[_i]->varname) continue; _fail = 0; if (!strcmp(argv[_i]->varname, "afi")) afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "vrf")) vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "as")) { as_str = argv[_i]->arg; char *_end; as = strtoll(argv[_i]->arg, &_end, 10); _fail = (_end == argv[_i]->arg) || (*_end != '\0'); } if (!strcmp(argv[_i]->varname, "soft")) soft = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (_fail) vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg); _failcnt += _fail; }
-	if (_failcnt)
-		return CMD_WARNING;
-	if (!afi) {
-		vty_out(vty, "Internal CLI error [%s]\n", "afi");
-		return CMD_WARNING;
-	}
-	return clear_eigrp_neighbor_magic(self, vty, argc, argv, afi, vrf, as, as_str, soft);
-}
-
-/* clear_eigrp_neighbor_interface */
-DEFUN_CMD_FUNC_DECL(clear_eigrp_neighbor_interface)
-#define funcdecl_clear_eigrp_neighbor_interface static int clear_eigrp_neighbor_interface_magic(\
-	const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi, const char * vrf, int64_t as, const char * as_str __attribute__ ((unused)), const char * ifname, const char * soft)
-funcdecl_clear_eigrp_neighbor_interface;
-DEFUN_CMD_FUNC_TEXT(clear_eigrp_neighbor_interface)
-{
-	int _i; unsigned _fail = 0, _failcnt = 0; const char *afi = NULL; const char *vrf = NULL; int64_t as = 0; const char *as_str = NULL; const char *ifname = NULL; const char *soft = NULL;
-	for (_i = 0; _i < argc; _i++) { if (!argv[_i]->varname) continue; _fail = 0; if (!strcmp(argv[_i]->varname, "afi")) afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "vrf")) vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "as")) { as_str = argv[_i]->arg; char *_end; as = strtoll(argv[_i]->arg, &_end, 10); _fail = (_end == argv[_i]->arg) || (*_end != '\0'); } if (!strcmp(argv[_i]->varname, "ifname")) ifname = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "soft")) soft = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (_fail) vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg); _failcnt += _fail; }
-	if (_failcnt)
-		return CMD_WARNING;
-	if (!afi || !ifname) {
-		vty_out(vty, "Internal CLI error [%s]\n", !afi ? "afi" : "ifname");
-		return CMD_WARNING;
-	}
-	return clear_eigrp_neighbor_interface_magic(self, vty, argc, argv, afi, vrf, as, as_str, ifname, soft);
-}
-
-/* clear_eigrp_neighbor_address */
-DEFUN_CMD_FUNC_DECL(clear_eigrp_neighbor_address)
-#define funcdecl_clear_eigrp_neighbor_address static int clear_eigrp_neighbor_address_magic(\
-	const struct cmd_element *self __attribute__ ((unused)), struct vty *vty __attribute__ ((unused)), int argc __attribute__ ((unused)), struct cmd_token *argv[] __attribute__ ((unused)), const char * afi, const char * vrf, int64_t as, const char * as_str __attribute__ ((unused)), struct in_addr nbr_addr, const char * nbr_addr_str __attribute__ ((unused)), const char * soft)
-funcdecl_clear_eigrp_neighbor_address;
-DEFUN_CMD_FUNC_TEXT(clear_eigrp_neighbor_address)
-{
-	int _i; unsigned _fail = 0, _failcnt = 0; const char *afi = NULL; const char *vrf = NULL; int64_t as = 0; const char *as_str = NULL; struct in_addr nbr_addr = { INADDR_ANY }; const char *nbr_addr_str = NULL; const char *soft = NULL;
-	for (_i = 0; _i < argc; _i++) { if (!argv[_i]->varname) continue; _fail = 0; if (!strcmp(argv[_i]->varname, "afi")) afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "vrf")) vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (!strcmp(argv[_i]->varname, "as")) { as_str = argv[_i]->arg; char *_end; as = strtoll(argv[_i]->arg, &_end, 10); _fail = (_end == argv[_i]->arg) || (*_end != '\0'); } if (!strcmp(argv[_i]->varname, "nbr_addr")) { nbr_addr_str = argv[_i]->arg; _fail = !inet_aton(argv[_i]->arg, &nbr_addr); } if (!strcmp(argv[_i]->varname, "soft")) soft = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg; if (_fail) vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname, argv[_i]->arg); _failcnt += _fail; }
-	if (_failcnt)
-		return CMD_WARNING;
-	if (!afi || !nbr_addr_str) {
-		vty_out(vty, "Internal CLI error [%s]\n", !afi ? "afi" : "nbr_addr_str");
-		return CMD_WARNING;
-	}
-	return clear_eigrp_neighbor_address_magic(self, vty, argc, argv, afi, vrf, as, as_str, nbr_addr, nbr_addr_str, soft);
-}

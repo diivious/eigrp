@@ -1,5 +1,5 @@
 diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang
-index 8375e74..e08abbd 100644
+index 8375e74..00430f1 100644
 --- a/yang/frr-eigrpd.yang
 +++ b/yang/frr-eigrpd.yang
 @@ -158,6 +158,16 @@ module frr-eigrpd {
@@ -36,7 +36,19 @@ index 8375e74..e08abbd 100644
        }
  
        leaf shutdown {
-@@ -544,6 +564,46 @@ module frr-eigrpd {
+@@ -253,6 +273,11 @@ module frr-eigrpd {
+         description "Most number of paths to forward packets to";
+       }
+ 
++      leaf event-log-size {
++        type uint32;
++        description "Maximum number of EIGRP diagnostic events retained";
++      }
++
+       container metric-weights {
+         description
+           "Metrics and parameters for advertisement.
+@@ -544,6 +569,46 @@ module frr-eigrpd {
        }
      }
  
@@ -83,7 +95,7 @@ index 8375e74..e08abbd 100644
      leaf shutdown {
        type empty;
        description "Administratively disable this address-family context";
-@@ -566,14 +626,14 @@ module frr-eigrpd {
+@@ -566,14 +631,14 @@ module frr-eigrpd {
          description "Enable automatic classful summarization";
        }
  
@@ -104,7 +116,7 @@ index 8375e74..e08abbd 100644
        }
  
        /* EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY */
-@@ -613,11 +673,22 @@ module frr-eigrpd {
+@@ -613,11 +678,22 @@ module frr-eigrpd {
          }
        }
  
@@ -130,7 +142,7 @@ index 8375e74..e08abbd 100644
        container metric-weights {
          presence "Configure EIGRP metric coefficients";
          leaf tos {
-@@ -631,6 +702,8 @@ module frr-eigrpd {
+@@ -631,6 +707,8 @@ module frr-eigrpd {
          leaf K5 { type uint8; mandatory true; }
        }
  
@@ -139,7 +151,7 @@ index 8375e74..e08abbd 100644
        list offset-list {
          key "access-list direction interface";
          description "Metric offset applied to incoming or outgoing updates";
-@@ -659,6 +732,10 @@ module frr-eigrpd {
+@@ -659,6 +737,10 @@ module frr-eigrpd {
          leaf protocol {
            type string { length "1..32"; }
          }
@@ -150,7 +162,7 @@ index 8375e74..e08abbd 100644
          container metrics {
            presence "Configure an explicit redistribution metric";
            leaf bandwidth {
-@@ -672,16 +749,28 @@ module frr-eigrpd {
+@@ -672,16 +754,28 @@ module frr-eigrpd {
          }
        }
  

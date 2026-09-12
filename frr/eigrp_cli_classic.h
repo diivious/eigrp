@@ -29,6 +29,9 @@ extern void eigrp_cli_classic_show_variance(struct vty *vty,
 extern void eigrp_cli_classic_show_maximum_paths(struct vty *vty,
 					 const struct lyd_node *dnode,
 					 bool show_defaults);
+extern void eigrp_cli_classic_show_event_log_size(struct vty *vty,
+					  const struct lyd_node *dnode,
+					  bool show_defaults);
 extern void eigrp_cli_classic_show_metrics(struct vty *vty,
 				   const struct lyd_node *dnode,
 				   bool show_defaults);

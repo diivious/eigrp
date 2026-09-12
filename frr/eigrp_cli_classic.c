@@ -341,6 +341,15 @@ void eigrp_cli_classic_show_maximum_paths(struct vty *vty, const struct lyd_node
 	vty_out(vty, " maximum-paths %s\n", maximum_paths);
 }
 
+void eigrp_cli_classic_show_event_log_size(struct vty *vty,
+				   const struct lyd_node *dnode,
+				   bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, " eigrp event-log-size %u\n",
+		yang_dnode_get_uint32(dnode, NULL));
+}
+
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K1
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K2

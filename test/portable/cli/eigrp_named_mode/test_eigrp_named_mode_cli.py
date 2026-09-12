@@ -166,23 +166,16 @@ def test_frr_driver_keeps_patch_application_out_of_build_and_uut():
     assert "patch_frr" not in uut
 
 
-def test_frr_installer_does_not_stage_generated_clippy_sources():
-    installer = read(ROOT / "tools" / "frr-install.sh")
-
-    # FRR owns *_clippy.c generation.  Keeping project-side standalone-build
-    # fixtures out of the projection also lets the final --delete rsync remove
-    # stale generated clippy files before the native FRR build runs.
-    assert "--exclude '*_clippy.c'" in installer
-    assert 'rsync -a --delete "$stage"/ "$dst"/' in installer
-
-
-def test_frr_installer_prefers_already_applied_patch_state_and_regenerates_yang_embed():
+def test_frr_installer_prefers_already_applied_patch_state_and_leaves_generated_files_to_build():
     installer = read(ROOT / "tools" / "frr-install.sh")
     patch_state = installer[installer.index("patch_state() {"):installer.index("\ninstall_patch_file() {", installer.index("patch_state() {"))]
 
     assert patch_state.index("apply --reverse --check") < patch_state.index("apply --check")
-    assert "refresh_eigrp_yang_embed" in installer
-    assert 'python3 "$embed_tool" "$yang_source" "$yang_embed"' in installer
+    assert "--exclude '*_clippy.c'" in installer
+    assert "invalidate_eigrp_yang_embed" in installer
+    assert 'rm -f "$yang_embed"' in installer
+    assert "refresh_eigrp_yang_embed" not in installer
+    assert 'python3 "$embed_tool"' not in installer
     assert "repair: remove one duplicate managed EIGRP named YANG schema block" in installer
 
 
@@ -553,6 +546,9 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         assert positive in cli_surface
         assert negative in cli_surface
 
+    assert "/frr-eigrpd:eigrpd/instance/event-log-size" in nb
+    assert "leaf event-log-size" in patch
+
     for xpath in (
         "neighbor-policy/description",
         "neighbor-policy/maximum-prefix",
@@ -578,7 +574,7 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         assert f"/frr-eigrpd:eigrpd/named/address-family/{xpath}" in nb
 
     targets = (
-        "eigrp_event_log_size_update",
+        "eigrp_eventlog_size_update",
         "eigrp_neighbor_description_update",
         "eigrp_neighbor_maximum_prefix_update",
         "eigrp_neighbor_maximum_prefix_all_update",
