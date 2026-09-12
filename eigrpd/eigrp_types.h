@@ -78,6 +78,7 @@ typedef struct eigrp_prefix_descriptor eigrp_prefix_descriptor_t;
 typedef struct eigrp_route_descriptor eigrp_route_descriptor_t;
 typedef struct eigrp_fsm_action_message eigrp_fsm_action_message_t;
 typedef struct eigrp_work_queue eigrp_work_queue_t;
+typedef struct eigrp_eventlog eigrp_eventlog_t;
 
 /* Portable configuration objects used by classic/named management adapters. */
 typedef struct eigrp_instance_parent_config eigrp_instance_parent_config_t;

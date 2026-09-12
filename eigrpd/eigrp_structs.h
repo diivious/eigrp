@@ -101,6 +101,9 @@ struct eigrp_instance {
 
 	eigrp_work_queue_t *packetizer_queue;
 
+	/* Compact three-word-per-entry diagnostic event ring. */
+	eigrp_eventlog_t *eventlog;
+
 	/* Local TLV codecs used for neighbor/interface bind and mixed encode. */
 	eigrp_tlv_codec_t tlv1_codec;
 	eigrp_tlv_codec_t tlv2_codec;

@@ -10,7 +10,6 @@
 
 #define EIGRP_PACKETIZER_WORK_F_OWN_PREFIX 0x00000001U
 #define EIGRP_PACKETIZER_WORK_F_OWN_ROUTE  0x00000002U
-#define EIGRP_PACKETIZER_WORK_F_DEFER_FREE 0x00000004U
 
 typedef struct eigrp_packetizer_work {
 	uint8_t opcode;
@@ -29,7 +28,5 @@ eigrp_packetizer_work_t *eigrp_packetizer_work_new(uint8_t opcode);
 void eigrp_packetizer_work_free(eigrp_packetizer_work_t *work);
 void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,
 			      eigrp_packetizer_work_t *work);
-void eigrp_packetizer_prefix_defer_free(eigrp_instance_t *eigrp,
-				       eigrp_prefix_descriptor_t *prefix);
 
 #endif /* _ZEBRA_EIGRP_PACKETIZER_H_ */

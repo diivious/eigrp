@@ -118,9 +118,6 @@ extern void eigrp_query_receive(eigrp_instance_t *, eigrp_neighbor_t *,
 				eigrp_header_t *, struct stream *,
 				eigrp_interface_t *, int);
 extern uint32_t eigrp_query_send_all(eigrp_instance_t *);
-extern void eigrp_query_send_route(eigrp_instance_t *,
-				  eigrp_prefix_descriptor_t *,
-				  eigrp_route_descriptor_t *, uint32_t);
 
 /*
  * These externs are found in eigrp_reply.c

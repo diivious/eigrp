@@ -49,10 +49,6 @@ typedef eigrp_result_t (*eigrp_topology_prefix_state_cb)(
 typedef eigrp_result_t (*eigrp_topology_route_state_cb)(
 	const eigrp_topology_route_state_t *state, void *arg);
 
-typedef struct eigrp_topology_clear_request {
-	const eigrp_prefix_t *destination; /* NULL clears the whole topology */
-} eigrp_topology_clear_request_t;
-
 /* EIGRP Route Descriptor related functions. */
 extern eigrp_route_descriptor_t *eigrp_topology_route_create(eigrp_interface_t *);
 extern void eigrp_route_descriptor_add(eigrp_instance_t *,
@@ -106,9 +102,6 @@ eigrp_result_t eigrp_topology_state_walk(
 	const eigrp_prefix_t *destination, bool all_links,
 	eigrp_topology_prefix_state_cb prefix_callback,
 	eigrp_topology_route_state_cb route_callback, void *arg);
-eigrp_result_t eigrp_topology_clear(
-	eigrp_instance_context_t *context,
-	const eigrp_topology_clear_request_t *request, size_t *affected_count);
 
 /* Static inline functions */
 /* IPv4/IPv6 prefix and address management functions

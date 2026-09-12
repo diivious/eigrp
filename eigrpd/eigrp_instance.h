@@ -28,6 +28,8 @@ struct eigrp_address_family_config {
 	bool router_id_configured;
 	uint32_t router_id;
 	bool shutdown;
+	bool event_log_size_configured;
+	uint32_t event_log_size;
 	eigrp_network_config_t *networks;
 	eigrp_neighbor_config_t *neighbors;
 	eigrp_interface_config_t *interfaces;

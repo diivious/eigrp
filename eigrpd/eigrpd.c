@@ -19,6 +19,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_errors.h"
+#include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_packetizer.h"
 #include "eigrpd/eigrp_tlv1.h"
@@ -161,6 +162,8 @@ static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
 	eigrp->serno_last_update = 0;
 	eigrp->topology_changes = list_new();
 	eigrp_packetizer_init(eigrp);
+	/* Diagnostic logging is best-effort and must not block protocol startup. */
+	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
 
 	eigrp->list[EIGRP_FILTER_IN] = NULL;
 	eigrp->list[EIGRP_FILTER_OUT] = NULL;
@@ -296,6 +299,7 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	event_cancel(&eigrp->t_write);
 	event_cancel(&eigrp->t_read);
 	eigrp_packetizer_finish(eigrp);
+	eigrp_eventlog_finish(eigrp);
 	close(eigrp->fd);
 
 	list_delete(&eigrp->eiflist);
