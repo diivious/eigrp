@@ -424,6 +424,203 @@ DEFUN_CMD_FUNC_DECL(show_eigrp_tech_support)
 funcdecl_show_eigrp_tech_support;
 DEFUN_CMD_FUNC_TEXT(show_eigrp_tech_support) { return show_eigrp_tech_support_magic(self, vty, argc, argv); }
 
+/* clear_eigrp_topology => "clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology" */
+DEFUN_CMD_FUNC_DECL(clear_eigrp_topology)
+#define funcdecl_clear_eigrp_topology static int clear_eigrp_topology_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)),\
+	const char * vrf,\
+	const char * vrf_all,\
+	const char * afi)
+funcdecl_clear_eigrp_topology;
+DEFUN_CMD_FUNC_TEXT(clear_eigrp_topology)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	int64_t as = 0;
+	const char *as_str = NULL;
+	const char *vrf = NULL;
+	const char *vrf_all = NULL;
+	const char *afi = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf_all"))
+			vrf_all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname,
+				argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi) {
+		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+		return CMD_WARNING;
+	}
+	return clear_eigrp_topology_magic(self, vty, argc, argv, as, as_str, vrf,
+					  vrf_all, afi);
+}
+
+/* clear_eigrp_topology_prefix => "clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology <A.B.C.D/M$ipv4_prefix|X:X::X:X/M$ipv6_prefix>" */
+DEFUN_CMD_FUNC_DECL(clear_eigrp_topology_prefix)
+#define funcdecl_clear_eigrp_topology_prefix static int clear_eigrp_topology_prefix_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)),\
+	const char * vrf,\
+	const char * vrf_all,\
+	const char * afi,\
+	const struct prefix_ipv4 * ipv4_prefix,\
+	const char * ipv4_prefix_str __attribute__ ((unused)),\
+	const struct prefix_ipv6 * ipv6_prefix,\
+	const char * ipv6_prefix_str __attribute__ ((unused)))
+funcdecl_clear_eigrp_topology_prefix;
+DEFUN_CMD_FUNC_TEXT(clear_eigrp_topology_prefix)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	int64_t as = 0;
+	const char *as_str = NULL;
+	const char *vrf = NULL;
+	const char *vrf_all = NULL;
+	const char *afi = NULL;
+	struct prefix_ipv4 ipv4_prefix = { };
+	const char *ipv4_prefix_str = NULL;
+	struct prefix_ipv6 ipv6_prefix = { };
+	const char *ipv6_prefix_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf_all"))
+			vrf_all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "ipv4_prefix")) {
+			ipv4_prefix_str = argv[_i]->arg;
+			_fail = !str2prefix_ipv4(argv[_i]->arg, &ipv4_prefix);
+		}
+		if (!strcmp(argv[_i]->varname, "ipv6_prefix")) {
+			ipv6_prefix_str = argv[_i]->arg;
+			_fail = !str2prefix_ipv6(argv[_i]->arg, &ipv6_prefix);
+		}
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname,
+				argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi) {
+		vty_out(vty, "Internal CLI error [%s]\n", "afi");
+		return CMD_WARNING;
+	}
+	return clear_eigrp_topology_prefix_magic(
+		self, vty, argc, argv, as, as_str, vrf, vrf_all, afi, &ipv4_prefix,
+		ipv4_prefix_str, &ipv6_prefix, ipv6_prefix_str);
+}
+
+/* clear_eigrp_topology_mask => "clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology A.B.C.D$network A.B.C.D$mask" */
+DEFUN_CMD_FUNC_DECL(clear_eigrp_topology_mask)
+#define funcdecl_clear_eigrp_topology_mask static int clear_eigrp_topology_mask_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)),\
+	const char * vrf,\
+	const char * vrf_all,\
+	const char * afi,\
+	struct in_addr network,\
+	const char * network_str __attribute__ ((unused)),\
+	struct in_addr mask,\
+	const char * mask_str __attribute__ ((unused)))
+funcdecl_clear_eigrp_topology_mask;
+DEFUN_CMD_FUNC_TEXT(clear_eigrp_topology_mask)
+{
+	int _i;
+	unsigned _fail = 0, _failcnt = 0;
+	int64_t as = 0;
+	const char *as_str = NULL;
+	const char *vrf = NULL;
+	const char *vrf_all = NULL;
+	const char *afi = NULL;
+	struct in_addr network = { INADDR_ANY };
+	const char *network_str = NULL;
+	struct in_addr mask = { INADDR_ANY };
+	const char *mask_str = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+		_fail = 0;
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "vrf"))
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "vrf_all"))
+			vrf_all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "afi"))
+			afi = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		if (!strcmp(argv[_i]->varname, "network")) {
+			network_str = argv[_i]->arg;
+			_fail = !inet_aton(argv[_i]->arg, &network);
+		}
+		if (!strcmp(argv[_i]->varname, "mask")) {
+			mask_str = argv[_i]->arg;
+			_fail = !inet_aton(argv[_i]->arg, &mask);
+		}
+		if (_fail)
+			vty_out(vty, "%% invalid input for %s: %s\n", argv[_i]->varname,
+				argv[_i]->arg);
+		_failcnt += _fail;
+	}
+	if (_failcnt)
+		return CMD_WARNING;
+	if (!afi || !network_str || !mask_str) {
+		vty_out(vty, "Internal CLI error [%s]\n",
+			!afi ? "afi" : !network_str ? "network_str" : "mask_str");
+		return CMD_WARNING;
+	}
+	return clear_eigrp_topology_mask_magic(self, vty, argc, argv, as, as_str,
+					       vrf, vrf_all, afi, network,
+					       network_str, mask, mask_str);
+}
+
 /* clear_eigrp_neighbor => "clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors [soft]$soft" */
 DEFUN_CMD_FUNC_DECL(clear_eigrp_neighbor)
 #define funcdecl_clear_eigrp_neighbor static int clear_eigrp_neighbor_magic(\

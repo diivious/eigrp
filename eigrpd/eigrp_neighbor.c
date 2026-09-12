@@ -515,39 +515,143 @@ int eigrp_nbr_count_get(eigrp_instance_t *eigrp)
 	return counter;
 }
 
-/**
- * @fn eigrp_nbr_hard_restart
- *
- * @param[in]		nbr	Neighbor who would receive hard restart
- * @param[in]		vty Virtual terminal for log output
- * @return void
- *
- * @par
- * Function used for executing hard restart for neighbor:
- * Send Hello packet with Peer Termination TLV with
- * neighbor's address, set it's state to DOWN and delete the neighbor
- */
-void eigrp_nbr_hard_restart(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
-			    struct vty *vty)
+static bool eigrp_neighbor_clear_address_valid(const eigrp_address_t *address)
 {
+	return address && (address->afi == EIGRP_ADDRESS_FAMILY_IPV4
+			   || address->afi == EIGRP_ADDRESS_FAMILY_IPV6);
+}
+
+static bool eigrp_neighbor_clear_address_match(const eigrp_neighbor_t *nbr,
+					       const eigrp_address_t *address)
+{
+	eigrp_address_t runtime_address;
+
+	eigrp_neighbor_runtime_address(nbr, &runtime_address);
+	return eigrp_neighbor_address_equal(&runtime_address, address);
+}
+
+static void eigrp_neighbor_clear_report(const eigrp_neighbor_t *nbr, bool soft,
+					eigrp_neighbor_clear_cb callback,
+					void *arg)
+{
+	eigrp_neighbor_clear_state_t state;
+
+	if (!callback)
+		return;
+	memset(&state, 0, sizeof(state));
+	eigrp_neighbor_runtime_address(nbr, &state.address);
+	state.interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : NULL;
+	state.soft = soft;
+	callback(&state, arg);
+}
+
+static void eigrp_neighbor_clear_hard(eigrp_neighbor_t *nbr,
+				      bool peer_termination,
+				      eigrp_neighbor_clear_cb callback, void *arg)
+{
+	const char *interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : "?";
+
 	zlog_debug("Neighbor %s (%s) is down: manually cleared",
-		   eigrp_print_addr(&nbr->src),
-		   ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
-	if (vty != NULL) {
-		vty_time_print(vty, 0);
-		vty_out(vty, "Neighbor %s (%s) is down: manually cleared\n",
-			eigrp_print_addr(&nbr->src),
-			ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
+		   eigrp_print_addr(&nbr->src), interface_name);
+	eigrp_neighbor_clear_report(nbr, false, callback, arg);
+
+	if (peer_termination)
+		eigrp_hello_send(nbr->ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN_NBR,
+				 &nbr->src);
+
+	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_delete(nbr);
+}
+
+static void eigrp_neighbor_clear_soft(eigrp_neighbor_t *nbr,
+				      eigrp_neighbor_clear_cb callback, void *arg)
+{
+	eigrp_neighbor_clear_report(nbr, true, callback, arg);
+	eigrp_update_send_GR(nbr, EIGRP_GR_MANUAL, NULL);
+}
+
+eigrp_result_t eigrp_neighbor_clear(
+	eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request,
+	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count)
+{
+	eigrp_interface_t *ei;
+	eigrp_neighbor_t *nbr;
+	struct listnode *if_node;
+	struct listnode *nbr_node;
+	struct listnode *next_node;
+	size_t affected = 0;
+
+	if (affected_count)
+		*affected_count = 0;
+	if (!runtime || !request)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (request->interface_name && request->address)
+		return EIGRP_RESULT_CONFLICT;
+	if (request->address
+	    && !eigrp_neighbor_clear_address_valid(request->address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (request->address) {
+		for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+			for (ALL_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+				if (!eigrp_neighbor_clear_address_match(nbr,
+								request->address))
+					continue;
+				if (request->soft)
+					eigrp_neighbor_clear_soft(nbr, callback, arg);
+				else
+					eigrp_neighbor_clear_hard(nbr, true,
+							  callback, arg);
+				affected = 1;
+				if (affected_count)
+					*affected_count = affected;
+				return EIGRP_RESULT_SUCCESS;
+			}
+		}
+		return EIGRP_RESULT_NOT_FOUND;
 	}
 
-	/* send Hello with Peer Termination TLV */
-	eigrp_hello_send(nbr->ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN_NBR, &nbr->src);
+	if (request->interface_name) {
+		ei = eigrp_intf_lookup_by_name(runtime, request->interface_name);
+		if (!ei)
+			return EIGRP_RESULT_NOT_FOUND;
 
-	/* set neighbor to DOWN */
-	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
+		if (!request->soft)
+			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
-	/* delete neighbor */
-	eigrp_nbr_delete(nbr);
+		for (ALL_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
+			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
+				continue;
+			if (request->soft)
+				eigrp_neighbor_clear_soft(nbr, callback, arg);
+			else
+				eigrp_neighbor_clear_hard(nbr, false,
+							  callback, arg);
+			affected++;
+		}
+		if (affected_count)
+			*affected_count = affected;
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+		if (!request->soft)
+			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
+
+		for (ALL_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
+			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
+				continue;
+			if (request->soft)
+				eigrp_neighbor_clear_soft(nbr, callback, arg);
+			else
+				eigrp_neighbor_clear_hard(nbr, false,
+							  callback, arg);
+			affected++;
+		}
+	}
+	if (affected_count)
+		*affected_count = affected;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *erd,

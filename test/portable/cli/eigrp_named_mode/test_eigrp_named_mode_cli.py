@@ -166,6 +166,16 @@ def test_frr_driver_keeps_patch_application_out_of_build_and_uut():
     assert "patch_frr" not in uut
 
 
+def test_frr_installer_does_not_stage_generated_clippy_sources():
+    installer = read(ROOT / "tools" / "frr-install.sh")
+
+    # FRR owns *_clippy.c generation.  Keeping project-side standalone-build
+    # fixtures out of the projection also lets the final --delete rsync remove
+    # stale generated clippy files before the native FRR build runs.
+    assert "--exclude '*_clippy.c'" in installer
+    assert 'rsync -a --delete "$stage"/ "$dst"/' in installer
+
+
 def test_frr_installer_prefers_already_applied_patch_state_and_regenerates_yang_embed():
     installer = read(ROOT / "tools" / "frr-install.sh")
     patch_state = installer[installer.index("patch_state() {"):installer.index("\ninstall_patch_file() {", installer.index("patch_state() {"))]

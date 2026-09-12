@@ -18,6 +18,8 @@
 #ifndef _ZEBRA_EIGRP_NEIGHBOR_H
 #define _ZEBRA_EIGRP_NEIGHBOR_H
 
+#include <stddef.h>
+
 #include "eigrpd/eigrp_result.h"
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_types.h"
@@ -99,6 +101,21 @@ typedef struct eigrp_neighbor_state {
 typedef eigrp_result_t (*eigrp_neighbor_state_walk_cb)(
 	const eigrp_neighbor_state_t *state, void *arg);
 
+typedef struct eigrp_neighbor_clear_request {
+	const char *interface_name;
+	const eigrp_address_t *address;
+	bool soft;
+} eigrp_neighbor_clear_request_t;
+
+typedef struct eigrp_neighbor_clear_state {
+	eigrp_address_t address;
+	const char *interface_name;
+	bool soft;
+} eigrp_neighbor_clear_state_t;
+
+typedef void (*eigrp_neighbor_clear_cb)(
+	const eigrp_neighbor_clear_state_t *state, void *arg);
+
 
 /* Prototypes */
 extern eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *, struct eigrp_header *,
@@ -121,8 +138,6 @@ extern eigrp_neighbor_t *eigrp_nbr_lookup_by_addr(eigrp_interface_t *,
 						  struct in_addr *);
 extern eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *,
 							  struct in_addr addr);
-extern void eigrp_nbr_hard_restart(eigrp_instance_t *, eigrp_neighbor_t *,
-				   struct vty *);
 
 extern int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *,
 					 eigrp_interface_t *);
@@ -138,6 +153,9 @@ eigrp_result_t eigrp_neighbor_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,
 	eigrp_neighbor_state_walk_cb callback, void *arg);
+eigrp_result_t eigrp_neighbor_clear(
+	eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request,
+	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count);
 
 eigrp_result_t eigrp_neighbor_description_update(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,

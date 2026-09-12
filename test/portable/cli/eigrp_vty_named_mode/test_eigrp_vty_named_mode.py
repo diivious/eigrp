@@ -12,6 +12,12 @@ VTY = ROOT / "frr" / "eigrp_cli_named.c"
 CLASSIC_VTY = ROOT / "frr" / "eigrp_vty.c"
 DUMP = ROOT / "eigrpd" / "eigrp_dump.c"
 CLIPPY = ROOT / "frr" / "eigrp_cli_named_clippy.c"
+NEIGHBOR_C = ROOT / "eigrpd" / "eigrp_neighbor.c"
+NEIGHBOR_H = ROOT / "eigrpd" / "eigrp_neighbor.h"
+TOPOLOGY_C = ROOT / "eigrpd" / "eigrp_topology.c"
+TOPOLOGY_H = ROOT / "eigrpd" / "eigrp_topology.h"
+PACKETIZER_C = ROOT / "eigrpd" / "eigrp_packetizer.c"
+QUERY_C = ROOT / "eigrpd" / "eigrp_query.c"
 
 
 def read(path: Path) -> str:
@@ -51,6 +57,9 @@ def test_named_clear_commands_are_defpy_and_installed():
     init = function_body(vty, "eigrp_cli_named_init")
 
     for name in (
+        "clear_eigrp_topology",
+        "clear_eigrp_topology_prefix",
+        "clear_eigrp_topology_mask",
         "clear_eigrp_neighbor",
         "clear_eigrp_neighbor_interface",
         "clear_eigrp_neighbor_address",
@@ -59,6 +68,37 @@ def test_named_clear_commands_are_defpy_and_installed():
         assert f"&{name}_cmd" in init
 
     assert '"clear eigrp address-family <ipv4|ipv6>$afi' in vty
+
+
+def test_neighbor_clear_uses_one_portable_neighbor_target():
+    named = read(VTY)
+    classic = read(CLASSIC_VTY)
+    neighbor_c = read(NEIGHBOR_C)
+    neighbor_h = read(NEIGHBOR_H)
+
+    assert "eigrp_result_t eigrp_neighbor_clear(" in neighbor_c
+    assert "eigrp_result_t eigrp_neighbor_clear(" in neighbor_h
+    assert "eigrp_neighbor_clear_request_t" in neighbor_h
+    assert "struct vty *" not in neighbor_h
+
+    named_clear = named[
+        named.index("static void clear_eigrp_neighbor_render("):
+        named.index("\n\nvoid eigrp_cli_named_init(void)")
+    ]
+    classic_clear = classic[
+        classic.index("static void eigrp_vty_neighbor_clear_render("):
+        classic.index("\nvoid eigrp_vty_show_init(void)")
+    ]
+
+    for region in (named_clear, classic_clear):
+        assert "eigrp_neighbor_clear(" in region
+        assert "eigrp_nbr_hard_restart(" not in region
+        assert "eigrp_nbr_delete(" not in region
+        assert "eigrp_nbr_state_set(" not in region
+        assert "eigrp_update_send_GR(" not in region
+        assert "eigrp_update_send_interface_GR(" not in region
+        assert "eigrp_update_send_process_GR(" not in region
+        assert "eigrp_hello_send(" not in region
 
 
 def test_vty_command_names_follow_mode_eigrp_command_pattern():
@@ -164,6 +204,64 @@ def test_named_operational_commands_use_owner_specific_targets():
     # Explicitly excluded by cli-spec.md.
     assert "install_element(VIEW_NODE, &show_eigrp_plugin_cmd);" not in vty
 
+
+
+def test_named_topology_clear_uses_portable_topology_target():
+    named = read(VTY)
+    topology_c = read(TOPOLOGY_C)
+    topology_h = read(TOPOLOGY_H)
+    packetizer_c = read(PACKETIZER_C)
+    query_c = read(QUERY_C)
+
+    assert "eigrp_result_t eigrp_topology_clear(" in topology_c
+    assert "eigrp_result_t eigrp_topology_clear(" in topology_h
+    assert "eigrp_topology_clear_request_t" in topology_h
+    assert "struct vty *" not in topology_h
+
+    clear_region = named[
+        named.index("static bool eigrp_vty_ipv4_mask_prefix_length("):
+        named.index("static void clear_eigrp_neighbor_render(")
+    ]
+    assert "eigrp_topology_clear(&context, &request, &affected)" in clear_region
+    assert "eigrp_prefix_descriptor_delete" not in clear_region
+    assert "eigrp_query_send_route" not in clear_region
+
+    assert '"clear eigrp [(1-65535)$as] [vrf <NAME$vrf|all$vrf_all>] <ipv4|ipv6>$afi topology"' in named
+    assert "A.B.C.D/M$ipv4_prefix" in named
+    assert "X:X::X:X/M$ipv6_prefix" in named
+    assert "A.B.C.D$network A.B.C.D$mask" in named
+
+    assert "eigrp_query_send_route(eigrp, prefix, query_route" in topology_c
+    assert "eigrp_packetizer_prefix_defer_free(eigrp, prefix)" in topology_c
+    assert "EIGRP_FSM_STATE_ACTIVE_1" in topology_c
+    assert "void eigrp_query_send_route(" in query_c
+    assert "if (work->flags & EIGRP_PACKETIZER_WORK_F_DEFER_FREE)" in packetizer_c
+
+
+def test_named_topology_clear_clippy_adapters_exist():
+    clippy = read(CLIPPY)
+
+    for name in (
+        "clear_eigrp_topology",
+        "clear_eigrp_topology_prefix",
+        "clear_eigrp_topology_mask",
+    ):
+        assert f"DEFUN_CMD_FUNC_DECL({name})" in clippy
+        assert f"#define funcdecl_{name}" in clippy
+        assert f"return {name}_magic(" in clippy
+
+    assert 'varname, "vrf_all"' in clippy
+    assert 'varname, "ipv4_prefix"' in clippy
+    assert 'varname, "ipv6_prefix"' in clippy
+    assert 'varname, "network"' in clippy
+    assert 'varname, "mask"' in clippy
+
+
+def test_named_topology_clear_retains_ipv6_command_target_until_runtime_exists():
+    topology = read(TOPOLOGY_C)
+
+    assert "context->config->afi == EIGRP_ADDRESS_FAMILY_IPV6" in topology
+    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in topology
 
 def test_named_show_path_does_not_fall_back_to_legacy_vty_dumpers():
     vty = read(VTY)

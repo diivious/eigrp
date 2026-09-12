@@ -61,6 +61,23 @@ static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
 			      EIGRP_PACKETIZER_WORK_F_OWN_ROUTE);
 }
 
+void eigrp_query_send_route(eigrp_instance_t *eigrp,
+			    eigrp_prefix_descriptor_t *prefix,
+			    eigrp_route_descriptor_t *route, uint32_t flags)
+{
+	eigrp_packetizer_work_t *work;
+
+	if (!eigrp || !prefix)
+		return;
+
+	work = eigrp_packetizer_work_new(EIGRP_OPC_QUERY);
+	work->prefix = prefix;
+	work->route = route;
+	work->owner = prefix;
+	work->flags = flags;
+	eigrp_packetizer_enqueue(eigrp, work);
+}
+
 uint32_t eigrp_query_send_all(eigrp_instance_t *eigrp)
 {
 	eigrp_packetizer_work_t *work;

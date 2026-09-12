@@ -109,6 +109,7 @@ rsync_project_tree() {
 		--exclude '*.o' \
 		--exclude '*.lo' \
 		--exclude '*.la' \
+		--exclude '*_clippy.c' \
 		--exclude '*~' \
 		--exclude 'obj/' \
 		--exclude 'logs/' \

@@ -179,7 +179,7 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 	eigrp_route_descriptor_t *route;
 	eigrp_packet_t *packet;
 	struct listnode *node, *nnode;
-	struct list *successors;
+	struct list *successors = NULL;
 	uint32_t sequence;
 	uint16_t tlv_length;
 	uint16_t length = EIGRP_HEADER_LEN;
@@ -195,14 +195,17 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 	if (!nbr)
 		return;
 
-	successors = eigrp_topology_get_successor(prefix);
-	if (!successors)
-		return;
-
-	route = listnode_head(successors);
+	route = work->route;
 	if (!route) {
-		list_delete(&successors);
-		return;
+		successors = eigrp_topology_get_successor(prefix);
+		if (!successors)
+			return;
+
+		route = listnode_head(successors);
+		if (!route) {
+			list_delete(&successors);
+			return;
+		}
 	}
 
 	eigrp_mtu = EIGRP_PACKET_MTU(ei->ifp->mtu);
@@ -215,7 +218,8 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 		length += eigrp_add_authTLV_MD5_encode(packet->s, ei);
 
 	tlv_length = ei->encoder(eigrp, ei, NULL, packet->s, route);
-	list_delete(&successors);
+	if (successors)
+		list_delete(&successors);
 	if (!tlv_length) {
 		eigrp_packet_free(packet);
 		return;
@@ -290,6 +294,9 @@ static void eigrp_packetizer_work_process(eigrp_instance_t *eigrp,
 					  eigrp_packetizer_work_t *work)
 {
 	if (!eigrp || !work)
+		return;
+
+	if (work->flags & EIGRP_PACKETIZER_WORK_F_DEFER_FREE)
 		return;
 
 	switch (work->opcode) {
@@ -384,3 +391,19 @@ void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,
 
 	eigrp_work_queue_enqueue(eigrp->packetizer_queue, work);
 }
+
+void eigrp_packetizer_prefix_defer_free(eigrp_instance_t *eigrp,
+				       eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_packetizer_work_t *work;
+
+	if (!eigrp || !prefix)
+		return;
+	work = eigrp_packetizer_work_new(EIGRP_OPC_UPDATE);
+	work->prefix = prefix;
+	work->owner = prefix;
+	work->flags = EIGRP_PACKETIZER_WORK_F_OWN_PREFIX
+		      | EIGRP_PACKETIZER_WORK_F_DEFER_FREE;
+	eigrp_packetizer_enqueue(eigrp, work);
+}
+
