@@ -274,6 +274,8 @@ static bool eigrpd_named_interface_context_resolve(
 	const char *interface_name, eigrp_interface_context_t *context)
 {
 	eigrp_address_family_config_t *af;
+	eigrp_instance_t *runtime;
+	struct vrf *runtime_vrf;
 
 	if (!context)
 		return false;
@@ -282,7 +284,26 @@ static bool eigrpd_named_interface_context_resolve(
 	if (!af)
 		return false;
 	context->config = eigrp_interface_config_read(af, interface_name);
-	return context->config != NULL;
+	if (!context->config)
+		return false;
+
+	/* Named IPv4 and classic IPv4 share the existing EIGRP runtime.  Keep
+	 * host lookup here in the FRR adapter and pass only the EIGRP-owned
+	 * interface object through the portable context.  The special
+	 * af-interface default configuration has no single runtime interface.
+	 */
+	if (afi == EIGRP_ADDRESS_FAMILY_IPV4
+	    && strcmp(interface_name, "default") != 0) {
+		runtime_vrf = vrf_lookup_by_name(vrf);
+		if (runtime_vrf) {
+			runtime = eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id);
+			if (runtime)
+				context->runtime =
+					eigrp_intf_lookup_by_name(runtime, interface_name);
+		}
+	}
+
+	return true;
 }
 
 static bool eigrpd_named_address_parse(const char *text,
@@ -597,7 +618,7 @@ static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 		       : NB_ERR_INCONSISTENCY;
 }
 
-static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *args)
+static int eigrpd_named_af_interface_bandwidth_percent_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
@@ -619,7 +640,7 @@ static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *
 		       : NB_ERR_INCONSISTENCY;
 }
 
-static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args *args)
+static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
@@ -639,6 +660,88 @@ static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;
+}
+
+static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *args)
+{
+	const char *name, *vrf, *interface_name;
+	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
+	eigrp_result_t result;
+	uint16_t asn;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
+						 &vrf, &asn,
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
+		return NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_bandwidth_set(
+		&context, yang_dnode_get_uint32(args->dnode, NULL));
+	return eigrpd_named_config_result(result, false);
+}
+
+static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args *args)
+{
+	const char *name, *vrf, *interface_name;
+	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
+	eigrp_result_t result;
+	uint16_t asn;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
+						 &vrf, &asn,
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
+		return NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_bandwidth_reset(&context);
+	return eigrpd_named_config_result(result, true);
+}
+
+static int eigrpd_named_af_interface_delay_modify(struct nb_cb_modify_args *args)
+{
+	const char *name, *vrf, *interface_name;
+	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
+	eigrp_result_t result;
+	uint16_t asn;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
+						 &vrf, &asn,
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
+		return NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_delay_set(
+		&context, yang_dnode_get_uint32(args->dnode, NULL));
+	return eigrpd_named_config_result(result, false);
+}
+
+static int eigrpd_named_af_interface_delay_destroy(struct nb_cb_destroy_args *args)
+{
+	const char *name, *vrf, *interface_name;
+	eigrp_address_family_t afi;
+	eigrp_interface_context_t context;
+	eigrp_result_t result;
+	uint16_t asn;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
+						 &vrf, &asn,
+						 &interface_name)
+	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
+						       interface_name, &context))
+		return NB_ERR_INCONSISTENCY;
+	result = eigrp_interface_delay_reset(&context);
+	return eigrpd_named_config_result(result, true);
 }
 
 static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args)
@@ -3717,9 +3820,25 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent",
 			.cbs = {
+				.modify = eigrpd_named_af_interface_bandwidth_percent_modify,
+				.destroy = eigrpd_named_af_interface_bandwidth_percent_destroy,
+				.cli_show = eigrp_cli_named_show_af_interface_bandwidth_percent,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth",
+			.cbs = {
 				.modify = eigrpd_named_af_interface_bandwidth_modify,
 				.destroy = eigrpd_named_af_interface_bandwidth_destroy,
 				.cli_show = eigrp_cli_named_show_af_interface_bandwidth,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/af-interface/delay",
+			.cbs = {
+				.modify = eigrpd_named_af_interface_delay_modify,
+				.destroy = eigrpd_named_af_interface_delay_destroy,
+				.cli_show = eigrp_cli_named_show_af_interface_delay,
 			}
 		},
 		{

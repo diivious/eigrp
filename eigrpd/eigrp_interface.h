@@ -21,10 +21,19 @@
 #include "eigrpd/eigrp_result.h"
 #include "eigrpd/eigrp_types.h"
 
+#define EIGRP_INTERFACE_BANDWIDTH_MIN 1U
+#define EIGRP_INTERFACE_BANDWIDTH_MAX 10000000U
+#define EIGRP_INTERFACE_DELAY_MIN 1U
+#define EIGRP_INTERFACE_DELAY_MAX 16777215U
+
 struct eigrp_interface_config {
 	char *interface_name;
 	bool bandwidth_percent_configured;
 	uint32_t bandwidth_percent;
+	bool bandwidth_configured;
+	uint32_t bandwidth;
+	bool delay_configured;
+	uint32_t delay;
 	bool hello_interval_configured;
 	uint16_t hello_interval;
 	bool hold_time_configured;
@@ -69,7 +78,7 @@ typedef struct eigrp_interface_state {
 	uint8_t load;
 	uint16_t tlv1_peer_count;
 	uint16_t tlv2_peer_count;
-	bool bandwidth_configured;
+	bool bandwidth_percent_configured;
 	bool hello_interval_configured;
 	bool hold_time_configured;
 } eigrp_interface_state_t;
@@ -115,7 +124,10 @@ eigrp_result_t eigrp_interface_state_walk(
 	const char *interface_name, eigrp_interface_state_walk_cb callback,
 	void *arg);
 
-/* Simulate down/up on the interface. */
+/* Portable runtime reset used after interface-affecting metric changes. */
+void eigrp_interface_runtime_reset(eigrp_interface_t *ei);
+
+/* FRR-facing compatibility wrapper. */
 extern void eigrp_intf_reset(struct interface *);
 
 /* Portable interface configuration targets. */
@@ -130,6 +142,14 @@ void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af);
 eigrp_result_t eigrp_interface_bandwidth_percent_update(
 	eigrp_interface_context_t *context, uint32_t percent);
 eigrp_result_t eigrp_interface_bandwidth_percent_delete(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_bandwidth_set(
+	eigrp_interface_context_t *context, uint32_t bandwidth);
+eigrp_result_t eigrp_interface_bandwidth_reset(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_delay_set(
+	eigrp_interface_context_t *context, uint32_t delay);
+eigrp_result_t eigrp_interface_delay_reset(
 	eigrp_interface_context_t *context);
 eigrp_result_t eigrp_interface_hello_interval_update(
 	eigrp_interface_context_t *context, uint16_t seconds);

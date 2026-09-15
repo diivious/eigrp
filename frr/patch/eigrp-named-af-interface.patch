@@ -2,7 +2,7 @@ diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang
 index 7ca0296..6c498ee 100644
 --- a/yang/frr-eigrpd.yang
 +++ b/yang/frr-eigrpd.yang
-@@ -103,6 +103,100 @@ module frr-eigrpd {
+@@ -103,6 +103,116 @@ module frr-eigrpd {
      description "Authentication types";
    }
  
@@ -33,6 +33,22 @@ index 7ca0296..6c498ee 100644
 +          range "1..999999";
 +        }
 +        description "Maximum percentage of interface bandwidth used by EIGRP";
++      }
++
++      leaf bandwidth {
++        type uint32 {
++          range "1..10000000";
++        }
++        units "kilobits per second";
++        description "EIGRP interface bandwidth informational parameter";
++      }
++
++      leaf delay {
++        type uint32 {
++          range "1..16777215";
++        }
++        units "tens of microseconds";
++        description "EIGRP interface throughput delay";
 +      }
 +
 +      leaf hello-interval {

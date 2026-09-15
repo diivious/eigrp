@@ -134,13 +134,29 @@ void eigrp_cli_named_show_af_interface_end(struct vty *vty,
 	vty_out(vty, "  exit-af-interface\n");
 }
 
-void eigrp_cli_named_show_af_interface_bandwidth(struct vty *vty,
+void eigrp_cli_named_show_af_interface_bandwidth_percent(struct vty *vty,
 						 const struct lyd_node *dnode,
 						 bool show_defaults)
 {
 	(void)show_defaults;
 	vty_out(vty, "   bandwidth-percent %u\n",
 		yang_dnode_get_uint32(dnode, NULL));
+}
+
+void eigrp_cli_named_show_af_interface_bandwidth(struct vty *vty,
+					 const struct lyd_node *dnode,
+					 bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   bandwidth %u\n", yang_dnode_get_uint32(dnode, NULL));
+}
+
+void eigrp_cli_named_show_af_interface_delay(struct vty *vty,
+				     const struct lyd_node *dnode,
+				     bool show_defaults)
+{
+	(void)show_defaults;
+	vty_out(vty, "   delay %u\n", yang_dnode_get_uint32(dnode, NULL));
 }
 
 void eigrp_cli_named_show_af_interface_hello(struct vty *vty,
@@ -1626,6 +1642,70 @@ DEFUN(no_eigrp_af_interface_bandwidth_percent,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+DEFUN(eigrp_af_interface_bandwidth,
+      eigrp_af_interface_bandwidth_cmd,
+      "bandwidth (1-10000000)",
+      "Set EIGRP interface bandwidth informational parameter\n"
+      "Bandwidth in kilobits\n")
+{
+	const char *bandwidth = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./bandwidth", NB_OP_MODIFY, bandwidth);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_af_interface_bandwidth,
+      no_eigrp_af_interface_bandwidth_cmd,
+      "no bandwidth [(1-10000000)]",
+      NO_STR
+      "Set EIGRP interface bandwidth informational parameter\n"
+      "Bandwidth in kilobits\n")
+{
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./bandwidth", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(eigrp_af_interface_delay,
+      eigrp_af_interface_delay_cmd,
+      "delay (1-16777215)",
+      "Specify interface throughput delay\n"
+      "Throughput delay (tens of microseconds)\n")
+{
+	const char *delay = eigrp_cli_token_last(argc, argv);
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./delay", NB_OP_MODIFY, delay);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_af_interface_delay,
+      no_eigrp_af_interface_delay_cmd,
+      "no delay [(1-16777215)]",
+      NO_STR
+      "Specify interface throughput delay\n"
+      "Throughput delay (tens of microseconds)\n")
+{
+	char interface_name[IFNAMSIZ];
+
+	if (!eigrp_cli_af_interface_path(vty, interface_name,
+					 sizeof(interface_name)))
+		return CMD_WARNING;
+	nb_cli_enqueue_change(vty, "./delay", NB_OP_DESTROY, NULL);
+	return nb_cli_apply_changes(vty, NULL);
+}
+
 DEFUN(eigrp_af_interface_hello_interval,
       eigrp_af_interface_hello_interval_cmd,
       "hello-interval (1-65535)",
@@ -2998,7 +3078,7 @@ static eigrp_result_t eigrp_vty_interface_state_render(
 			vty_out(show->vty, "%u seconds\n", state->hold_time);
 		else
 			vty_out(show->vty, "default (not explicitly configured)\n");
-		if (state->bandwidth_configured)
+		if (state->bandwidth_percent_configured)
 			vty_out(show->vty, "  Bandwidth percent: %u%%\n",
 				state->bandwidth_percent);
 		if (state->runtime_present)
@@ -4229,6 +4309,10 @@ void eigrp_cli_named_init(void)
     install_element(EIGRP_NODE, &eigrp_exit_af_interface_cmd);
     install_element(EIGRP_NODE, &eigrp_af_interface_bandwidth_percent_cmd);
     install_element(EIGRP_NODE, &no_eigrp_af_interface_bandwidth_percent_cmd);
+    install_element(EIGRP_NODE, &eigrp_af_interface_bandwidth_cmd);
+    install_element(EIGRP_NODE, &no_eigrp_af_interface_bandwidth_cmd);
+    install_element(EIGRP_NODE, &eigrp_af_interface_delay_cmd);
+    install_element(EIGRP_NODE, &no_eigrp_af_interface_delay_cmd);
     install_element(EIGRP_NODE, &eigrp_af_interface_hello_interval_cmd);
     install_element(EIGRP_NODE, &no_eigrp_af_interface_hello_interval_cmd);
     install_element(EIGRP_NODE, &eigrp_af_interface_hold_time_cmd);

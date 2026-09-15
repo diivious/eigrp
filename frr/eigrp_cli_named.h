@@ -30,7 +30,11 @@ extern void eigrp_cli_named_show_af_interface(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_named_show_af_interface_end(
 	struct vty *vty, const struct lyd_node *dnode);
+extern void eigrp_cli_named_show_af_interface_bandwidth_percent(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_named_show_af_interface_bandwidth(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_named_show_af_interface_delay(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_named_show_af_interface_hello(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);

@@ -135,7 +135,33 @@ The function can later be implemented in place without redesigning the CLI/north
 
 Shared helpers below those targets are allowed.
 
-## 6. Host/Platform Naming
+## 6. Classic and Named Surface Convergence
+
+When named mode adds a command that already has a classic implementation, both
+configuration surfaces should converge on the same EIGRP-owned behavior whenever
+that can be done without importing host objects into portable code.  The normal
+shape is:
+
+```text
+classic CLI -> host/classic adapter --\
+                                  -> EIGRP-owned target/processor
+named CLI   -> host/named adapter ---/
+```
+
+Do not call a classic FRR callback from named mode and do not move FRR VTY, YANG,
+`struct interface`, Zebra, or other host objects into a portable target merely to
+reuse an existing callback.  Reuse the EIGRP behavior below the host boundary.
+
+If an existing classic callback cannot be changed because it is host/upstream-owned,
+leave that callback intact.  A portable compatibility wrapper or shared EIGRP
+processor may be introduced below it so classic and named execution converge as
+early as possible without modifying host-owned code.  Document that exception;
+do not pretend the two front ends call the same public target when they do not.
+
+When no classic implementation exists, the named command still terminates at its
+own real EIGRP target as required by the feature target rule.
+
+## 7. Host/Platform Naming
 
 Portable EIGRP modules describe EIGRP protocol concepts. Host adapters describe the host integration point.
 
@@ -150,7 +176,7 @@ eigrp_cli_*          FRR CLI/configuration front end
 
 Do not use a generic protocol term such as `route` when the intended object is actually a Zebra RIB entry, kernel route, DUAL topology descriptor, or another distinct object. Name the owning domain when ambiguity exists.
 
-## 7. Topology Descriptor Terminology
+## 8. Topology Descriptor Terminology
 
 EIGRP's DUAL topology database contains two related descriptor object classes:
 
@@ -168,7 +194,7 @@ The final source/API terminology for these topology objects is intentionally def
 - preserve current descriptor names unless a functional change requires otherwise;
 - comments/debug output may note the Cisco DNDB/DRDB terminology where it improves understanding.
 
-## 8. Rename Discipline
+## 9. Rename Discipline
 
 Naming cleanup applies when code is new, touched, materially refactored, or moved into a clearer module boundary. Avoid giant rename-only commits during active feature development.
 

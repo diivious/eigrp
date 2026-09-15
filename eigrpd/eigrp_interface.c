@@ -73,7 +73,7 @@ static void eigrp_interface_state_from_config(eigrp_interface_state_t *state,
 	state->passive = config->passive;
 	state->authentication_configured = config->authentication_mode_configured;
 	state->authentication_mode = config->authentication_mode;
-	state->bandwidth_configured = config->bandwidth_percent_configured;
+	state->bandwidth_percent_configured = config->bandwidth_percent_configured;
 	state->hello_interval_configured = config->hello_interval_configured;
 	state->hold_time_configured = config->hold_time_configured;
 	if (config->bandwidth_percent_configured)
@@ -281,6 +281,76 @@ eigrp_result_t eigrp_interface_bandwidth_percent_delete(
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	context->config->bandwidth_percent = 0;
 	context->config->bandwidth_percent_configured = false;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_bandwidth_set(
+	eigrp_interface_context_t *context, uint32_t bandwidth)
+{
+	if (bandwidth < EIGRP_INTERFACE_BANDWIDTH_MIN
+	    || bandwidth > EIGRP_INTERFACE_BANDWIDTH_MAX)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->bandwidth = bandwidth;
+		context->config->bandwidth_configured = true;
+	}
+	if (context->runtime) {
+		context->runtime->params.bandwidth = bandwidth;
+		eigrp_interface_runtime_reset(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_bandwidth_reset(
+	eigrp_interface_context_t *context)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->bandwidth = 0;
+		context->config->bandwidth_configured = false;
+	}
+	if (context->runtime) {
+		context->runtime->params.bandwidth = EIGRP_BANDWIDTH_DEFAULT;
+		eigrp_interface_runtime_reset(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_delay_set(
+	eigrp_interface_context_t *context, uint32_t delay)
+{
+	if (delay < EIGRP_INTERFACE_DELAY_MIN
+	    || delay > EIGRP_INTERFACE_DELAY_MAX)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->delay = delay;
+		context->config->delay_configured = true;
+	}
+	if (context->runtime) {
+		context->runtime->params.delay = delay;
+		eigrp_interface_runtime_reset(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_delay_reset(
+	eigrp_interface_context_t *context)
+{
+	if (!eigrp_interface_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->delay = 0;
+		context->config->delay_configured = false;
+	}
+	if (context->runtime) {
+		context->runtime->params.delay = EIGRP_DELAY_DEFAULT;
+		eigrp_interface_runtime_reset(context->runtime);
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -855,17 +925,24 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 	listnode_delete(ei->eigrp->eiflist, ei);
 }
 
-/* Simulate down/up on the interface.  This is needed, for example, when
-   the MTU changes. */
-void eigrp_intf_reset(struct interface *ifp)
+void eigrp_interface_runtime_reset(eigrp_interface_t *ei)
 {
-	eigrp_interface_t *ei = ifp->info;
-
 	if (!ei)
 		return;
 
 	eigrp_intf_down(ei);
 	eigrp_intf_up(ei->eigrp, ei);
+}
+
+/* FRR-facing compatibility wrapper.  Classic FRR callbacks continue to set
+ * the runtime parameter directly and enter the same EIGRP-owned reset path.
+ */
+void eigrp_intf_reset(struct interface *ifp)
+{
+	if (!ifp)
+		return;
+
+	eigrp_interface_runtime_reset(ifp->info);
 }
 
 eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *eigrp,

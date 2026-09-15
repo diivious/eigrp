@@ -28,9 +28,10 @@ Current integration patches:
   retained address-family configuration for router ID, IPv4 networks, static
   IPv4/IPv6 neighbors, and address-family shutdown state.
 - `eigrp-named-af-interface.patch` adds retained `af-interface default` and
-  concrete-interface configuration, including bandwidth percentage, hello/hold
-  timers, passive state, authentication references, next-hop-self, split
-  horizon, IPv4 summary addresses, and interface shutdown state.
+  concrete-interface configuration, including interface bandwidth/delay,
+  bandwidth percentage, hello/hold timers, passive state, authentication
+  references, next-hop-self, split horizon, IPv4 summary addresses, and
+  interface shutdown state.
 - `eigrp-named-topology.patch` adds the retained named `topology base`
   hierarchy and Step-1 topology configuration nodes.
 - `eigrp-named-topology-callbacks.patch` tightens compound topology command

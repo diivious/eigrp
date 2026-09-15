@@ -67,6 +67,10 @@ def test_named_af_interface_commands_are_installed():
         "eigrp_af_interface_hello_interval_cmd",
         "eigrp_af_interface_hold_time_cmd",
         "eigrp_af_interface_bandwidth_percent_cmd",
+        "eigrp_af_interface_bandwidth_cmd",
+        "no_eigrp_af_interface_bandwidth_cmd",
+        "eigrp_af_interface_delay_cmd",
+        "no_eigrp_af_interface_delay_cmd",
         "eigrp_af_interface_summary_address_cmd",
         "eigrp_af_interface_authentication_mode_cmd",
         "eigrp_af_interface_keychain_cmd",
@@ -89,7 +93,9 @@ def test_named_mode_feature_commands_are_present():
     # requirement.
     for command_text in (
         "address-family ipv6",
+        "bandwidth (1-10000000)",
         "bandwidth-percent",
+        "delay (1-16777215)",
         "summary-address",
         "split-horizon",
         "distance eigrp",
@@ -234,8 +240,12 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
 
     assert 'list af-interface {' in patch
     assert 'key "interface";' in patch
+    assert 'range "1..10000000";' in patch
+    assert 'range "1..16777215";' in patch
     for leaf in (
         "bandwidth-percent",
+        "bandwidth",
+        "delay",
         "hello-interval",
         "hold-time",
         "passive-interface",
@@ -254,6 +264,10 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
         "eigrp_interface_config_delete": interface,
         "eigrp_interface_bandwidth_percent_update": interface,
         "eigrp_interface_bandwidth_percent_delete": interface,
+        "eigrp_interface_bandwidth_set": interface,
+        "eigrp_interface_bandwidth_reset": interface,
+        "eigrp_interface_delay_set": interface,
+        "eigrp_interface_delay_reset": interface,
         "eigrp_interface_hello_interval_update": interface,
         "eigrp_interface_hello_interval_delete": interface,
         "eigrp_interface_hold_time_update": interface,
@@ -275,6 +289,12 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
 
     assert 'eigrp_cli_not_configured(vty, "af-interface default")' not in cli
     assert 'eigrp_cli_not_configured(vty, "bandwidth-percent")' not in cli
+    assert '"bandwidth (1-10000000)"' in cli
+    assert '"no bandwidth [(1-10000000)]"' in cli
+    assert '"delay (1-16777215)"' in cli
+    assert '"no delay [(1-16777215)]"' in cli
+    assert '"eigrp bandwidth (1-10000000)"' not in cli
+    assert '"no eigrp bandwidth [(1-10000000)]"' not in cli
     assert '"no af-interface <default|IFNAME>"' in cli
     assert '"no next-hop-self"' in cli
     assert '"summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
@@ -624,6 +644,10 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         "neighbor 10.0.0.1 maximum-prefix 100 80",
         "no eigrp log-neighbor-changes",
         "eigrp log-neighbor-warnings 30",
+        "bandwidth 100000",
+        "delay 100",
+        "bandwidth 200000",
+        "delay 200",
         "authentication mode hmac-sha-256 0 Step1Secret",
         "summary-address 10.44.0.0 255.255.0.0 5 leak-map STEP1-LEAK",
         "default-information out STEP1-OUT",
@@ -657,6 +681,8 @@ def test_named_cli_grammar_matches_cisco_documented_forms():
         '"no neighbor maximum-prefix"',
         '"no eigrp log-neighbor-warnings"',
         '"no bandwidth-percent"',
+        '"no bandwidth [(1-10000000)]"',
+        '"no delay [(1-16777215)]"',
         '"no hello-interval"',
         '"no hold-time"',
         '"no authentication mode"',
@@ -833,3 +859,30 @@ def test_classic_frr_cli_and_exec_surface_is_restored_without_named_mixing():
     assert "eigrp_cli_classic_init" in classic_header
     assert "eigrp_cli_named.[c|h]" in spec
     assert "eigrp_cli_classic.[c|h]" in spec
+
+
+def test_named_bandwidth_delay_share_eigrp_runtime_processor_with_classic():
+    nb = read(ROOT / "frr" / "eigrp_northbound.c")
+    interface_c = read(ROOT / "eigrpd" / "eigrp_interface.c")
+    interface_h = read(ROOT / "eigrpd" / "eigrp_interface.h")
+
+    # Named mode resolves only host/runtime identity in the FRR adapter, then
+    # hands an EIGRP-owned runtime interface to the portable target.
+    assert "context->runtime =" in nb
+    assert "eigrp_intf_lookup_by_name(runtime, interface_name)" in nb
+
+    # The named targets own the runtime value change and enter the common
+    # EIGRP reset processor instead of returning NOT_IMPLEMENTED.
+    assert "context->runtime->params.bandwidth = bandwidth;" in interface_c
+    assert "context->runtime->params.delay = delay;" in interface_c
+    assert "context->runtime->params.bandwidth = EIGRP_BANDWIDTH_DEFAULT;" in interface_c
+    assert "context->runtime->params.delay = EIGRP_DELAY_DEFAULT;" in interface_c
+    assert interface_c.count("eigrp_interface_runtime_reset(context->runtime);") >= 4
+    assert "void eigrp_interface_runtime_reset(eigrp_interface_t *ei);" in interface_h
+
+    # Do not rewrite the existing FRR classic callbacks.  Their legacy reset
+    # wrapper now funnels into the same EIGRP-owned runtime processor.
+    assert "ei->params.delay = yang_dnode_get_uint32(args->dnode, NULL);" in nb
+    assert "ei->params.bandwidth = yang_dnode_get_uint32(args->dnode, NULL);" in nb
+    assert "eigrp_intf_reset(ifp);" in nb
+    assert "eigrp_interface_runtime_reset(ifp->info);" in interface_c
