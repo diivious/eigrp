@@ -306,6 +306,37 @@ static bool eigrpd_named_interface_context_resolve(
 	return true;
 }
 
+static bool eigrpd_named_network_context_resolve(
+	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn,
+	eigrp_instance_context_t *context)
+{
+	struct vrf *runtime_vrf;
+
+	if (!context)
+		return false;
+	memset(context, 0, sizeof(*context));
+	context->config =
+		eigrpd_named_address_family_config_read(name, afi, vrf, asn);
+	context->topology_id = EIGRP_TOPOLOGY_ID_BASE;
+	if (!context->config)
+		return false;
+
+	/* Named IPv4 and classic IPv4 share the existing EIGRP runtime.  Host
+	 * VRF/process lookup stays in the FRR adapter; the portable network target
+	 * receives only EIGRP-owned configuration/runtime objects and prefix data.
+	 * Lookup is intentionally non-creating: address-family lifecycle owns
+	 * runtime creation/binding, not the network command.
+	 */
+	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+		runtime_vrf = vrf_lookup_by_name(vrf);
+		if (runtime_vrf)
+			context->runtime =
+				eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id);
+	}
+
+	return true;
+}
+
 static bool eigrpd_named_address_parse(const char *text,
 				       eigrp_address_family_t afi,
 				       eigrp_address_t *address)
@@ -407,7 +438,7 @@ static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
-	eigrp_address_family_config_t *af;
+	eigrp_instance_context_t context;
 	eigrp_prefix_t prefix;
 	eigrp_result_t result;
 	uint16_t asn;
@@ -417,12 +448,11 @@ static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
 	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    || !eigrpd_named_prefix_parse(yang_dnode_get_string(args->dnode, NULL),
-					 &prefix))
+					 &prefix)
+	    || !eigrpd_named_network_context_resolve(name, afi, vrf, asn,
+						      &context))
 		return NB_ERR_INCONSISTENCY;
-	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
-	if (!af)
-		return NB_ERR_INCONSISTENCY;
-	result = eigrp_network_create(af, &prefix);
+	result = eigrp_network_create(&context, &prefix);
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
@@ -431,7 +461,7 @@ static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_address_family_t afi;
-	eigrp_address_family_config_t *af;
+	eigrp_instance_context_t context;
 	eigrp_prefix_t prefix;
 	eigrp_result_t result;
 	uint16_t asn;
@@ -442,10 +472,9 @@ static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 	    || !eigrpd_named_prefix_parse(yang_dnode_get_string(args->dnode, NULL),
 					 &prefix))
 		return NB_ERR_INCONSISTENCY;
-	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
-	if (!af)
+	if (!eigrpd_named_network_context_resolve(name, afi, vrf, asn, &context))
 		return NB_OK;
-	result = eigrp_network_delete(af, &prefix);
+	result = eigrp_network_delete(&context, &prefix);
 	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
 		       ? NB_OK
 		       : NB_ERR_INCONSISTENCY;

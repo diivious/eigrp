@@ -6,6 +6,7 @@
 #ifndef _ZEBRA_EIGRP_SOUTHBOUND_H_
 #define _ZEBRA_EIGRP_SOUTHBOUND_H_
 
+#include "eigrpd/eigrp_result.h"
 #include "eigrpd/eigrp_types.h"
 
 typedef enum eigrp_work_queue_result {
@@ -27,5 +28,11 @@ void eigrp_work_queue_free(eigrp_work_queue_t *queue);
 void eigrp_work_queue_reset(eigrp_work_queue_t *queue);
 void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
 eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue);
+
+/* Host runtime adaptation for IPv4 network statements. */
+eigrp_result_t eigrp_southbound_network_create(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed);
+eigrp_result_t eigrp_southbound_network_delete(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed);
 
 #endif /* _ZEBRA_EIGRP_SOUTHBOUND_H_ */

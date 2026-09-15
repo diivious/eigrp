@@ -15,12 +15,18 @@
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_network.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_topology.h"
 
 struct eigrp_network_config {
 	eigrp_prefix_t prefix;
 	eigrp_network_config_t *next;
 };
+
+typedef enum eigrp_network_operation {
+	EIGRP_NETWORK_OPERATION_CREATE = 0,
+	EIGRP_NETWORK_OPERATION_DELETE,
+} eigrp_network_operation_t;
 
 static bool eigrp_network_address_equal(const eigrp_address_t *a,
 					const eigrp_address_t *b)
@@ -40,20 +46,64 @@ static bool eigrp_network_prefix_equal(const eigrp_prefix_t *a,
 	       && eigrp_network_address_equal(&a->address, &b->address);
 }
 
-eigrp_result_t eigrp_network_create(eigrp_address_family_config_t *af,
-				    const eigrp_prefix_t *prefix)
+bool eigrp_network_prefix_match(const eigrp_prefix_t *network,
+				const eigrp_prefix_t *address)
+{
+	uint8_t max_bits;
+	uint8_t full_bytes;
+	uint8_t remaining_bits;
+	uint8_t mask;
+
+	if (!network || !address || network->address.afi != address->address.afi)
+		return false;
+	max_bits = network->address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 32 : 128;
+	if (network->prefix_length > max_bits)
+		return false;
+
+	full_bytes = network->prefix_length / 8;
+	remaining_bits = network->prefix_length % 8;
+	if (full_bytes
+	    && memcmp(network->address.bytes, address->address.bytes, full_bytes)
+		       != 0)
+		return false;
+	if (!remaining_bits)
+		return true;
+
+	mask = (uint8_t)(0xffU << (8 - remaining_bits));
+	return (network->address.bytes[full_bytes] & mask)
+	       == (address->address.bytes[full_bytes] & mask);
+}
+
+/* Legacy FRR prefix objects stop at this compatibility boundary. */
+static bool eigrp_network_prefix_from_host(const struct prefix *host,
+					   eigrp_prefix_t *prefix)
+{
+	if (!host || !prefix || host->family != AF_INET || host->prefixlen > 32)
+		return false;
+
+	memset(prefix, 0, sizeof(*prefix));
+	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	prefix->prefix_length = host->prefixlen;
+	memcpy(prefix->address.bytes, &host->u.prefix4, sizeof(host->u.prefix4));
+	return true;
+}
+
+static eigrp_result_t eigrp_network_config_create(
+	eigrp_address_family_config_t *af, const eigrp_prefix_t *prefix,
+	bool *changed)
 {
 	eigrp_network_config_t *network;
 
+	if (changed)
+		*changed = false;
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!prefix || prefix->address.afi != af->afi
-	    || af->afi != EIGRP_ADDRESS_FAMILY_IPV4 || prefix->prefix_length > 32)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	for (network = af->networks; network; network = network->next)
-		if (eigrp_network_prefix_equal(&network->prefix, prefix))
-			return EIGRP_RESULT_SUCCESS;
+	for (network = af->networks; network; network = network->next) {
+		if (!eigrp_network_prefix_equal(&network->prefix, prefix))
+			continue;
+		return EIGRP_RESULT_SUCCESS;
+	}
 
 	network = calloc(1, sizeof(*network));
 	if (!network)
@@ -61,17 +111,20 @@ eigrp_result_t eigrp_network_create(eigrp_address_family_config_t *af,
 	network->prefix = *prefix;
 	network->next = af->networks;
 	af->networks = network;
+	if (changed)
+		*changed = true;
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_network_delete(eigrp_address_family_config_t *af,
-				    const eigrp_prefix_t *prefix)
+static eigrp_result_t eigrp_network_config_delete(
+	eigrp_address_family_config_t *af, const eigrp_prefix_t *prefix,
+	bool *changed)
 {
 	eigrp_network_config_t **cursor;
 	eigrp_network_config_t *network;
 
-	if (!prefix)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (changed)
+		*changed = false;
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
 
@@ -81,6 +134,8 @@ eigrp_result_t eigrp_network_delete(eigrp_address_family_config_t *af,
 			continue;
 		*cursor = network->next;
 		free(network);
+		if (changed)
+			*changed = true;
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_FOUND;
@@ -100,10 +155,10 @@ void eigrp_network_config_delete_all(eigrp_address_family_config_t *af)
 	af->networks = NULL;
 }
 
-static int eigrp_network_match_iface(const struct prefix *connected_prefix,
-				     const struct prefix *prefix);
-static void eigrp_network_run_interface(eigrp_instance_t *, struct prefix *,
-					struct interface *);
+static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,
+					    const eigrp_prefix_t *prefix,
+					    eigrp_network_operation_t operation,
+					    bool *runtime_changed);
 
 int eigrp_sock_init(struct vrf *vrf)
 {
@@ -265,145 +320,142 @@ int eigrp_intf_drop_allspfrouters(eigrp_instance_t *top, struct prefix *p,
 	return ret;
 }
 
+static eigrp_result_t eigrp_network_validate(eigrp_instance_context_t *context,
+					      const eigrp_prefix_t *prefix)
+{
+	if (!prefix)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return EIGRP_RESULT_UNSUPPORTED;
+	if (prefix->prefix_length > 32)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (context->config && context->config->afi != prefix->address.afi)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (context->config
+	    && context->config->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return EIGRP_RESULT_UNSUPPORTED;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,
+					    const eigrp_prefix_t *prefix,
+					    eigrp_network_operation_t operation,
+					    bool *runtime_changed)
+{
+	bool config_changed = false;
+	bool changed = false;
+	eigrp_result_t result;
+
+	if (runtime_changed)
+		*runtime_changed = false;
+
+	result = eigrp_network_validate(context, prefix);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+
+	if (operation == EIGRP_NETWORK_OPERATION_CREATE) {
+		if (context->config) {
+			result = eigrp_network_config_create(context->config, prefix,
+							     &config_changed);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+		}
+
+		if (context->runtime) {
+			result = eigrp_southbound_network_create(
+				context->runtime, prefix, &changed);
+			if (result != EIGRP_RESULT_SUCCESS) {
+				if (config_changed)
+					(void)eigrp_network_config_delete(
+						context->config, prefix, NULL);
+				return result;
+			}
+		}
+	} else {
+		eigrp_result_t config_result = EIGRP_RESULT_NOT_FOUND;
+		eigrp_result_t runtime_result = EIGRP_RESULT_NOT_FOUND;
+
+		if (context->config) {
+			config_result = eigrp_network_config_delete(
+				context->config, prefix, &config_changed);
+			if (config_result != EIGRP_RESULT_SUCCESS
+			    && config_result != EIGRP_RESULT_NOT_FOUND)
+				return config_result;
+		}
+
+		if (context->runtime) {
+			runtime_result = eigrp_southbound_network_delete(
+				context->runtime, prefix, &changed);
+			if (runtime_result != EIGRP_RESULT_SUCCESS
+			    && runtime_result != EIGRP_RESULT_NOT_FOUND) {
+				if (config_changed)
+					(void)eigrp_network_config_create(
+						context->config, prefix, NULL);
+				return runtime_result;
+			}
+		}
+
+		/* Delete is idempotent across the retained-config and runtime views.
+		 * If either side owned the network, the operation succeeded.
+		 */
+		if (config_result == EIGRP_RESULT_NOT_FOUND
+		    && runtime_result == EIGRP_RESULT_NOT_FOUND)
+			return EIGRP_RESULT_NOT_FOUND;
+	}
+
+	if (runtime_changed)
+		*runtime_changed = changed;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_network_create(eigrp_instance_context_t *context,
+				    const eigrp_prefix_t *prefix)
+{
+	return eigrp_network_process(context, prefix,
+				     EIGRP_NETWORK_OPERATION_CREATE, NULL);
+}
+
+eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
+				    const eigrp_prefix_t *prefix)
+{
+	return eigrp_network_process(context, prefix,
+				     EIGRP_NETWORK_OPERATION_DELETE, NULL);
+}
+
+/* Legacy FRR-facing entry point retained for the classic northbound callback.
+ * Convert the host prefix once, then enter the same EIGRP-owned processor used
+ * by named mode.
+ */
 int eigrp_network_set(eigrp_instance_t *eigrp, struct prefix *p)
 {
-	struct vrf *vrf = vrf_lookup_by_id(eigrp->vrf_id);
-	struct route_node *rn;
-	struct interface *ifp;
+	eigrp_instance_context_t context = {.runtime = eigrp};
+	eigrp_prefix_t prefix;
+	bool changed = false;
 
-	rn = route_node_get(eigrp->networks, (struct prefix *)p);
-	if (rn->info) {
-		/* There is already same network statement. */
-		route_unlock_node(rn);
+	if (!eigrp_network_prefix_from_host(p, &prefix))
 		return 0;
-	}
-
-	struct prefix *pref = prefix_new();
-	prefix_copy(pref, p);
-	rn->info = (void *)pref;
-
-	/* Schedule Router ID Update. */
-	if (eigrp->router_id.s_addr == INADDR_ANY)
-		eigrp_router_id_update(eigrp);
-
-	/* Get target interface. */
-	FOR_ALL_INTERFACES (vrf, ifp) {
-		zlog_debug("Setting up %s", ifp->name);
-		/* Run network config. */
-		eigrp_network_run_interface(eigrp, p, ifp);
-	}
-	return 1;
-}
-
-/* Check whether interface matches given network
- * returns: 1, true. 0, false
- */
-static int eigrp_network_match_iface(const struct prefix *co_prefix,
-				     const struct prefix *net)
-{
-	/* new approach: more elegant and conceptually clean */
-	return prefix_match_network_statement(net, co_prefix);
-}
-
-static void eigrp_network_run_interface(eigrp_instance_t *eigrp, struct prefix *p,
-					struct interface *ifp)
-{
-	eigrp_interface_t *ei;
-	struct connected *co;
-
-	/* if interface prefix is match specified prefix,
-	   then create socket and join multicast group. */
-	frr_each (if_connected, ifp->connected, co) {
-		if (CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY))
-			continue;
-
-		if (p->family == co->address->family && !ifp->info
-		    && eigrp_network_match_iface(co->address, p)) {
-
-			ei = eigrp_intf_new(eigrp, ifp, co->address);
-
-			/* Relate eigrp interface to eigrp instance. */
-			ei->eigrp = eigrp;
-
-			/* if router_id is not configured, dont bring up
-			 * interfaces.
-			 * eigrp_router_id_update() will call eigrp_intf_update
-			 * whenever rid is configured instead.
-			 */
-			if (if_is_operative(ifp))
-				eigrp_intf_up(eigrp, ei);
-		}
-	}
-}
-
-void eigrp_intf_update(eigrp_instance_t *eigrp, struct interface *ifp)
-{
-	struct route_node *rn;
-
-	/*
-	 * In the event there are multiple eigrp autonymnous systems running,
-	 * we need to check each one and add the interface as approperate
-	 */
-	if (ifp->vrf) {
-	    if (ifp->vrf->vrf_id != eigrp->vrf_id)
-		return;
-	} else {
-	    if (eigrp->vrf_id != 0) 
-		return;
-	}
-
-	/* EIGRP must be on and Router-ID must be configured. */
-	if (eigrp->router_id.s_addr == 0)
-	    return;
-
-	/* Run each network for this interface. */
-	for (rn = route_top(eigrp->networks); rn; rn = route_next(rn))
-	    if (rn->info != NULL) {
-		eigrp_network_run_interface(eigrp, &rn->p, ifp);
-	    }
+	if (eigrp_network_process(&context, &prefix,
+				  EIGRP_NETWORK_OPERATION_CREATE, &changed)
+	    != EIGRP_RESULT_SUCCESS)
+		return 0;
+	return changed ? 1 : 0;
 }
 
 int eigrp_network_unset(eigrp_instance_t *eigrp, struct prefix *p)
 {
-	struct route_node *rn;
-	struct listnode *node, *nnode;
-	eigrp_interface_t *ei;
-	struct prefix *pref;
+	eigrp_instance_context_t context = {.runtime = eigrp};
+	eigrp_prefix_t prefix;
+	bool changed = false;
 
-	rn = route_node_lookup(eigrp->networks, p);
-	if (rn == NULL)
+	if (!eigrp_network_prefix_from_host(p, &prefix))
 		return 0;
-
-	pref = rn->info;
-	route_unlock_node(rn);
-
-	if (!IPV4_ADDR_SAME(&pref->u.prefix4, &p->u.prefix4))
+	if (eigrp_network_process(&context, &prefix,
+				  EIGRP_NETWORK_OPERATION_DELETE, &changed)
+	    != EIGRP_RESULT_SUCCESS)
 		return 0;
-
-	prefix_ipv4_free((struct prefix_ipv4 **)&rn->info);
-	route_unlock_node(rn); /* initial reference */
-
-	/* Find interfaces that not configured already.  */
-	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
-		bool found = false;
-
-		for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
-			if (rn->info == NULL)
-				continue;
-
-			if (eigrp_network_match_iface(&ei->address, &rn->p)) {
-				found = true;
-				route_unlock_node(rn);
-				break;
-			}
-		}
-
-		if (!found) {
-			eigrp_intf_free(eigrp, ei, INTERFACE_DOWN_BY_VTY);
-		}
-	}
-
-	return 1;
+	return changed ? 1 : 0;
 }
 
 void eigrp_external_routes_refresh(eigrp_instance_t *eigrp, int type)
