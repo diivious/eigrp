@@ -157,7 +157,7 @@ sudo systemctl status frr
 ```sh
 vtysh -c 'show running-config'
 vtysh -c 'configure terminal' -c 'service integrated-vtysh-config' -c 'end' -c 'write memory'
-vtysh -c 'debug eigrp packets hello' -c 'debug eigrp packets update' -c 'debug eigrp transmit send' -c 'debug eigrp transmit recv'
+vtysh -c 'debug eigrp packet hello' -c 'debug eigrp packet update' -c 'debug eigrp transmit ack' -c 'debug eigrp transmit packetize'
 vtysh -c 'configure terminal' -c 'router eigrp 4453' -c 'network 10.0.0.0/8' -c 'network 172.16.0.0/24' -c 'network 192.168.1.0/24'
 ```
 

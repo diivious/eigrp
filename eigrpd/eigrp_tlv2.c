@@ -300,7 +300,7 @@ static eigrp_route_descriptor_t *eigrp_tlv2_decoder(eigrp_instance_t *eigrp,
 	}
 
 	if (length < min_length || length > remaining) {
-		if (IS_DEBUG_EIGRP_PACKET(0, RECV)) {
+		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
 			zlog_debug(
 				"EIGRP TLV2: Neighbor(%s) corrupt packet type=%u length=%u remaining=%zu",
 				eigrp_print_addr(&nbr->src), type, length, remaining);
@@ -363,7 +363,7 @@ static eigrp_route_descriptor_t *eigrp_tlv2_decoder(eigrp_instance_t *eigrp,
 	return route;
 
 malformed:
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV)) {
+	if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
 		zlog_debug(
 			"EIGRP TLV2: Neighbor(%s) malformed TLV type=%u length=%u decoded=%u",
 			nbr ? eigrp_print_addr(&nbr->src) : "unknown", type,

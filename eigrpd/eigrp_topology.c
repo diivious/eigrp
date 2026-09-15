@@ -162,6 +162,13 @@ void eigrp_prefix_descriptor_add(struct route_table *topology,
 	}
 
 	rn->info = pe;
+	if (IS_DEBUG_EIGRP_EVENT) {
+		zlog_debug("EIGRP event: topology prefix add %s",
+			   eigrp_print_prefix(pe->destination));
+		if (IS_DEBUG_EIGRP(0, DETAIL))
+			zlog_debug("EIGRP event detail: prefix state %u distance %u fd %u rd %u",
+				   pe->state, pe->distance, pe->fdistance, pe->rdistance);
+	}
 }
 
 /*
@@ -198,6 +205,15 @@ void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 	rn = route_node_lookup(table, pe->destination);
 	if (!rn)
 		return;
+
+	if (IS_DEBUG_EIGRP_EVENT) {
+		zlog_debug("EIGRP event: topology prefix delete %s",
+			   eigrp_print_prefix(pe->destination));
+		if (IS_DEBUG_EIGRP(0, DETAIL))
+			zlog_debug("EIGRP event detail: AS %u prefix state %u distance %u fd %u rd %u",
+				   eigrp->AS, pe->state, pe->distance, pe->fdistance,
+				   pe->rdistance);
+	}
 
 	/*
 	 * Emergency removal of the node from this list.
@@ -473,6 +489,8 @@ void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
 	eigrp_route_descriptor_t *route;
 
 	for (ALL_LIST_ELEMENTS_RO(dest->entries, node, route)) {
+		uint32_t old_flags = route->flags;
+
 		if (route->reported_distance < dest->fdistance) {
 			// is feasible successor, can be successor
 			if (((uint64_t)route->distance
@@ -495,6 +513,27 @@ void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
 			route->flags &= ~EIGRP_ROUTE_DESCRIPTOR_FSUCCESSOR_FLAG;
 			route->flags &= ~EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG;
 		}
+
+		if (IS_DEBUG_EIGRP(0, FAST_REROUTE)
+		    && ((old_flags ^ route->flags)
+			& (EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG
+			   | EIGRP_ROUTE_DESCRIPTOR_FSUCCESSOR_FLAG)))
+			zlog_debug(
+				"EIGRP FRR AS %u prefix %s via %s: successor %s feasible-successor %s RD %u FD %u distance %u",
+				eigrp->AS, eigrp_print_prefix(dest->destination),
+				route->adv_router
+					? eigrp_print_addr(&route->adv_router->src)
+					: "connected",
+				CHECK_FLAG(route->flags,
+					   EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)
+					? "yes"
+					: "no",
+				CHECK_FLAG(route->flags,
+					   EIGRP_ROUTE_DESCRIPTOR_FSUCCESSOR_FLAG)
+					? "yes"
+					: "no",
+				route->reported_distance, dest->fdistance,
+				route->distance);
 	}
 }
 

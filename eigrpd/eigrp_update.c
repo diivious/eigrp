@@ -160,16 +160,12 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		same = 1;
 
 	nbr->recv_sequence_number = ntohl(eigrph->sequence);
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug(
-			"Processing Update len[%u] int(%s) nbr(%s) seq [%u] flags [%0x]",
-			length,
-			ifindex2ifname(nbr->ei->ifp->ifindex, VRF_DEFAULT),
-			eigrp_print_addr(&nbr->src), nbr->recv_sequence_number, flags);
 
 
 	if ((flags == (EIGRP_INIT_FLAG + EIGRP_RS_FLAG + EIGRP_EOT_FLAG)) && (!same)) {
 		/* Graceful restart Update received with all routes */
+		eigrp_debug_nsf_event(eigrp, nbr, flags,
+				      "peer graceful restart complete in one UPDATE");
 		zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
 			  eigrp_print_addr(&nbr->src),
 			  ifindex2ifname(nbr->ei->ifp->ifindex, VRF_DEFAULT));
@@ -182,6 +178,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	} else if ((flags == (EIGRP_INIT_FLAG + EIGRP_RS_FLAG)) && (!same)) {
 		/* Graceful restart Update received, routes also in next packet
 		 */
+		eigrp_debug_nsf_event(eigrp, nbr, flags,
+				      "peer graceful restart started");
 		zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
 			  eigrp_print_addr(&nbr->src),
 			  ifindex2ifname(nbr->ei->ifp->ifindex, VRF_DEFAULT));
@@ -199,6 +197,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		 *  consider this as GR EOT */
 		if (nbr->nbr_gr_prefixes != NULL) {
 			/* this is final packet of GR */
+			eigrp_debug_nsf_event(eigrp, nbr, flags,
+					      "peer graceful restart EOT received");
 			nbr_prefixes = nbr->nbr_gr_prefixes;
 			nbr->nbr_gr_prefixes = NULL;
 
@@ -211,6 +211,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		 *  consider this as GR not final packet */
 		if (nbr->nbr_gr_prefixes != NULL) {
 			/* this is GR not final route packet */
+			eigrp_debug_nsf_event(eigrp, nbr, flags,
+					      "peer graceful restart continuation");
 			nbr_prefixes = nbr->nbr_gr_prefixes;
 
 			graceful_restart = 1;
@@ -227,6 +229,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			eigrp_update_send_init(eigrp, nbr);
 
 		if (nbr->state == EIGRP_NEIGHBOR_UP) {
+			eigrp_debug_nsf_event(eigrp, nbr, flags, "peer restarted");
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
@@ -364,13 +367,11 @@ void eigrp_update_send_init(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
 	eigrp_packet_t *packet;
 	uint16_t length = EIGRP_HEADER_LEN;
 
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_STARTUP, eigrp, nbr->ei,
+				   nbr, "build INIT UPDATE");
 	packet = eigrp_packet_new(EIGRP_PACKET_MTU(nbr->ei->ifp->mtu), nbr);
 
 	/* Prepare EIGRP INIT UPDATE header */
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug("Enqueuing Update Init Seq [%u] Ack [%u]",
-			   nbr->ei->eigrp->sequence_number,
-			   nbr->recv_sequence_number);
 
 	eigrp_packet_header_init(
 		EIGRP_OPC_UPDATE, nbr->ei->eigrp, packet->s, EIGRP_INIT_FLAG,
@@ -393,13 +394,12 @@ void eigrp_update_send_init(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
 	/*This ack number we await from neighbor*/
 	nbr->init_sequence_number = nbr->ei->eigrp->sequence_number;
 	packet->sequence_number = nbr->ei->eigrp->sequence_number;
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug("Enqueuing Update Init Len [%u] Seq [%u] Dest [%s]",
-			   packet->length, packet->sequence_number,
-			   eigrp_print_addr(&packet->dst));
 
 	/*Put packet to retransmission queue*/
 	eigrp_packet_enqueue(nbr->retrans_queue, packet);
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
+				   "linked INIT seq %u to reliable queue (depth %lu)",
+				   packet->sequence_number, nbr->retrans_queue->count);
 
 	if (nbr->retrans_queue->count == 1) {
 		eigrp_packet_send_reliably(eigrp, nbr);
@@ -424,10 +424,6 @@ static void eigrp_update_place_on_nbr_queue(eigrp_instance_t *eigrp, eigrp_neigh
 	/*This ack number we await from neighbor*/
 	packet->sequence_number = seq_no;
 
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug("Enqueuing Update Init Len [%u] Seq [%u] Dest [%s]",
-			   packet->length, packet->sequence_number,
-			   eigrp_print_addr(&packet->dst));
 
 	/*Put packet to retransmission queue*/
 	eigrp_packet_enqueue(nbr->retrans_queue, packet);
@@ -633,9 +629,6 @@ void eigrp_update_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	/*This ack number we await from neighbor*/
 	packet->sequence_number = eigrp->sequence_number;
 
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug("Enqueuing Update length[%u] Seq [%u]", length,
-			   packet->sequence_number);
 
 	eigrp_update_send_to_all_nbrs(eigrp, ei, packet);
 	ei->eigrp->sequence_number = seq_no++;
@@ -853,11 +846,6 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 	/*This ack number we await from neighbor*/
 	packet->sequence_number = eigrp->sequence_number;
 
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug("Enqueuing Update Init Len [%u] Seq [%u] Dest [%s]",
-			   packet->length,
-			   packet->sequence_number,
-			   eigrp_print_addr(&packet->dst));
 
 	/*Put packet to retransmission queue*/
 	eigrp_packet_enqueue(nbr->retrans_queue, packet);

@@ -292,12 +292,26 @@ Debug command coverage should include protocol debugging such as:
 ```text
 debug eigrp packet ...
 debug eigrp transmit ...
-debug eigrp event ...
+debug eigrp event [detail]
 debug eigrp timers
-debug eigrp neighbor
+debug eigrp fsm
+debug eigrp nsf
+debug eigrp frr
+debug eigrp neighbor [siatimer] [static]
+debug eigrp notifications <rib|interface>
+debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>]
+debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] neighbor [<address>]
+debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] notifications
+debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] summary
 ```
 
+`debug eigrp packet` is for the supported EIGRP packet/debug categories.  Do
+not expose legacy IPX-SAP or stub as packet selectors; neither `ipxsap` nor
+`stub` is a valid `debug eigrp packet` option for this implementation.
+
 Debug commands must use real target functions and structured EIGRP results under the same rules as configuration commands.
+
+Classic EIGRP operational debug families that have no direct named-mode entry in the named-mode CLI reference still require an address-family-scoped named-mode form. In particular, the classic route/AS, neighbor, notifications, and summary debug families map to `debug eigrp address-family ...`; absence from the named-mode command reference is not permission to drop protocol debug coverage.
 
 ## 9. VTY Command Object Naming
 

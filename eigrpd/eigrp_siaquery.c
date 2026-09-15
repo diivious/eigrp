@@ -18,12 +18,16 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_packetizer.h"
+#include "eigrpd/eigrp_dump.h"
 
 /* EIGRP SIA-QUERY read function */
 void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			    struct eigrp_header *eigrph, struct stream *pkt,
 			    eigrp_interface_t *ei, int length)
 {
+	eigrp_debug_neighbor_sia(nbr, "SIA-QUERY received");
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
+				   nbr ? nbr->ei : NULL, nbr, "SIA-QUERY received");
 	eigrp_fsm_action_message_t msg;
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
@@ -90,6 +94,9 @@ void eigrp_siaquery_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 {
 	eigrp_packetizer_work_t *work;
 
+	eigrp_debug_neighbor_sia(nbr, "SIA-QUERY send");
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
+				   nbr ? nbr->ei : NULL, nbr, "queue SIA-QUERY");
 	work = eigrp_packetizer_work_new(EIGRP_OPC_SIAQUERY);
 	work->nbr = nbr;
 	work->prefix = prefix;

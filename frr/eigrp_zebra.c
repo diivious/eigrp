@@ -110,6 +110,12 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 	if (eigrp == NULL)
 		return 0;
 
+	if (eigrp_debug_address_family_enabled(
+		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
+		zlog_debug("EIGRP AS %u: Zebra redistribute %s %s", eigrp->AS,
+			   cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD ? "add" : "delete",
+			   eigrp_print_prefix(&api.prefix));
+
 	if (cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD) {
 
 	} else /* if (cmd == ZEBRA_REDISTRIBUTE_ROUTE_DEL) */
@@ -141,7 +147,12 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 	 * we need to check each one and add the interface as approperate
 	 */
 	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-	    eigrp_intf_update(eigrp, ifp);
+		if (eigrp_debug_address_family_enabled(
+			    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
+			zlog_debug("EIGRP AS %u: interface %s address add %s",
+				   eigrp->AS, ifp->name,
+				   eigrp_print_prefix(c->address));
+		eigrp_intf_update(eigrp, ifp);
 	}
 	return 0;
 }
@@ -166,6 +177,11 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	ei = ifp->info;
 	if (!ei)
 		return 0;
+
+	if (eigrp_debug_address_family_enabled(
+		    ei->eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
+		zlog_debug("EIGRP AS %u: interface %s address delete %s",
+			   ei->eigrp->AS, ifp->name, eigrp_print_prefix(c->address));
 
 	/* Call interface hook functions to clean up */
 	if (prefix_cmp(&ei->address, c->address) == 0)
@@ -216,7 +232,9 @@ void eigrp_zebra_route_add(eigrp_instance_t *eigrp, struct prefix *p,
 	}
 	api.nexthop_num = count;
 
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)) {
+	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
+	    || eigrp_debug_address_family_enabled(
+		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL)) {
 		zlog_debug("Zebra: Route add %s", eigrp_print_prefix(p));
 	}
 
@@ -237,7 +255,9 @@ void eigrp_zebra_route_delete(eigrp_instance_t *eigrp, struct prefix *p)
 	memcpy(&api.prefix, p, sizeof(*p));
 	zclient_route_send(ZEBRA_ROUTE_DELETE, eigrp_zclient, &api);
 
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)) {
+	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
+	    || eigrp_debug_address_family_enabled(
+		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL)) {
 		zlog_debug("Zebra: Route del %s", eigrp_print_prefix(p));
 	}
 

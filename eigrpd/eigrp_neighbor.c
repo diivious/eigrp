@@ -22,6 +22,7 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_zebra.h"
+#include "eigrpd/eigrp_dump.h"
 
 struct eigrp_neighbor_config {
 	eigrp_address_t address;
@@ -55,6 +56,24 @@ static bool eigrp_neighbor_address_equal(const eigrp_address_t *a,
 	return memcmp(a->bytes, b->bytes, len) == 0;
 }
 
+static void eigrp_neighbor_static_debug(const char *action,
+					const eigrp_address_family_config_t *af,
+					const eigrp_address_t *address,
+					const char *interface_name)
+{
+	char address_text[INET6_ADDRSTRLEN];
+	int family;
+
+	if (!(term_debug_eigrp_nei & EIGRP_DEBUG_NEI_STATIC) || !address)
+		return;
+	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
+	if (!inet_ntop(family, address->bytes, address_text, sizeof(address_text)))
+		strlcpy(address_text, "<invalid>", sizeof(address_text));
+	zlog_debug("EIGRP: %s static neighbor %s AS %u interface %s", action,
+		   address_text, af ? af->asn : 0,
+		   interface_name ? interface_name : "-");
+}
+
 eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name)
@@ -83,6 +102,7 @@ eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 	neighbor->address = *address;
 	neighbor->next = af->neighbors;
 	af->neighbors = neighbor;
+	eigrp_neighbor_static_debug("add", af, address, interface_name);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -104,6 +124,7 @@ eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 		    || strcmp(neighbor->interface_name, interface_name) != 0)
 			continue;
 		*cursor = neighbor->next;
+		eigrp_neighbor_static_debug("remove", af, address, interface_name);
 		free(neighbor->interface_name);
 		free(neighbor);
 		return EIGRP_RESULT_SUCCESS;
@@ -283,6 +304,14 @@ eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *ei, eigrp_addr_t *src)
 	if (ei) {
 		listnode_add(ei->nbrs, nbr);
 	}
+	if (IS_DEBUG_EIGRP_EVENT) {
+		zlog_debug("EIGRP event: neighbor %s created%s%s",
+			   eigrp_print_addr(&nbr->src),
+			   ei ? " on " : "", ei ? EIGRP_INTF_NAME(ei) : "");
+		if (IS_DEBUG_EIGRP(0, DETAIL) && ei && ei->eigrp)
+			zlog_debug("EIGRP event detail: AS %u hold %u state %u",
+				   ei->eigrp->AS, nbr->v_holddown, nbr->state);
+	}
 	return nbr;
 }
 
@@ -365,6 +394,14 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 /* Delete specified EIGRP neighbor from interface. */
 void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 {
+	if (nbr && IS_DEBUG_EIGRP_EVENT) {
+		zlog_debug("EIGRP event: neighbor %s delete%s%s",
+			   eigrp_print_addr(&nbr->src), nbr->ei ? " on " : "",
+			   nbr->ei ? EIGRP_INTF_NAME(nbr->ei) : "");
+		if (IS_DEBUG_EIGRP(0, DETAIL) && nbr->ei && nbr->ei->eigrp)
+			zlog_debug("EIGRP event detail: AS %u state %u retrans %u",
+				   nbr->ei->eigrp->AS, nbr->state, nbr->retrans_counter);
+	}
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 	if (nbr->ei)
 		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
@@ -385,6 +422,9 @@ void holddown_timer_expired(struct event *event)
 	eigrp_neighbor_t *nbr = EVENT_ARG(event);
 	eigrp_instance_t *eigrp = nbr->ei->eigrp;
 
+	if (IS_DEBUG_EIGRP(0, TIMERS))
+		zlog_debug("EIGRP: hold timer expired for neighbor %s",
+			   eigrp_print_addr(&nbr->src));
 	zlog_info("Neighbor %s (%s) is down: holding time expired",
 		  eigrp_print_addr(&nbr->src),
 		  ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
@@ -412,6 +452,11 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 		eigrp_interface_encoder_unbind(nbr->ei, nbr->tlv_version);
 
 	nbr->state = state;
+	eigrp_debug_neighbor_state(nbr, old_state, state);
+	if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP)
+		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_PEERDOWN,
+				   nbr->ei ? nbr->ei->eigrp : NULL, nbr->ei, nbr,
+				   "neighbor left UP state");
 
 	if (state == EIGRP_NEIGHBOR_UP && old_state != EIGRP_NEIGHBOR_UP)
 		eigrp_interface_encoder_bind(nbr->ei, nbr->tlv_version);

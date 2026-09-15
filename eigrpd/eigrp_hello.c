@@ -26,19 +26,6 @@
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_errors.h"
 
-/* Packet Type String. */
-static const struct message eigrp_general_tlv_type_str[] = {
-	{EIGRP_TLV_PARAMETER, "PARAMETER"},
-	{EIGRP_TLV_AUTH, "AUTH"},
-	{EIGRP_TLV_SEQ, "SEQ"},
-	{EIGRP_TLV_SW_VERSION, "SW_VERSION"},
-	{EIGRP_TLV_NEXT_MCAST_SEQ, "NEXT_MCAST_SEQ"},
-	{EIGRP_TLV_PEER_TERMINATION, "PEER_TERMINATION"},
-	{EIGRP_TLV_PEER_MTRLIST, "PEER_MTRLIST"},
-	{EIGRP_TLV_PEER_TIDLIST, "PEER_TIDLIST"},
-	{0}};
-
-
 /*
  * @fn eigrp_hello_timer
  *
@@ -285,12 +272,6 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 	uint16_t length;
 	bool new_nbr = FALSE;
 
-	if (IS_DEBUG_EIGRP_PACKET(eigrph->opcode - 1, RECV)) {
-		zlog_debug("Processing Hello size[%u] int(%s) src(%s)", size,
-			   ifindex2ifname(ei->ifp->ifindex, eigrp->vrf_id),
-			   eigrp_print_addr(src));
-	}
-
 	/* check for mall formed packet, if so abort now */
 	size -= EIGRP_HEADER_LEN;
 	if (size < 0)
@@ -314,12 +295,6 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 		length = ntohs(tlv_header->length);
 
 		if ((length > 0) && (length <= size)) {
-			if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-				zlog_debug(
-					"  General TLV(%s)",
-					lookup_msg(eigrp_general_tlv_type_str,
-						   type, NULL));
-
 			// determine what General TLV is being processed
 			switch (type) {
 			case EIGRP_TLV_PARAMETER:
@@ -368,9 +343,6 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 			eigrp_nbr_state_update(nbr);
 	}
 
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV))
-		zlog_debug("Hello Packet received from %s",
-			   eigrp_print_addr(&nbr->src));
 }
 
 uint32_t FRR_MAJOR;
@@ -673,11 +645,6 @@ void eigrp_hello_send_ack(eigrp_neighbor_t *nbr)
 				&nbr->src);
 
 	if (packet) {
-		if (IS_DEBUG_EIGRP_PACKET(0, SEND))
-			zlog_debug("Queueing [Hello] Ack Seq [%u] nbr [%s]",
-				   nbr->recv_sequence_number,
-				   eigrp_print_addr(&nbr->src));
-
 		/* Add packet to the top of the interface output queue*/
 		eigrp_packet_enqueue(nbr->ei->obuf, packet);
 
@@ -715,10 +682,6 @@ void eigrp_hello_send(eigrp_interface_t *ei, uint8_t flags,
 	   (ei->type != EIGRP_IFTYPE_NBMA))
 	   return;
 	*/
-
-	if (IS_DEBUG_EIGRP_PACKET(0, SEND))
-		zlog_debug("Queueing [Hello] Interface(%s)",
-			   EIGRP_INTF_NAME(ei));
 
 	/* if packet was succesfully created, then add it to the interface queue
 	 */

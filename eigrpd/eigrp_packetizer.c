@@ -149,6 +149,9 @@ static void eigrp_packetizer_neighbor_route_send(eigrp_instance_t *eigrp,
 	packet->sequence_reserved = true;
 
 	eigrp_packet_enqueue(nbr->retrans_queue, packet);
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, ei, nbr,
+				   "linked opcode %u seq %u to reliable queue (depth %lu)",
+				   work->opcode, sequence, nbr->retrans_queue->count);
 	eigrp_packetizer_neighbor_stat(nbr, work->opcode);
 
 	if (nbr->retrans_queue->count == 1)
@@ -254,6 +257,9 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 			queue_was_empty = (nbr->retrans_queue->count == 0);
 			dup = eigrp_packet_duplicate(packet, nbr);
 			eigrp_packet_enqueue(nbr->retrans_queue, dup);
+			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, ei, nbr,
+					   "linked multicast opcode %u seq %u to reliable queue (depth %lu)",
+					   work->opcode, sequence, nbr->retrans_queue->count);
 
 			if (queue_was_empty) {
 				eigrp_packet_retransmit_timer_start(nbr);
@@ -295,6 +301,11 @@ static void eigrp_packetizer_work_process(eigrp_instance_t *eigrp,
 {
 	if (!eigrp || !work)
 		return;
+
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_PACKETIZE, eigrp,
+				   work->nbr ? work->nbr->ei : work->exception,
+				   work->nbr, "process opcode %u%s", work->opcode,
+				   work->prefix ? " with route work" : "");
 
 	if (work->flags & EIGRP_PACKETIZER_WORK_F_DEFER_FREE)
 		return;
@@ -389,6 +400,10 @@ void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,
 	if (!eigrp->packetizer_queue)
 		eigrp_packetizer_init(eigrp);
 
+	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_PACKETIZE, eigrp,
+				   work->nbr ? work->nbr->ei : work->exception,
+				   work->nbr, "enqueue opcode %u%s", work->opcode,
+				   work->prefix ? " route work" : "");
 	eigrp_work_queue_enqueue(eigrp->packetizer_queue, work);
 }
 

@@ -188,6 +188,69 @@ def test_debug_eigrp_packet_is_singular_and_registered():
     assert '"debug eigrp packets' not in dump
 
 
+
+def test_debug_eigrp_packet_uses_portable_targets_and_retry_category():
+    dump = read(DUMP)
+    header = read(ROOT / "eigrpd" / "eigrp_dump.h")
+
+    debug_region = dump[
+        dump.index("DEFUN(debug_eigrp_packet,"):
+        dump.index("/* Debug node. */")
+    ]
+    assert "eigrp_debug_packet_set(type, flag, scope)" in debug_region
+    assert "eigrp_debug_packet_reset(type, flag, scope)" in debug_region
+    assert "DEBUG_PACKET_ON" not in debug_region
+    assert "DEBUG_PACKET_OFF" not in debug_region
+    assert "EIGRP_DEBUG_RETRY" in debug_region
+    assert "ipxsap" not in debug_region
+    assert "stub" not in debug_region
+
+    target_region = header[
+        header.index("/* Packet-debug targets and runtime hooks. */"):
+        header.index("/* Prototypes. */")
+    ]
+    assert "eigrp_result_t eigrp_debug_packet_set(" in target_region
+    assert "eigrp_result_t eigrp_debug_packet_reset(" in target_region
+    assert "struct vty *" not in target_region
+
+
+def test_debug_eigrp_common_code_does_not_depend_on_frr_vrf_default_macro():
+    dump = read(DUMP)
+
+    assert "VRF_DEFAULT" not in dump
+
+
+def test_debug_eigrp_packet_runtime_hooks_cover_send_receive_retry_and_ack():
+    dump = read(DUMP)
+    packet = read(ROOT / "eigrpd" / "eigrp_packet.c")
+
+    assert "eigrp_debug_packet_send(ei, packet, ret);" in packet
+    assert "eigrp_debug_packet_receive(ei, &src, &dst, eigrph, length);" in packet
+    assert packet.count("eigrp_debug_packet_retry(nbr, packet") == 2
+
+    classifier = dump[
+        dump.index("eigrp_debug_packet_category_get("):
+        dump.index("static uint16_t eigrp_debug_get16", dump.index("eigrp_debug_packet_category_get("))
+    ]
+    assert "header->opcode == EIGRP_OPC_HELLO" in classifier
+    assert "ntohl(header->sequence) == 0" in classifier
+    assert "ntohl(header->ack) != 0" in classifier
+    assert "return EIGRP_DEBUG_PACKET_ACK;" in classifier
+
+
+def test_debug_eigrp_packet_detail_walks_tlvs_without_exposing_auth_digest():
+    dump = read(DUMP)
+
+    detail = dump[
+        dump.index("static void eigrp_debug_packet_detail_dump"):
+        dump.index("void eigrp_debug_packet_send", dump.index("static void eigrp_debug_packet_detail_dump"))
+    ]
+    assert "EIGRP_TLV_HDR_SIZE" in detail
+    assert "tlv_length > length - offset" in detail
+    assert "eigrp_debug_tlv_detail_dump" in detail
+    assert "digest length" in dump
+    assert "digest %" not in dump
+
 def test_debug_eigrp_supports_event_timer_neighbor_transmit_packet():
     dump = read(DUMP)
     init = function_body(dump, "eigrp_debug_init")
@@ -354,3 +417,80 @@ def test_protocol_and_tech_support_walk_all_named_vrfs():
 
     assert "bool all_vrfs" in types
     assert ".all_vrfs = true" in status
+
+
+def test_complete_eigrp_debug_command_family_is_registered_and_targeted():
+    dump = read(DUMP)
+    header = read(ROOT / "eigrpd" / "eigrp_dump.h")
+    init = function_body(dump, "eigrp_debug_init")
+
+    command_fragments = (
+        '"debug eigrp event [detail]"',
+        '"debug eigrp timers"',
+        '"debug eigrp fsm"',
+        '"debug eigrp nsf"',
+        '"debug eigrp frr"',
+        '"debug eigrp neighbor [siatimer] [static]"',
+        '"debug eigrp notifications <rib|interface>"',
+        '"debug eigrp transmit [ack] [build] [detail] [link] [packetize] [peerdown] [sia] [startup] [strange]"',
+        '"debug eigrp address-family <ipv4|ipv6> [vrf NAME] [(1-65535)]"',
+        '"debug eigrp address-family <ipv4|ipv6> [vrf NAME] [(1-65535)] neighbor [WORD]"',
+        '"debug eigrp address-family <ipv4|ipv6> [vrf NAME] [(1-65535)] notifications"',
+        '"debug eigrp address-family <ipv4|ipv6> [vrf NAME] [(1-65535)] summary"',
+    )
+    for fragment in command_fragments:
+        assert fragment in dump
+        assert fragment.replace('"debug ', '"no debug ') in dump
+
+    commands = (
+        "event", "timers", "fsm", "nsf", "frr", "neighbor",
+        "notifications", "transmit", "address_family",
+        "address_family_neighbor", "address_family_notifications",
+        "address_family_summary", "packet",
+    )
+    for name in commands:
+        assert f"&debug_eigrp_{name}_cmd" in init
+        assert f"&no_debug_eigrp_{name}_cmd" in init
+
+    targets = (
+        "eigrp_debug_event_set", "eigrp_debug_event_reset",
+        "eigrp_debug_timers_set", "eigrp_debug_timers_reset",
+        "eigrp_debug_fsm_set", "eigrp_debug_fsm_reset",
+        "eigrp_debug_nsf_set", "eigrp_debug_nsf_reset",
+        "eigrp_debug_fast_reroute_set", "eigrp_debug_fast_reroute_reset",
+        "eigrp_debug_neighbor_set", "eigrp_debug_neighbor_reset",
+        "eigrp_debug_notifications_set", "eigrp_debug_notifications_reset",
+        "eigrp_debug_transmit_set", "eigrp_debug_transmit_reset",
+        "eigrp_debug_address_family_set", "eigrp_debug_address_family_reset",
+    )
+    for target in targets:
+        assert target in header
+        assert f"{target}(" in dump
+
+
+def test_debug_families_have_runtime_hooks_at_their_protocol_owners():
+    fsm = read(ROOT / "eigrpd" / "eigrp_fsm.c")
+    neighbor = read(NEIGHBOR_C)
+    packet = read(ROOT / "eigrpd" / "eigrp_packet.c")
+    packetizer = read(PACKETIZER_C)
+    update = read(ROOT / "eigrpd" / "eigrp_update.c")
+    siaquery = read(ROOT / "eigrpd" / "eigrp_siaquery.c")
+    siareply = read(ROOT / "eigrpd" / "eigrp_siareply.c")
+    topology = read(TOPOLOGY_C)
+    zebra = read(ROOT / "frr" / "eigrp_zebra.c")
+
+    assert "EIGRP_DEBUG_AF_ROUTE" in fsm
+    assert "eigrp_debug_neighbor_state" in neighbor
+    assert "EIGRP_DEBUG_TRANSMIT_PEERDOWN" in neighbor
+    assert "EIGRP_DEBUG_NEI_STATIC" in neighbor
+    assert "EIGRP_DEBUG_TRANSMIT_ACK" in packet
+    assert "EIGRP_DEBUG_TRANSMIT_LINK" in packet
+    assert "EIGRP_DEBUG_TRANSMIT_PACKETIZE" in packetizer
+    assert "EIGRP_DEBUG_TRANSMIT_STARTUP" in update
+    assert "eigrp_debug_nsf_event" in update
+    assert "eigrp_debug_neighbor_sia" in siaquery
+    assert "eigrp_debug_neighbor_sia" in siareply
+    assert "EIGRP_DEBUG_TRANSMIT_SIA" in siaquery
+    assert "EIGRP_DEBUG_TRANSMIT_SIA" in siareply
+    assert "FAST_REROUTE" in topology
+    assert "EIGRP_DEBUG_AF_NOTIFICATIONS" in zebra

@@ -125,7 +125,12 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
 	if ((packet) && (ntohl(eigrph->ack) == packet->sequence_number)) {
+		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
+				   "ACK %u matched reliable sequence", ntohl(eigrph->ack));
 		packet = eigrp_packet_dequeue(nbr->retrans_queue);
+		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
+				   "unlinked ACKed seq %u from reliable queue (depth %lu)",
+				   ntohl(eigrph->ack), nbr->retrans_queue->count);
 		eigrp_packet_free(packet);
 
 		if ((nbr->state == EIGRP_NEIGHBOR_PENDING)
@@ -143,7 +148,12 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 	packet = eigrp_packet_queue_next(nbr->multicast_queue);
 	if (packet) {
 		if (ntohl(eigrph->ack) == packet->sequence_number) {
+			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
+					   "ACK %u matched multicast sequence", ntohl(eigrph->ack));
 			packet = eigrp_packet_dequeue(nbr->multicast_queue);
+			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
+					   "unlinked ACKed seq %u from multicast queue (depth %lu)",
+					   ntohl(eigrph->ack), nbr->multicast_queue->count);
 			eigrp_packet_free(packet);
 			if (nbr->multicast_queue->count > 0) {
 				eigrp_packet_send_reliably(eigrp, nbr);
@@ -277,8 +287,9 @@ void eigrp_packet_write(struct event *event)
 	sockopt_iphdrincl_swab_htosys(&iph);
 	ret = sendmsg(eigrp->fd, &msg, flags);
 	sockopt_iphdrincl_swab_systoh(&iph);
+	eigrp_debug_packet_send(ei, packet, ret);
 
-	if (IS_DEBUG_EIGRP_TRANSMIT(0, SEND)) {
+	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		eigrph = (struct eigrp_header *)STREAM_DATA(packet->s);
 		zlog_debug(
 			"Sending [%s][%d/%d] to [%s] via [%s] ret [%d].",
@@ -322,6 +333,7 @@ void eigrp_packet_read(struct event *event)
 	struct eigrp_header *eigrph;
 	struct interface *ifp;
 	eigrp_addr_t src;
+	eigrp_addr_t dst;
 	eigrp_neighbor_t *nbr;
 	struct in_addr srcaddr;
 	uint16_t opcode = 0;
@@ -360,6 +372,8 @@ void eigrp_packet_read(struct event *event)
 		//      cleaning these up as I get ipv6 fixed
 		src.afi = AF_INET;
 		src.ip.v4 = iph->ip_src;
+		dst.afi = AF_INET;
+		dst.ip.v4 = iph->ip_dst;
 	} else {
 	    // DVS: your now broken...
 	    src.afi = AF_INET6;
@@ -370,8 +384,7 @@ void eigrp_packet_read(struct event *event)
 	srcaddr = iph->ip_src;
 
 	/* IP Header dump. */
-	if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV)
-	    && IS_DEBUG_EIGRP_TRANSMIT(0, PACKET_DETAIL))
+	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL))
 		eigrp_ip_header_dump(iph);
 
 	/* Note that sockopt_iphdrincl_swab_systoh was called in
@@ -406,7 +419,7 @@ void eigrp_packet_read(struct event *event)
 	/* Self-originated packet should be discarded silently. */
 	if (eigrp_intf_lookup_by_local_addr(eigrp, NULL, iph->ip_src)
 	    || (IPV4_ADDR_SAME(&srcaddr, &ei->address.u.prefix4))) {
-		if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV))
+		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
 			zlog_debug("eigrp_packet_read[%pI4]: Dropping self-originated packet",
 				   &srcaddr);
 		return;
@@ -418,7 +431,7 @@ void eigrp_packet_read(struct event *event)
 	stream_forward_getp(ibuf, ip_header_len);
 	eigrph = (struct eigrp_header *)stream_pnt(ibuf);
 
-	if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV) && IS_DEBUG_EIGRP_TRANSMIT(0, PACKET_DETAIL))
+	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL))
 		eigrp_header_dump(eigrph);
 
 	//  if (MSG_OK != eigrp_packet_examin(eigrph, stream_get_endp(ibuf) -
@@ -427,7 +440,7 @@ void eigrp_packet_read(struct event *event)
 
 	/* If incoming interface is passive one, ignore it. */
 	if (eigrp_intf_is_passive(ei)) {
-		if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV))
+		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
 			zlog_debug("ignoring packet from router %u sent to %pI4, received on a passive interface, %pI4",
 				ntohs(eigrph->vrid), &iph->ip_dst,
 				&ei->address.u.prefix4);
@@ -442,7 +455,7 @@ void eigrp_packet_read(struct event *event)
 	 * correct link
 	 */
 	else if (ei->ifp != ifp) {
-		if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV))
+		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
 			zlog_warn(
 				"Packet from [%pI4] received on wrong link %s",
 				&iph->ip_src, ifp->name);
@@ -452,18 +465,20 @@ void eigrp_packet_read(struct event *event)
 	/* Verify more EIGRP header fields. */
 	ret = eigrp_verify_header(ibuf, ei, iph, eigrph, length);
 	if (ret < 0) {
-		if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV))
+		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
 			zlog_debug(
 				"eigrp_packet_read[%pI4]: Header check failed, dropping.",
 				&iph->ip_src);
 		return;
 	}
 
-	/* calcualte the eigrp packet length, and move the pounter to the
-	   start of the eigrp TLVs */
+	eigrp_debug_packet_receive(ei, &src, &dst, eigrph, length);
+
+	/* calculate the EIGRP packet length, and move the pointer to the
+	   start of the EIGRP TLVs */
 	opcode = eigrph->opcode;
 
-	if (IS_DEBUG_EIGRP_TRANSMIT(0, RECV))
+	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL))
 		zlog_debug(
 			"Received [%s][%d/%d] length [%u] via [%s] src [%pI4] dst [%pI4]",
 			lookup_msg(eigrp_packet_type_str, opcode, NULL),
@@ -703,6 +718,10 @@ void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
 	if (!packet)
 		return;
 
+	if (IS_DEBUG_EIGRP(0, TIMERS))
+		zlog_debug("EIGRP: start retransmit timer nbr %s seq %u interval %u",
+			   eigrp_print_addr(&nbr->src), packet->sequence_number,
+			   EIGRP_PACKET_RETRANS_TIME);
 	event_add_timer(eigrpd_event, eigrp_packet_unack_retrans, nbr,
 			 EIGRP_PACKET_RETRANS_TIME, &packet->t_retrans_timer);
 }
@@ -715,6 +734,9 @@ void eigrp_packet_send_reliably(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
 
 	if (packet) {
 		eigrp_packet_t *duplicate;
+		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
+				   "send reliable queue head seq %u (depth %lu)",
+				   packet->sequence_number, nbr->retrans_queue->count);
 		duplicate = eigrp_packet_duplicate(packet, nbr);
 		eigrp_packet_output_enqueue(eigrp, nbr->ei, duplicate);
 		eigrp_packet_retransmit_timer_start(nbr);
@@ -779,7 +801,7 @@ void eigrp_packet_header_init(int type, eigrp_instance_t *eigrp, struct stream *
 	//    eigrph->sequence = htonl(3);
 	eigrph->flags = htonl(flags);
 
-	if (IS_DEBUG_EIGRP_TRANSMIT(0, PACKET_DETAIL))
+	if (IS_DEBUG_EIGRP_TRANSMIT(0, BUILD))
 		zlog_debug("Packet Header Init Seq [%u] Ack [%u]",
 			   htonl(eigrph->sequence), htonl(eigrph->ack));
 
@@ -1102,6 +1124,11 @@ void eigrp_packet_unack_retrans(struct event *event)
 
 	if (packet) {
 		eigrp_packet_t *duplicate;
+		if (IS_DEBUG_EIGRP(0, TIMERS))
+			zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
+				   eigrp_print_addr(&nbr->src), packet->sequence_number,
+				   packet->retrans_counter + 1);
+		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
 		duplicate = eigrp_packet_duplicate(packet, nbr);
 		eigrp_addr_copy(&duplicate->dst, &nbr->src);
 		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
@@ -1132,6 +1159,11 @@ void eigrp_packet_unack_multicast_retrans(struct event *event)
 
 	if (packet) {
 		eigrp_packet_t *duplicate;
+		if (IS_DEBUG_EIGRP(0, TIMERS))
+			zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
+				   eigrp_print_addr(&nbr->src), packet->sequence_number,
+				   packet->retrans_counter + 1);
+		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
 		duplicate = eigrp_packet_duplicate(packet, nbr);
 		eigrp_addr_copy(&duplicate->dst, &nbr->src);
 		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);

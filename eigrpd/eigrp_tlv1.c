@@ -349,7 +349,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 		else
 			eigrp_tlv1_decode_abort(pkt);
 
-		if (IS_DEBUG_EIGRP_PACKET(0, RECV)) {
+		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
 			zlog_debug(
 				"EIGRP TLV: Neighbor(%s): invalid TLV_type(%u)",
 				eigrp_print_addr(&nbr->src), type);
@@ -358,7 +358,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	}
 
 	if (length < min_length || length > remaining) {
-		if (IS_DEBUG_EIGRP_PACKET(0, RECV)) {
+		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
 			zlog_debug(
 				"EIGRP TLV: Neighbor(%s) corrupt packet type=%u length=%u remaining=%zu",
 				eigrp_print_addr(&nbr->src), type, length, remaining);
@@ -432,7 +432,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	return route;
 
 malformed:
-	if (IS_DEBUG_EIGRP_PACKET(0, RECV)) {
+	if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
 		zlog_debug(
 			"EIGRP TLV: Neighbor(%s) malformed TLV type=%u length=%u decoded=%u",
 			eigrp_print_addr(&nbr->src), type, length, bytes);
@@ -470,7 +470,7 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp, eigrp_interface_t *e
 
 	type = eigrp_tlv1_route_tlv_type(route);
 	if (!type) {
-		if (IS_DEBUG_EIGRP_PACKET(0, RECV)) {
+		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_SEND)) {
 			zlog_debug("Neighbor(%s): invalid TLV_type(%u)",
 				   eigrp_print_addr(&nbr->src), route->type);
 		}
