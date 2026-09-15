@@ -176,6 +176,32 @@ install_test_tree() {
 	echo "installed: frr/test/ -> $dst/"
 }
 
+
+eigrp_grammar_schema_current() {
+	local yang="$frr_root/yang/frr-eigrpd.yang"
+	local neighbor_policy
+	local topology
+
+	[[ -f "$yang" ]] || return 1
+	grep -Fq "must \". != 'hmac-sha-256' or (../authentication-encryption-type and ../authentication-password)\";" "$yang" || return 1
+	grep -Fq 'when "../administrative-distance";' "$yang" || return 1
+	grep -Fq 'description "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6";' "$yang" || return 1
+
+	neighbor_policy="$(sed -n '/^[[:space:]]*list neighbor-policy {/,/^[[:space:]]*container neighbor-maximum-prefix {/p' "$yang")"
+	[[ -n "$neighbor_policy" ]] || return 1
+	if grep -Fq 'leaf dampened' <<<"$neighbor_policy"; then
+		return 1
+	fi
+
+	topology="$(sed -n '/^[[:space:]]*container topology {/,/^[[:space:]]*uses frr-filter:distribute-list-group;/p' "$yang")"
+	[[ -n "$topology" ]] || return 1
+	if grep -Fq 'container metric-weights {' <<<"$topology"; then
+		return 1
+	fi
+
+	return 0
+}
+
 patch_semantically_applied() {
 	local patch_name="$1"
 	local yang="$frr_root/yang/frr-eigrpd.yang"
@@ -372,8 +398,14 @@ install_frr_patches() {
 		install_patch_file "$patch_file"
 	done
 
+	if [[ "$dry_run" -eq 1 ]]; then
+		echo "would validate: current EIGRP YANG grammar/callback shape"
+	elif ! eigrp_grammar_schema_current; then
+		fail "managed EIGRP YANG schema does not match the current CLI/northbound grammar"
+	fi
+
 	# Keep FRR's generated embedded EIGRP model synchronized with the patched
-	# authoritative .yang source, including upgrades from older project patches.
+	# authoritative .yang source after managed schema patches are applied.
 	invalidate_eigrp_yang_embed
 }
 

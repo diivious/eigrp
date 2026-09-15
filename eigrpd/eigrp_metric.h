@@ -45,6 +45,7 @@ typedef struct eigrp_metric_weights {
 	uint8_t k3;
 	uint8_t k4;
 	uint8_t k5;
+	uint8_t k6;
 } eigrp_metric_weights_t;
 
 

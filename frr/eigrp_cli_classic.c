@@ -41,6 +41,8 @@ static bool disabled = false;
 static const char *timer_str = "1";
 static const char *variance_str = "1";
 static const char *maximum_paths_str = "1";
+static int64_t tos = 0;
+static const char *tos_str = "0";
 static const char *k1_str = "1";
 static const char *k2_str = "0";
 static const char *k3_str = "1";
@@ -240,12 +242,10 @@ DEFPY_YANG(
 DEFPY_YANG(
 	no_eigrp_timers_active,
 	no_eigrp_timers_active_cmd,
-	"no timers active-time [<(1-65535)|disabled>]",
+	"no timers active-time",
 	NO_STR
 	"Adjust routing timers\n"
-	"Time limit for active state\n"
-	"Active state time limit in seconds\n"
-	"Disable time limit for active state\n")
+	"Time limit for active state\n")
 {
 	if (eigrp_cli_named_context(vty))
 		return eigrp_cli_named_active_time_apply(vty, false, NULL, true);
@@ -283,10 +283,9 @@ DEFPY_YANG(
 DEFPY_YANG(
 	no_eigrp_variance,
 	no_eigrp_variance_cmd,
-	"no variance [(1-128)]",
+	"no variance",
 	NO_STR
-	"Control load balancing variance\n"
-	"Metric variance multiplier\n")
+	"Control load balancing variance\n")
 {
 	if (eigrp_cli_named_context(vty))
 		return eigrp_cli_named_variance_apply(vty, NULL, true);
@@ -361,9 +360,10 @@ void eigrp_cli_classic_show_event_log_size(struct vty *vty,
 DEFPY_YANG(
 	eigrp_metric_weights,
 	eigrp_metric_weights_cmd,
-	"metric weights (0-255)$k1 (0-255)$k2 (0-255)$k3 (0-255)$k4 (0-255)$k5 [(0-255)$k6]",
+	"metric weights (0-255)$tos (0-255)$k1 (0-255)$k2 (0-255)$k3 (0-255)$k4 (0-255)$k5 [(0-255)$k6]",
 	"Modify metrics and parameters for advertisement\n"
 	"Modify metric coefficients\n"
+	"Type of service (must be 0)\n"
 	"K1\n"
 	"K2\n"
 	"K3\n"
@@ -373,8 +373,12 @@ DEFPY_YANG(
 {
 	if (eigrp_cli_named_context(vty))
 		return eigrp_cli_named_metric_weights_apply(
-			vty, k1_str, k2_str, k3_str, k4_str, k5_str, k6_str,
-			k6_str != NULL, false);
+			vty, tos_str, k1_str, k2_str, k3_str, k4_str, k5_str,
+			k6_str, false);
+	if (tos != 0) {
+		vty_out(vty, "%% EIGRP metric weights TOS must be 0\n");
+		return CMD_WARNING;
+	}
 	nb_cli_enqueue_change(vty, "./metric-weights/K1", NB_OP_MODIFY, k1_str);
 	nb_cli_enqueue_change(vty, "./metric-weights/K2", NB_OP_MODIFY, k2_str);
 	nb_cli_enqueue_change(vty, "./metric-weights/K3", NB_OP_MODIFY, k3_str);
@@ -390,20 +394,14 @@ DEFPY_YANG(
 DEFPY_YANG(
 	no_eigrp_metric_weights,
 	no_eigrp_metric_weights_cmd,
-	"no metric weights [(0-255) (0-255) (0-255) (0-255) (0-255) (0-255)]",
+	"no metric weights",
 	NO_STR
 	"Modify metrics and parameters for advertisement\n"
-	"Modify metric coefficients\n"
-	"K1\n"
-	"K2\n"
-	"K3\n"
-	"K4\n"
-	"K5\n"
-	"K6\n")
+	"Modify metric coefficients\n")
 {
 	if (eigrp_cli_named_context(vty))
 		return eigrp_cli_named_metric_weights_apply(
-			vty, NULL, NULL, NULL, NULL, NULL, NULL, false, true);
+			vty, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true);
 	nb_cli_enqueue_change(vty, "./metric-weights/K1", NB_OP_DESTROY, NULL);
 	nb_cli_enqueue_change(vty, "./metric-weights/K2", NB_OP_DESTROY, NULL);
 	nb_cli_enqueue_change(vty, "./metric-weights/K3", NB_OP_DESTROY, NULL);
@@ -431,7 +429,7 @@ void eigrp_cli_classic_show_metrics(struct vty *vty, const struct lyd_node *dnod
 	k6 = yang_dnode_exists(dnode, "K6") ?
 		yang_dnode_get_string(dnode, "K6") : "0";
 
-	vty_out(vty, " metric weights %s %s %s %s %s",
+	vty_out(vty, " metric weights 0 %s %s %s %s %s",
 		k1, k2, k3, k4, k5);
 	if (k6)
 		vty_out(vty, " %s", k6);

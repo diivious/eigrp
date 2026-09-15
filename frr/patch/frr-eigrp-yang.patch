@@ -1,17 +1,21 @@
-diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang
-index 8375e74..00430f1 100644
 --- a/yang/frr-eigrpd.yang
 +++ b/yang/frr-eigrpd.yang
-@@ -158,6 +158,16 @@ module frr-eigrpd {
+@@ -155,9 +155,22 @@
+ 
+       leaf authentication-mode {
+         type authentication-type;
++        must ". != 'hmac-sha-256' or (../authentication-encryption-type and ../authentication-password)";
          description "EIGRP packet authentication mode";
        }
  
 +      leaf authentication-encryption-type {
++        when "../authentication-mode = 'hmac-sha-256'";
 +        type uint8 { range "0 | 7"; }
 +        description "Cisco password encoding selector for HMAC SHA-256";
 +      }
 +
 +      leaf authentication-password {
++        when "../authentication-mode = 'hmac-sha-256'";
 +        type string { length "1..32"; }
 +        description "HMAC SHA-256 authentication password";
 +      }
@@ -19,7 +23,7 @@ index 8375e74..00430f1 100644
        leaf authentication-key-chain {
          type string;
          description "Host key-chain name used for EIGRP authentication";
-@@ -188,6 +198,16 @@ module frr-eigrpd {
+@@ -188,6 +201,17 @@
            type inet:ipv4-address;
            description "IPv4 summary subnet mask";
          }
@@ -30,13 +34,14 @@ index 8375e74..00430f1 100644
 +        }
 +
 +        leaf leak-map {
++          when "../administrative-distance";
 +          type string { length "1..255"; }
 +          description "Route-map used to leak component routes";
 +        }
        }
  
        leaf shutdown {
-@@ -253,6 +273,11 @@ module frr-eigrpd {
+@@ -253,6 +277,11 @@
          description "Most number of paths to forward packets to";
        }
  
@@ -48,7 +53,7 @@ index 8375e74..00430f1 100644
        container metric-weights {
          description
            "Metrics and parameters for advertisement.
-@@ -544,6 +569,46 @@ module frr-eigrpd {
+@@ -544,6 +573,57 @@
        }
      }
  
@@ -63,10 +68,6 @@ index 8375e74..00430f1 100644
 +        leaf maximum { type uint32 { range "1..4294967295"; } mandatory true; }
 +        leaf threshold { type uint8 { range "1..100"; } }
 +        leaf warning-only { type empty; }
-+        leaf dampened { type empty; }
-+        leaf reset-time { type uint16 { range "1..65535"; } }
-+        leaf restart { type uint16 { range "1..65535"; } }
-+        leaf restart-count { type uint16 { range "1..65535"; } }
 +      }
 +    }
 +
@@ -92,10 +93,25 @@ index 8375e74..00430f1 100644
 +      leaf interval { type uint16 { range "1..65535"; } }
 +    }
 +
++    container metric-weights {
++      presence "Configure EIGRP metric coefficients";
++      description "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6";
++      leaf tos {
++        type uint8 { range "0"; }
++        mandatory true;
++      }
++      leaf K1 { type uint8; mandatory true; }
++      leaf K2 { type uint8; mandatory true; }
++      leaf K3 { type uint8; mandatory true; }
++      leaf K4 { type uint8; mandatory true; }
++      leaf K5 { type uint8; mandatory true; }
++      leaf K6 { type uint8; }
++    }
++
      leaf shutdown {
        type empty;
        description "Administratively disable this address-family context";
-@@ -566,14 +631,14 @@ module frr-eigrpd {
+@@ -566,14 +646,14 @@
          description "Enable automatic classful summarization";
        }
  
@@ -116,7 +132,7 @@ index 8375e74..00430f1 100644
        }
  
        /* EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY */
-@@ -613,11 +678,22 @@ module frr-eigrpd {
+@@ -613,23 +693,25 @@
          }
        }
  
@@ -134,24 +150,30 @@ index 8375e74..00430f1 100644
 +        leaf restart-count { type uint16 { range "1..65535"; } }
        }
  
+-      container metric-weights {
+-        presence "Configure EIGRP metric coefficients";
+-        leaf tos {
+-          type uint8 { range "0"; }
+-          mandatory true;
+-        }
+-        leaf K1 { type uint8; mandatory true; }
+-        leaf K2 { type uint8; mandatory true; }
+-        leaf K3 { type uint8; mandatory true; }
+-        leaf K4 { type uint8; mandatory true; }
+-        leaf K5 { type uint8; mandatory true; }
+-      }
 +      leaf maximum-paths { type uint8 { range "1..32"; } }
 +      leaf metric-maximum-hops { type uint8 { range "1..255"; } }
 +      leaf metric-holddown { type empty; }
 +      leaf event-log-size { type uint32; }
 +
-       container metric-weights {
-         presence "Configure EIGRP metric coefficients";
-         leaf tos {
-@@ -631,6 +707,8 @@ module frr-eigrpd {
-         leaf K5 { type uint8; mandatory true; }
-       }
- 
-+      uses frr-filter:distribute-list-group;
 +
++
++      uses frr-filter:distribute-list-group;
+ 
        list offset-list {
          key "access-list direction interface";
-         description "Metric offset applied to incoming or outgoing updates";
-@@ -659,6 +737,10 @@ module frr-eigrpd {
+@@ -659,6 +741,10 @@
          leaf protocol {
            type string { length "1..32"; }
          }
@@ -162,7 +184,7 @@ index 8375e74..00430f1 100644
          container metrics {
            presence "Configure an explicit redistribution metric";
            leaf bandwidth {
-@@ -672,16 +754,28 @@ module frr-eigrpd {
+@@ -672,16 +758,28 @@
          }
        }
  

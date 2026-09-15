@@ -164,6 +164,7 @@ eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
 		context->runtime->k_values[2] = weights->k3;
 		context->runtime->k_values[3] = weights->k4;
 		context->runtime->k_values[4] = weights->k5;
+		context->runtime->k_values[5] = weights->k6;
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
@@ -180,6 +181,7 @@ eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
 		context->runtime->k_values[2] = EIGRP_K3_DEFAULT;
 		context->runtime->k_values[3] = EIGRP_K4_DEFAULT;
 		context->runtime->k_values[4] = EIGRP_K5_DEFAULT;
+		context->runtime->k_values[5] = EIGRP_K6_DEFAULT;
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_IMPLEMENTED;

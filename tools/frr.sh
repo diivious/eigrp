@@ -31,7 +31,7 @@ actions:
   --build              Stage EIGRP without patching, then run make. Default.
   --check              Stage EIGRP without patching, then run make check.
   --all                Stage EIGRP without patching, configure, build, and check.
-  --uut                Stage without patching, build/install/restart, then run UUT.
+  --uut                Apply managed patches/stage, build/install/restart, then run UUT.
   --clean              Run make clean in FRR.
 
 options:
@@ -344,7 +344,10 @@ case "$action" in
 		;;
 	uut)
 		if [[ "$install_first" -eq 1 ]]; then
-			stage_eigrp
+			# UUT must exercise the daemon against the matching managed FRR
+			# schema/integration patches.  Source-only staging can otherwise
+			# combine new northbound callbacks with an older YANG model.
+			install_eigrp
 		fi
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr

@@ -572,13 +572,15 @@ DEFUN_CMD_FUNC_TEXT(no_eigrp_maximum_paths)
 	return no_eigrp_maximum_paths_magic(self, vty, argc, argv, maximum_paths, maximum_paths_str);
 }
 
-/* eigrp_metric_weights => "metric weights (0-255)$k1 (0-255)$k2 (0-255)$k3 (0-255)$k4 (0-255)$k5 [(0-255)$k6]" */
+/* eigrp_metric_weights => "metric weights (0-255)$tos (0-255)$k1 (0-255)$k2 (0-255)$k3 (0-255)$k4 (0-255)$k5 [(0-255)$k6]" */
 DEFUN_CMD_FUNC_DECL(eigrp_metric_weights)
 #define funcdecl_eigrp_metric_weights static int eigrp_metric_weights_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
+	int64_t tos,\
+	const char * tos_str __attribute__ ((unused)),\
 	int64_t k1,\
 	const char * k1_str __attribute__ ((unused)),\
 	int64_t k2,\
@@ -594,11 +596,13 @@ DEFUN_CMD_FUNC_DECL(eigrp_metric_weights)
 funcdecl_eigrp_metric_weights;
 DEFUN_CMD_FUNC_TEXT(eigrp_metric_weights)
 {
-#if 6 /* anything to parse? */
+#if 7 /* anything to parse? */
 	int _i;
 #if 1 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
 #endif
+	int64_t tos = 0;
+	const char *tos_str = NULL;
 	int64_t k1 = 0;
 	const char *k1_str = NULL;
 	int64_t k2 = 0;
@@ -619,6 +623,12 @@ DEFUN_CMD_FUNC_TEXT(eigrp_metric_weights)
 		_fail = 0;
 #endif
 
+		if (!strcmp(argv[_i]->varname, "tos")) {
+			tos_str = argv[_i]->arg;
+			char *_end;
+			tos = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
 		if (!strcmp(argv[_i]->varname, "k1")) {
 			k1_str = argv[_i]->arg;
 			char *_end;
@@ -667,6 +677,10 @@ DEFUN_CMD_FUNC_TEXT(eigrp_metric_weights)
 		return CMD_WARNING;
 #endif
 #endif
+	if (!tos_str) {
+		vty_out(vty, "Internal CLI error [%s]\n", "tos_str");
+		return CMD_WARNING;
+	}
 	if (!k1_str) {
 		vty_out(vty, "Internal CLI error [%s]\n", "k1_str");
 		return CMD_WARNING;
@@ -688,7 +702,7 @@ DEFUN_CMD_FUNC_TEXT(eigrp_metric_weights)
 		return CMD_WARNING;
 	}
 
-	return eigrp_metric_weights_magic(self, vty, argc, argv, k1, k1_str, k2, k2_str, k3, k3_str, k4, k4_str, k5, k5_str, k6, k6_str);
+	return eigrp_metric_weights_magic(self, vty, argc, argv, tos, tos_str, k1, k1_str, k2, k2_str, k3, k3_str, k4, k4_str, k5, k5_str, k6, k6_str);
 }
 
 /* no_eigrp_metric_weights => "no metric weights [(0-255) (0-255) (0-255) (0-255) (0-255) (0-255)]" */

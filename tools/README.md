@@ -37,8 +37,11 @@ conflict stops the install for review.
 
 Patch ownership is explicit. `--install` applies the managed FRR-wide patches as
 part of installation. `--patch` applies only those patches. Configure, build,
-check, and UUT actions may restage EIGRP source/test payloads, but they invoke
-the installer with `--no-patches` and therefore never modify FRR-wide source.
+and check actions restage EIGRP source/test payloads with `--no-patches` and
+therefore do not modify FRR-wide source. `--uut` is the integration exception:
+it applies/validates the managed patch series before staging so the daemon
+cannot be built with northbound callbacks from one project revision and a YANG
+schema from another.
 
 ```sh
 tools/frr.sh --install --frr-root ~/devel/frr
@@ -64,8 +67,8 @@ Run the full configure/build/check gate:
 tools/frr.sh --all --frr-root ~/devel/frr
 ```
 
-Build, install, restart FRR, and run the live named-mode configuration UUT
-against `eigrpd` without applying or changing FRR-wide patches:
+Apply/validate the managed FRR integration patches, build, install, restart
+FRR, and run the live named-mode configuration UUT against `eigrpd`:
 
 ```sh
 tools/frr.sh --uut --frr-root ~/devel/frr
@@ -79,11 +82,11 @@ writeback suite. Only after IPv4/4453 passes does Stage 2 add IPv6 AS 4453 and
 run the applicable IPv6 suite. Stage 3 then adds IPv4/IPv6 AS 6473 to verify
 multiple autonomous-system contexts and `no address-family`. Stage 4 finally
 verifies that `savage` and `SAVAGE` are distinct named processes.
-`frr.sh --uut` installs the just-built FRR tree and restarts the `frr`
-systemd service before invoking vtysh, so the test cannot accidentally exercise
-an older installed daemon. The required patch state is a prerequisite established
-with `--install` or `--patch`; UUT does not mutate it. Set `EIGRP_UUT_INTERFACE` when the test interface is
-not `enp0s8`.
+`frr.sh --uut` first synchronizes the managed patch state, then installs the
+just-built FRR tree and restarts the `frr` systemd service before invoking
+vtysh. This prevents both an older installed daemon and an older embedded YANG
+model from being exercised. Set `EIGRP_UUT_INTERFACE` when the test interface
+is not `enp0s8`.
 
 ## UUT workflow
 

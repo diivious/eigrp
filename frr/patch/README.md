@@ -43,5 +43,5 @@ Current integration patches:
   route-map/prefix limits, HMAC-SHA-256 credentials, and complete summary forms.
 
 The YANG patches modify only `yang/frr-eigrpd.yang`. After patch installation,
-`tools/frr-install.sh` regenerates FRR's `yang/frr-eigrpd.yang.c` using
-`yang/embedmodel.py`, so the embedded model cannot drift from the source schema.
+`tools/frr-install.sh` removes FRR's generated `yang/frr-eigrpd.yang.c`; the FRR
+build regenerates it from the authoritative patched YANG source.

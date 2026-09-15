@@ -145,7 +145,7 @@ def test_named_yang_patch_updates_authoritative_schema_only():
     assert "diff --git a/yang/frr-eigrpd.yang.c b/yang/frr-eigrpd.yang.c" not in patch
 
 
-def test_frr_driver_keeps_patch_application_out_of_build_and_uut():
+def test_frr_driver_keeps_patch_application_out_of_normal_build_but_uut_syncs_integration():
     driver = read(ROOT / "tools" / "frr.sh")
 
     stage_start = driver.index("stage_eigrp() {")
@@ -159,10 +159,10 @@ def test_frr_driver_keeps_patch_application_out_of_build_and_uut():
     assert '--no-eigrpd --no-tests' in driver
 
     uut_start = driver.index("\tuut)\n")
-    uut_end = driver.index("\t	;;", uut_start)
+    uut_end = driver.index("\t\t;;", uut_start)
     uut = driver[uut_start:uut_end]
-    assert "stage_eigrp" in uut
-    assert "install_eigrp" not in uut
+    assert "install_eigrp" in uut
+    assert "stage_eigrp" not in uut
     assert "patch_frr" not in uut
 
 
@@ -277,7 +277,7 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
     assert 'eigrp_cli_not_configured(vty, "bandwidth-percent")' not in cli
     assert '"no af-interface <default|IFNAME>"' in cli
     assert '"no next-hop-self"' in cli
-    assert '"summary-address A.B.C.D A.B.C.D [(1-255)] [leak-map WORD]"' in cli
+    assert '"summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
 
 
 def test_frr_patch_series_orders_af_interface_after_named_af_config():
@@ -342,7 +342,6 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
         "default-metric",
         "distance",
         "maximum-prefix",
-        "metric-weights",
         "offset-list",
         "redistribute",
         "summary-metric",
@@ -398,16 +397,25 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     assert 'xpath_len - strlen(xpath), "/topology"' in cli
     assert 'VTY_PUSH_XPATH(EIGRP_NODE, xpath);' in cli
     assert 'nb_cli_enqueue_change(vty, "./auto-summary", NB_OP_CREATE, NULL);' in cli
+    auto_summary_start = nb.index("static int eigrpd_named_auto_summary_create")
+    auto_summary_end = nb.index("static int eigrpd_named_auto_summary_destroy", auto_summary_start)
+    auto_summary_create = nb[auto_summary_start:auto_summary_end]
+    assert "eigrpd_named_topology_child_context(args->dnode" in auto_summary_create
+    assert "eigrpd_named_child_context(args->dnode" not in auto_summary_create
     assert 'nb_cli_enqueue_change(vty, "./default-metric", NB_OP_CREATE, NULL);' in cli
     assert 'nb_cli_enqueue_change(vty, "./distance", NB_OP_CREATE, NULL);' in cli
-    # The named form requires six numeric tokens: TOS plus K1-K5.  Do not
-    # test the generated numeric k6 value for presence because K5=0 is valid
-    # and is the normal default.  The generated *_str pointer is NULL only
-    # when the optional sixth token was omitted.
-    assert 'if (!has_k5 || !tos || strcmp(tos, "0") != 0)' in cli
+    # metric weights is an address-family command.  TOS is the first
+    # operand, K1-K5 are required, and RFC 7868 K6 is the optional tail.
+    assert '"metric weights (0-255)$tos (0-255)$k1 (0-255)$k2 (0-255)$k3 (0-255)$k4 (0-255)$k5 [(0-255)$k6]"' in read(CLASSIC_CLI)
+    metric_apply = cli[cli.index("int eigrp_cli_named_metric_weights_apply"):cli.index("int eigrp_cli_named_redistribute_apply")]
+    assert 'if (!eigrp_cli_named_af_required(vty))' in metric_apply
+    assert 'if (!tos || strcmp(tos, "0") != 0)' in cli
+    assert '"./metric-weights/K6"' in cli
+    assert '/frr-eigrpd:eigrpd/named/address-family/metric-weights/K6' in nb
+    assert '/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights' not in nb
 
     assert 'eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",' in cli
-    assert '"./maximum-prefix", false' in cli
+    assert '"./maximum-prefix", true, false' in cli
     assert '"./offset-list[access-list=' in cli
     assert '"./redistribute[protocol=' in cli
     assert '"./summary-metric[address=' in cli
@@ -469,12 +477,6 @@ def test_named_topology_callbacks_match_compound_yang_shape():
         "default-metric/mtu",
         "distance/internal",
         "distance/external",
-        "metric-weights/tos",
-        "metric-weights/K1",
-        "metric-weights/K2",
-        "metric-weights/K3",
-        "metric-weights/K4",
-        "metric-weights/K5",
         "offset-list/offset",
         "redistribute/metrics/bandwidth",
         "redistribute/metrics/delay",
@@ -493,19 +495,44 @@ def test_named_topology_callbacks_match_compound_yang_shape():
     assert ".create = eigrpd_named_redistribute_metrics_create" in nb
     assert ".destroy = eigrpd_named_redistribute_metrics_destroy" in nb
 
+    for xpath in (
+        "metric-weights/tos",
+        "metric-weights/K1",
+        "metric-weights/K2",
+        "metric-weights/K3",
+        "metric-weights/K4",
+        "metric-weights/K5",
+        "metric-weights/K6",
+    ):
+        assert f'/address-family/{xpath}"' in nb
+        assert f'/topology/{xpath}"' not in nb
+
+    k6_start = nb.index('/frr-eigrpd:eigrpd/named/address-family/metric-weights/K6"')
+    k6_block = nb[k6_start : nb.index("\n\t\t},", k6_start) + 6]
+    assert ".modify = eigrpd_named_metric_weights_modify" in k6_block
+    assert ".destroy = eigrpd_named_metric_weights_K6_destroy" in k6_block
+
     # These boolean leaves have YANG defaults, so FRR permits modify but not
     # destroy callbacks for the leaf itself.
     assert "eigrpd_named_af_interface_next_hop_destroy" not in nb
     assert "eigrpd_named_af_interface_split_horizon_destroy" not in nb
 
 
-def test_frr_eigrp_yang_patch_is_last_and_patch_detection_is_semantic():
+def test_final_yang_patch_and_patch_detection_are_semantic():
     series = [
         line.strip()
         for line in read(ROOT / "frr" / "patch" / "series").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
     assert series[-1] == "frr-eigrp-yang.patch"
+    assert "eigrp-grammar-placement.patch" not in series
+
+    patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
+    assert "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6" in patch
+    assert "+    container metric-weights {" in patch
+    assert "-      container metric-weights {" in patch
+    assert "+      leaf K6 { type uint8; }" in patch
+    assert "+        leaf dampened { type empty; }" not in patch.split("container neighbor-maximum-prefix", 1)[0]
 
     installer = read(ROOT / "tools" / "frr-install.sh")
     assert "patch_semantically_applied()" in installer
@@ -513,7 +540,8 @@ def test_frr_eigrp_yang_patch_is_last_and_patch_detection_is_semantic():
     assert "EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY" in installer
     assert "frr-eigrp-yang.patch)" in installer
     assert "EIGRP_STEP1_CONFIG_COMPLETE" in installer
-
+    assert "eigrp-grammar-placement.patch)" not in installer
+    assert "eigrp_grammar_schema_current" in installer
 
 
 def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
@@ -555,6 +583,7 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         "neighbor-maximum-prefix",
         "log-neighbor-changes",
         "log-neighbor-warnings",
+        "metric-weights/K6",
         "af-interface/authentication-encryption-type",
         "af-interface/authentication-password",
         "af-interface/summary-address/administrative-distance",
@@ -592,7 +621,7 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
     # Stage 1 is the executable acceptance matrix for the added/expanded forms.
     for line in (
         "neighbor 10.0.0.1 description STEP1-PEER",
-        "neighbor 10.0.0.1 maximum-prefix 100 80 dampened",
+        "neighbor 10.0.0.1 maximum-prefix 100 80",
         "no eigrp log-neighbor-changes",
         "eigrp log-neighbor-warnings 30",
         "authentication mode hmac-sha-256 0 Step1Secret",
@@ -609,6 +638,63 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500 distance 20",
     ):
         assert line in uut
+
+
+
+def test_named_cli_grammar_matches_cisco_documented_forms():
+    cli = read(CLI)
+    classic = read(CLASSIC_CLI)
+    patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
+
+    assert '"neighbor <A.B.C.D|X:X::X:X> maximum-prefix (1-4294967295) [(1-100)] [warning-only]"' in cli
+    assert "neighbor-policy/maximum-prefix/dampened" not in read(ROOT / "frr" / "eigrp_northbound.c")
+    assert '"authentication mode <md5|hmac-sha-256 <0|7> WORD>"' in cli
+    assert '"summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
+    assert 'when "../administrative-distance";' in patch
+
+    for grammar in (
+        '"no neighbor <A.B.C.D|X:X::X:X> maximum-prefix"',
+        '"no neighbor maximum-prefix"',
+        '"no eigrp log-neighbor-warnings"',
+        '"no bandwidth-percent"',
+        '"no hello-interval"',
+        '"no hold-time"',
+        '"no authentication mode"',
+        '"no distance eigrp"',
+        '"no maximum-prefix"',
+        '"no metric maximum-hops"',
+        '"no eigrp event-log-size"',
+        '"no redistribute maximum-prefix"',
+    ):
+        assert grammar in cli
+
+    assert '"no authentication key-chain WORD"' in cli
+    uut = read(ROOT / "tools" / "frr-named-uut.sh")
+    assert '"no authentication key-chain EIGRP-UUT-4453"' in uut
+    assert '"no authentication key-chain EIGRP-UUT6-4453"' in uut
+    assert '"no default-metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)"' in cli
+    assert '"no metric weights"' in classic
+    assert '"no timers active-time"' in classic
+    assert '"no variance"' in classic
+
+    metric_c = read(ROOT / "eigrpd" / "eigrp_metric.c")
+    metric_h = read(ROOT / "eigrpd" / "eigrp_metric.h")
+    assert "uint8_t k6;" in metric_h
+    assert "context->runtime->k_values[5] = weights->k6;" in metric_c
+    assert "context->runtime->k_values[5] = EIGRP_K6_DEFAULT;" in metric_c
+    assert 'vty_out(vty, " metric weights 0 %s %s %s %s %s",' in classic
+
+    # These documented no-forms intentionally retain identifying arguments.
+    assert '"no neighbor <A.B.C.D|X:X::X:X> description [LINE]"' in cli
+    assert '"no default-information <in|out> [WORD]"' in cli
+    assert '"no summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
+
+    # Bare reset forms must also have bare-form docstrings; FRR clippy treats
+    # help text for removed arguments as an excessive-docstring error.
+    assert '"no timers active-time",\n\tNO_STR\n\t"Adjust routing timers\\n"\n\t"Time limit for active state\\n")' in classic
+    assert '"no variance",\n\tNO_STR\n\t"Control load balancing variance\\n")' in classic
+    assert '"no authentication mode",\n      NO_STR\n      "Authentication subcommands\\n"\n      "Authentication mode\\n")' in cli
+    assert '"no metric maximum-hops",\n      NO_STR "Modify EIGRP metric behavior\\n" "Maximum hop count\\n")' in cli
 
 
 def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
@@ -635,6 +721,9 @@ def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
         ".destroy = eigrpd_named_log_neighbor_warnings_interval_destroy",
         ".destroy = eigrpd_named_redistribute_route_map_destroy",
         ".destroy = eigrpd_named_summary_metric_detail_destroy",
+        # K6 is the optional metric-weights scalar; deleting it restores
+        # the RFC/default coefficient while preserving TOS/K1-K5.
+        ".destroy = eigrpd_named_metric_weights_K6_destroy",
         # Prefix-limit scalar and empty-leaf callback families.
         ".destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy",
         ".create = eigrpd_named_neighbor_prefix_limit_empty_create",
@@ -652,7 +741,6 @@ def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
     # nb_validate_callbacks() treats that as unneeded and requires CREATE.
     for xpath in (
         "neighbor-policy/maximum-prefix/warning-only",
-        "neighbor-policy/maximum-prefix/dampened",
         "neighbor-maximum-prefix/warning-only",
         "neighbor-maximum-prefix/dampened",
         "topology/maximum-prefix/warning-only",

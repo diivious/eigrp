@@ -117,7 +117,7 @@ extern int eigrp_cli_named_maximum_paths_apply(struct vty *vty,
     const char *maximum_paths, bool remove);
 extern int eigrp_cli_named_metric_weights_apply(struct vty *vty,
     const char *tos, const char *k1, const char *k2, const char *k3,
-    const char *k4, const char *k5, bool has_k5, bool remove);
+    const char *k4, const char *k5, const char *k6, bool remove);
 extern int eigrp_cli_named_redistribute_apply(struct vty *vty,
     const char *protocol, uint32_t bandwidth, const char *bandwidth_text,
     uint32_t delay, const char *delay_text, uint8_t reliability,

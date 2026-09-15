@@ -1815,7 +1815,7 @@ static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
 	eigrp_metric_weights_t weights;
 	uint16_t asn;
 
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
+	if (!eigrpd_named_child_context(dnode, &name, &afi, &vrf, &asn)
 	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
 						      &context))
 		return NB_ERR_INCONSISTENCY;
@@ -1825,6 +1825,9 @@ static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
 	weights.k3 = yang_dnode_get_uint8(dnode, "K3");
 	weights.k4 = yang_dnode_get_uint8(dnode, "K4");
 	weights.k5 = yang_dnode_get_uint8(dnode, "K5");
+	weights.k6 = yang_dnode_exists(dnode, "K6")
+			     ? yang_dnode_get_uint8(dnode, "K6")
+			     : EIGRP_K6_DEFAULT;
 	return eigrpd_named_config_result(
 		eigrp_metric_weights_update(&context, &weights), false);
 }
@@ -1843,6 +1846,35 @@ static int eigrpd_named_metric_weights_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+static int eigrpd_named_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
+{
+	const struct lyd_node *parent;
+	const char *name, *vrf;
+	eigrp_address_family_t afi;
+	eigrp_instance_context_t context;
+	eigrp_metric_weights_t weights;
+	uint16_t asn;
+
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	parent = lyd_parent(args->dnode);
+	if (!parent
+	    || !eigrpd_named_child_context(parent, &name, &afi, &vrf, &asn)
+	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+					      &context))
+		return NB_ERR_INCONSISTENCY;
+
+	weights.tos = yang_dnode_get_uint8(parent, "tos");
+	weights.k1 = yang_dnode_get_uint8(parent, "K1");
+	weights.k2 = yang_dnode_get_uint8(parent, "K2");
+	weights.k3 = yang_dnode_get_uint8(parent, "K3");
+	weights.k4 = yang_dnode_get_uint8(parent, "K4");
+	weights.k5 = yang_dnode_get_uint8(parent, "K5");
+	weights.k6 = EIGRP_K6_DEFAULT;
+	return eigrpd_named_config_result(
+		eigrp_metric_weights_update(&context, &weights), false);
+}
+
 static int eigrpd_named_metric_weights_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -1852,7 +1884,7 @@ static int eigrpd_named_metric_weights_destroy(struct nb_cb_destroy_args *args)
 
 	if (args->event != NB_EV_APPLY)
 		return NB_OK;
-	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
 	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
 						      &context))
 		return NB_ERR_INCONSISTENCY;
@@ -2614,7 +2646,7 @@ static eigrp_result_t eigrpd_instance_metric_weight_update(
 	eigrp_instance_context_t context = {.runtime = eigrp};
 	eigrp_metric_weights_t weights;
 
-	if (!eigrp || index >= 5)
+	if (!eigrp || index >= 6)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	weights.tos = 0;
 	weights.k1 = eigrp->k_values[0];
@@ -2622,6 +2654,7 @@ static eigrp_result_t eigrpd_instance_metric_weight_update(
 	weights.k3 = eigrp->k_values[2];
 	weights.k4 = eigrp->k_values[3];
 	weights.k5 = eigrp->k_values[4];
+	weights.k6 = eigrp->k_values[5];
 	switch (index) {
 	case 0:
 		weights.k1 = value;
@@ -2637,6 +2670,9 @@ static eigrp_result_t eigrpd_instance_metric_weight_update(
 		break;
 	case 4:
 		weights.k5 = value;
+		break;
+	case 5:
+		weights.k6 = value;
 		break;
 	default:
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -2812,19 +2848,14 @@ eigrpd_instance_metric_weights_K6_modify(struct nb_cb_modify_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[5] = yang_dnode_get_uint8(args->dnode, NULL);
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(
+		       eigrp, 5, yang_dnode_get_uint8(args->dnode, NULL))
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 static int
@@ -2832,19 +2863,13 @@ eigrpd_instance_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
 
-	switch (args->event) {
-	case NB_EV_VALIDATE:
-	case NB_EV_PREPARE:
-	case NB_EV_ABORT:
-		/* NOTHING */
-		break;
-	case NB_EV_APPLY:
-		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp->k_values[5] = EIGRP_K6_DEFAULT;
-		break;
-	}
-
-	return NB_OK;
+	if (args->event != NB_EV_APPLY)
+		return NB_OK;
+	eigrp = nb_running_get_entry(args->dnode, NULL, true);
+	return eigrpd_instance_metric_weight_update(eigrp, 5, EIGRP_K6_DEFAULT)
+		       == EIGRP_RESULT_SUCCESS
+	       ? NB_OK
+	       : NB_ERR_INCONSISTENCY;
 }
 
 /*
@@ -3585,34 +3610,10 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
 			}
 		},
-		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/dampened",
-			.cbs = {
-				.create = eigrpd_named_neighbor_prefix_limit_empty_create,
-				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
-			}
-		},
-		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/reset-time",
-			.cbs = {
-				.modify = eigrpd_named_neighbor_prefix_limit_modify,
-				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
-			}
-		},
-		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/restart",
-			.cbs = {
-				.modify = eigrpd_named_neighbor_prefix_limit_modify,
-				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
-			}
-		},
-		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/restart-count",
-			.cbs = {
-				.modify = eigrpd_named_neighbor_prefix_limit_modify,
-				.destroy = eigrpd_named_neighbor_prefix_limit_detail_destroy,
-			}
-		},
+
+
+
+
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix",
 			.cbs = {
@@ -4000,7 +4001,7 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			}
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights",
 			.cbs = {
 				.create = eigrpd_named_metric_weights_create,
 				.destroy = eigrpd_named_metric_weights_destroy,
@@ -4008,28 +4009,35 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 			}
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights/tos",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/tos",
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights/K1",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/K1",
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights/K2",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/K2",
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights/K3",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/K3",
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights/K4",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/K4",
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
 		},
 		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-weights/K5",
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/K5",
 			.cbs = { .modify = eigrpd_named_metric_weights_modify }
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/metric-weights/K6",
+			.cbs = {
+				.modify = eigrpd_named_metric_weights_modify,
+				.destroy = eigrpd_named_metric_weights_K6_destroy,
+			}
 		},
 		{
 			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/distribute-list",
