@@ -31,4 +31,4 @@ eigrpd/.libs/
 eigrpd/eigrpd
 eigrpd/eigrpd.conf
 eigrpd/eigrpd.xref
-eigrpd/eigrp_cli_clippy.c
+

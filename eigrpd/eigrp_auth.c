@@ -436,20 +436,39 @@ eigrp_result_t eigrp_auth_mode_delete(eigrp_interface_context_t *context)
 eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
 					  const char *keychain)
 {
-	char *copy;
+	char *config_copy = NULL;
+	char *runtime_copy = NULL;
 
 	if (!keychain || !keychain[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
-	copy = eigrp_auth_string_duplicate(keychain);
-	if (!copy)
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	free(context->config->keychain);
-	context->config->keychain = copy;
+	/* Configuration and runtime have independent ownership.  Allocate both
+	 * copies before replacing either value so an allocation failure cannot
+	 * leave retained named configuration and the active interface out of
+	 * sync. */
+	if (context->config) {
+		config_copy = eigrp_auth_string_duplicate(keychain);
+		if (!config_copy)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
+	if (context->runtime) {
+		runtime_copy = eigrp_auth_string_duplicate(keychain);
+		if (!runtime_copy) {
+			free(config_copy);
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		}
+	}
+
+	if (context->config) {
+		free(context->config->keychain);
+		context->config->keychain = config_copy;
+	}
+	if (context->runtime) {
+		free(context->runtime->params.auth_keychain);
+		context->runtime->params.auth_keychain = runtime_copy;
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -457,9 +476,13 @@ eigrp_result_t eigrp_auth_keychain_delete(eigrp_interface_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	free(context->config->keychain);
-	context->config->keychain = NULL;
+	if (context->config) {
+		free(context->config->keychain);
+		context->config->keychain = NULL;
+	}
+	if (context->runtime) {
+		free(context->runtime->params.auth_keychain);
+		context->runtime->params.auth_keychain = NULL;
+	}
 	return EIGRP_RESULT_SUCCESS;
 }

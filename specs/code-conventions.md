@@ -161,6 +161,30 @@ do not pretend the two front ends call the same public target when they do not.
 When no classic implementation exists, the named command still terminates at its
 own real EIGRP target as required by the feature target rule.
 
+### Authentication exception
+
+Authentication is currently an explicit non-converged exception under the
+no-FRR-change rule.  The existing classic FRR northbound callbacks directly
+mutate the runtime interface fields:
+
+```text
+classic authentication -> FRR classic callback -> ei->params.auth_type/auth_keychain
+named authentication   -> FRR named callback   -> eigrp_auth_* target -> runtime/config
+```
+
+The named path must use the EIGRP-owned `eigrp_auth_*` targets and those targets
+must update the active EIGRP interface when one exists.  Do not route named mode
+through the classic callback merely to claim reuse.  Unless the classic FRR
+callback is intentionally changed in a later approved increment, authentication
+must not be described or tested as true classic/named endpoint convergence.
+
+MD5 plus key-chain has a usable runtime path.  The named direct-password
+HMAC-SHA-256 form remains retained configuration when an active runtime is
+present and returns `EIGRP_RESULT_NOT_IMPLEMENTED` from the EIGRP authentication
+target until the SHA-256 runtime key-material and receive-validation path is
+implemented.  Do not silently substitute a configured key-chain for the named
+HMAC password.
+
 ## 7. Host/Platform Naming
 
 Portable EIGRP modules describe EIGRP protocol concepts. Host adapters describe the host integration point.
