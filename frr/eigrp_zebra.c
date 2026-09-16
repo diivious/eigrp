@@ -273,6 +273,95 @@ static int eigrp_is_type_redistributed(int type, vrf_id_t vrf_id)
 					   vrf_id));
 }
 
+static int eigrp_zebra_redistribute_type(const char *protocol)
+{
+	int type;
+
+	if (!protocol || !protocol[0])
+		return -1;
+	type = proto_redistnum(AFI_IP, protocol);
+	if (type == 0 || type >= ZEBRA_ROUTE_MAX)
+		return -1;
+	return type;
+}
+
+static eigrp_metrics_t eigrp_zebra_redistribute_metric(
+	const eigrp_metric_values_t *metric)
+{
+	eigrp_metrics_t runtime_metric = {0};
+
+	if (!metric)
+		return runtime_metric;
+	runtime_metric.bandwidth = metric->bandwidth;
+	runtime_metric.delay = metric->delay;
+	runtime_metric.reliability = metric->reliability;
+	runtime_metric.load = metric->load;
+	runtime_metric.mtu[0] = metric->mtu & 0xff;
+	runtime_metric.mtu[1] = (metric->mtu >> 8) & 0xff;
+	runtime_metric.mtu[2] = 0;
+	return runtime_metric;
+}
+
+eigrp_result_t eigrp_zebra_redistribute_update(
+	eigrp_instance_t *eigrp, const char *protocol,
+	const eigrp_metric_values_t *metric, const char *route_map)
+{
+	eigrp_metrics_t runtime_metric;
+	int type;
+
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!eigrp_zclient)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	type = eigrp_zebra_redistribute_type(protocol);
+	if (type < 0)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	runtime_metric = eigrp_zebra_redistribute_metric(metric);
+	if (eigrp_is_type_redistributed(type, eigrp->vrf_id)) {
+		if (!eigrp_metrics_is_same(runtime_metric, eigrp->dmetric[type])) {
+			eigrp->dmetric[type] = runtime_metric;
+			eigrp_external_routes_refresh(eigrp, type);
+		}
+	} else {
+		eigrp->dmetric[type] = runtime_metric;
+		zclient_redistribute(ZEBRA_REDISTRIBUTE_ADD, eigrp_zclient, AFI_IP,
+				     type, 0, eigrp->vrf_id);
+		++eigrp->redistribute;
+	}
+
+	/* Zebra subscription is real, but the current external-route receive path
+	 * does not yet install redistributed routes into EIGRP topology state or
+	 * apply route-map policy.  Keep the named configuration and report the
+	 * runtime feature as incomplete until that data path is implemented.
+	 */
+	(void)route_map;
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_zebra_redistribute_delete(eigrp_instance_t *eigrp,
+						const char *protocol)
+{
+	int type;
+
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!eigrp_zclient)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	type = eigrp_zebra_redistribute_type(protocol);
+	if (type < 0)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_is_type_redistributed(type, eigrp->vrf_id))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	memset(&eigrp->dmetric[type], 0, sizeof(eigrp->dmetric[type]));
+	zclient_redistribute(ZEBRA_REDISTRIBUTE_DELETE, eigrp_zclient, AFI_IP,
+			     type, 0, eigrp->vrf_id);
+	if (eigrp->redistribute > 0)
+		--eigrp->redistribute;
+	return EIGRP_RESULT_SUCCESS;
+}
+
 int eigrp_redistribute_set(eigrp_instance_t *eigrp, int type,
 			   struct eigrp_metrics metric)
 {

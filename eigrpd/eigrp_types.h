@@ -18,6 +18,16 @@ typedef enum eigrp_address_family {
 	EIGRP_ADDRESS_FAMILY_IPV6 = 6,
 } eigrp_address_family_t;
 
+typedef enum eigrp_offset_direction {
+	EIGRP_OFFSET_IN = 0,
+	EIGRP_OFFSET_OUT,
+} eigrp_offset_direction_t;
+
+typedef enum eigrp_distribute_list_type {
+	EIGRP_DISTRIBUTE_ACCESS_LIST = 0,
+	EIGRP_DISTRIBUTE_PREFIX_LIST,
+} eigrp_distribute_list_type_t;
+
 /* EIGRP topology identifiers are 16-bit values on the wire. */
 typedef uint16_t eigrp_topology_id_t;
 
@@ -87,6 +97,8 @@ typedef struct eigrp_interface_config eigrp_interface_config_t;
 typedef struct eigrp_network_config eigrp_network_config_t;
 typedef struct eigrp_neighbor_config eigrp_neighbor_config_t;
 typedef struct eigrp_summary_config eigrp_summary_config_t;
+typedef struct eigrp_redistribute_config eigrp_redistribute_config_t;
+typedef struct eigrp_distribute_list_config eigrp_distribute_list_config_t;
 
 typedef struct eigrp_state_request {
 	eigrp_address_family_t afi;

@@ -14,6 +14,8 @@
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_network.h"
+#include "eigrpd/eigrp_filter.h"
+#include "eigrpd/eigrp_redistribute.h"
 
 static eigrp_instance_parent_config_t *eigrp_instance_parents;
 
@@ -139,6 +141,8 @@ static void eigrp_instance_address_family_free(eigrp_address_family_config_t *af
 	eigrp_network_config_delete_all(af);
 	eigrp_neighbor_static_delete_all(af);
 	eigrp_interface_config_delete_all(af);
+	eigrp_redistribute_config_delete_all(af);
+	eigrp_distribute_list_config_delete_all(af);
 	free(af->vrf_name);
 	free(af);
 }

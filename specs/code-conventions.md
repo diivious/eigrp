@@ -185,6 +185,40 @@ target until the SHA-256 runtime key-material and receive-validation path is
 implemented.  Do not silently substitute a configured key-chain for the named
 HMAC password.
 
+### Redistribution and distribute-list exception
+
+Redistribution and distribute-list are also intentionally non-converged at the
+public classic/named endpoint while the existing FRR classic callbacks remain
+unchanged.  The named path owns portable retained state and crosses the host
+boundary only through EIGRP southbound targets:
+
+```text
+classic redistribute  -> FRR classic NB -> eigrp_redistribute_set/unset()
+named redistribute    -> FRR named NB   -> eigrp_redistribute_update/delete()
+                                      -> portable redistribution state
+                                      -> eigrp_southbound_redistribute_*()
+                                      -> FRR Zebra subscription
+
+classic distribute-list -> FRR distribute framework -> legacy filter callback
+named distribute-list   -> FRR named NB -> eigrp_distribute_list_*()
+                                         -> portable filter state
+                                         -> eigrp_southbound_distribute_list_*()
+                                         -> FRR filter objects/runtime
+```
+
+Do not route the named path through `eigrp_redistribute_set/unset()` or the FRR
+`group_distribute_list_*` callbacks merely to reuse the classic implementation.
+Those endpoints consume FRR-owned state.  A future approved classic refactor may
+move both surfaces onto the portable targets, but until then this pair must not
+be described or tested as true classic/named endpoint convergence.
+
+Redistribution configuration, including route-map policy, is retained by the
+portable named state.  The current FRR external-route receive callback does not
+yet populate EIGRP topology state or apply route-map policy, so the named
+southbound update reports `EIGRP_RESULT_NOT_IMPLEMENTED` after establishing the
+Zebra redistribution subscription.  This preserves truthful feature status while
+still exercising the correct host boundary.
+
 ## 7. Host/Platform Naming
 
 Portable EIGRP modules describe EIGRP protocol concepts. Host adapters describe the host integration point.

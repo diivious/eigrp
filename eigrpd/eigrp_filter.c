@@ -18,6 +18,7 @@
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_packet.h"
+#include "eigrpd/eigrp_southbound.h"
 
 #include "plist.h"
 #include "privs.h"
@@ -325,11 +326,61 @@ eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
 				   interface_name);
 }
 
+struct eigrp_distribute_list_config {
+	eigrp_distribute_list_type_t type;
+	eigrp_offset_direction_t direction;
+	char *name;
+	char *interface_name;
+	eigrp_distribute_list_config_t *next;
+};
+
+static char *eigrp_distribute_string_duplicate(const char *value)
+{
+	size_t len;
+	char *copy;
+
+	if (!value)
+		return NULL;
+	len = strlen(value) + 1;
+	copy = malloc(len);
+	if (!copy)
+		return NULL;
+	memcpy(copy, value, len);
+	return copy;
+}
+
+static bool eigrp_distribute_interface_equal(const char *a, const char *b)
+{
+	if (!a || !b)
+		return a == b;
+	return strcmp(a, b) == 0;
+}
+
+static eigrp_distribute_list_config_t *eigrp_distribute_list_config_find(
+	eigrp_address_family_config_t *af, eigrp_distribute_list_type_t type,
+	eigrp_offset_direction_t direction, const char *interface_name)
+{
+	eigrp_distribute_list_config_t *config;
+
+	if (!af)
+		return NULL;
+	for (config = af->distribute_lists; config; config = config->next) {
+		if (config->type == type && config->direction == direction
+		    && eigrp_distribute_interface_equal(config->interface_name,
+							 interface_name))
+			return config;
+	}
+	return NULL;
+}
+
 static eigrp_result_t eigrp_distribute_list_validate(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
-	const char *name, eigrp_offset_direction_t direction)
+	const char *name, eigrp_offset_direction_t direction,
+	const char *interface_name)
 {
 	if (!name || !name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (interface_name && !interface_name[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (type != EIGRP_DISTRIBUTE_ACCESS_LIST
 	    && type != EIGRP_DISTRIBUTE_PREFIX_LIST)
@@ -341,17 +392,84 @@ static eigrp_result_t eigrp_distribute_list_validate(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+static bool eigrp_distribute_runtime_result_committable(eigrp_result_t result)
+{
+	return result == EIGRP_RESULT_SUCCESS
+	       || result == EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
 eigrp_result_t eigrp_distribute_list_update(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
 	const char *interface_name)
 {
+	eigrp_distribute_list_config_t *config = NULL;
+	eigrp_distribute_list_config_t *new_config = NULL;
+	char *new_name;
 	eigrp_result_t result;
 
-	(void)interface_name;
-	result = eigrp_distribute_list_validate(context, type, name, direction);
-	return result == EIGRP_RESULT_SUCCESS ? EIGRP_RESULT_NOT_IMPLEMENTED
-					      : result;
+	result = eigrp_distribute_list_validate(context, type, name, direction,
+						 interface_name);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+
+	new_name = eigrp_distribute_string_duplicate(name);
+	if (!new_name)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+
+	if (context->config) {
+		config = eigrp_distribute_list_config_find(
+			context->config, type, direction, interface_name);
+		if (!config) {
+			new_config = calloc(1, sizeof(*new_config));
+			if (!new_config) {
+				free(new_name);
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+			}
+			new_config->type = type;
+			new_config->direction = direction;
+			new_config->name = new_name;
+			new_name = NULL;
+			if (interface_name) {
+				new_config->interface_name =
+					eigrp_distribute_string_duplicate(interface_name);
+				if (!new_config->interface_name) {
+					free(new_config->name);
+					free(new_config);
+					return EIGRP_RESULT_INTERNAL_FAILURE;
+				}
+			}
+		}
+	}
+
+	result = EIGRP_RESULT_SUCCESS;
+	if (context->runtime)
+		result = eigrp_southbound_distribute_list_update(
+			context->runtime, type, name, direction, interface_name);
+	if (!eigrp_distribute_runtime_result_committable(result)) {
+		free(new_name);
+		if (new_config) {
+			free(new_config->interface_name);
+			free(new_config->name);
+			free(new_config);
+		}
+		return result;
+	}
+
+	if (context->config) {
+		if (config) {
+			free(config->name);
+			config->name = new_name;
+			new_name = NULL;
+		} else if (new_config) {
+			new_config->next = context->config->distribute_lists;
+			context->config->distribute_lists = new_config;
+			new_config = NULL;
+		}
+	}
+
+	free(new_name);
+	return result;
 }
 
 eigrp_result_t eigrp_distribute_list_delete(
@@ -359,6 +477,68 @@ eigrp_result_t eigrp_distribute_list_delete(
 	const char *name, eigrp_offset_direction_t direction,
 	const char *interface_name)
 {
-	return eigrp_distribute_list_update(context, type, name, direction,
-					   interface_name);
+	eigrp_distribute_list_config_t **cursor = NULL;
+	eigrp_distribute_list_config_t *config = NULL;
+	eigrp_result_t result;
+
+	result = eigrp_distribute_list_validate(context, type, name, direction,
+						 interface_name);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+
+	if (context->config) {
+		for (cursor = &context->config->distribute_lists; *cursor;
+		     cursor = &(*cursor)->next) {
+			if ((*cursor)->type != type
+			    || (*cursor)->direction != direction
+			    || strcmp((*cursor)->name, name) != 0
+			    || !eigrp_distribute_interface_equal(
+				    (*cursor)->interface_name, interface_name))
+				continue;
+			config = *cursor;
+			break;
+		}
+		/* The retained named filter entry is the ownership marker for this
+		 * host mutation.  Do not clear a filter installed by classic FRR
+		 * configuration when no named entry exists.
+		 */
+		if (!config)
+			return EIGRP_RESULT_NOT_FOUND;
+	}
+
+	result = EIGRP_RESULT_NOT_FOUND;
+	if (context->runtime) {
+		result = eigrp_southbound_distribute_list_delete(
+			context->runtime, type, name, direction, interface_name);
+		if (result != EIGRP_RESULT_SUCCESS
+		    && result != EIGRP_RESULT_NOT_FOUND
+		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
+			return result;
+	}
+
+	if (config) {
+		*cursor = config->next;
+		free(config->interface_name);
+		free(config->name);
+		free(config);
+		if (result == EIGRP_RESULT_NOT_FOUND || !context->runtime)
+			result = EIGRP_RESULT_SUCCESS;
+	}
+	return result;
+}
+
+void eigrp_distribute_list_config_delete_all(eigrp_address_family_config_t *af)
+{
+	eigrp_distribute_list_config_t *config;
+	eigrp_distribute_list_config_t *next;
+
+	if (!af)
+		return;
+	for (config = af->distribute_lists; config; config = next) {
+		next = config->next;
+		free(config->interface_name);
+		free(config->name);
+		free(config);
+	}
+	af->distribute_lists = NULL;
 }

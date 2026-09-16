@@ -17,6 +17,7 @@ eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
 					 const char *route_map);
 eigrp_result_t eigrp_redistribute_delete(eigrp_instance_context_t *context,
 					 const char *protocol);
+void eigrp_redistribute_config_delete_all(eigrp_address_family_config_t *af);
 
 eigrp_result_t eigrp_redistribute_maximum_prefix_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);

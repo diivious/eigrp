@@ -256,6 +256,23 @@ static bool eigrpd_named_instance_context_resolve(
 	return context->config != NULL;
 }
 
+static bool eigrpd_named_runtime_context_resolve(
+	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn,
+	eigrp_instance_context_t *context)
+{
+	struct vrf *runtime_vrf;
+
+	if (!eigrpd_named_instance_context_resolve(name, afi, vrf, asn, context))
+		return false;
+	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+		runtime_vrf = vrf_lookup_by_name(vrf);
+		if (runtime_vrf)
+			context->runtime =
+				eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id);
+	}
+	return true;
+}
+
 static void eigrpd_named_eventlog_runtime_resolve(
 	eigrp_address_family_t afi, const char *vrf_name, uint16_t asn,
 	eigrp_instance_context_t *context)
@@ -2106,7 +2123,7 @@ static int eigrpd_named_redistribute_apply_options(const struct lyd_node *dnode,
 	uint16_t asn;
 
 	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
-	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+	    || !eigrpd_named_runtime_context_resolve(name, afi, vrf, asn,
 						      &context))
 		return NB_ERR_INCONSISTENCY;
 	protocol = yang_dnode_get_string(dnode, "protocol");
@@ -2193,7 +2210,7 @@ static int eigrpd_named_redistribute_destroy(struct nb_cb_destroy_args *args)
 		return NB_OK;
 	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
 						  &asn)
-	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+	    || !eigrpd_named_runtime_context_resolve(name, afi, vrf, asn,
 						      &context))
 		return NB_ERR_INCONSISTENCY;
 	return eigrpd_named_config_result(
@@ -2261,7 +2278,7 @@ static int eigrpd_named_distribute_list_modify(struct nb_cb_modify_args *args)
     eigrp_offset_direction_t dir;
     if (args->event != NB_EV_APPLY) return NB_OK;
     if (!eigrpd_named_topology_child_context(list_node, &name, &afi, &vrf, &asn)
-        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+        || !eigrpd_named_runtime_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
     type = strcmp(args->dnode->schema->name, "prefix-list") == 0
                ? EIGRP_DISTRIBUTE_PREFIX_LIST : EIGRP_DISTRIBUTE_ACCESS_LIST;
     direction = direction_node->schema->name;
@@ -2280,7 +2297,7 @@ static int eigrpd_named_distribute_list_destroy(struct nb_cb_destroy_args *args)
     eigrp_distribute_list_type_t type; eigrp_offset_direction_t dir;
     if (args->event != NB_EV_APPLY) return NB_OK;
     if (!eigrpd_named_topology_child_context(list_node, &name, &afi, &vrf, &asn)
-        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
+        || !eigrpd_named_runtime_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
     type = strcmp(args->dnode->schema->name, "prefix-list") == 0
                ? EIGRP_DISTRIBUTE_PREFIX_LIST : EIGRP_DISTRIBUTE_ACCESS_LIST;
     direction = direction_node->schema->name;

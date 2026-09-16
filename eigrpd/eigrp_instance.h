@@ -33,6 +33,8 @@ struct eigrp_address_family_config {
 	eigrp_network_config_t *networks;
 	eigrp_neighbor_config_t *neighbors;
 	eigrp_interface_config_t *interfaces;
+	eigrp_redistribute_config_t *redistributions;
+	eigrp_distribute_list_config_t *distribute_lists;
 	eigrp_address_family_config_t *next;
 };
 

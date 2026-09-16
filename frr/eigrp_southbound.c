@@ -6,9 +6,13 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_network.h"
+#include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_southbound.h"
+#include "eigrp_zebra.h"
 
+#include "plist.h"
 #include "vrf.h"
 #include "workqueue.h"
 
@@ -319,5 +323,166 @@ eigrp_result_t eigrp_southbound_network_delete(
 
 	if (changed)
 		*changed = true;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_southbound_redistribute_update(
+	eigrp_instance_t *eigrp, const char *protocol,
+	const eigrp_metric_values_t *metric, const char *route_map)
+{
+	return eigrp_zebra_redistribute_update(eigrp, protocol, metric, route_map);
+}
+
+eigrp_result_t eigrp_southbound_redistribute_delete(
+	eigrp_instance_t *eigrp, const char *protocol)
+{
+	return eigrp_zebra_redistribute_delete(eigrp, protocol);
+}
+
+static int eigrp_southbound_filter_slot(eigrp_offset_direction_t direction)
+{
+	return direction == EIGRP_OFFSET_OUT ? EIGRP_FILTER_OUT : EIGRP_FILTER_IN;
+}
+
+static void eigrp_southbound_distribute_timer_process(struct event *event)
+{
+	eigrp_instance_t *eigrp = EVENT_ARG(event);
+
+	eigrp->t_distribute = NULL;
+	eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER, NULL);
+}
+
+static void eigrp_southbound_distribute_timer_interface(struct event *event)
+{
+	eigrp_interface_t *ei = EVENT_ARG(event);
+
+	ei->t_distribute = NULL;
+	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER, NULL);
+}
+
+static void eigrp_southbound_distribute_schedule_process(eigrp_instance_t *eigrp)
+{
+	if (eigrp->t_distribute)
+		event_cancel(&eigrp->t_distribute);
+	event_add_timer(eigrpd_event, eigrp_southbound_distribute_timer_process,
+			eigrp, 10,
+			&eigrp->t_distribute);
+}
+
+static void eigrp_southbound_distribute_schedule_interface(eigrp_interface_t *ei)
+{
+	if (ei->t_distribute)
+		event_cancel(&ei->t_distribute);
+	event_add_timer(eigrpd_event, eigrp_southbound_distribute_timer_interface,
+			ei, 10,
+			&ei->t_distribute);
+}
+
+eigrp_result_t eigrp_southbound_distribute_list_update(
+	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
+	const char *name, eigrp_offset_direction_t direction,
+	const char *interface_name)
+{
+	eigrp_interface_t *ei = NULL;
+	struct access_list *access = NULL;
+	struct prefix_list *prefix = NULL;
+	bool changed = false;
+	int slot;
+
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!name || !name[0]
+	    || (direction != EIGRP_OFFSET_IN && direction != EIGRP_OFFSET_OUT))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (type != EIGRP_DISTRIBUTE_ACCESS_LIST
+	    && type != EIGRP_DISTRIBUTE_PREFIX_LIST)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (interface_name) {
+		ei = eigrp_intf_lookup_by_name(eigrp, interface_name);
+		/* Configuration may precede creation of the runtime interface. */
+		if (!ei)
+			return EIGRP_RESULT_SUCCESS;
+	}
+
+	slot = eigrp_southbound_filter_slot(direction);
+	if (type == EIGRP_DISTRIBUTE_ACCESS_LIST) {
+		access = access_list_lookup(AFI_IP, name);
+		if (ei) {
+			changed = ei->list[slot] != access;
+			ei->list[slot] = access;
+		} else {
+			changed = eigrp->list[slot] != access;
+			eigrp->list[slot] = access;
+		}
+	} else {
+		prefix = prefix_list_lookup(AFI_IP, name);
+		if (ei) {
+			changed = ei->prefix[slot] != prefix;
+			ei->prefix[slot] = prefix;
+		} else {
+			changed = eigrp->prefix[slot] != prefix;
+			eigrp->prefix[slot] = prefix;
+		}
+	}
+
+	if (changed) {
+		if (ei)
+			eigrp_southbound_distribute_schedule_interface(ei);
+		else
+			eigrp_southbound_distribute_schedule_process(eigrp);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_southbound_distribute_list_delete(
+	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
+	const char *name, eigrp_offset_direction_t direction,
+	const char *interface_name)
+{
+	eigrp_interface_t *ei = NULL;
+	bool changed = false;
+	int slot;
+
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!name || !name[0]
+	    || (direction != EIGRP_OFFSET_IN && direction != EIGRP_OFFSET_OUT))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (type != EIGRP_DISTRIBUTE_ACCESS_LIST
+	    && type != EIGRP_DISTRIBUTE_PREFIX_LIST)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (interface_name) {
+		ei = eigrp_intf_lookup_by_name(eigrp, interface_name);
+		if (!ei)
+			return EIGRP_RESULT_NOT_FOUND;
+	}
+
+	slot = eigrp_southbound_filter_slot(direction);
+	if (type == EIGRP_DISTRIBUTE_ACCESS_LIST) {
+		if (ei) {
+			changed = ei->list[slot] != NULL;
+			ei->list[slot] = NULL;
+		} else {
+			changed = eigrp->list[slot] != NULL;
+			eigrp->list[slot] = NULL;
+		}
+	} else {
+		if (ei) {
+			changed = ei->prefix[slot] != NULL;
+			ei->prefix[slot] = NULL;
+		} else {
+			changed = eigrp->prefix[slot] != NULL;
+			eigrp->prefix[slot] = NULL;
+		}
+	}
+
+	if (!changed)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (ei)
+		eigrp_southbound_distribute_schedule_interface(ei);
+	else
+		eigrp_southbound_distribute_schedule_process(eigrp);
 	return EIGRP_RESULT_SUCCESS;
 }

@@ -22,16 +22,6 @@
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_result.h"
 
-typedef enum eigrp_offset_direction {
-	EIGRP_OFFSET_IN = 0,
-	EIGRP_OFFSET_OUT,
-} eigrp_offset_direction_t;
-
-typedef enum eigrp_distribute_list_type {
-	EIGRP_DISTRIBUTE_ACCESS_LIST = 0,
-	EIGRP_DISTRIBUTE_PREFIX_LIST,
-} eigrp_distribute_list_type_t;
-
 extern void eigrp_distribute_update(struct distribute_ctx *ctx,
 				    struct distribute *dist);
 extern void eigrp_distribute_update_all(struct prefix_list *plist);
@@ -57,5 +47,6 @@ eigrp_result_t eigrp_distribute_list_delete(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
 	const char *interface_name);
+void eigrp_distribute_list_config_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* EIGRPD_EIGRP_FILTER_H_ */
