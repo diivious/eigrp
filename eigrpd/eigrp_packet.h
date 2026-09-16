@@ -82,6 +82,7 @@ extern uint16_t eigrp_packet_encoder_both(eigrp_instance_t *,
  */
 extern void eigrp_sw_version_init(void);
 extern void eigrp_hello_send(eigrp_interface_t *, uint8_t, eigrp_addr_t *);
+extern void eigrp_hello_send_unicast(eigrp_interface_t *, const eigrp_addr_t *);
 extern void eigrp_hello_send_ack(eigrp_neighbor_t *);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
 			 eigrp_addr_t *, eigrp_interface_t *,

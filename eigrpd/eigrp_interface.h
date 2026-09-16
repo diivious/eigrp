@@ -138,6 +138,8 @@ eigrp_interface_config_t *eigrp_interface_config_read(
 eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af,
 					     const char *interface_name);
 void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af);
+void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
+                                  const eigrp_interface_config_t *config);
 
 eigrp_result_t eigrp_interface_bandwidth_percent_update(
 	eigrp_interface_context_t *context, uint32_t percent);

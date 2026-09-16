@@ -48,8 +48,9 @@ void eigrp_hello_timer(struct event *event)
 		zlog_debug("Start Hello Timer (%s) Expire [%u]",
 			   EIGRP_INTF_NAME(ei), ei->params.v_hello);
 
-	/* Sending hello packet. */
-	eigrp_hello_send(ei, EIGRP_HELLO_NORMAL, NULL);
+	/* Static-neighbor interfaces use explicit unicast discovery. */
+	if (!eigrp_neighbor_static_hello_send(ei))
+		eigrp_hello_send(ei, EIGRP_HELLO_NORMAL, NULL);
 
 	/* Hello timer set. */
 	event_add_timer(eigrpd_event, eigrp_hello_timer, ei, ei->params.v_hello,
@@ -275,6 +276,10 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 	/* check for mall formed packet, if so abort now */
 	size -= EIGRP_HEADER_LEN;
 	if (size < 0)
+		return;
+
+	/* Static-neighbor interfaces accept Hellos only from configured peers. */
+	if (!eigrp_neighbor_static_source_allowed(ei, src))
 		return;
 
 	/* see if we know this neighbor, if not, then lets make friends */
@@ -672,6 +677,25 @@ void eigrp_hello_send_ack(eigrp_neighbor_t *nbr)
  * sending.  If no packets are currently queues, the packet will be
  * sent immadiatly
  */
+void eigrp_hello_send_unicast(eigrp_interface_t *ei, const eigrp_addr_t *dst)
+{
+	eigrp_packet_t *packet;
+
+	if (!ei || !dst || dst->afi != AF_INET)
+		return;
+	packet = eigrp_hello_encode(ei, dst->ip.v4.s_addr, 0,
+				    EIGRP_HELLO_NORMAL, NULL);
+	if (!packet)
+		return;
+	eigrp_packet_enqueue(ei->obuf, packet);
+	if (ei->on_write_q == 0) {
+		listnode_add(ei->eigrp->oi_write_q, ei);
+		ei->on_write_q = 1;
+	}
+	if (ei->eigrp->t_write == NULL)
+		EIGRP_EVENT_ADD_WRITE(ei->eigrp);
+}
+
 void eigrp_hello_send(eigrp_interface_t *ei, uint8_t flags,
 		      eigrp_addr_t *nbr_addr)
 {

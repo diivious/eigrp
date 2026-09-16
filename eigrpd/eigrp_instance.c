@@ -340,11 +340,29 @@ void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime)
 	}
 }
 
+
+eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime)
+{
+	eigrp_instance_parent_config_t *parent;
+	eigrp_address_family_config_t *af;
+
+	if (!runtime)
+		return NULL;
+
+	for (parent = eigrp_instance_parents; parent; parent = parent->next)
+		for (af = parent->address_families; af; af = af->next)
+			if (af->runtime == runtime)
+				return af;
+	return NULL;
+}
+
 eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
 					       uint32_t router_id)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
+	if (router_id == 0 || router_id == UINT32_MAX)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (context->config) {
 		context->config->router_id = router_id;
 		context->config->router_id_configured = true;
@@ -374,10 +392,25 @@ eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context
 eigrp_result_t eigrp_instance_address_family_shutdown_update(
 	eigrp_address_family_config_t *af, bool shutdown)
 {
+	eigrp_result_t result;
+
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
+	if (af->shutdown == shutdown)
+		return EIGRP_RESULT_SUCCESS;
+
+	/* Commit retained configuration first, then change runtime state. */
 	af->shutdown = shutdown;
-	return EIGRP_RESULT_SUCCESS;
+	if (!af->runtime)
+		return af->afi == EIGRP_ADDRESS_FAMILY_IPV6
+		       ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
+
+	result = shutdown
+		 ? eigrp_southbound_address_family_stop(af->runtime)
+		 : eigrp_southbound_address_family_start(af->runtime);
+	if (result != EIGRP_RESULT_SUCCESS)
+		af->shutdown = !shutdown;
+	return result;
 }
 
 eigrp_result_t eigrp_instance_parent_shutdown_update(

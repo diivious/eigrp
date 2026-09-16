@@ -6,6 +6,7 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_packet.h"
@@ -176,6 +177,45 @@ void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime)
 		eigrp_router_id_update(runtime);
 }
 
+eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime)
+{
+	eigrp_interface_t *ei;
+	struct listnode *node;
+
+	if (!runtime)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
+		eigrp_intf_down(ei);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime)
+{
+	eigrp_address_family_config_t *af;
+	eigrp_interface_config_t *config;
+	eigrp_interface_t *ei;
+	struct listnode *node;
+
+	if (!runtime)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (runtime->router_id.s_addr == INADDR_ANY)
+		eigrp_router_id_update(runtime);
+
+	af = eigrp_instance_runtime_config(runtime);
+	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+		config = af ? eigrp_interface_config_read(af, ei->ifp->name) : NULL;
+		if (config)
+			eigrp_interface_runtime_bind(ei, config);
+		if ((config && config->shutdown) || !if_is_operative(ei->ifp))
+			continue;
+		eigrp_intf_up(runtime, ei);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
 static bool eigrp_southbound_prefix_from_host(const struct prefix *host,
 				       eigrp_prefix_t *prefix)
 {
@@ -231,6 +271,16 @@ static void eigrp_southbound_network_run_interface(
 			continue;
 
 		ei->eigrp = eigrp;
+		{
+			eigrp_address_family_config_t *af =
+				eigrp_instance_runtime_config(eigrp);
+			eigrp_interface_config_t *config = af
+				? eigrp_interface_config_read(af, ifp->name) : NULL;
+			if (config)
+				eigrp_interface_runtime_bind(ei, config);
+			if ((af && af->shutdown) || (config && config->shutdown))
+				continue;
+		}
 
 		/* eigrp_router_id_update() calls eigrp_intf_update() when a
 		 * router ID becomes available, so an operative interface can be

@@ -103,6 +103,12 @@ eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 	neighbor->next = af->neighbors;
 	af->neighbors = neighbor;
 	eigrp_neighbor_static_debug("add", af, address, interface_name);
+	if (af->runtime) {
+		eigrp_interface_t *ei =
+			eigrp_intf_lookup_by_name(af->runtime, interface_name);
+		if (ei)
+			(void)eigrp_neighbor_static_hello_send(ei);
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -130,6 +136,59 @@ eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_FOUND;
+}
+
+bool eigrp_neighbor_static_source_allowed(eigrp_interface_t *ei,
+                                          const eigrp_addr_t *src)
+{
+	eigrp_address_family_config_t *af;
+	eigrp_neighbor_config_t *neighbor;
+	const char *interface_name;
+	bool has_static = false;
+
+	if (!ei || !ei->eigrp || !src || src->afi != AF_INET)
+		return false;
+	af = eigrp_instance_runtime_config(ei->eigrp);
+	if (!af || af->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return true;
+	interface_name = eigrp_intf_name_string(ei);
+
+	for (neighbor = af->neighbors; neighbor; neighbor = neighbor->next) {
+		if (strcmp(neighbor->interface_name, interface_name) != 0)
+			continue;
+		has_static = true;
+		if (memcmp(neighbor->address.bytes, &src->ip.v4,
+			   sizeof(src->ip.v4)) == 0)
+			return true;
+	}
+	return !has_static;
+}
+
+bool eigrp_neighbor_static_hello_send(eigrp_interface_t *ei)
+{
+	eigrp_address_family_config_t *af;
+	eigrp_neighbor_config_t *neighbor;
+	eigrp_addr_t dst;
+	const char *interface_name;
+	bool configured = false;
+
+	if (!ei || !ei->eigrp)
+		return false;
+	af = eigrp_instance_runtime_config(ei->eigrp);
+	if (!af || af->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return false;
+	interface_name = eigrp_intf_name_string(ei);
+
+	for (neighbor = af->neighbors; neighbor; neighbor = neighbor->next) {
+		if (strcmp(neighbor->interface_name, interface_name) != 0)
+			continue;
+		configured = true;
+		memset(&dst, 0, sizeof(dst));
+		dst.afi = AF_INET;
+		memcpy(&dst.ip.v4, neighbor->address.bytes, sizeof(dst.ip.v4));
+		eigrp_hello_send_unicast(ei, &dst);
+	}
+	return configured;
 }
 
 void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af)

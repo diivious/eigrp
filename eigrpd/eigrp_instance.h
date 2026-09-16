@@ -72,6 +72,7 @@ eigrp_result_t eigrp_instance_address_family_walk(
 
 /* Clear any named address-family binding to a runtime being destroyed. */
 void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime);
+eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime);
 
 eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
 					       uint32_t router_id);

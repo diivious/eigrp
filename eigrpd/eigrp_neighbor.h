@@ -149,6 +149,9 @@ eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name);
 void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af);
+bool eigrp_neighbor_static_hello_send(eigrp_interface_t *ei);
+bool eigrp_neighbor_static_source_allowed(eigrp_interface_t *ei,
+                                          const eigrp_addr_t *src);
 eigrp_result_t eigrp_neighbor_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,

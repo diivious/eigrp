@@ -37,6 +37,8 @@ eigrp_result_t eigrp_southbound_instance_create(
 eigrp_result_t eigrp_southbound_instance_delete(
 	const char *name, eigrp_instance_t *runtime);
 void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime);
+eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime);
+eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime);
 
 /* Host runtime adaptation for IPv4 network statements. */
 eigrp_result_t eigrp_southbound_network_create(

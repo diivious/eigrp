@@ -253,6 +253,24 @@ void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af)
 	af->interfaces = NULL;
 }
 
+void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
+                                  const eigrp_interface_config_t *config)
+{
+	if (!runtime || !config)
+		return;
+
+	if (config->bandwidth_configured)
+		runtime->params.bandwidth = config->bandwidth;
+	if (config->delay_configured)
+		runtime->params.delay = config->delay;
+	if (config->hello_interval_configured)
+		runtime->params.v_hello = config->hello_interval;
+	if (config->hold_time_configured)
+		runtime->params.v_wait = config->hold_time;
+	runtime->params.passive_interface = config->passive
+		? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+}
+
 static bool eigrp_interface_context_valid(const eigrp_interface_context_t *context)
 {
 	return context && (context->config || context->runtime);
@@ -930,6 +948,11 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 	eigrp_intf_down(ei);
 
 	listnode_delete(ei->eigrp->eiflist, ei);
+	if (ei->ifp && ei->ifp->info == ei)
+		ei->ifp->info = NULL;
+	list_delete(&ei->nbrs);
+	eigrp_packet_queue_free(ei->obuf);
+	XFREE(MTYPE_EIGRP_INTF, ei);
 }
 
 void eigrp_interface_runtime_reset(eigrp_interface_t *ei)
