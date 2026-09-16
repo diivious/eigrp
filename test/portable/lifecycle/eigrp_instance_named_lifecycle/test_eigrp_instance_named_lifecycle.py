@@ -219,9 +219,13 @@ def test_runtime_binding_does_not_prevent_retained_summary_configuration():
     assert "eigrpd_named_config_result(result, true)" in destroy_cb
 
 
-def test_named_exec_state_walkers_remain_common_and_unchanged_in_shape():
+def test_named_exec_state_walkers_consume_address_family_runtime_binding():
     named_cli = read(NAMED_CLI)
+    runtime_lookup = function_body(named_cli, "eigrp_vty_named_runtime_lookup")
 
+    assert "return af->runtime;" in runtime_lookup
+    assert "vrf_lookup_by_name" not in runtime_lookup
+    assert "eigrp_lookup_by_as_vrf" not in runtime_lookup
     assert "eigrp_interface_state_walk(" in named_cli
     assert "eigrp_neighbor_state_walk(" in named_cli
     assert "eigrp_topology_state_walk(" in named_cli

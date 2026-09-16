@@ -2960,14 +2960,15 @@ static bool eigrp_vty_destination_parse(const char *text,
 static eigrp_instance_t *
 eigrp_vty_named_runtime_lookup(eigrp_address_family_config_t *af)
 {
-	struct vrf *vrf;
-
 	if (!af || af->afi != EIGRP_ADDRESS_FAMILY_IPV4)
 		return NULL;
-	vrf = vrf_lookup_by_name(af->vrf_name);
-	if (!vrf)
-		return NULL;
-	return eigrp_lookup_by_as_vrf(af->asn, vrf->vrf_id);
+
+	/*
+	 * Named address-family lifecycle owns runtime resolution.  Operational
+	 * state consumers use the same bound instance as configuration targets
+	 * instead of rediscovering a process by AS/VRF.
+	 */
+	return af->runtime;
 }
 
 typedef eigrp_result_t (*eigrp_vty_named_state_cb)(
