@@ -77,6 +77,8 @@ eigrp_instance_*
 
 This review should be coordinated with named-mode address-family runtime binding. A named parent is configuration ownership; each configured AF/VRF/AS protocol context must map cleanly to the runtime instance/worker model.
 
+The functional named binding is now explicit: an address-family configuration owns its runtime pointer and reaches FRR lifecycle services through the EIGRP southbound API. The existing low-level runtime allocation/destruction names remain in place intentionally. This establishes ownership without turning the current feature work into a rename-only migration.
+
 Do not perform a rename-only migration until the runtime ownership model is clear.
 
 ## 3. Portable `main()` / Platform Lifecycle Boundary

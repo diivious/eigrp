@@ -319,53 +319,43 @@ DEFUN_CMD_FUNC_TEXT(eigrp_timers_active)
 	return eigrp_timers_active_magic(self, vty, argc, argv, timer, timer_str, disabled);
 }
 
-/* no_eigrp_timers_active => "no timers active-time [<(1-65535)|disabled>]" */
+/* no_eigrp_timers_active => "no timers active-time" */
 DEFUN_CMD_FUNC_DECL(no_eigrp_timers_active)
 #define funcdecl_no_eigrp_timers_active static int no_eigrp_timers_active_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
-	struct cmd_token *argv[] __attribute__ ((unused)),\
-	int64_t active_time,\
-	const char * active_time_str __attribute__ ((unused)))
+	struct cmd_token *argv[] __attribute__ ((unused)))
 funcdecl_no_eigrp_timers_active;
 DEFUN_CMD_FUNC_TEXT(no_eigrp_timers_active)
 {
-#if 1 /* anything to parse? */
+#if 0 /* anything to parse? */
 	int _i;
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
 #endif
-	int64_t active_time = 0;
-	const char *active_time_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 		_fail = 0;
 #endif
 
-		if (!strcmp(argv[_i]->varname, "active_time")) {
-			active_time_str = argv[_i]->arg;
-			char *_end;
-			active_time = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
-		}
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 		if (_fail)
 			vty_out (vty, "%% invalid input for %s: %s\n",
 				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
 #endif
 	}
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
 #endif
 #endif
 
-	return no_eigrp_timers_active_magic(self, vty, argc, argv, active_time, active_time_str);
+	return no_eigrp_timers_active_magic(self, vty, argc, argv);
 }
 
 /* eigrp_variance => "variance (1-128)$variance" */
@@ -421,53 +411,43 @@ DEFUN_CMD_FUNC_TEXT(eigrp_variance)
 	return eigrp_variance_magic(self, vty, argc, argv, variance, variance_str);
 }
 
-/* no_eigrp_variance => "no variance [(1-128)]" */
+/* no_eigrp_variance => "no variance" */
 DEFUN_CMD_FUNC_DECL(no_eigrp_variance)
 #define funcdecl_no_eigrp_variance static int no_eigrp_variance_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
-	struct cmd_token *argv[] __attribute__ ((unused)),\
-	int64_t variance,\
-	const char * variance_str __attribute__ ((unused)))
+	struct cmd_token *argv[] __attribute__ ((unused)))
 funcdecl_no_eigrp_variance;
 DEFUN_CMD_FUNC_TEXT(no_eigrp_variance)
 {
-#if 1 /* anything to parse? */
+#if 0 /* anything to parse? */
 	int _i;
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
 #endif
-	int64_t variance = 0;
-	const char *variance_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 		_fail = 0;
 #endif
 
-		if (!strcmp(argv[_i]->varname, "variance")) {
-			variance_str = argv[_i]->arg;
-			char *_end;
-			variance = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
-		}
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 		if (_fail)
 			vty_out (vty, "%% invalid input for %s: %s\n",
 				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
 #endif
 	}
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
 #endif
 #endif
 
-	return no_eigrp_variance_magic(self, vty, argc, argv, variance, variance_str);
+	return no_eigrp_variance_magic(self, vty, argc, argv);
 }
 
 /* eigrp_maximum_paths => "maximum-paths (1-32)$maximum_paths" */
@@ -705,53 +685,43 @@ DEFUN_CMD_FUNC_TEXT(eigrp_metric_weights)
 	return eigrp_metric_weights_magic(self, vty, argc, argv, tos, tos_str, k1, k1_str, k2, k2_str, k3, k3_str, k4, k4_str, k5, k5_str, k6, k6_str);
 }
 
-/* no_eigrp_metric_weights => "no metric weights [(0-255) (0-255) (0-255) (0-255) (0-255) (0-255)]" */
+/* no_eigrp_metric_weights => "no metric weights" */
 DEFUN_CMD_FUNC_DECL(no_eigrp_metric_weights)
 #define funcdecl_no_eigrp_metric_weights static int no_eigrp_metric_weights_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
 	struct vty *vty __attribute__ ((unused)),\
 	int argc __attribute__ ((unused)),\
-	struct cmd_token *argv[] __attribute__ ((unused)),\
-	int64_t weights,\
-	const char * weights_str __attribute__ ((unused)))
+	struct cmd_token *argv[] __attribute__ ((unused)))
 funcdecl_no_eigrp_metric_weights;
 DEFUN_CMD_FUNC_TEXT(no_eigrp_metric_weights)
 {
-#if 1 /* anything to parse? */
+#if 0 /* anything to parse? */
 	int _i;
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
 #endif
-	int64_t weights = 0;
-	const char *weights_str = NULL;
 
 	for (_i = 0; _i < argc; _i++) {
 		if (!argv[_i]->varname)
 			continue;
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 		_fail = 0;
 #endif
 
-		if (!strcmp(argv[_i]->varname, "weights")) {
-			weights_str = argv[_i]->arg;
-			char *_end;
-			weights = strtoll(argv[_i]->arg, &_end, 10);
-			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
-		}
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 		if (_fail)
 			vty_out (vty, "%% invalid input for %s: %s\n",
 				   argv[_i]->varname, argv[_i]->arg);
 		_failcnt += _fail;
 #endif
 	}
-#if 1 /* anything that can fail? */
+#if 0 /* anything that can fail? */
 	if (_failcnt)
 		return CMD_WARNING;
 #endif
 #endif
 
-	return no_eigrp_metric_weights_magic(self, vty, argc, argv, weights, weights_str);
+	return no_eigrp_metric_weights_magic(self, vty, argc, argv);
 }
 
 /* eigrp_network => "[no] network A.B.C.D/M$prefix" */

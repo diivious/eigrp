@@ -253,37 +253,18 @@ static bool eigrpd_named_instance_context_resolve(
 	context->config =
 		eigrpd_named_address_family_config_read(name, afi, vrf, asn);
 	context->topology_id = EIGRP_TOPOLOGY_ID_BASE;
-	return context->config != NULL;
+	if (!context->config)
+		return false;
+	context->runtime = context->config->runtime;
+	return true;
 }
 
 static bool eigrpd_named_runtime_context_resolve(
 	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn,
 	eigrp_instance_context_t *context)
 {
-	struct vrf *runtime_vrf;
-
-	if (!eigrpd_named_instance_context_resolve(name, afi, vrf, asn, context))
-		return false;
-	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
-		runtime_vrf = vrf_lookup_by_name(vrf);
-		if (runtime_vrf)
-			context->runtime =
-				eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id);
-	}
-	return true;
-}
-
-static void eigrpd_named_eventlog_runtime_resolve(
-	eigrp_address_family_t afi, const char *vrf_name, uint16_t asn,
-	eigrp_instance_context_t *context)
-{
-	struct vrf *vrf;
-
-	if (!context || afi != EIGRP_ADDRESS_FAMILY_IPV4)
-		return;
-	vrf = vrf_lookup_by_name(vrf_name);
-	if (vrf)
-		context->runtime = eigrp_lookup_by_as_vrf(asn, vrf->vrf_id);
+	return eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						    context);
 }
 
 static bool eigrpd_named_interface_context_resolve(
@@ -292,7 +273,6 @@ static bool eigrpd_named_interface_context_resolve(
 {
 	eigrp_address_family_config_t *af;
 	eigrp_instance_t *runtime;
-	struct vrf *runtime_vrf;
 
 	if (!context)
 		return false;
@@ -304,20 +284,17 @@ static bool eigrpd_named_interface_context_resolve(
 	if (!context->config)
 		return false;
 
-	/* Named IPv4 and classic IPv4 share the existing EIGRP runtime.  Keep
-	 * host lookup here in the FRR adapter and pass only the EIGRP-owned
-	 * interface object through the portable context.  The special
-	 * af-interface default configuration has no single runtime interface.
+	/* The address-family lifecycle owns the runtime binding.  Commands only
+	 * consume that binding; they never create or rediscover a process.  The
+	 * special af-interface default configuration has no single runtime
+	 * interface.
 	 */
 	if (afi == EIGRP_ADDRESS_FAMILY_IPV4
 	    && strcmp(interface_name, "default") != 0) {
-		runtime_vrf = vrf_lookup_by_name(vrf);
-		if (runtime_vrf) {
-			runtime = eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id);
-			if (runtime)
-				context->runtime =
-					eigrp_intf_lookup_by_name(runtime, interface_name);
-		}
+		runtime = af->runtime;
+		if (runtime)
+			context->runtime =
+				eigrp_intf_lookup_by_name(runtime, interface_name);
 	}
 
 	return true;
@@ -327,31 +304,8 @@ static bool eigrpd_named_network_context_resolve(
 	const char *name, eigrp_address_family_t afi, const char *vrf, uint16_t asn,
 	eigrp_instance_context_t *context)
 {
-	struct vrf *runtime_vrf;
-
-	if (!context)
-		return false;
-	memset(context, 0, sizeof(*context));
-	context->config =
-		eigrpd_named_address_family_config_read(name, afi, vrf, asn);
-	context->topology_id = EIGRP_TOPOLOGY_ID_BASE;
-	if (!context->config)
-		return false;
-
-	/* Named IPv4 and classic IPv4 share the existing EIGRP runtime.  Host
-	 * VRF/process lookup stays in the FRR adapter; the portable network target
-	 * receives only EIGRP-owned configuration/runtime objects and prefix data.
-	 * Lookup is intentionally non-creating: address-family lifecycle owns
-	 * runtime creation/binding, not the network command.
-	 */
-	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
-		runtime_vrf = vrf_lookup_by_name(vrf);
-		if (runtime_vrf)
-			context->runtime =
-				eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id);
-	}
-
-	return true;
+	return eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
+						    context);
 }
 
 static bool eigrpd_named_address_parse(const char *text,
@@ -681,9 +635,7 @@ static int eigrpd_named_af_interface_bandwidth_percent_modify(struct nb_cb_modif
 						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_interface_bandwidth_percent_update(&context, yang_dnode_get_uint32(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, false);
 }
 
 static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_destroy_args *args)
@@ -703,9 +655,7 @@ static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_dest
 						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_interface_bandwidth_percent_delete(&context);
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, true);
 }
 
 static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *args)
@@ -1071,9 +1021,7 @@ static int eigrpd_named_af_interface_next_hop_modify(struct nb_cb_modify_args *a
 						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_interface_next_hop_self_update(&context, yang_dnode_get_bool(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, false);
 }
 
 
@@ -1094,9 +1042,7 @@ static int eigrpd_named_af_interface_split_horizon_modify(struct nb_cb_modify_ar
 						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_interface_split_horizon_update(&context, yang_dnode_get_bool(args->dnode, NULL));
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, false);
 }
 
 
@@ -1190,9 +1136,7 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
 		    EIGRP_ADDRESS_FAMILY_IPV4, &mask))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_summary_delete(&context, &address, &mask);
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, true);
 }
 
 static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *args)
@@ -1212,9 +1156,7 @@ static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *a
 						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_interface_shutdown_update(&context, true);
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, false);
 }
 
 static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args *args)
@@ -1234,9 +1176,7 @@ static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args 
 						       interface_name, &context))
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_interface_shutdown_update(&context, false);
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, true);
 }
 
 
@@ -1936,7 +1876,6 @@ static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
     if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
         return NB_ERR_INCONSISTENCY;
-    eigrpd_named_eventlog_runtime_resolve(afi, vrf, asn, &context);
     return eigrpd_named_config_result(eigrp_eventlog_size_update(
         &context, yang_dnode_get_uint32(args->dnode, NULL)), false);
 }
@@ -1952,7 +1891,6 @@ static int eigrpd_named_event_log_size_destroy(struct nb_cb_destroy_args *args)
     if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
         return NB_ERR_INCONSISTENCY;
-    eigrpd_named_eventlog_runtime_resolve(afi, vrf, asn, &context);
     return eigrpd_named_config_result(eigrp_eventlog_size_delete(&context), true);
 }
 
@@ -2486,10 +2424,21 @@ static int eigrpd_instance_create(struct nb_cb_create_args *args)
 	const char *vrf;
 	struct vrf *pVrf;
 	vrf_id_t vrfid;
+	uint16_t asn;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
-		/* NOTHING */
+		vrf = yang_dnode_get_string(args->dnode, "./vrf");
+		pVrf = vrf_lookup_by_name(vrf);
+		vrfid = pVrf ? pVrf->vrf_id : VRF_DEFAULT;
+		asn = yang_dnode_get_uint16(args->dnode, "./asn");
+		eigrp = eigrp_lookup_by_as_vrf(asn, vrfid);
+		if (eigrp && eigrp->name) {
+			snprintf(args->errmsg, args->errmsg_len,
+				 "EIGRP AS %u in VRF %s is owned by named process %s",
+				 asn, vrf, eigrp->name);
+			return NB_ERR_VALIDATION;
+		}
 		break;
 	case NB_EV_PREPARE:
 		vrf = yang_dnode_get_string(args->dnode, "./vrf");

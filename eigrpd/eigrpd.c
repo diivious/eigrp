@@ -290,6 +290,12 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	eigrp_neighbor_t *nbr;
 	struct listnode *node, *nnode, *node2, *nnode2;
 
+	/* Named address-family configuration owns its runtime binding.  Clear
+	 * that binding before any runtime storage is released so later config
+	 * cleanup cannot dereference or attempt to destroy a stale instance.
+	 */
+	eigrp_instance_runtime_unbind(eigrp);
+
 	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
 		for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr))
 			eigrp_nbr_delete(nbr);

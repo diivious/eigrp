@@ -104,14 +104,19 @@ def test_southbound_contract_is_eigrp_owned_not_frr_cli_or_yang_objects():
 
 def test_named_northbound_resolves_runtime_and_terminates_at_portable_targets():
     northbound = read(NORTHBOUND)
+    instance_resolver = function_body(
+        northbound, "eigrpd_named_instance_context_resolve"
+    )
     resolver = function_body(northbound, "eigrpd_named_runtime_context_resolve")
     redist_apply = function_body(northbound, "eigrpd_named_redistribute_apply_options")
     redist_delete = function_body(northbound, "eigrpd_named_redistribute_destroy")
     dist_update = function_body(northbound, "eigrpd_named_distribute_list_modify")
     dist_delete = function_body(northbound, "eigrpd_named_distribute_list_destroy")
 
-    assert "vrf_lookup_by_name(vrf)" in resolver
-    assert "eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id)" in resolver
+    assert "context->runtime = context->config->runtime;" in instance_resolver
+    assert "eigrpd_named_instance_context_resolve" in resolver
+    assert "vrf_lookup_by_name" not in resolver
+    assert "eigrp_lookup_by_as_vrf" not in resolver
     assert "eigrpd_named_runtime_context_resolve" in redist_apply
     assert "eigrp_redistribute_update" in redist_apply
     assert "eigrpd_named_runtime_context_resolve" in redist_delete

@@ -84,13 +84,17 @@ def test_common_network_processor_stops_at_eigrp_southbound_boundary():
     assert "struct interface" not in processor
 
 
-def test_named_network_resolves_runtime_only_in_frr_adapter():
+def test_named_network_uses_address_family_owned_runtime_binding():
     northbound = read(NORTHBOUND)
+    instance_resolver = function_body(
+        northbound, "eigrpd_named_instance_context_resolve"
+    )
     resolver = function_body(northbound, "eigrpd_named_network_context_resolve")
 
-    assert "vrf_lookup_by_name(vrf)" in resolver
-    assert "eigrp_lookup_by_as_vrf(asn, runtime_vrf->vrf_id)" in resolver
-    assert "context->runtime" in resolver
+    assert "context->runtime = context->config->runtime;" in instance_resolver
+    assert "eigrpd_named_instance_context_resolve" in resolver
+    assert "vrf_lookup_by_name" not in resolver
+    assert "eigrp_lookup_by_as_vrf" not in resolver
     assert "eigrp_get(" not in resolver
 
 

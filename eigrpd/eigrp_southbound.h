@@ -30,6 +30,14 @@ void eigrp_work_queue_reset(eigrp_work_queue_t *queue);
 void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
 eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue);
 
+/* Host runtime lifecycle for a named address-family context. */
+eigrp_result_t eigrp_southbound_instance_create(
+	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+	uint16_t asn, eigrp_instance_t **runtime);
+eigrp_result_t eigrp_southbound_instance_delete(
+	const char *name, eigrp_instance_t *runtime);
+void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime);
+
 /* Host runtime adaptation for IPv4 network statements. */
 eigrp_result_t eigrp_southbound_network_create(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed);

@@ -53,8 +53,9 @@ eigrp_result_t eigrp_summary_create(
 		return EIGRP_RESULT_UNSUPPORTED;
 	if (options && options->leak_map && !options->leak_map[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (!context->config)
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_NOT_FOUND;
 	if (options && options->leak_map) {
 		leak_map = strdup(options->leak_map);
 		if (!leak_map)
@@ -69,7 +70,8 @@ eigrp_result_t eigrp_summary_create(
 		summary->administrative_distance =
 			options ? options->administrative_distance : 0;
 		summary->leak_map = leak_map;
-		return EIGRP_RESULT_SUCCESS;
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_SUCCESS;
 	}
 
 	summary = calloc(1, sizeof(*summary));
@@ -81,7 +83,8 @@ eigrp_result_t eigrp_summary_create(
 	summary->leak_map = leak_map;
 	summary->next = context->config->summaries;
 	context->config->summaries = summary;
-	return EIGRP_RESULT_SUCCESS;
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_summary_delete(
@@ -95,8 +98,9 @@ eigrp_result_t eigrp_summary_delete(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (!context->config)
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_NOT_FOUND;
 
 	for (cursor = &context->config->summaries; *cursor;
 	     cursor = &(*cursor)->next) {
@@ -107,9 +111,11 @@ eigrp_result_t eigrp_summary_delete(
 		*cursor = summary->next;
 		free(summary->leak_map);
 		free(summary);
-		return EIGRP_RESULT_SUCCESS;
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_SUCCESS;
 	}
-	return EIGRP_RESULT_NOT_FOUND;
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_NOT_FOUND;
 }
 
 void eigrp_summary_delete_all(eigrp_interface_config_t *interface)

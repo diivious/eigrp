@@ -25,6 +25,12 @@ struct eigrp_address_family_config {
 	eigrp_address_family_t afi;
 	uint16_t asn;
 	char *vrf_name;
+	/*
+	 * Runtime binding owned by this named address-family context.
+	 * IPv6 configuration is retained with a NULL runtime until the IPv6
+	 * data path is implemented.
+	 */
+	eigrp_instance_t *runtime;
 	bool router_id_configured;
 	uint32_t router_id;
 	bool shutdown;
@@ -63,6 +69,9 @@ eigrp_result_t eigrp_instance_address_family_delete(
 eigrp_result_t eigrp_instance_address_family_walk(
 	const eigrp_state_request_t *request,
 	eigrp_instance_address_family_walk_cb callback, void *arg);
+
+/* Clear any named address-family binding to a runtime being destroyed. */
+void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime);
 
 eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
 					       uint32_t router_id);

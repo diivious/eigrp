@@ -265,10 +265,12 @@ eigrp_result_t eigrp_interface_bandwidth_percent_update(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_interface_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->bandwidth_percent = percent;
+		context->config->bandwidth_percent_configured = true;
+	}
 	if (context->runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	context->config->bandwidth_percent = percent;
-	context->config->bandwidth_percent_configured = true;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -277,10 +279,12 @@ eigrp_result_t eigrp_interface_bandwidth_percent_delete(
 {
 	if (!eigrp_interface_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->bandwidth_percent = 0;
+		context->config->bandwidth_percent_configured = false;
+	}
 	if (context->runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	context->config->bandwidth_percent = 0;
-	context->config->bandwidth_percent_configured = false;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -431,9 +435,10 @@ eigrp_result_t eigrp_interface_next_hop_self_update(
 {
 	if (!eigrp_interface_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config)
+		context->config->next_hop_self = enabled;
 	if (context->runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	context->config->next_hop_self = enabled;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -442,9 +447,10 @@ eigrp_result_t eigrp_interface_split_horizon_update(
 {
 	if (!eigrp_interface_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config)
+		context->config->split_horizon = enabled;
 	if (context->runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	context->config->split_horizon = enabled;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -453,9 +459,10 @@ eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *contex
 {
 	if (!eigrp_interface_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config)
+		context->config->shutdown = shutdown;
 	if (context->runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	context->config->shutdown = shutdown;
 	return EIGRP_RESULT_SUCCESS;
 }
 

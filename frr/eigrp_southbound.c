@@ -116,6 +116,66 @@ eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue)
 	return queue ? queue->eigrp : NULL;
 }
 
+eigrp_result_t eigrp_southbound_instance_create(
+	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+	uint16_t asn, eigrp_instance_t **runtime)
+{
+	eigrp_instance_t *eigrp;
+	struct vrf *vrf;
+
+	if (runtime)
+		*runtime = NULL;
+	if (!name || !name[0] || !vrf_name || !vrf_name[0] || asn == 0
+	    || !runtime)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return EIGRP_RESULT_UNSUPPORTED;
+
+	vrf = vrf_lookup_by_name(vrf_name);
+	if (!vrf)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	/*
+	 * {AF, VRF, AS} is the runtime/on-wire identity.  A named parent is
+	 * local configuration ownership only, so two different parents (or a
+	 * classic instance and a named parent) must not share one runtime.
+	 */
+	eigrp = eigrp_lookup_by_as_vrf(asn, vrf->vrf_id);
+	if (eigrp) {
+		if (!eigrp->name || strcmp(eigrp->name, name) != 0)
+			return EIGRP_RESULT_CONFLICT;
+		*runtime = eigrp;
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	eigrp = eigrp_get(asn, vrf->vrf_id);
+	if (!eigrp)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	eigrp_name_set(eigrp, name);
+	*runtime = eigrp;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_southbound_instance_delete(
+	const char *name, eigrp_instance_t *runtime)
+{
+	if (!name || !name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!runtime)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (!runtime->name || strcmp(runtime->name, name) != 0)
+		return EIGRP_RESULT_CONFLICT;
+
+	eigrp_finish_final(runtime);
+	return EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime)
+{
+	if (runtime)
+		eigrp_router_id_update(runtime);
+}
+
 static bool eigrp_southbound_prefix_from_host(const struct prefix *host,
 				       eigrp_prefix_t *prefix)
 {
