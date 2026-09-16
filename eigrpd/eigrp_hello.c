@@ -48,9 +48,15 @@ void eigrp_hello_timer(struct event *event)
 		zlog_debug("Start Hello Timer (%s) Expire [%u]",
 			   EIGRP_INTF_NAME(ei), ei->params.v_hello);
 
-	/* Static-neighbor interfaces use explicit unicast discovery. */
-	if (!eigrp_neighbor_static_hello_send(ei))
-		eigrp_hello_send(ei, EIGRP_HELLO_NORMAL, NULL);
+	/* Passive interfaces retain the timer so a later `no passive-interface`
+	 * resumes discovery without host-specific timer manipulation here, but
+	 * they neither multicast nor unicast Hello packets while passive.
+	 */
+	if (!eigrp_intf_is_passive(ei)) {
+		/* Static-neighbor interfaces use explicit unicast discovery. */
+		if (!eigrp_neighbor_static_hello_send(ei))
+			eigrp_hello_send(ei, EIGRP_HELLO_NORMAL, NULL);
+	}
 
 	/* Hello timer set. */
 	event_add_timer(eigrpd_event, eigrp_hello_timer, ei, ei->params.v_hello,

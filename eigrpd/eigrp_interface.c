@@ -27,6 +27,7 @@
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_summary.h"
+#include "eigrpd/eigrp_auth.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF,      "EIGRP interface");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF_INFO, "EIGRP Interface Information");
@@ -256,6 +257,8 @@ void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af)
 void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
                                   const eigrp_interface_config_t *config)
 {
+	eigrp_interface_context_t context = {.runtime = runtime};
+
 	if (!runtime || !config)
 		return;
 
@@ -269,6 +272,18 @@ void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
 		runtime->params.v_wait = config->hold_time;
 	runtime->params.passive_interface = config->passive
 		? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+
+	/* Authentication is retained on the named af-interface object.  When a
+	 * network statement creates the runtime interface after configuration was
+	 * committed, bind the already-supported MD5/key-chain state as part of
+	 * the same interface configuration handoff.  Direct-password SHA-256
+	 * remains explicitly unsupported by the authentication target.
+	 */
+	if (config->authentication_mode_configured
+	    && config->authentication_mode == EIGRP_AUTHENTICATION_MD5)
+		(void)eigrp_auth_mode_update(&context, EIGRP_AUTHENTICATION_MD5, NULL);
+	if (config->keychain)
+		(void)eigrp_auth_keychain_update(&context, config->keychain);
 }
 
 static bool eigrp_interface_context_valid(const eigrp_interface_context_t *context)
@@ -442,9 +457,11 @@ eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config)
 		context->config->passive = passive;
-	if (context->runtime)
+	if (context->runtime) {
 		context->runtime->params.passive_interface =
 			passive ? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+		eigrp_intf_set_multicast(context->runtime);
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -889,13 +906,7 @@ int eigrp_intf_down(eigrp_interface_t *ei)
 
 bool eigrp_intf_is_passive(eigrp_interface_t *ei)
 {
-	if (ei->params.passive_interface == EIGRP_INTF_ACTIVE)
-		return false;
-
-	if (ei->eigrp->passive_interface_default == EIGRP_INTF_ACTIVE)
-		return false;
-
-	return true;
+	return ei && ei->params.passive_interface == EIGRP_INTF_PASSIVE;
 }
 
 void eigrp_intf_set_multicast(eigrp_interface_t *ei)
