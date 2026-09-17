@@ -151,15 +151,6 @@ static bool eigrp_ipv6_network_interface_match(
 	return false;
 }
 
-static eigrp_result_t
-eigrp_ipv6_summary_auto_prefix(const eigrp_prefix_t *component,
-			       eigrp_prefix_t *summary)
-{
-	(void)component;
-	(void)summary;
-	return EIGRP_RESULT_UNSUPPORTED;
-}
-
 void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 {
 	if (!vectors)
@@ -189,5 +180,4 @@ void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 	vectors->prefix_validate = eigrp_ipv6_prefix_validate;
 	vectors->network_validate = eigrp_ipv6_network_validate;
 	vectors->network_interface_match = eigrp_ipv6_network_interface_match;
-	vectors->summary_auto_prefix = eigrp_ipv6_summary_auto_prefix;
 }

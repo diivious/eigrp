@@ -508,9 +508,36 @@ static bool eigrp_ipv4_network_interface_match(
 static eigrp_result_t eigrp_ipv4_summary_auto_prefix(
 	const eigrp_prefix_t *component, eigrp_prefix_t *summary)
 {
-	(void)component;
-	(void)summary;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	uint8_t classful_length;
+	uint8_t first_octet;
+
+	if (eigrp_ipv4_prefix_validate(component) != EIGRP_RESULT_SUCCESS
+	    || !summary)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	first_octet = component->address.bytes[0];
+	if (first_octet < 128)
+		classful_length = 8;
+	else if (first_octet < 192)
+		classful_length = 16;
+	else if (first_octet < 224)
+		classful_length = 24;
+	else
+		return EIGRP_RESULT_UNSUPPORTED;
+
+	/* Auto-summary aggregates subnets at their classful major-network
+	 * boundary.  A supernet is already less specific than that boundary and
+	 * therefore has no classful auto-summary to derive.
+	 */
+	if (component->prefix_length < classful_length)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	memset(summary, 0, sizeof(*summary));
+	summary->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	summary->prefix_length = classful_length;
+	memcpy(summary->address.bytes, component->address.bytes,
+	       classful_length / 8U);
+	return EIGRP_RESULT_SUCCESS;
 }
 
 void eigrp_ipv4_init(eigrp_af_vectors_t *vectors)

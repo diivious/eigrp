@@ -355,6 +355,50 @@ static bool eigrpd_named_prefix_parse(const char *text,
 	return inet_pton(AF_INET, address, prefix->address.bytes) == 1;
 }
 
+static bool eigrpd_named_ipv4_mask_prefix_length(const char *text,
+					  uint8_t *prefix_length)
+{
+	eigrp_address_t mask_address;
+	uint32_t mask;
+	uint8_t length = 0;
+	bool zero_seen = false;
+	int bit;
+
+	if (!prefix_length
+	    || !eigrpd_named_address_parse(text, EIGRP_ADDRESS_FAMILY_IPV4,
+				       &mask_address))
+		return false;
+	memcpy(&mask, mask_address.bytes, sizeof(mask));
+	mask = ntohl(mask);
+	for (bit = 31; bit >= 0; bit--) {
+		if (mask & (1U << bit)) {
+			if (zero_seen)
+				return false;
+			length++;
+		} else {
+			zero_seen = true;
+		}
+	}
+	*prefix_length = length;
+	return true;
+}
+
+static bool eigrpd_named_summary_prefix_parse(const char *address_text,
+					       const char *mask_text,
+					       eigrp_prefix_t *prefix)
+{
+	uint8_t prefix_length;
+
+	if (!prefix
+	    || !eigrpd_named_address_parse(address_text,
+				       EIGRP_ADDRESS_FAMILY_IPV4,
+				       &prefix->address)
+	    || !eigrpd_named_ipv4_mask_prefix_length(mask_text, &prefix_length))
+		return false;
+	prefix->prefix_length = prefix_length;
+	return true;
+}
+
 static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
 {
 	const char *name;
@@ -1052,7 +1096,7 @@ static int eigrpd_named_af_interface_summary_apply_options(
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
-	eigrp_address_t address, mask;
+	eigrp_prefix_t prefix;
 	eigrp_interface_context_t context;
 	eigrp_summary_options_t options = {0};
 	uint16_t asn;
@@ -1062,10 +1106,9 @@ static int eigrpd_named_af_interface_summary_apply_options(
 	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
 						       interface_name, &context)
-	    || !eigrpd_named_address_parse(yang_dnode_get_string(dnode, "address"),
-					      afi, &address)
-	    || !eigrpd_named_address_parse(yang_dnode_get_string(dnode, "mask"),
-					      afi, &mask))
+	    || !eigrpd_named_summary_prefix_parse(
+		    yang_dnode_get_string(dnode, "address"),
+		    yang_dnode_get_string(dnode, "mask"), &prefix))
 		return NB_ERR_INCONSISTENCY;
 	if (!omit_distance && yang_dnode_exists(dnode, "administrative-distance"))
 		options.administrative_distance =
@@ -1073,7 +1116,7 @@ static int eigrpd_named_af_interface_summary_apply_options(
 	if (!omit_leak_map && yang_dnode_exists(dnode, "leak-map"))
 		options.leak_map = yang_dnode_get_string(dnode, "leak-map");
 	return eigrpd_named_config_result(
-		eigrp_summary_create(&context, &address, &mask, &options), false);
+		eigrp_summary_create(&context, &prefix, &options), false);
 }
 
 static int eigrpd_named_af_interface_summary_apply(const struct lyd_node *dnode)
@@ -1117,8 +1160,7 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
 {
 	const char *name, *vrf, *interface_name;
 	eigrp_address_family_t afi;
-	eigrp_address_t address;
-	eigrp_address_t mask;
+	eigrp_prefix_t prefix;
 	eigrp_interface_context_t context;
 	eigrp_result_t result;
 	uint16_t asn;
@@ -1127,16 +1169,14 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn, &interface_name)
+	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
 						       interface_name, &context)
-	    || !eigrpd_named_address_parse(
+	    || !eigrpd_named_summary_prefix_parse(
 		    yang_dnode_get_string(args->dnode, "address"),
-		    EIGRP_ADDRESS_FAMILY_IPV4, &address)
-	    || !eigrpd_named_address_parse(
-		    yang_dnode_get_string(args->dnode, "mask"),
-		    EIGRP_ADDRESS_FAMILY_IPV4, &mask))
+		    yang_dnode_get_string(args->dnode, "mask"), &prefix))
 		return NB_ERR_INCONSISTENCY;
-	result = eigrp_summary_delete(&context, &address, &mask);
+	result = eigrp_summary_delete(&context, &prefix);
 	return eigrpd_named_config_result(result, true);
 }
 

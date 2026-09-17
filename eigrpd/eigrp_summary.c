@@ -15,42 +15,85 @@
 #include "eigrpd/eigrp_summary.h"
 
 struct eigrp_summary_config {
-	eigrp_address_t address;
-	eigrp_address_t mask;
+	eigrp_prefix_t prefix;
 	uint8_t administrative_distance;
 	char *leak_map;
 	eigrp_summary_config_t *next;
 };
 
-static bool eigrp_summary_equal(const eigrp_address_t *a,
-					const eigrp_address_t *b)
+static bool eigrp_summary_prefix_valid(const eigrp_prefix_t *prefix)
 {
-	size_t len;
-
-	if (!a || !b || a->afi != b->afi)
+	if (!prefix)
 		return false;
-	len = a->afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
-	return memcmp(a->bytes, b->bytes, len) == 0;
+
+	switch (prefix->address.afi) {
+	case EIGRP_ADDRESS_FAMILY_IPV4:
+		return prefix->prefix_length <= 32;
+	case EIGRP_ADDRESS_FAMILY_IPV6:
+		return prefix->prefix_length <= 128;
+	}
+	return false;
 }
 
-static bool eigrp_summary_ipv4_pair_valid(const eigrp_address_t *address,
-					  const eigrp_address_t *mask)
+static void eigrp_summary_prefix_normalize(eigrp_prefix_t *prefix)
 {
-	return address && mask && address->afi == EIGRP_ADDRESS_FAMILY_IPV4
-	       && mask->afi == EIGRP_ADDRESS_FAMILY_IPV4;
+	uint8_t full_bytes;
+	uint8_t remaining_bits;
+	uint8_t address_bytes;
+
+	if (!eigrp_summary_prefix_valid(prefix))
+		return;
+
+	address_bytes = prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
+	full_bytes = prefix->prefix_length / 8U;
+	remaining_bits = prefix->prefix_length % 8U;
+
+	if (remaining_bits && full_bytes < address_bytes) {
+		prefix->address.bytes[full_bytes] &=
+			(uint8_t)(0xffU << (8U - remaining_bits));
+		full_bytes++;
+	}
+	if (full_bytes < address_bytes)
+		memset(prefix->address.bytes + full_bytes, 0,
+		       address_bytes - full_bytes);
+	if (address_bytes < sizeof(prefix->address.bytes))
+		memset(prefix->address.bytes + address_bytes, 0,
+		       sizeof(prefix->address.bytes) - address_bytes);
+}
+
+static bool eigrp_summary_prefix_equal(const eigrp_prefix_t *a,
+				       const eigrp_prefix_t *b)
+{
+	return a && b && a->address.afi == b->address.afi
+	       && a->prefix_length == b->prefix_length
+	       && memcmp(a->address.bytes, b->address.bytes,
+			 sizeof(a->address.bytes)) == 0;
+}
+
+static const eigrp_af_vectors_t *eigrp_summary_context_vectors(
+	const eigrp_instance_context_t *context)
+{
+	if (!context)
+		return NULL;
+	if (context->config)
+		return &context->config->af_vectors;
+	if (context->runtime)
+		return &context->runtime->af_vectors;
+	return NULL;
 }
 
 eigrp_result_t eigrp_summary_create(
-	eigrp_interface_context_t *context, const eigrp_address_t *address,
-	const eigrp_address_t *mask, const eigrp_summary_options_t *options)
+	eigrp_interface_context_t *context, const eigrp_prefix_t *prefix,
+	const eigrp_summary_options_t *options)
 {
 	eigrp_summary_config_t *summary;
+	eigrp_prefix_t normalized;
 	char *leak_map = NULL;
 
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!eigrp_summary_ipv4_pair_valid(address, mask))
-		return EIGRP_RESULT_UNSUPPORTED;
+	if (!eigrp_summary_prefix_valid(prefix))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (options && options->leak_map && !options->leak_map[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context->config)
@@ -62,9 +105,10 @@ eigrp_result_t eigrp_summary_create(
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 	}
 
+	normalized = *prefix;
+	eigrp_summary_prefix_normalize(&normalized);
 	for (summary = context->config->summaries; summary; summary = summary->next) {
-		if (!eigrp_summary_equal(&summary->address, address)
-		    || !eigrp_summary_equal(&summary->mask, mask))
+		if (!eigrp_summary_prefix_equal(&summary->prefix, &normalized))
 			continue;
 		free(summary->leak_map);
 		summary->administrative_distance =
@@ -75,10 +119,11 @@ eigrp_result_t eigrp_summary_create(
 	}
 
 	summary = calloc(1, sizeof(*summary));
-	if (!summary)
+	if (!summary) {
+		free(leak_map);
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	summary->address = *address;
-	summary->mask = *mask;
+	}
+	summary->prefix = normalized;
 	summary->administrative_distance = options ? options->administrative_distance : 0;
 	summary->leak_map = leak_map;
 	summary->next = context->config->summaries;
@@ -88,13 +133,13 @@ eigrp_result_t eigrp_summary_create(
 }
 
 eigrp_result_t eigrp_summary_delete(
-	eigrp_interface_context_t *context, const eigrp_address_t *address,
-	const eigrp_address_t *mask)
+	eigrp_interface_context_t *context, const eigrp_prefix_t *prefix)
 {
 	eigrp_summary_config_t **cursor;
 	eigrp_summary_config_t *summary;
+	eigrp_prefix_t normalized;
 
-	if (!eigrp_summary_ipv4_pair_valid(address, mask))
+	if (!eigrp_summary_prefix_valid(prefix))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -102,11 +147,12 @@ eigrp_result_t eigrp_summary_delete(
 		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
 					: EIGRP_RESULT_NOT_FOUND;
 
+	normalized = *prefix;
+	eigrp_summary_prefix_normalize(&normalized);
 	for (cursor = &context->config->summaries; *cursor;
 	     cursor = &(*cursor)->next) {
 		summary = *cursor;
-		if (!eigrp_summary_equal(&summary->address, address)
-		    || !eigrp_summary_equal(&summary->mask, mask))
+		if (!eigrp_summary_prefix_equal(&summary->prefix, &normalized))
 			continue;
 		*cursor = summary->next;
 		free(summary->leak_map);
@@ -136,13 +182,13 @@ void eigrp_summary_delete_all(eigrp_interface_config_t *interface)
 eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
 					 bool enabled)
 {
-	eigrp_address_family_t afi;
+	const eigrp_af_vectors_t *vectors;
 
 	(void)enabled;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	afi = context->config ? context->config->afi : EIGRP_ADDRESS_FAMILY_IPV4;
-	if (afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	vectors = eigrp_summary_context_vectors(context);
+	if (!vectors || !vectors->summary_auto_prefix)
 		return EIGRP_RESULT_UNSUPPORTED;
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
