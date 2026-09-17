@@ -22,13 +22,13 @@
 #include "eigrpd/eigrp_types.h"
 #include "eigrpd/eigrp_macros.h"
 
-typedef struct eigrp_addr {
+struct eigrp_addr {
     uint8_t afi;		// ipv4 or ipv6
     union {
 	struct in_addr  v4;
 	struct in6_addr v6;
     } ip;
-} eigrp_addr_t;
+};
     
 typedef struct eigrp_metrics {
 	eigrp_delay_t delay;
@@ -59,6 +59,7 @@ typedef struct eigrp_extdata {
  */
 struct eigrp_instance {
 	vrf_id_t vrf_id;
+	eigrp_af_vectors_t af_vectors;
 
 	uint16_t AS;	     /* Autonomous system number */
 	uint16_t vrid;	     /* Virtual Router ID */

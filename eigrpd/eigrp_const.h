@@ -240,11 +240,11 @@ enum eigrp_fsm_events {
  * These are considered legacy and are only used for backward compatibility with
  * older Cisco Routers.  They should not be your first choice for packet coding
  */
-#define EIGRP_TLV_IPv4 0x0100  /*!< Classic IPv4 TLV encoding */
-#define EIGRP_TLV_ATALK 0x0200 /*!< Classic Appletalk TLV encoding*/
-#define EIGRP_TLV_IPX 0x0300   /*!< Classic IPX TLV encoding */
-#define EIGRP_TLV_IPv6 0x0400  /*!< Classic IPv6 TLV encoding */
-#define EIGRP_TLV_MP 0x0600    /*!< Multiprotocol (Wide Metric) TLV encoding */
+#define EIGRP_TLV_IPv4	0x0100	/*!< Classic IPv4 TLV encoding */
+#define EIGRP_TLV_ATALK	0x0200	/*!< Classic Appletalk TLV encoding*/
+#define EIGRP_TLV_IPX	0x0300	/*!< Classic IPX TLV encoding */
+#define EIGRP_TLV_IPv6	0x0400	/*!< Classic IPv6 TLV encoding */
+#define EIGRP_TLV_MP	0x0600	/*!< Multiprotocol (Wide Metric) TLV encoding */
 
 /**
  * Version 2.0: Multi-Protocol TLV Definitions
@@ -279,11 +279,11 @@ enum eigrp_fsm_events {
 /**
  * Route Based TLVs
  */
-#define EIGRP_TLV_REQUEST 0x0001
-#define EIGRP_TLV_INTERNAL 0x0002
-#define EIGRP_TLV_EXTERNAL 0x0003
-#define EIGRP_TLV_COMMUNITY 0x0004
-#define EIGRP_TLV_TYPEMASK 0x000f
+#define EIGRP_TLV_REQUEST	0x0001
+#define EIGRP_TLV_INTERNAL	0x0002
+#define EIGRP_TLV_EXTERNAL	0x0003
+#define EIGRP_TLV_COMMUNITY	0x0004
+#define EIGRP_TLV_TYPEMASK	0x000f
 
 #define EIGRP_TLV_IPv4_REQ (EIGRP_TLV_IPv4 | EIGRP_TLV_REQUEST)
 #define EIGRP_TLV_IPv4_INT (EIGRP_TLV_IPv4 | EIGRP_TLV_INTERNAL)
@@ -322,13 +322,13 @@ enum eigrp_fsm_events {
  * to provide a standards based exchange of AFI information between
  * EIGRP routers.
  */
-#define EIGRP_AF_IPv4 1	      /*!< IPv4 (IP version 4) */
-#define EIGRP_AF_IPv6 2	      /*!< IPv6 (IP version 6) */
-#define EIGRP_AF_IPX 11	      /*!< IPX */
-#define EIGRP_AF_ATALK 12     /*!< Appletalk */
-#define EIGRP_SF_COMMON 16384 /*!< Cisco Service Family */
-#define EIGRP_SF_IPv4 16385   /*!< Cisco IPv4 Service Family */
-#define EIGRP_SF_IPv6 16386   /*!< Cisco IPv6 Service Family */
+#define EIGRP_AF_IPv4	1	/*!< IPv4 (IP version 4) */
+#define EIGRP_AF_IPv6	2	/*!< IPv6 (IP version 6) */
+#define EIGRP_AF_IPX	11	/*!< IPX (depercated)*/
+#define EIGRP_AF_ATALK	12	/*!< Appletalk (depercated)*/
+#define EIGRP_SF_COMMON	16384	/*!< Cisco Service Family */
+#define EIGRP_SF_IPv4	16385	/*!< Cisco IPv4 Service Family */
+#define EIGRP_SF_IPv6	16386	/*!< Cisco IPv6 Service Family */
 
 /**
  * Authentication types supported by EIGRP

@@ -156,8 +156,6 @@ extern void eigrp_siareply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
 /*
  * These externs need to cleaned up
  */
-extern void eigrp_IPv4_InternalTLV_free(struct TLV_IPv4_Internal_type *);
-
 extern struct TLV_Sequence_Type *eigrp_SequenceTLV_new(void);
 
 extern const struct message eigrp_packet_type_str[];

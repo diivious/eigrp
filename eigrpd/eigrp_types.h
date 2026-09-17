@@ -8,10 +8,12 @@
 #define _ZEBRA_EIGRP_TYPES_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_macros.h"
+#include "eigrpd/eigrp_result.h"
 
 typedef enum eigrp_address_family {
 	EIGRP_ADDRESS_FAMILY_IPV4 = 4,
@@ -83,6 +85,7 @@ typedef uint32_t eigrp_system_bandwidth_t;
 typedef struct eigrp_instance eigrp_instance_t;
 typedef struct eigrp_interface eigrp_interface_t;
 typedef struct eigrp_neighbor eigrp_neighbor_t;
+typedef struct eigrp_addr eigrp_addr_t;
 typedef struct eigrp_metrics eigrp_metrics_t;
 typedef struct eigrp_prefix_descriptor eigrp_prefix_descriptor_t;
 typedef struct eigrp_route_descriptor eigrp_route_descriptor_t;
@@ -123,5 +126,71 @@ typedef struct eigrp_tlv_codec {
 	eigrp_packet_encoder_t encoder;
 	eigrp_packet_decoder_t decoder;
 } eigrp_tlv_codec_t;
+
+typedef struct eigrp_packet_rx_meta {
+	uint16_t network_header_length;
+	uint16_t eigrp_length;
+	bool destination_multicast;
+} eigrp_packet_rx_meta_t;
+
+typedef struct eigrp_af_vectors {
+	eigrp_address_family_t afi;
+
+	/*
+	 * Network-layer packet envelope.  Common EIGRP packet processing owns
+	 * queueing, acknowledgements, checksum/authentication, and opcode
+	 * dispatch; the AF owns the IP header/socket representation and extracts
+	 * the native EIGRP source/destination addresses.
+	 */
+	int (*packet_send)(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
+			   eigrp_packet_t *packet);
+	bool (*packet_receive)(eigrp_instance_t *eigrp, int fd,
+			       eigrp_stream_t *stream, eigrp_interface_t **ei,
+			       eigrp_addr_t *source, eigrp_addr_t *destination,
+			       eigrp_packet_rx_meta_t *meta);
+	bool (*packet_source_on_link)(eigrp_interface_t *ei,
+				      const eigrp_addr_t *source);
+
+	/*
+	 * Address-family wire primitives.  Address encoding is for a complete
+	 * address (for example, a next hop); prefix encoding owns the EIGRP
+	 * prefix-length/significant-byte representation.
+	 */
+	uint16_t (*packet_address_decode)(eigrp_stream_t *stream,
+					eigrp_address_t *address);
+	uint16_t (*packet_address_encode)(eigrp_stream_t *stream,
+					const eigrp_address_t *address);
+	uint16_t (*packet_prefix_decode)(eigrp_stream_t *stream,
+				       eigrp_prefix_t *prefix);
+	uint16_t (*packet_prefix_encode)(eigrp_stream_t *stream,
+				       const eigrp_prefix_t *prefix);
+
+	/*
+	 * Route TLV payload handling.  TLV1/TLV2 selection remains owned by the
+	 * negotiated TLV codec vector; these entries hide AF-specific internal
+	 * and external route representation from the common packet code.
+	 */
+	eigrp_packet_encoder_t packet_internal_route_encode;
+	eigrp_packet_decoder_t packet_internal_route_decode;
+	eigrp_packet_encoder_t packet_external_route_encode;
+	eigrp_packet_decoder_t packet_external_route_decode;
+
+	/* Portable text presentation used by show/debug callers. */
+	int (*addr_snprintf)(char *buf, size_t len,
+			     const eigrp_addr_t *address);
+	int (*prefix_snprintf)(char *buf, size_t len,
+			       const eigrp_prefix_t *prefix);
+
+	/* AF-specific constraints and feature decisions. */
+	eigrp_result_t (*address_validate)(const eigrp_address_t *address);
+	eigrp_result_t (*prefix_validate)(const eigrp_prefix_t *prefix);
+	eigrp_result_t (*network_validate)(const eigrp_prefix_t *network);
+	eigrp_result_t (*summary_auto_prefix)(const eigrp_prefix_t *component,
+					eigrp_prefix_t *summary);
+} eigrp_af_vectors_t;
+
+/* AF modules expose only vector initialization. */
+void eigrp_ipv4_init(eigrp_af_vectors_t *vectors);
+void eigrp_ipv6_init(eigrp_af_vectors_t *vectors);
 
 #endif /* _ZEBRA_EIGRP_TYPES_H_ */

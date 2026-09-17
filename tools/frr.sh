@@ -14,8 +14,7 @@ eigrp_root="$(cd "$script_dir/.." && pwd)"
 action="build"
 action_set=0
 frr_root=""
-jobs=""
-install_first=1
+jobs="8"
 configure_first=0
 extra_configure_args=()
 
@@ -31,13 +30,12 @@ actions:
   --build              Stage EIGRP without patching, then run make. Default.
   --check              Stage EIGRP without patching, then run make check.
   --all                Stage EIGRP without patching, configure, build, and check.
-  --uut                Apply managed patches/stage, build/install/restart, then run UUT.
+  --uut                Stage, build/install/restart, then run UUT.
   --clean              Run make clean in FRR.
 
 options:
   --frr-root PATH       FRR checkout root. Default: ../frr or ~/devel/frr.
   --jobs N              make parallelism. Default: detected CPU count.
-  --no-install          Do not stage EIGRP before configure/build/check/all/uut.
   --configure-first     Run configure before --build, --check, or --uut.
   --help                Show this help.
 
@@ -131,13 +129,6 @@ run_make() {
 		cd "$frr_root"
 		make -j "$jobs" "$@"
 	)
-}
-
-stage_eigrp() {
-	# Build/test actions may refresh the projected EIGRP source tree, but they
-	# must never modify FRR-wide source.  Managed patches are owned by
-	# --install / --patch.
-	"$script_dir/frr-install.sh" --frr-root "$frr_root" --no-patches
 }
 
 install_eigrp() {
@@ -247,10 +238,6 @@ while [[ "$#" -gt 0 ]]; do
 			jobs="$2"
 			shift 2
 			;;
-		--no-install)
-			install_first=0
-			shift
-			;;
 		--configure-first)
 			configure_first=1
 			shift
@@ -311,44 +298,26 @@ case "$action" in
 		patch_frr
 		;;
 	configure)
-		if [[ "$install_first" -eq 1 ]]; then
-			stage_eigrp
-		fi
 		configure_frr
 		;;
 	build)
-		if [[ "$install_first" -eq 1 ]]; then
-			stage_eigrp
-		fi
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
 		fi
 		run_make
 		;;
 	check)
-		if [[ "$install_first" -eq 1 ]]; then
-			stage_eigrp
-		fi
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
 		fi
 		run_make check
 		;;
 	all)
-		if [[ "$install_first" -eq 1 ]]; then
-			stage_eigrp
-		fi
 		configure_frr
 		run_make
 		run_make check
 		;;
 	uut)
-		if [[ "$install_first" -eq 1 ]]; then
-			# UUT must exercise the daemon against the matching managed FRR
-			# schema/integration patches.  Source-only staging can otherwise
-			# combine new northbound callbacks with an older YANG model.
-			install_eigrp
-		fi
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
 		fi

@@ -23,6 +23,7 @@ struct eigrp_instance_parent_config {
 
 struct eigrp_address_family_config {
 	eigrp_address_family_t afi;
+	eigrp_af_vectors_t af_vectors;
 	uint16_t asn;
 	char *vrf_name;
 	/*

@@ -271,7 +271,6 @@ extern void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
 				     uint8_t retry_count);
 
 /* Prototypes. */
-extern void eigrp_ip_header_dump(struct ip *);
 extern void eigrp_header_dump(struct eigrp_header *);
 
 extern void show_ip_eigrp_interface_header(struct vty *, eigrp_instance_t *);

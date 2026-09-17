@@ -18,6 +18,8 @@
 #include "eigrpd/eigrp_redistribute.h"
 #include "eigrpd/eigrp_southbound.h"
 
+/* AF modules intentionally expose only their vector bind entry points. */
+
 static eigrp_instance_parent_config_t *eigrp_instance_parents;
 
 static char *eigrp_instance_string_duplicate(const char *value)
@@ -63,6 +65,8 @@ static eigrp_result_t eigrp_instance_address_family_runtime_create(
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 
+	/* Runtime gets the same immutable AF dispatch selected by configuration. */
+	runtime->af_vectors = af->af_vectors;
 	af->runtime = runtime;
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -185,6 +189,17 @@ eigrp_result_t eigrp_instance_address_family_create(
 	}
 	af->afi = afi;
 	af->asn = asn;
+
+	/* Bind AF behavior once; common feature code calls through this vector. */
+	switch (afi) {
+	case EIGRP_ADDRESS_FAMILY_IPV4:
+		eigrp_ipv4_init(&af->af_vectors);
+		break;
+	case EIGRP_ADDRESS_FAMILY_IPV6:
+		eigrp_ipv6_init(&af->af_vectors);
+		break;
+	}
+
 	result = eigrp_instance_address_family_runtime_create(name, af);
 	if (result != EIGRP_RESULT_SUCCESS) {
 		free(af->vrf_name);

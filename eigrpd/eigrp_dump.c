@@ -1119,26 +1119,6 @@ static int eigrp_neighbor_packet_queue_sum(eigrp_interface_t *ei)
 
 /*
  * Expects header to be in host order
- * DVS: Only works with IPv4
- */
-void eigrp_ip_header_dump(struct ip *iph)
-{
-	/* IPv4 Header dump. */
-	zlog_debug("ip_v %u", iph->ip_v);
-	zlog_debug("ip_hl %u", iph->ip_hl);
-	zlog_debug("ip_tos %u", iph->ip_tos);
-	zlog_debug("ip_len %u", iph->ip_len);
-	zlog_debug("ip_id %u", (uint32_t)iph->ip_id);
-	zlog_debug("ip_off %u", (uint32_t)iph->ip_off);
-	zlog_debug("ip_ttl %u", iph->ip_ttl);
-	zlog_debug("ip_p %u", iph->ip_p);
-	zlog_debug("ip_sum 0x%x", (uint32_t)iph->ip_sum);
-	zlog_debug("ip_src %pI4", &iph->ip_src);
-	zlog_debug("ip_dst %pI4", &iph->ip_dst);
-}
-
-/*
- * Expects header to be in host order
  */
 void eigrp_header_dump(struct eigrp_header *eigrph)
 {

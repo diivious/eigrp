@@ -20,6 +20,8 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_hello.c \
 	eigrpd/eigrp_interface.c \
 	eigrpd/eigrp_instance.c \
+	eigrpd/eigrp_ipv4.c \
+	eigrpd/eigrp_ipv6.c \
 	eigrpd/eigrp_main.c \
 	eigrpd/eigrp_metric.c \
 	eigrpd/eigrp_neighbor.c \

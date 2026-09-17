@@ -25,6 +25,8 @@
 #include "eigrpd/eigrp_tlv1.h"
 #include "eigrpd/eigrp_tlv2.h"
 
+/* Current runtime creation is IPv4-only; AF modules expose only init binds. */
+
 DEFINE_MGROUP(EIGRPD, "eigrpd");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_TOP, "EIGRP structure");
 DEFINE_QOBJ_TYPE(eigrp_instance);
@@ -108,6 +110,8 @@ static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
 
 	/* init information relevant to peers */
 	eigrp->vrf_id = vrf_id;
+	/* All runtime instances are IPv4 until the IPv6 data path is enabled. */
+	eigrp_ipv4_init(&eigrp->af_vectors);
 	eigrp->vrid = 0;
 	eigrp->AS = as;
 	eigrp->router_id.s_addr = INADDR_ANY;
