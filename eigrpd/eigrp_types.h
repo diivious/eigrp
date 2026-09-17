@@ -190,6 +190,8 @@ typedef struct eigrp_af_vectors {
 	eigrp_result_t (*address_validate)(const eigrp_address_t *address);
 	eigrp_result_t (*prefix_validate)(const eigrp_prefix_t *prefix);
 	eigrp_result_t (*network_validate)(const eigrp_prefix_t *network);
+	bool (*network_interface_match)(const eigrp_prefix_t *network,
+				       const eigrp_prefix_t *interface_address);
 	eigrp_result_t (*summary_auto_prefix)(const eigrp_prefix_t *component,
 					eigrp_prefix_t *summary);
 } eigrp_af_vectors_t;

@@ -31,12 +31,8 @@ typedef enum eigrp_network_operation {
 static bool eigrp_network_address_equal(const eigrp_address_t *a,
 					const eigrp_address_t *b)
 {
-	size_t len;
-
-	if (!a || !b || a->afi != b->afi)
-		return false;
-	len = a->afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
-	return memcmp(a->bytes, b->bytes, len) == 0;
+	return a && b && a->afi == b->afi
+	       && memcmp(a->bytes, b->bytes, sizeof(a->bytes)) == 0;
 }
 
 static bool eigrp_network_prefix_equal(const eigrp_prefix_t *a,
@@ -44,48 +40,6 @@ static bool eigrp_network_prefix_equal(const eigrp_prefix_t *a,
 {
 	return a && b && a->prefix_length == b->prefix_length
 	       && eigrp_network_address_equal(&a->address, &b->address);
-}
-
-bool eigrp_network_prefix_match(const eigrp_prefix_t *network,
-				const eigrp_prefix_t *address)
-{
-	uint8_t max_bits;
-	uint8_t full_bytes;
-	uint8_t remaining_bits;
-	uint8_t mask;
-
-	if (!network || !address || network->address.afi != address->address.afi)
-		return false;
-	max_bits = network->address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 32 : 128;
-	if (network->prefix_length > max_bits)
-		return false;
-
-	full_bytes = network->prefix_length / 8;
-	remaining_bits = network->prefix_length % 8;
-	if (full_bytes
-	    && memcmp(network->address.bytes, address->address.bytes, full_bytes)
-		       != 0)
-		return false;
-	if (!remaining_bits)
-		return true;
-
-	mask = (uint8_t)(0xffU << (8 - remaining_bits));
-	return (network->address.bytes[full_bytes] & mask)
-	       == (address->address.bytes[full_bytes] & mask);
-}
-
-/* Legacy FRR prefix objects stop at this compatibility boundary. */
-static bool eigrp_network_prefix_from_host(const struct prefix *host,
-					   eigrp_prefix_t *prefix)
-{
-	if (!host || !prefix || host->family != AF_INET || host->prefixlen > 32)
-		return false;
-
-	memset(prefix, 0, sizeof(*prefix));
-	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
-	prefix->prefix_length = host->prefixlen;
-	memcpy(prefix->address.bytes, &host->u.prefix4, sizeof(host->u.prefix4));
-	return true;
 }
 
 static eigrp_result_t eigrp_network_config_create(
@@ -320,23 +274,35 @@ int eigrp_intf_drop_allspfrouters(eigrp_instance_t *top, struct prefix *p,
 	return ret;
 }
 
+static const eigrp_af_vectors_t *
+eigrp_network_vectors(const eigrp_instance_context_t *context)
+{
+	if (!context)
+		return NULL;
+	if (context->config)
+		return &context->config->af_vectors;
+	if (context->runtime)
+		return &context->runtime->af_vectors;
+	return NULL;
+}
+
 static eigrp_result_t eigrp_network_validate(eigrp_instance_context_t *context,
 					      const eigrp_prefix_t *prefix)
 {
+	const eigrp_af_vectors_t *vectors;
+
 	if (!prefix)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
-		return EIGRP_RESULT_UNSUPPORTED;
-	if (prefix->prefix_length > 32)
+
+	vectors = eigrp_network_vectors(context);
+	if (!vectors || !vectors->network_validate)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (vectors->afi != prefix->address.afi)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (context->config && context->config->afi != prefix->address.afi)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (context->config
-	    && context->config->afi != EIGRP_ADDRESS_FAMILY_IPV4)
-		return EIGRP_RESULT_UNSUPPORTED;
-	return EIGRP_RESULT_SUCCESS;
+
+	return vectors->network_validate(prefix);
 }
 
 static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,
@@ -422,40 +388,6 @@ eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
 {
 	return eigrp_network_process(context, prefix,
 				     EIGRP_NETWORK_OPERATION_DELETE, NULL);
-}
-
-/* Legacy FRR-facing entry point retained for the classic northbound callback.
- * Convert the host prefix once, then enter the same EIGRP-owned processor used
- * by named mode.
- */
-int eigrp_network_set(eigrp_instance_t *eigrp, struct prefix *p)
-{
-	eigrp_instance_context_t context = {.runtime = eigrp};
-	eigrp_prefix_t prefix;
-	bool changed = false;
-
-	if (!eigrp_network_prefix_from_host(p, &prefix))
-		return 0;
-	if (eigrp_network_process(&context, &prefix,
-				  EIGRP_NETWORK_OPERATION_CREATE, &changed)
-	    != EIGRP_RESULT_SUCCESS)
-		return 0;
-	return changed ? 1 : 0;
-}
-
-int eigrp_network_unset(eigrp_instance_t *eigrp, struct prefix *p)
-{
-	eigrp_instance_context_t context = {.runtime = eigrp};
-	eigrp_prefix_t prefix;
-	bool changed = false;
-
-	if (!eigrp_network_prefix_from_host(p, &prefix))
-		return 0;
-	if (eigrp_network_process(&context, &prefix,
-				  EIGRP_NETWORK_OPERATION_DELETE, &changed)
-	    != EIGRP_RESULT_SUCCESS)
-		return 0;
-	return changed ? 1 : 0;
 }
 
 void eigrp_external_routes_refresh(eigrp_instance_t *eigrp, int type)

@@ -479,6 +479,32 @@ static eigrp_result_t eigrp_ipv4_network_validate(const eigrp_prefix_t *network)
 	return eigrp_ipv4_prefix_validate(network);
 }
 
+static bool eigrp_ipv4_network_interface_match(
+	const eigrp_prefix_t *network, const eigrp_prefix_t *interface_address)
+{
+	uint8_t full_bytes;
+	uint8_t remaining_bits;
+	uint8_t mask;
+
+	if (eigrp_ipv4_network_validate(network) != EIGRP_RESULT_SUCCESS
+	    || eigrp_ipv4_prefix_validate(interface_address)
+		       != EIGRP_RESULT_SUCCESS)
+		return false;
+
+	full_bytes = network->prefix_length / 8U;
+	remaining_bits = network->prefix_length % 8U;
+	if (full_bytes
+	    && memcmp(network->address.bytes, interface_address->address.bytes,
+		      full_bytes) != 0)
+		return false;
+	if (!remaining_bits)
+		return true;
+
+	mask = (uint8_t)(0xffU << (8U - remaining_bits));
+	return (network->address.bytes[full_bytes] & mask)
+	       == (interface_address->address.bytes[full_bytes] & mask);
+}
+
 static eigrp_result_t eigrp_ipv4_summary_auto_prefix(
 	const eigrp_prefix_t *component, eigrp_prefix_t *summary)
 {
@@ -514,5 +540,6 @@ void eigrp_ipv4_init(eigrp_af_vectors_t *vectors)
 	vectors->address_validate = eigrp_ipv4_address_validate;
 	vectors->prefix_validate = eigrp_ipv4_prefix_validate;
 	vectors->network_validate = eigrp_ipv4_network_validate;
+	vectors->network_interface_match = eigrp_ipv4_network_interface_match;
 	vectors->summary_auto_prefix = eigrp_ipv4_summary_auto_prefix;
 }

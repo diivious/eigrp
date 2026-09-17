@@ -12,6 +12,7 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_southbound.h"
 #include "eigrp_zebra.h"
+#include "eigrp_frr.h"
 
 #include "plist.h"
 #include "vrf.h"
@@ -216,34 +217,6 @@ eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime)
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static bool eigrp_southbound_prefix_from_host(const struct prefix *host,
-				       eigrp_prefix_t *prefix)
-{
-	if (!host || !prefix || host->family != AF_INET || host->prefixlen > 32)
-		return false;
-
-	memset(prefix, 0, sizeof(*prefix));
-	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
-	prefix->prefix_length = host->prefixlen;
-	memcpy(prefix->address.bytes, &host->u.prefix4, sizeof(host->u.prefix4));
-	return true;
-}
-
-static bool eigrp_southbound_prefix_to_host(const eigrp_prefix_t *prefix,
-				     struct prefix *host)
-{
-	if (!prefix || !host
-	    || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || prefix->prefix_length > 32)
-		return false;
-
-	memset(host, 0, sizeof(*host));
-	host->family = AF_INET;
-	host->prefixlen = prefix->prefix_length;
-	memcpy(&host->u.prefix4, prefix->address.bytes, sizeof(host->u.prefix4));
-	return true;
-}
-
 static void eigrp_southbound_network_run_interface(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *network,
 	struct interface *ifp)
@@ -261,9 +234,11 @@ static void eigrp_southbound_network_run_interface(
 			continue;
 		if (ifp->info)
 			continue;
-		if (!eigrp_southbound_prefix_from_host(co->address,
-						      &connected_prefix)
-		    || !eigrp_network_prefix_match(network, &connected_prefix))
+		if (eigrp_frr_prefix_import(co->address, &connected_prefix)
+			    != EIGRP_RESULT_SUCCESS
+		    || !eigrp->af_vectors.network_interface_match
+		    || !eigrp->af_vectors.network_interface_match(
+			    network, &connected_prefix))
 			continue;
 
 		ei = eigrp_intf_new(eigrp, ifp, co->address);
@@ -304,7 +279,8 @@ eigrp_result_t eigrp_southbound_network_create(
 		*changed = false;
 	if (!eigrp)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!eigrp_southbound_prefix_to_host(network, &host_network))
+	if (eigrp_frr_prefix_export(network, &host_network)
+	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	rn = route_node_get(eigrp->networks, &host_network);
@@ -362,7 +338,8 @@ void eigrp_intf_update(eigrp_instance_t *eigrp, struct interface *ifp)
 	for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
 		if (!rn->info)
 			continue;
-		if (!eigrp_southbound_prefix_from_host(&rn->p, &network))
+		if (eigrp_frr_prefix_import(&rn->p, &network)
+		    != EIGRP_RESULT_SUCCESS)
 			continue;
 		eigrp_southbound_network_run_interface(eigrp, &network, ifp);
 	}
@@ -384,7 +361,8 @@ eigrp_result_t eigrp_southbound_network_delete(
 		*changed = false;
 	if (!eigrp)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!eigrp_southbound_prefix_to_host(network, &host_network))
+	if (eigrp_frr_prefix_export(network, &host_network)
+	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	rn = route_node_lookup(eigrp->networks, &host_network);
@@ -409,18 +387,19 @@ eigrp_result_t eigrp_southbound_network_delete(
 	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
 		bool found = false;
 
-		if (!eigrp_southbound_prefix_from_host(&ei->address,
-						      &connected_prefix))
+		if (eigrp_frr_prefix_import(&ei->address, &connected_prefix)
+		    != EIGRP_RESULT_SUCCESS)
 			continue;
 
 		for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
 			if (!rn->info)
 				continue;
-			if (!eigrp_southbound_prefix_from_host(
-				    &rn->p, &configured_network))
+			if (eigrp_frr_prefix_import(&rn->p, &configured_network)
+			    != EIGRP_RESULT_SUCCESS)
 				continue;
-			if (!eigrp_network_prefix_match(&configured_network,
-							&connected_prefix))
+			if (!eigrp->af_vectors.network_interface_match
+			    || !eigrp->af_vectors.network_interface_match(
+				    &configured_network, &connected_prefix))
 				continue;
 			found = true;
 			route_unlock_node(rn);

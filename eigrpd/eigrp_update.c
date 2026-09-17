@@ -31,7 +31,7 @@
 #include "routemap.h"
 
 bool eigrp_update_prefix_apply(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
-			       int in, struct prefix *prefix)
+			       int in, const struct prefix *prefix)
 {
 	struct access_list *alist;
 	struct prefix_list *plist;

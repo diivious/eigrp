@@ -143,6 +143,14 @@ eigrp_ipv6_network_validate(const eigrp_prefix_t *network)
 	return EIGRP_RESULT_UNSUPPORTED;
 }
 
+static bool eigrp_ipv6_network_interface_match(
+	const eigrp_prefix_t *network, const eigrp_prefix_t *interface_address)
+{
+	(void)network;
+	(void)interface_address;
+	return false;
+}
+
 static eigrp_result_t
 eigrp_ipv6_summary_auto_prefix(const eigrp_prefix_t *component,
 			       eigrp_prefix_t *summary)
@@ -180,5 +188,6 @@ void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 	vectors->address_validate = eigrp_ipv6_address_validate;
 	vectors->prefix_validate = eigrp_ipv6_prefix_validate;
 	vectors->network_validate = eigrp_ipv6_network_validate;
+	vectors->network_interface_match = eigrp_ipv6_network_interface_match;
 	vectors->summary_auto_prefix = eigrp_ipv6_summary_auto_prefix;
 }

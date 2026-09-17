@@ -24,6 +24,7 @@
 #include "eigrp_cli_classic.h"
 #include "eigrp_cli_named.h"
 #include "eigrp_northbound.h"
+#include "eigrp_frr.h"
 
 #include "lib/keychain.h"
 #include "lib/distribute.h"
@@ -2975,9 +2976,12 @@ eigrpd_instance_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
  */
 static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 {
+	eigrp_instance_context_t context = {0};
+	eigrp_prefix_t network;
 	struct route_node *rnode;
 	struct prefix prefix;
 	eigrp_instance_t *eigrp;
+	eigrp_result_t result;
 	int exists;
 
 	yang_dnode_get_ipv4p(&prefix, args->dnode, NULL);
@@ -3001,7 +3005,12 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		if (eigrp_network_set(eigrp, &prefix) == 0)
+		if (eigrp_frr_prefix_import(&prefix, &network)
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
+		context.runtime = eigrp;
+		result = eigrp_network_create(&context, &network);
+		if (result != EIGRP_RESULT_SUCCESS)
 			return NB_ERR_INCONSISTENCY;
 		break;
 	}
@@ -3011,9 +3020,12 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 
 static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 {
+	eigrp_instance_context_t context = {0};
+	eigrp_prefix_t network;
 	struct route_node *rnode;
 	struct prefix prefix;
 	eigrp_instance_t *eigrp;
+	eigrp_result_t result;
 	int exists = 0;
 
 	yang_dnode_get_ipv4p(&prefix, args->dnode, NULL);
@@ -3037,7 +3049,14 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp_network_unset(eigrp, &prefix);
+		if (eigrp_frr_prefix_import(&prefix, &network)
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
+		context.runtime = eigrp;
+		result = eigrp_network_delete(&context, &network);
+		if (result != EIGRP_RESULT_SUCCESS
+		    && result != EIGRP_RESULT_NOT_FOUND)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 

@@ -53,12 +53,6 @@ eigrp_print_ifname(struct eigrp_interface *ei)
 
 /* Prototypes */
 extern int eigrp_sock_init(struct vrf *vrf);
-extern int eigrp_network_set(eigrp_instance_t *eigrp, struct prefix *p);
-extern int eigrp_network_unset(eigrp_instance_t *eigrp, struct prefix *p);
-
-bool eigrp_network_prefix_match(const eigrp_prefix_t *network,
-				const eigrp_prefix_t *address);
-
 eigrp_result_t eigrp_network_create(eigrp_instance_context_t *context,
 				    const eigrp_prefix_t *prefix);
 eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
