@@ -285,26 +285,25 @@ static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
 }
 
 static uint16_t eigrp_ipv4_packet_address_decode(eigrp_stream_t *stream,
-					 eigrp_address_t *address)
+					 eigrp_addr_t *address)
 {
 	if (!stream || !address
 	    || !eigrp_ipv4_stream_has(stream, EIGRP_IPV4_ADDRESS_BYTES))
 		return 0;
 
 	memset(address, 0, sizeof(*address));
-	address->afi = EIGRP_ADDRESS_FAMILY_IPV4;
-	stream_get(address->bytes, stream, EIGRP_IPV4_ADDRESS_BYTES);
+	address->afi = AF_INET;
+	stream_get(&address->ip.v4, stream, EIGRP_IPV4_ADDRESS_BYTES);
 	return EIGRP_IPV4_ADDRESS_BYTES;
 }
 
 static uint16_t eigrp_ipv4_packet_address_encode(eigrp_stream_t *stream,
-					 const eigrp_address_t *address)
+					 const eigrp_addr_t *address)
 {
-	if (!stream || !address
-	    || address->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (!stream || !address || (address->afi != 0 && address->afi != AF_INET))
 		return 0;
 
-	stream_put(stream, address->bytes, EIGRP_IPV4_ADDRESS_BYTES);
+	stream_put(stream, &address->ip.v4, EIGRP_IPV4_ADDRESS_BYTES);
 	return EIGRP_IPV4_ADDRESS_BYTES;
 }
 
@@ -360,54 +359,62 @@ static uint16_t eigrp_ipv4_packet_prefix_encode(eigrp_stream_t *stream,
 }
 
 /*
- * Route TLV payloads remain structural vector slots for now.  TLV1/TLV2 own
- * the current metric/exterior framing and will be migrated separately so this
- * packet-envelope cleanup does not mix wire-format refactoring into the move.
+ * Route descriptors still carry the legacy runtime struct prefix.  Keep that
+ * representation detail inside the AF module while TLV1/TLV2 operate only on
+ * the selected AF vector.  When the topology descriptor is converted to the
+ * portable eigrp_prefix_t, these two wrappers can collapse into the generic
+ * packet_prefix_encode/decode entries above.
  */
-static uint16_t eigrp_ipv4_packet_internal_route_encode(
-	eigrp_instance_t *eigrp, eigrp_interface_t *ei, eigrp_neighbor_t *nbr,
+static uint16_t eigrp_ipv4_packet_route_prefix_decode(
 	eigrp_stream_t *stream, eigrp_route_descriptor_t *route)
 {
-	(void)eigrp;
-	(void)ei;
-	(void)nbr;
-	(void)stream;
-	(void)route;
-	return 0;
+	eigrp_prefix_t prefix;
+	size_t start;
+	uint16_t decoded;
+
+	if (!stream || !route)
+		return 0;
+
+	start = stream_get_getp(stream);
+	decoded = eigrp_ipv4_packet_prefix_decode(stream, &prefix);
+	if (!decoded)
+		return 0;
+
+	if (prefix.address.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || prefix.prefix_length > IPV4_MAX_BITLEN) {
+		stream_set_getp(stream, start);
+		return 0;
+	}
+
+	memset(&route->dest, 0, sizeof(route->dest));
+	route->dest.family = AF_INET;
+	route->dest.prefixlen = prefix.prefix_length;
+	memcpy(&route->dest.u.prefix4, prefix.address.bytes,
+	       EIGRP_IPV4_ADDRESS_BYTES);
+	return decoded;
 }
 
-static eigrp_route_descriptor_t *eigrp_ipv4_packet_internal_route_decode(
-	eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr, eigrp_stream_t *stream,
-	uint16_t packet_length)
+static uint16_t eigrp_ipv4_packet_route_prefix_encode(
+	eigrp_stream_t *stream, const eigrp_route_descriptor_t *route)
 {
-	(void)eigrp;
-	(void)nbr;
-	(void)stream;
-	(void)packet_length;
-	return NULL;
-}
+	const struct prefix *destination;
+	eigrp_prefix_t prefix;
 
-static uint16_t eigrp_ipv4_packet_external_route_encode(
-	eigrp_instance_t *eigrp, eigrp_interface_t *ei, eigrp_neighbor_t *nbr,
-	eigrp_stream_t *stream, eigrp_route_descriptor_t *route)
-{
-	(void)eigrp;
-	(void)ei;
-	(void)nbr;
-	(void)stream;
-	(void)route;
-	return 0;
-}
+	if (!stream || !route)
+		return 0;
 
-static eigrp_route_descriptor_t *eigrp_ipv4_packet_external_route_decode(
-	eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr, eigrp_stream_t *stream,
-	uint16_t packet_length)
-{
-	(void)eigrp;
-	(void)nbr;
-	(void)stream;
-	(void)packet_length;
-	return NULL;
+	destination = route->prefix ? route->prefix->destination : &route->dest;
+	if (!destination || destination->family != AF_INET
+	    || destination->prefixlen > IPV4_MAX_BITLEN)
+		return 0;
+
+	memset(&prefix, 0, sizeof(prefix));
+	prefix.address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	prefix.prefix_length = destination->prefixlen;
+	memcpy(prefix.address.bytes, &destination->u.prefix4,
+	       EIGRP_IPV4_ADDRESS_BYTES);
+
+	return eigrp_ipv4_packet_prefix_encode(stream, &prefix);
 }
 
 static int eigrp_ipv4_addr_snprintf(char *buf, size_t len,
@@ -490,18 +497,18 @@ void eigrp_ipv4_init(eigrp_af_vectors_t *vectors)
 	vectors->packet_send = eigrp_ipv4_packet_send;
 	vectors->packet_receive = eigrp_ipv4_packet_receive;
 	vectors->packet_source_on_link = eigrp_ipv4_packet_source_on_link;
+	vectors->packet_address_bytes = EIGRP_IPV4_ADDRESS_BYTES;
 	vectors->packet_address_decode = eigrp_ipv4_packet_address_decode;
 	vectors->packet_address_encode = eigrp_ipv4_packet_address_encode;
 	vectors->packet_prefix_decode = eigrp_ipv4_packet_prefix_decode;
 	vectors->packet_prefix_encode = eigrp_ipv4_packet_prefix_encode;
-	vectors->packet_internal_route_encode =
-		eigrp_ipv4_packet_internal_route_encode;
-	vectors->packet_internal_route_decode =
-		eigrp_ipv4_packet_internal_route_decode;
-	vectors->packet_external_route_encode =
-		eigrp_ipv4_packet_external_route_encode;
-	vectors->packet_external_route_decode =
-		eigrp_ipv4_packet_external_route_decode;
+	vectors->classic_internal_tlv_type = EIGRP_TLV_IPv4_INT;
+	vectors->classic_external_tlv_type = EIGRP_TLV_IPv4_EXT;
+	vectors->multiprotocol_afi = EIGRP_AF_IPv4;
+	vectors->packet_route_prefix_decode =
+		eigrp_ipv4_packet_route_prefix_decode;
+	vectors->packet_route_prefix_encode =
+		eigrp_ipv4_packet_route_prefix_encode;
 	vectors->addr_snprintf = eigrp_ipv4_addr_snprintf;
 	vectors->prefix_snprintf = eigrp_ipv4_prefix_snprintf;
 	vectors->address_validate = eigrp_ipv4_address_validate;

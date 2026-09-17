@@ -153,27 +153,32 @@ typedef struct eigrp_af_vectors {
 
 	/*
 	 * Address-family wire primitives.  Address encoding is for a complete
-	 * address (for example, a next hop); prefix encoding owns the EIGRP
-	 * prefix-length/significant-byte representation.
+	 * runtime address (for example, a classic-TLV next hop); prefix encoding
+	 * owns the EIGRP prefix-length/significant-byte representation.
 	 */
+	uint8_t packet_address_bytes;
 	uint16_t (*packet_address_decode)(eigrp_stream_t *stream,
-					eigrp_address_t *address);
+					eigrp_addr_t *address);
 	uint16_t (*packet_address_encode)(eigrp_stream_t *stream,
-					const eigrp_address_t *address);
+					const eigrp_addr_t *address);
 	uint16_t (*packet_prefix_decode)(eigrp_stream_t *stream,
 				       eigrp_prefix_t *prefix);
 	uint16_t (*packet_prefix_encode)(eigrp_stream_t *stream,
 				       const eigrp_prefix_t *prefix);
 
 	/*
-	 * Route TLV payload handling.  TLV1/TLV2 selection remains owned by the
-	 * negotiated TLV codec vector; these entries hide AF-specific internal
-	 * and external route representation from the common packet code.
+	 * Route-TLV address-family selectors.  TLV1/TLV2 remain the route codec
+	 * owners because classic and multiprotocol metrics/exterior sections are
+	 * independent of address family.  The AF supplies only the family-specific
+	 * route type/AFI values and destination representation.
 	 */
-	eigrp_packet_encoder_t packet_internal_route_encode;
-	eigrp_packet_decoder_t packet_internal_route_decode;
-	eigrp_packet_encoder_t packet_external_route_encode;
-	eigrp_packet_decoder_t packet_external_route_decode;
+	uint16_t classic_internal_tlv_type;
+	uint16_t classic_external_tlv_type;
+	uint16_t multiprotocol_afi;
+	uint16_t (*packet_route_prefix_decode)(eigrp_stream_t *stream,
+					    eigrp_route_descriptor_t *route);
+	uint16_t (*packet_route_prefix_encode)(eigrp_stream_t *stream,
+					    const eigrp_route_descriptor_t *route);
 
 	/* Portable text presentation used by show/debug callers. */
 	int (*addr_snprintf)(char *buf, size_t len,

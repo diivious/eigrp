@@ -78,3 +78,43 @@ def test_tlv_modules_export_init_and_bind_without_leaking_wire_types():
         assert "interface_bind" in header
         assert "struct eigrp_tlv1" not in header
         assert "struct eigrp_tlv2" not in header
+
+
+def test_route_tlv_codecs_delegate_address_family_wire_details():
+    tlv1 = read("eigrp_tlv1.c")
+    tlv2 = read("eigrp_tlv2.c")
+
+    for source in (tlv1, tlv2):
+        assert "packet_route_prefix_decode" in source
+        assert "packet_route_prefix_encode" in source
+        assert "AF_INET" not in source
+        assert "prefix4" not in source
+        assert "EIGRP_TLV_IPv4" not in source
+        assert "EIGRP_AF_IPv4" not in source
+
+    assert "packet_address_decode" in tlv1
+    assert "packet_address_encode" in tlv1
+    assert "classic_internal_tlv_type" in tlv1
+    assert "classic_external_tlv_type" in tlv1
+    assert "multiprotocol_afi" in tlv2
+
+
+def test_address_family_vector_owns_route_family_selectors():
+    types = read("eigrp_types.h")
+    ipv4 = read("eigrp_ipv4.c")
+    ipv6 = read("eigrp_ipv6.c")
+
+    assert "uint8_t packet_address_bytes;" in types
+    assert "uint16_t classic_internal_tlv_type;" in types
+    assert "uint16_t classic_external_tlv_type;" in types
+    assert "uint16_t multiprotocol_afi;" in types
+    assert "packet_route_prefix_decode" in types
+    assert "packet_route_prefix_encode" in types
+
+    assert "classic_internal_tlv_type = EIGRP_TLV_IPv4_INT" in ipv4
+    assert "classic_external_tlv_type = EIGRP_TLV_IPv4_EXT" in ipv4
+    assert "multiprotocol_afi = EIGRP_AF_IPv4" in ipv4
+
+    assert "classic_internal_tlv_type = EIGRP_TLV_IPv6_INT" in ipv6
+    assert "classic_external_tlv_type = EIGRP_TLV_IPv6_EXT" in ipv6
+    assert "multiprotocol_afi = EIGRP_AF_IPv6" in ipv6

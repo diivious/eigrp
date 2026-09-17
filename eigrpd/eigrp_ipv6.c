@@ -53,7 +53,7 @@ static bool eigrp_ipv6_packet_source_on_link(eigrp_interface_t *ei,
 
 static uint16_t
 eigrp_ipv6_packet_address_decode(eigrp_stream_t *stream,
-				 eigrp_address_t *address)
+				 eigrp_addr_t *address)
 {
 	(void)stream;
 	(void)address;
@@ -62,7 +62,7 @@ eigrp_ipv6_packet_address_decode(eigrp_stream_t *stream,
 
 static uint16_t
 eigrp_ipv6_packet_address_encode(eigrp_stream_t *stream,
-				 const eigrp_address_t *address)
+				 const eigrp_addr_t *address)
 {
 	(void)stream;
 	(void)address;
@@ -87,59 +87,21 @@ eigrp_ipv6_packet_prefix_encode(eigrp_stream_t *stream,
 }
 
 static uint16_t
-eigrp_ipv6_packet_internal_route_encode(eigrp_instance_t *eigrp,
-					eigrp_interface_t *ei,
-					eigrp_neighbor_t *nbr,
-					eigrp_stream_t *stream,
-					eigrp_route_descriptor_t *route)
+eigrp_ipv6_packet_route_prefix_decode(eigrp_stream_t *stream,
+				      eigrp_route_descriptor_t *route)
 {
-	(void)eigrp;
-	(void)ei;
-	(void)nbr;
 	(void)stream;
 	(void)route;
 	return 0;
-}
-
-static eigrp_route_descriptor_t *
-eigrp_ipv6_packet_internal_route_decode(eigrp_instance_t *eigrp,
-					eigrp_neighbor_t *nbr,
-					eigrp_stream_t *stream,
-					uint16_t packet_length)
-{
-	(void)eigrp;
-	(void)nbr;
-	(void)stream;
-	(void)packet_length;
-	return NULL;
 }
 
 static uint16_t
-eigrp_ipv6_packet_external_route_encode(eigrp_instance_t *eigrp,
-					eigrp_interface_t *ei,
-					eigrp_neighbor_t *nbr,
-					eigrp_stream_t *stream,
-					eigrp_route_descriptor_t *route)
+eigrp_ipv6_packet_route_prefix_encode(eigrp_stream_t *stream,
+				      const eigrp_route_descriptor_t *route)
 {
-	(void)eigrp;
-	(void)ei;
-	(void)nbr;
 	(void)stream;
 	(void)route;
 	return 0;
-}
-
-static eigrp_route_descriptor_t *
-eigrp_ipv6_packet_external_route_decode(eigrp_instance_t *eigrp,
-					eigrp_neighbor_t *nbr,
-					eigrp_stream_t *stream,
-					uint16_t packet_length)
-{
-	(void)eigrp;
-	(void)nbr;
-	(void)stream;
-	(void)packet_length;
-	return NULL;
 }
 
 static int eigrp_ipv6_addr_snprintf(char *buf, size_t len,
@@ -201,18 +163,18 @@ void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 	vectors->packet_receive = eigrp_ipv6_packet_receive;
 	vectors->packet_source_on_link = eigrp_ipv6_packet_source_on_link;
 
+	vectors->packet_address_bytes = 16;
 	vectors->packet_address_decode = eigrp_ipv6_packet_address_decode;
 	vectors->packet_address_encode = eigrp_ipv6_packet_address_encode;
 	vectors->packet_prefix_decode = eigrp_ipv6_packet_prefix_decode;
 	vectors->packet_prefix_encode = eigrp_ipv6_packet_prefix_encode;
-	vectors->packet_internal_route_encode =
-		eigrp_ipv6_packet_internal_route_encode;
-	vectors->packet_internal_route_decode =
-		eigrp_ipv6_packet_internal_route_decode;
-	vectors->packet_external_route_encode =
-		eigrp_ipv6_packet_external_route_encode;
-	vectors->packet_external_route_decode =
-		eigrp_ipv6_packet_external_route_decode;
+	vectors->classic_internal_tlv_type = EIGRP_TLV_IPv6_INT;
+	vectors->classic_external_tlv_type = EIGRP_TLV_IPv6_EXT;
+	vectors->multiprotocol_afi = EIGRP_AF_IPv6;
+	vectors->packet_route_prefix_decode =
+		eigrp_ipv6_packet_route_prefix_decode;
+	vectors->packet_route_prefix_encode =
+		eigrp_ipv6_packet_route_prefix_encode;
 	vectors->addr_snprintf = eigrp_ipv6_addr_snprintf;
 	vectors->prefix_snprintf = eigrp_ipv6_prefix_snprintf;
 	vectors->address_validate = eigrp_ipv6_address_validate;

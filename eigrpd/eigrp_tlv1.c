@@ -28,78 +28,14 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_dump.h"
 
-/**
- * Number of useful macros which map to the packet
- */
-
-// Vector Metrics
-#define EIGRP_TLV1_METRIC                                                      \
-	uint32_t delay;                                                        \
-	uint32_t bandwidth;                                                    \
-	uint8_t mtu[3];                                                        \
-	uint8_t hop_count;                                                     \
-	uint8_t reliability;                                                   \
-	uint8_t load;                                                          \
-	uint8_t tag;                                                           \
-	uint8_t flags;
+/* Classic metric section. */
 #define EIGRP_TLV1_METRIC_SIZE 16
 
-// Nexthop (0 if this router)
-#define EIGRP_TLV1_IPV4_NEXTHOP uint32_t nexthop;
-#define EIGRP_TLV1_IPV4_NEXTHOP_SIZE 4
-
-// External Data for redistributed route
-#define EIGRP_TLV1_EXTDATA                                                     \
-	uint32_t orig;                                                         \
-	uint32_t as;                                                           \
-	uint32_t external_tag;                                                 \
-	uint32_t metric;                                                       \
-	uint16_t reserved;                                                     \
-	uint8_t protocol;                                                      \
-	uint8_t external_flags;
+/* External data for a redistributed route. */
 #define EIGRP_TLV1_EXTDATA_SIZE 20
 
-/**
- * structure to lay over a packet for encoding/decoding
- */
-typedef struct eigrp_tlv1_header {
-	EIGRP_TLV_HDR
-	EIGRP_TLV1_IPV4_NEXTHOP
-} __attribute__((packed)) eigrp_tlv1_header_t;
-
-typedef struct eigrp_tlv1_internal_ipv4 {
-	EIGRP_TLV_HDR
-	EIGRP_TLV1_IPV4_NEXTHOP
-	EIGRP_TLV1_METRIC
-
-	// destination address
-	uint8_t prefix_length;
-	unsigned char destination_part[4];
-} __attribute__((packed)) eigrp_tlv1_internal_ipv4_t;
-
-typedef struct eigrp_tlv1_external_ipv4 {
-	EIGRP_TLV_HDR
-	EIGRP_TLV1_IPV4_NEXTHOP
-	EIGRP_TLV1_EXTDATA
-	EIGRP_TLV1_METRIC
-
-	// destination address
-	uint8_t prefix_length;
-	unsigned char destination_part[4];
-} __attribute__((packed)) eigrp_tlv1_external_ipv4_t;
-
-typedef struct eigrp_tlv1_extdata {
-	EIGRP_TLV1_EXTDATA
-} __attribute__((packed)) eigrp_tlv1_extdata_t;
-
+/* Every classic destination starts with an 8-bit prefix length. */
 #define EIGRP_TLV1_DEST_PREFIX_SIZE 1
-#define EIGRP_IPV4_INT_MIN_TLV                                                \
-	(EIGRP_TLV_HDR_SIZE + EIGRP_TLV1_IPV4_NEXTHOP_SIZE                     \
-	 + EIGRP_TLV1_METRIC_SIZE + EIGRP_TLV1_DEST_PREFIX_SIZE)
-#define EIGRP_IPV4_EXT_MIN_TLV                                                \
-	(EIGRP_TLV_HDR_SIZE + EIGRP_TLV1_IPV4_NEXTHOP_SIZE                     \
-	 + EIGRP_TLV1_EXTDATA_SIZE + EIGRP_TLV1_METRIC_SIZE                    \
-	 + EIGRP_TLV1_DEST_PREFIX_SIZE)
 
 static size_t eigrp_tlv1_stream_remaining(eigrp_stream_t *pkt)
 {
@@ -114,12 +50,28 @@ static bool eigrp_tlv1_stream_has(eigrp_stream_t *pkt, size_t needed)
 	return eigrp_tlv1_stream_remaining(pkt) >= needed;
 }
 
-static uint16_t eigrp_tlv1_ipv4_prefix_bytes(uint8_t prefixlen)
+static bool eigrp_tlv1_af_ready(const eigrp_instance_t *eigrp)
 {
-	if (prefixlen == 0)
-		return 0;
+	return eigrp && eigrp->af_vectors.packet_address_bytes
+	       && eigrp->af_vectors.packet_address_decode
+	       && eigrp->af_vectors.packet_address_encode
+	       && eigrp->af_vectors.packet_route_prefix_decode
+	       && eigrp->af_vectors.packet_route_prefix_encode
+	       && eigrp->af_vectors.classic_internal_tlv_type
+	       && eigrp->af_vectors.classic_external_tlv_type;
+}
 
-	return ((prefixlen - 1) / 8) + 1;
+static uint16_t eigrp_tlv1_min_length(const eigrp_instance_t *eigrp,
+				      bool external)
+{
+	uint16_t length;
+
+	length = EIGRP_TLV_HDR_SIZE + eigrp->af_vectors.packet_address_bytes
+		 + EIGRP_TLV1_METRIC_SIZE + EIGRP_TLV1_DEST_PREFIX_SIZE;
+	if (external)
+		length += EIGRP_TLV1_EXTDATA_SIZE;
+
+	return length;
 }
 
 static void eigrp_tlv1_decode_abort(eigrp_stream_t *pkt)
@@ -215,96 +167,21 @@ static uint16_t eigrp_tlv1_metric_encode(eigrp_stream_t *pkt,
 	return EIGRP_TLV1_METRIC_SIZE;
 }
 
-static uint16_t eigrp_tlv1_addr_decode(eigrp_stream_t *pkt,
-				       struct prefix *dest)
+static uint16_t eigrp_tlv1_route_tlv_type(
+	const eigrp_instance_t *eigrp, const eigrp_route_descriptor_t *route)
 {
-	uint8_t addr[4] = {0, 0, 0, 0};
-	uint8_t prefixlen;
-	uint16_t addr_len;
-
-	if (!eigrp_tlv1_stream_has(pkt, EIGRP_TLV1_DEST_PREFIX_SIZE))
+	if (!eigrp_tlv1_af_ready(eigrp) || !route)
 		return 0;
 
-	prefixlen = stream_getc(pkt);
-	if (prefixlen > IPV4_MAX_BITLEN) {
-		zlog_err("%s: Unexpected IPv4 prefix length: %u", __func__,
-			 prefixlen);
-		return 0;
-	}
+	if (route->type == EIGRP_INT
+	    || route->type == eigrp->af_vectors.classic_internal_tlv_type)
+		return eigrp->af_vectors.classic_internal_tlv_type;
 
-	addr_len = eigrp_tlv1_ipv4_prefix_bytes(prefixlen);
-	if (!eigrp_tlv1_stream_has(pkt, addr_len))
-		return 0;
+	if (route->type == EIGRP_EXT
+	    || route->type == eigrp->af_vectors.classic_external_tlv_type)
+		return eigrp->af_vectors.classic_external_tlv_type;
 
-	for (uint16_t i = 0; i < addr_len; i++)
-		addr[i] = stream_getc(pkt);
-
-	dest->family = AF_INET;
-	dest->prefixlen = prefixlen;
-	memcpy(&dest->u.prefix4.s_addr, addr, sizeof(addr));
-
-	return EIGRP_TLV1_DEST_PREFIX_SIZE + addr_len;
-}
-
-static uint16_t eigrp_tlv1_addr_encode(eigrp_stream_t *pkt,
-				       eigrp_route_descriptor_t *route)
-{
-	struct prefix *dest = route->prefix->destination;
-	uint8_t addr[4];
-	uint16_t addr_len;
-
-	if (dest->family != AF_INET || dest->prefixlen > IPV4_MAX_BITLEN) {
-		zlog_err("%s: Unexpected IPv4 prefix length: %u", __func__,
-			 dest->prefixlen);
-		return 0;
-	}
-
-	addr_len = eigrp_tlv1_ipv4_prefix_bytes(dest->prefixlen);
-	memcpy(addr, &dest->u.prefix4.s_addr, sizeof(addr));
-
-	stream_putc(pkt, dest->prefixlen);
-	for (uint16_t i = 0; i < addr_len; i++)
-		stream_putc(pkt, addr[i]);
-
-	return EIGRP_TLV1_DEST_PREFIX_SIZE + addr_len;
-}
-
-static uint16_t eigrp_tlv1_nexthop_decode(eigrp_instance_t *eigrp,
-					  eigrp_stream_t *pkt,
-					  eigrp_route_descriptor_t *route)
-{
-	if (!eigrp_tlv1_stream_has(pkt, EIGRP_TLV1_IPV4_NEXTHOP_SIZE))
-		return 0;
-
-	/* if doing no-nexthop-self, then use the source peer */
-	if (/*eigrp->no_nextop_self == */ FALSE) {
-		route->nexthop.ip.v4.s_addr = stream_getl(pkt);
-	} else {
-		route->nexthop.ip.v4.s_addr = 0L;
-	}
-	return EIGRP_TLV1_IPV4_NEXTHOP_SIZE;
-}
-
-static uint16_t eigrp_tlv1_nexthop_encode(eigrp_stream_t *pkt,
-					  eigrp_route_descriptor_t *route)
-{
-	stream_putl(pkt, route->nexthop.ip.v4.s_addr);
-	return EIGRP_TLV1_IPV4_NEXTHOP_SIZE;
-}
-
-static uint16_t eigrp_tlv1_route_tlv_type(eigrp_route_descriptor_t *route)
-{
-	switch (route->type) {
-	case EIGRP_TLV_IPv4_INT:
-	case EIGRP_TLV_IPv4_EXT:
-		return route->type;
-	case EIGRP_INT:
-		return EIGRP_TLV_IPv4_INT;
-	case EIGRP_EXT:
-		return EIGRP_TLV_IPv4_EXT;
-	default:
-		return 0;
-	}
+	return 0;
 }
 
 /**
@@ -316,7 +193,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 						    uint16_t pktlen)
 {
 	eigrp_route_descriptor_t *route = NULL;
-	size_t tlv_start = stream_get_getp(pkt);
+	size_t tlv_start;
 	size_t tlv_end;
 	size_t packet_end;
 	size_t remaining;
@@ -324,9 +201,14 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	uint16_t bytes = EIGRP_TLV_HDR_SIZE;
 	uint16_t decoded;
 	uint16_t min_length;
+	bool external;
 
 	(void)pktlen;
 
+	if (!eigrp_tlv1_af_ready(eigrp) || !nbr || !pkt)
+		return NULL;
+
+	tlv_start = stream_get_getp(pkt);
 	remaining = eigrp_tlv1_stream_remaining(pkt);
 	if (remaining < EIGRP_TLV_HDR_SIZE) {
 		eigrp_tlv1_decode_abort(pkt);
@@ -336,14 +218,11 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	type = stream_getw(pkt);
 	length = stream_getw(pkt);
 
-	switch (type) {
-	case EIGRP_TLV_IPv4_INT:
-		min_length = EIGRP_IPV4_INT_MIN_TLV;
-		break;
-	case EIGRP_TLV_IPv4_EXT:
-		min_length = EIGRP_IPV4_EXT_MIN_TLV;
-		break;
-	default:
+	if (type == eigrp->af_vectors.classic_internal_tlv_type)
+		external = false;
+	else if (type == eigrp->af_vectors.classic_external_tlv_type)
+		external = true;
+	else {
 		if (length >= EIGRP_TLV_HDR_SIZE && length <= remaining)
 			eigrp_tlv1_decode_skip(pkt, tlv_start + length);
 		else
@@ -357,6 +236,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 		return NULL;
 	}
 
+	min_length = eigrp_tlv1_min_length(eigrp, external);
 	if (length < min_length || length > remaining) {
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
 			zlog_debug(
@@ -371,7 +251,6 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	packet_end = stream_get_endp(pkt);
 	stream_set_endp(pkt, tlv_end);
 
-	/* allocate buffer */
 	route = eigrp_topology_route_create(nbr->ei);
 	if (!route) {
 		stream_set_endp(pkt, packet_end);
@@ -381,48 +260,33 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 
 	route->type = type;
 
-	/* decode nexthop */
-	bytes += eigrp_tlv1_nexthop_decode(eigrp, pkt, route);
-	if (bytes != EIGRP_TLV_HDR_SIZE + EIGRP_TLV1_IPV4_NEXTHOP_SIZE)
+	decoded = eigrp->af_vectors.packet_address_decode(pkt, &route->nexthop);
+	if (decoded != eigrp->af_vectors.packet_address_bytes)
 		goto malformed;
+	bytes += decoded;
 
-	/* figure out what type of TLV we are processing */
-	switch (type) {
-	case EIGRP_TLV_IPv4_EXT:
-		bytes += eigrp_tlv1_external_decode(pkt, &route->extdata);
-		if (bytes != EIGRP_TLV_HDR_SIZE + EIGRP_TLV1_IPV4_NEXTHOP_SIZE
-			     + EIGRP_TLV1_EXTDATA_SIZE)
-			goto malformed;
-
-		bytes += eigrp_tlv1_metric_decode(pkt, &route->metric);
-		if (bytes != EIGRP_TLV_HDR_SIZE + EIGRP_TLV1_IPV4_NEXTHOP_SIZE
-			     + EIGRP_TLV1_EXTDATA_SIZE + EIGRP_TLV1_METRIC_SIZE)
-			goto malformed;
-
-		decoded = eigrp_tlv1_addr_decode(pkt, &route->dest);
+	if (external) {
+		decoded = eigrp_tlv1_external_decode(pkt, &route->extdata);
 		if (!decoded)
 			goto malformed;
 		bytes += decoded;
-		break;
-
-	case EIGRP_TLV_IPv4_INT:
-		bytes += eigrp_tlv1_metric_decode(pkt, &route->metric);
-		if (bytes != EIGRP_TLV_HDR_SIZE + EIGRP_TLV1_IPV4_NEXTHOP_SIZE
-			     + EIGRP_TLV1_METRIC_SIZE)
-			goto malformed;
-
-		/*
-		 * RFC 7868 allows more than one destination in the TLV. This
-		 * implementation currently consumes one route descriptor and skips
-		 * any remaining destinations so the next decoder pass starts on the
-		 * next TLV boundary.
-		 */
-		decoded = eigrp_tlv1_addr_decode(pkt, &route->dest);
-		if (!decoded)
-			goto malformed;
-		bytes += decoded;
-		break;
 	}
+
+	decoded = eigrp_tlv1_metric_decode(pkt, &route->metric);
+	if (!decoded)
+		goto malformed;
+	bytes += decoded;
+
+	/*
+	 * RFC 7868 allows more than one destination in the TLV.  This
+	 * implementation currently consumes one route descriptor and skips any
+	 * remaining destinations so the next decoder pass starts on the next TLV
+	 * boundary.
+	 */
+	decoded = eigrp->af_vectors.packet_route_prefix_decode(pkt, route);
+	if (!decoded)
+		goto malformed;
+	bytes += decoded;
 
 	if (bytes > length || bytes == EIGRP_TLV_HDR_SIZE)
 		goto malformed;
@@ -443,67 +307,59 @@ malformed:
 	return NULL;
 }
 
-static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
-				   eigrp_neighbor_t *nbr, eigrp_stream_t *pkt,
+static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
+				   eigrp_interface_t *ei,
+				   eigrp_neighbor_t *nbr,
+				   eigrp_stream_t *pkt,
 				   eigrp_route_descriptor_t *route)
 {
-	size_t tlv_start = stream_get_endp(pkt);
+	const struct prefix *filter_prefix;
+	size_t tlv_start;
 	size_t tlv_end;
 	uint16_t type;
 	uint16_t length;
 	uint16_t encoded;
 
+	if (!eigrp_tlv1_af_ready(eigrp) || !pkt || !route)
+		return 0;
+
 	if (!ei && nbr)
 		ei = nbr->ei;
 
-	/* Filtering
-	 * TODO: Work in progress
-	 */
-	if (ei) {
-		if (eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
-					      route->prefix->destination)) {
-			zlog_info(
-				"Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
-			route->metric.delay = EIGRP_MAX_METRIC;
-		}
+	filter_prefix = route->prefix ? route->prefix->destination : &route->dest;
+	if (ei && filter_prefix
+	    && eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
+					filter_prefix)) {
+		zlog_info("Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
+		route->metric.delay = EIGRP_MAX_METRIC;
 	}
 
-	type = eigrp_tlv1_route_tlv_type(route);
+	type = eigrp_tlv1_route_tlv_type(eigrp, route);
 	if (!type) {
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_SEND)) {
 			zlog_debug("Neighbor(%s): invalid TLV_type(%u)",
-				   eigrp_print_addr(&nbr->src), route->type);
+				   nbr ? eigrp_print_addr(&nbr->src) : "multicast",
+				   route->type);
 		}
 		return 0;
 	}
 
+	tlv_start = stream_get_endp(pkt);
 	stream_putw(pkt, type);
 	stream_putw(pkt, 0);
 
-	/* encode nexthop */
-	eigrp_tlv1_nexthop_encode(pkt, route);
+	encoded = eigrp->af_vectors.packet_address_encode(pkt, &route->nexthop);
+	if (encoded != eigrp->af_vectors.packet_address_bytes)
+		goto encode_failed;
 
-	switch (type) {
-	case EIGRP_TLV_IPv4_EXT:
+	if (type == eigrp->af_vectors.classic_external_tlv_type)
 		eigrp_tlv1_external_encode(pkt, &route->extdata);
-		eigrp_tlv1_metric_encode(pkt, &route->metric);
-		encoded = eigrp_tlv1_addr_encode(pkt, route);
-		break;
 
-	case EIGRP_TLV_IPv4_INT:
-		eigrp_tlv1_metric_encode(pkt, &route->metric);
-		encoded = eigrp_tlv1_addr_encode(pkt, route);
-		break;
+	eigrp_tlv1_metric_encode(pkt, &route->metric);
 
-	default:
-		encoded = 0;
-		break;
-	}
-
-	if (!encoded) {
-		stream_set_endp(pkt, tlv_start);
-		return 0;
-	}
+	encoded = eigrp->af_vectors.packet_route_prefix_encode(pkt, route);
+	if (!encoded)
+		goto encode_failed;
 
 	tlv_end = stream_get_endp(pkt);
 	length = tlv_end - tlv_start;
@@ -513,6 +369,10 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp, eigrp_interface_t *e
 	stream_set_endp(pkt, tlv_end);
 
 	return length;
+
+encode_failed:
+	stream_set_endp(pkt, tlv_start);
+	return 0;
 }
 
 void eigrp_tlv1_init(eigrp_tlv_codec_t *codec)
