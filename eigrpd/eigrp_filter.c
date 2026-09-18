@@ -25,6 +25,60 @@
 #include "vrf.h"
 
 /*
+ * FRR policy objects still consume struct prefix.  Keep that host-specific
+ * representation local to the filter boundary while protocol callers pass the
+ * native EIGRP prefix representation.
+ */
+bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
+			       eigrp_interface_t *ei, int direction,
+			       const eigrp_prefix_t *prefix)
+{
+	struct access_list *alist;
+	struct prefix_list *plist;
+	struct prefix host_prefix;
+
+	if (!eigrp || !ei || !prefix)
+		return false;
+
+	memset(&host_prefix, 0, sizeof(host_prefix));
+	if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+		if (prefix->prefix_length > IPV4_MAX_BITLEN)
+			return false;
+		host_prefix.family = AF_INET;
+		host_prefix.prefixlen = prefix->prefix_length;
+		memcpy(&host_prefix.u.prefix4, prefix->address.bytes,
+		       sizeof(host_prefix.u.prefix4));
+	} else if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV6) {
+		if (prefix->prefix_length > 128)
+			return false;
+		host_prefix.family = AF_INET6;
+		host_prefix.prefixlen = prefix->prefix_length;
+		memcpy(&host_prefix.u.prefix6, prefix->address.bytes,
+		       sizeof(host_prefix.u.prefix6));
+	} else {
+		return false;
+	}
+
+	alist = eigrp->list[direction];
+	if (alist && access_list_apply(alist, &host_prefix) == FILTER_DENY)
+		return true;
+
+	plist = eigrp->prefix[direction];
+	if (plist && prefix_list_apply(plist, &host_prefix) == PREFIX_DENY)
+		return true;
+
+	alist = ei->list[direction];
+	if (alist && access_list_apply(alist, &host_prefix) == FILTER_DENY)
+		return true;
+
+	plist = ei->prefix[direction];
+	if (plist && prefix_list_apply(plist, &host_prefix) == PREFIX_DENY)
+		return true;
+
+	return false;
+}
+
+/*
  * Distribute-list update functions.
  */
 void eigrp_distribute_update(struct distribute_ctx *ctx,

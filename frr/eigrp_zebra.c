@@ -34,6 +34,7 @@
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_metric.h"
+#include "eigrpd/eigrp_frr.h"
 
 /* Zebra structure to hold current status. */
 struct zclient *eigrp_zclient = NULL;
@@ -192,16 +193,20 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	return 0;
 }
 
-void eigrp_zebra_route_add(eigrp_instance_t *eigrp, struct prefix *p,
+void eigrp_zebra_route_add(eigrp_instance_t *eigrp,
+			   const eigrp_prefix_t *prefix,
 			   struct list *successors, uint32_t distance)
 {
 	struct zapi_route api;
 	struct zapi_nexthop *api_nh;
 	eigrp_route_descriptor_t *te;
 	struct listnode *node;
+	struct prefix host_prefix;
 	int count = 0;
 
 	if (!eigrp_zclient->redist[AFI_IP][ZEBRA_ROUTE_EIGRP])
+		return;
+	if (eigrp_frr_prefix_export(prefix, &host_prefix) != EIGRP_RESULT_SUCCESS)
 		return;
 
 	zapi_route_init(&api);
@@ -209,7 +214,7 @@ void eigrp_zebra_route_add(eigrp_instance_t *eigrp, struct prefix *p,
 	api.type = ZEBRA_ROUTE_EIGRP;
 	api.safi = SAFI_UNICAST;
 	api.metric = distance;
-	memcpy(&api.prefix, p, sizeof(*p));
+	api.prefix = host_prefix;
 
 	SET_FLAG(api.message, ZAPI_MESSAGE_NEXTHOP);
 	SET_FLAG(api.message, ZAPI_MESSAGE_METRIC);
@@ -235,33 +240,35 @@ void eigrp_zebra_route_add(eigrp_instance_t *eigrp, struct prefix *p,
 	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL)) {
-		zlog_debug("Zebra: Route add %s", eigrp_print_prefix(p));
+		zlog_debug("Zebra: Route add %s", eigrp_print_prefix(&host_prefix));
 	}
 
 	zclient_route_send(ZEBRA_ROUTE_ADD, eigrp_zclient, &api);
 }
 
-void eigrp_zebra_route_delete(eigrp_instance_t *eigrp, struct prefix *p)
+void eigrp_zebra_route_delete(eigrp_instance_t *eigrp,
+			      const eigrp_prefix_t *prefix)
 {
 	struct zapi_route api;
+	struct prefix host_prefix;
 
 	if (!eigrp_zclient->redist[AFI_IP][ZEBRA_ROUTE_EIGRP])
+		return;
+	if (eigrp_frr_prefix_export(prefix, &host_prefix) != EIGRP_RESULT_SUCCESS)
 		return;
 
 	zapi_route_init(&api);
 	api.vrf_id = eigrp->vrf_id;
 	api.type = ZEBRA_ROUTE_EIGRP;
 	api.safi = SAFI_UNICAST;
-	memcpy(&api.prefix, p, sizeof(*p));
+	api.prefix = host_prefix;
 	zclient_route_send(ZEBRA_ROUTE_DELETE, eigrp_zclient, &api);
 
 	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL)) {
-		zlog_debug("Zebra: Route del %s", eigrp_print_prefix(p));
+		zlog_debug("Zebra: Route del %s", eigrp_print_prefix(&host_prefix));
 	}
-
-	return;
 }
 
 static int eigrp_is_type_redistributed(int type, vrf_id_t vrf_id)

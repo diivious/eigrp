@@ -23,6 +23,7 @@
 #include "eigrpd/eigrp_tlv2.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
+#include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_metric.h"
@@ -31,6 +32,35 @@
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF,      "EIGRP interface");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF_INFO, "EIGRP Interface Information");
+
+static bool eigrp_interface_destination_get(const eigrp_interface_t *ei,
+					    eigrp_prefix_t *destination)
+{
+	if (!ei || !destination)
+		return false;
+
+	memset(destination, 0, sizeof(*destination));
+	destination->prefix_length = ei->address.prefixlen;
+	switch (ei->address.family) {
+	case AF_INET:
+		destination->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		memcpy(destination->address.bytes, &ei->address.u.prefix4,
+		       sizeof(ei->address.u.prefix4));
+		break;
+	case AF_INET6:
+		destination->address.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		memcpy(destination->address.bytes, &ei->address.u.prefix6,
+		       sizeof(ei->address.u.prefix6));
+		break;
+	default:
+		return false;
+	}
+
+	if (!eigrp_prefix_valid(destination))
+		return false;
+	eigrp_prefix_normalize(destination);
+	return true;
+}
 
 static char *eigrp_interface_string_duplicate(const char *value)
 {
@@ -830,17 +860,18 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	route->adv_router = eigrp->neighbor_self;
 	route->flags = EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG;
 
-	struct prefix dest_addr;
+	eigrp_prefix_t destination;
 
-	dest_addr = ei->address;
-	apply_mask(&dest_addr);
-	prefix = eigrp_topology_table_lookup_ipv4(eigrp->topology_table, &dest_addr);
+	if (!eigrp_interface_destination_get(ei, &destination)) {
+		eigrp_topology_route_free(route);
+		return 0;
+	}
+	prefix = eigrp_topology_table_lookup(eigrp->topology_table, &destination);
 
 	if (prefix == NULL) {
 		prefix = eigrp_topology_prefix_create();
 		prefix->serno = eigrp->serno;
-		prefix->destination = (struct prefix *)prefix_ipv4_new();
-		prefix_copy(prefix->destination, &dest_addr);
+		prefix->destination = destination;
 		prefix->nt = EIGRP_TOPOLOGY_TYPE_CONNECTED;
 		prefix->reported_metric = metric;
 		prefix->state = EIGRP_FSM_STATE_PASSIVE;
@@ -940,18 +971,17 @@ void eigrp_intf_set_multicast(eigrp_interface_t *ei)
 
 void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 {
-	struct prefix dest_addr;
-	eigrp_prefix_descriptor_t *pe;
+	eigrp_prefix_t destination;
+	eigrp_prefix_descriptor_t *pe = NULL;
 
 	if (source == INTERFACE_DOWN_BY_VTY) {
 		event_cancel(&ei->t_hello);
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 	}
 
-	dest_addr = ei->address;
-	apply_mask(&dest_addr);
-	pe = eigrp_topology_table_lookup_ipv4(eigrp->topology_table,
-					      &dest_addr);
+	if (eigrp_interface_destination_get(ei, &destination))
+		pe = eigrp_topology_table_lookup(eigrp->topology_table,
+					 &destination);
 	if (pe)
 		eigrp_prefix_descriptor_delete(eigrp, eigrp->topology_table,
 					       pe);

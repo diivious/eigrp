@@ -24,9 +24,11 @@ extern struct zclient *eigrp_zclient;
 extern void eigrp_zebra_init(void);
 extern void eigrp_zebra_stop(void);
 
-extern void eigrp_zebra_route_add(eigrp_instance_t *eigrp, struct prefix *p,
+extern void eigrp_zebra_route_add(eigrp_instance_t *eigrp,
+				  const eigrp_prefix_t *prefix,
 				  struct list *successors, uint32_t distance);
-extern void eigrp_zebra_route_delete(eigrp_instance_t *eigrp, struct prefix *);
+extern void eigrp_zebra_route_delete(eigrp_instance_t *eigrp,
+				     const eigrp_prefix_t *prefix);
 extern int eigrp_redistribute_set(eigrp_instance_t *, int, struct eigrp_metrics);
 extern int eigrp_redistribute_unset(eigrp_instance_t *, int);
 

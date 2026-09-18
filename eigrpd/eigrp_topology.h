@@ -80,7 +80,8 @@ extern void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 extern void eigrp_topology_delete_all(eigrp_instance_t *eigrp,
 				      struct route_table *table);
 extern eigrp_prefix_descriptor_t *
-eigrp_topology_table_lookup_ipv4(struct route_table *table, struct prefix *p);
+eigrp_topology_table_lookup(struct route_table *table,
+			    const eigrp_prefix_t *prefix);
 extern struct list *eigrp_topology_get_successor(eigrp_prefix_descriptor_t *pe);
 extern struct list *
 eigrp_topology_get_successor_max(eigrp_prefix_descriptor_t *pe,

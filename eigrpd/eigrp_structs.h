@@ -404,7 +404,7 @@ enum GR_type { EIGRP_GR_MANUAL, EIGRP_GR_FILTER };
 /* EIGRP Topology table node structure */
 typedef struct eigrp_prefix_descriptor {
 	struct list *entries, *rij;
-	struct prefix *destination;
+	eigrp_prefix_t destination;
 
 	eigrp_metrics_t reported_metric; // RD for sending
 	uint32_t fdistance;		 // FD
@@ -427,7 +427,7 @@ typedef struct eigrp_prefix_descriptor {
 /* EIGRP Topology table record structure */
 typedef struct eigrp_route_descriptor {
 	uint16_t type;
-	struct prefix dest;			// destination address
+	eigrp_prefix_t dest;			// destination address
 	eigrp_addr_t nexthop;			// address of advertised by peer
 
 	eigrp_prefix_descriptor_t *prefix;	// prefix this route is part of

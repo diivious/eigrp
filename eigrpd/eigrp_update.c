@@ -21,7 +21,9 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_fsm.h"
+#include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_packetizer.h"
+#include "eigrpd/eigrp_prefix.h"
 
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_dump.h"
@@ -29,31 +31,6 @@
 #include "eigrpd/eigrp_metric.h"
 
 #include "routemap.h"
-
-bool eigrp_update_prefix_apply(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
-			       int in, const struct prefix *prefix)
-{
-	struct access_list *alist;
-	struct prefix_list *plist;
-
-	alist = eigrp->list[in];
-	if (alist && access_list_apply(alist, prefix) == FILTER_DENY)
-		return true;
-
-	plist = eigrp->prefix[in];
-	if (plist && prefix_list_apply(plist, prefix) == PREFIX_DENY)
-		return true;
-
-	alist = ei->list[in];
-	if (alist && access_list_apply(alist, prefix) == FILTER_DENY)
-		return true;
-
-	plist = ei->prefix[in];
-	if (plist && prefix_list_apply(plist, prefix) == PREFIX_DENY)
-		return true;
-
-	return false;
-}
 
 /**
  * @fn remove_received_prefix_gr
@@ -108,8 +85,11 @@ static void eigrp_update_receive_GR_ask(eigrp_instance_t *eigrp,
 
 	/* iterate over all prefixes which weren't advertised by neighbor */
 	for (ALL_LIST_ELEMENTS_RO(nbr_prefixes, node1, prefix)) {
-		zlog_debug("GR receive: Neighbor not advertised %s",
-			   eigrp_print_prefix(prefix->destination));
+		char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
+				      &prefix->destination);
+		zlog_debug("GR receive: Neighbor not advertised %s", prefix_buf);
 
 		fsm_msg.metrics = prefix->reported_metric;
 		/* set delay to MAX */
@@ -252,7 +232,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 		// should have got route off the packet, but one never knows
 		if (route) {
-			prefix = eigrp_topology_table_lookup_ipv4(eigrp->topology_table, &route->dest);
+			prefix = eigrp_topology_table_lookup(eigrp->topology_table, &route->dest);
 			/*if exists it comes to DUAL*/
 			if (prefix != NULL) {
 				/* remove received prefix from neighbor prefix
@@ -295,8 +275,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				/*Here comes topology information save*/
 				prefix = eigrp_topology_prefix_create();
 				prefix->serno = eigrp->serno;
-				prefix->destination = (struct prefix *)prefix_ipv4_new();
-				prefix_copy(prefix->destination, &route->dest);
+				prefix->destination = route->dest;
+				eigrp_prefix_normalize(&prefix->destination);
 				prefix->state = EIGRP_FSM_STATE_PASSIVE;
 				prefix->nt = (route->type == EIGRP_TLV_IPv4_EXT)
 						     ? EIGRP_TOPOLOGY_TYPE_REMOTE_EXTERNAL
@@ -315,7 +295,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				/*
 				 * Filtering
 				 */
-				if (eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_IN, &route->dest))
+				if (eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_IN, &route->dest))
 					route->reported_metric.delay = EIGRP_MAX_METRIC;
 
 				route->distance = eigrp_calculate_total_metrics(eigrp, route);
@@ -474,7 +454,7 @@ void eigrp_update_send_EOT(eigrp_neighbor_t *nbr)
 	struct listnode *node2, *nnode2;
 	eigrp_interface_t *ei = nbr->ei;
 	eigrp_instance_t *eigrp = ei->eigrp;
-	struct prefix *dest_addr;
+	const eigrp_prefix_t *dest_addr;
 	uint32_t seq_no = eigrp->sequence_number;
 	uint16_t eigrp_mtu = EIGRP_PACKET_MTU(ei->ifp->mtu);
 	struct route_node *rn;
@@ -517,10 +497,10 @@ void eigrp_update_send_EOT(eigrp_neighbor_t *nbr)
 				}
 			}
 			/* Get destination address from prefix */
-			dest_addr = prefix->destination;
+			dest_addr = &prefix->destination;
 
 			/* Check if any list fits */
-			if (eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT, dest_addr))
+			if (eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT, dest_addr))
 				continue;
 			else {
 				length += (nbr->encoder)(eigrp, ei, nbr, packet->s, route);
@@ -546,7 +526,7 @@ void eigrp_update_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	uint16_t length = EIGRP_HEADER_LEN;
 
 	struct listnode *node, *nnode;
-	struct prefix *dest_addr;
+	const eigrp_prefix_t *dest_addr;
 
 	/* if we dont have peers on this interface, then we're done. */
 	if (ei->nbrs->count == 0)
@@ -597,9 +577,9 @@ void eigrp_update_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			has_tlv = 0;
 		}
 		/* Get destination address from prefix */
-		dest_addr = prefix->destination;
+		dest_addr = &prefix->destination;
 
-		if (eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT, dest_addr)) {
+		if (eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT, dest_addr)) {
 			// prefix->reported_metric.delay = EIGRP_MAX_METRIC;
 			continue;
 		} else {
@@ -709,7 +689,7 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 	eigrp_route_descriptor_t *route;
 
 	struct list *successors;
-	struct prefix *dest_addr;
+	const eigrp_prefix_t *dest_addr;
 	struct list *prefixes;
 	struct route_node *rn;
 
@@ -774,12 +754,14 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 		/*
 		 * Filtering
 		 */
-		dest_addr = prefix->destination;
+		dest_addr = &prefix->destination;
 
-		if (eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT, dest_addr)) {
+		if (eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT, dest_addr)) {
+			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf), dest_addr);
 			/* do not send filtered route */
-			zlog_info("Filtered prefix %s won't be sent out.",
-				  eigrp_print_prefix(dest_addr));
+			zlog_info("Filtered prefix %s won't be sent out.", prefix_buf);
 		} else {
 			// grab the route from the prefix so we can get the metrics we need
 			successors = eigrp_topology_get_successor(prefix);
@@ -795,11 +777,13 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 		 * This makes no sense, Filter out then filter in???
 		 * Look into this more - DBS
 		 */
-		if (eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_IN,
+		if (eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_IN,
 					      dest_addr)) {
+			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf), dest_addr);
 			/* do not send filtered route */
-			zlog_info("Filtered prefix %s will be removed.",
-				  eigrp_print_prefix(dest_addr));
+			zlog_info("Filtered prefix %s will be removed.", prefix_buf);
 
 			/* prepare message for FSM */
 			eigrp_fsm_action_message_t fsm_msg;

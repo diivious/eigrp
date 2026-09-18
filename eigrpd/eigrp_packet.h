@@ -92,9 +92,6 @@ extern void eigrp_hello_timer(struct event *);
 /*
  * These externs are found in eigrp_update.c
  */
-extern bool eigrp_update_prefix_apply(eigrp_instance_t *eigrp,
-				      eigrp_interface_t *ei, int in,
-				      const struct prefix *prefix);
 extern void eigrp_update_send(eigrp_instance_t *, eigrp_neighbor_t *,
 			      eigrp_interface_t *);
 extern void eigrp_update_receive(eigrp_instance_t *, eigrp_neighbor_t *,

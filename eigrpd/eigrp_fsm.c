@@ -57,6 +57,7 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
+#include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_dump.h"
 
@@ -388,14 +389,18 @@ int eigrp_fsm_event(eigrp_fsm_action_message_t *msg)
 	if (IS_DEBUG_EIGRP(0, FSM)
 	    || eigrp_debug_address_family_enabled(
 		    msg->eigrp, EIGRP_DEBUG_AF_ROUTE,
-		    msg->adv_router ? &msg->adv_router->src : NULL))
+		    msg->adv_router ? &msg->adv_router->src : NULL)) {
+		char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
+				      &msg->prefix->destination);
 		zlog_debug(
 			"EIGRP AS: %d State: %s Event: %s Network: %s Packet Type: %s Reply RIJ Count: %d change: %s",
 			msg->eigrp->AS, prefix_state2str(msg->prefix->state),
-			fsm_state2str(event),
-			eigrp_print_prefix(msg->prefix->destination),
+			fsm_state2str(event), prefix_buf,
 			packet_type2str(msg->packet_type),
 			msg->prefix->rij->count, change2str(msg->change));
+	}
 	(*(NSM[msg->prefix->state][event].func))(msg);
 
 	return 1;

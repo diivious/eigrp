@@ -175,10 +175,6 @@ typedef struct eigrp_af_vectors {
 	uint16_t classic_internal_tlv_type;
 	uint16_t classic_external_tlv_type;
 	uint16_t multiprotocol_afi;
-	uint16_t (*packet_route_prefix_decode)(eigrp_stream_t *stream,
-					    eigrp_route_descriptor_t *route);
-	uint16_t (*packet_route_prefix_encode)(eigrp_stream_t *stream,
-					    const eigrp_route_descriptor_t *route);
 
 	/* Portable text presentation used by show/debug callers. */
 	int (*addr_snprintf)(char *buf, size_t len,

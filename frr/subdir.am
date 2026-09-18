@@ -30,6 +30,7 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_northbound.c \
 	eigrpd/eigrp_packet.c \
 	eigrpd/eigrp_packetizer.c \
+	eigrpd/eigrp_prefix.c \
 	eigrpd/eigrp_query.c \
 	eigrpd/eigrp_redistribute.c \
 	eigrpd/eigrp_reply.c \
@@ -84,6 +85,7 @@ noinst_HEADERS += \
 	eigrpd/eigrp_northbound.h \
 	eigrpd/eigrp_packet.h \
 	eigrpd/eigrp_packetizer.h \
+	eigrpd/eigrp_prefix.h \
 	eigrpd/eigrp_redistribute.h \
 	eigrpd/eigrp_snmp.h \
 	eigrpd/eigrp_statistics.h \

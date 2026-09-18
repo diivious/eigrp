@@ -338,6 +338,7 @@ extern struct running_config_stub { struct lyd_node *dnode; } *running_config;
 #define MTYPE_EIGRP_IPV4_INT_TLV 1017
 #define MTYPE_EIGRP_SEQ_TLV 1018
 #define MTYPE_EIGRP_PACKETIZER_WORK 1019
+#define MTYPE_EIGRP_PREFIX_SNAPSHOT 1020
 #define DISTRIBUTE_V4_IN 0
 #define DISTRIBUTE_V4_OUT 1
 #define ZCAP_NET_RAW 1

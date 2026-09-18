@@ -18,6 +18,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_packetizer.h"
+#include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_dump.h"
 
 /* EIGRP SIA-QUERY read function */
@@ -46,12 +47,15 @@ void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		if (!route)
 			break;
 
-		prefix = eigrp_topology_table_lookup_ipv4(eigrp->topology_table,
+		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);
 		if (!prefix) {
+			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
+					      &route->dest);
 			zlog_debug("EIGRP SIA-QUERY: Neighbor(%s) sent unknown prefix %s",
-				   eigrp_print_addr(&nbr->src),
-				   eigrp_print_prefix(&route->dest));
+				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_topology_route_free(route);
 			continue;
 		}

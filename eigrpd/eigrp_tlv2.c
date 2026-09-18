@@ -16,6 +16,7 @@
 #include "eigrpd/eigrp_tlv2.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_fsm.h"
+#include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_dump.h"
@@ -55,8 +56,8 @@ static bool eigrp_tlv2_af_ready(const eigrp_instance_t *eigrp)
 	return eigrp && eigrp->af_vectors.multiprotocol_afi
 	       && eigrp->af_vectors.classic_internal_tlv_type
 	       && eigrp->af_vectors.classic_external_tlv_type
-	       && eigrp->af_vectors.packet_route_prefix_decode
-	       && eigrp->af_vectors.packet_route_prefix_encode;
+	       && eigrp->af_vectors.packet_prefix_decode
+	       && eigrp->af_vectors.packet_prefix_encode;
 }
 
 static void eigrp_tlv2_decode_abort(eigrp_stream_t *pkt)
@@ -302,7 +303,7 @@ static eigrp_route_descriptor_t *eigrp_tlv2_decoder(eigrp_instance_t *eigrp,
 		bytes += decoded;
 	}
 
-	decoded = eigrp->af_vectors.packet_route_prefix_decode(pkt, route);
+	decoded = eigrp->af_vectors.packet_prefix_decode(pkt, &route->dest);
 	if (!decoded)
 		goto malformed;
 	bytes += decoded;
@@ -334,7 +335,7 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 				   eigrp_stream_t *pkt,
 				   eigrp_route_descriptor_t *route)
 {
-	const struct prefix *filter_prefix;
+	const eigrp_prefix_t *filter_prefix;
 	size_t tlv_start;
 	size_t tlv_end;
 	uint16_t type;
@@ -349,9 +350,9 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 	if (!ei)
 		return 0;
 
-	filter_prefix = route->prefix ? route->prefix->destination : &route->dest;
+	filter_prefix = route->prefix ? &route->prefix->destination : &route->dest;
 	if (filter_prefix
-	    && eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
+	    && eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
 					filter_prefix)) {
 		zlog_info("Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
 		route->metric.delay = EIGRP_MAX_METRIC;
@@ -373,7 +374,8 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 	if (type == EIGRP_TLV_MP_EXT)
 		eigrp_tlv2_external_encode(eigrp, pkt, &route->extdata);
 
-	encoded = eigrp->af_vectors.packet_route_prefix_encode(pkt, route);
+	encoded = eigrp->af_vectors.packet_prefix_encode(
+		pkt, route->prefix ? &route->prefix->destination : &route->dest);
 	if (!encoded) {
 		stream_set_endp(pkt, tlv_start);
 		return 0;

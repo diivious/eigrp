@@ -18,6 +18,7 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_topology.h"
+#include "eigrpd/eigrp_prefix.h"
 
 #include "command.h"
 
@@ -1228,12 +1229,11 @@ void show_ip_eigrp_prefix_descriptor(struct vty *vty,
 				     eigrp_prefix_descriptor_t *tn)
 {
 	struct list *successors = eigrp_topology_get_successor(tn);
-	char buffer[PREFIX_STRLEN];
+	char buffer[EIGRP_PREFIX_STRLEN] = "invalid";
 
+	eigrp_prefix_snprintf(buffer, sizeof(buffer), &tn->destination);
 	vty_out(vty, "%-3c", (tn->state > 0) ? 'A' : 'P');
-
-	vty_out(vty, "%s, ",
-		prefix2str(tn->destination, buffer, PREFIX_STRLEN));
+	vty_out(vty, "%s, ", buffer);
 	vty_out(vty, "%u successors, ", (successors) ? successors->count : 0);
 	vty_out(vty, "FD is %u, serno: %" PRIu64 " \n", tn->fdistance,
 		tn->serno);

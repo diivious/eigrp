@@ -29,6 +29,10 @@ extern void eigrp_distribute_update_all_wrapper(struct access_list *alist);
 extern void eigrp_distribute_timer_process(struct event *event);
 extern void eigrp_distribute_timer_interface(struct event *event);
 
+bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
+			       eigrp_interface_t *ei, int direction,
+			       const eigrp_prefix_t *prefix);
+
 eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
 				   const char *access_list,
 				   eigrp_offset_direction_t direction,

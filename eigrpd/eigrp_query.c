@@ -19,6 +19,7 @@
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_packetizer.h"
+#include "eigrpd/eigrp_prefix.h"
 
 
 static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
@@ -35,12 +36,8 @@ static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
 	if (!prefix)
 		return;
 
-	prefix->destination = (struct prefix *)prefix_ipv4_new();
-	if (!prefix->destination) {
-		eigrp_topology_prefix_free(prefix);
-		return;
-	}
-	prefix_copy(prefix->destination, &query_route->dest);
+	prefix->destination = query_route->dest;
+	eigrp_prefix_normalize(&prefix->destination);
 
 	reply_route = eigrp_topology_route_create(nbr->ei);
 	if (!reply_route) {
@@ -130,12 +127,15 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		if (!route)
 			break;
 
-		prefix = eigrp_topology_table_lookup_ipv4(eigrp->topology_table,
+		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);
 		if (!prefix) {
+			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
+					      &route->dest);
 			zlog_debug("EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
-				   eigrp_print_addr(&nbr->src),
-				   eigrp_print_prefix(&route->dest));
+				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_query_unknown_reply_send(eigrp, nbr, route);
 			eigrp_topology_route_free(route);
 			continue;

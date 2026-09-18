@@ -54,6 +54,17 @@ packet->dst.afi = AF_INET;
 before storing the IPv4 destination.  No new address-family abstraction was
 introduced.
 
+The topology-prefix migration is also complete.
+`eigrp_prefix_descriptor_t::destination` and
+`eigrp_route_descriptor_t::dest` now use `eigrp_prefix_t`; Update, Query,
+Reply/SIA, packetizer, interface-connected-route, TLV1/TLV2, topology lookup,
+and Zebra route-install call paths carry the native EIGRP prefix.  The temporary
+route-prefix AF codec wrappers and topology import/export bridges were removed,
+and protocol processing no longer allocates FRR prefixes with
+`prefix_ipv4_new()`.  The FRR `route_table` storage key remains a localized
+topology implementation detail until the later host-runtime boundary work.
+The deferred prefix/route descriptor naming decision is unchanged.
+
 ## Remaining boundary findings
 
 ### 1. FRR interface/runtime objects in portable modules
@@ -78,32 +89,7 @@ objects.
 This should be removed by EIGRP-owned southbound/configuration contracts rather
 than by replacing standard IP address types.
 
-### 2. Topology destination representation
-
-Primary files include:
-
-```text
-eigrpd/eigrp_structs.h
-eigrpd/eigrp_topology.c
-eigrpd/eigrp_topology.h
-eigrpd/eigrp_interface.c
-eigrpd/eigrp_update.c
-eigrpd/eigrp_query.c
-eigrpd/eigrp_tlv1.c
-eigrpd/eigrp_tlv2.c
-eigrpd/eigrp_packet.h
-```
-
-`eigrp_prefix_descriptor_t::destination` and
-`eigrp_route_descriptor_t::dest` still use FRR `struct prefix`.  This is a real
-portable-boundary dependency because `struct prefix` is an FRR object, while the
-protocol already has `eigrp_prefix_t` for a host-independent destination prefix.
-
-This should be handled as one coordinated topology-prefix migration.  It is a
-data-boundary cleanup only; the deferred DNDB/DRDB naming decision remains
-unchanged.
-
-### 3. FRR route-map/filter integration
+### 2. FRR route-map/filter integration
 
 Primary files include:
 
@@ -119,7 +105,7 @@ interface objects/callback signatures.  BIRD policy integration will use BIRD
 objects, so these dependencies belong behind EIGRP-owned policy/filter
 interfaces with FRR implementations under `frr/`.
 
-### 4. FRR event-loop and daemon integration
+### 3. FRR event-loop and daemon integration
 
 Primary files include:
 
@@ -138,14 +124,14 @@ host service and must eventually sit behind an EIGRP-owned abstraction so the
 BIRD implementation can use the BIRD event loop without leaking BIRD objects
 into common APIs.
 
-### 5. Route/RIB integration
+### 4. Route/RIB integration
 
 Direct Zebra/RIB dependencies remain part of the broader core-to-Zebra audit in
 `specs/refactor-work.md`.  Learned EIGRP route state must stay distinct from the
 host RIB representation, and route installation/removal should terminate at a
 southbound operation implemented by the host adapter.
 
-### 6. Standard socket/address code
+### 5. Standard socket/address code
 
 POSIX/BSD socket and address definitions are not portability defects by
 construction.  Socket *service ownership* should only be moved when the actual
@@ -153,7 +139,7 @@ lifecycle, event-loop, interface, or host-routing integration differs between
 FRR and BIRD.  Do not add wrapper types around `AF_INET`, `AF_INET6`, `in_addr`,
 `in6_addr`, or `sockaddr*` solely for naming symmetry.
 
-### 7. SNMP portability debt
+### 6. SNMP portability debt
 
 `eigrpd/eigrp_snmp.c` remains tied to the current host integration.  The existing
 pre-production portability plan already defers SNMP ownership.  This sweep does
@@ -163,10 +149,9 @@ not move SNMP merely for directory symmetry.
 
 The remaining work should be done in this order:
 
-1. **Topology prefix representation** — convert DUAL/topology destination/path
-   prefixes from FRR `struct prefix` to `eigrp_prefix_t`, then remove the
-   temporary FRR-prefix bridges and `prefix_ipv4_new()` call sites from protocol
-   processing.
+1. **Topology prefix representation — complete** — DUAL/topology
+   destination/path prefixes now use `eigrp_prefix_t`; temporary route-prefix
+   bridges and protocol-side `prefix_ipv4_new()` call sites are removed.
 2. **Interface/runtime boundary** — remove FRR `struct interface`, VRF/event-loop,
    and interface-discovery objects from portable public APIs where practical,
    using the existing EIGRP southbound boundary.

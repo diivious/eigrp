@@ -86,24 +86,6 @@ eigrp_ipv6_packet_prefix_encode(eigrp_stream_t *stream,
 	return 0;
 }
 
-static uint16_t
-eigrp_ipv6_packet_route_prefix_decode(eigrp_stream_t *stream,
-				      eigrp_route_descriptor_t *route)
-{
-	(void)stream;
-	(void)route;
-	return 0;
-}
-
-static uint16_t
-eigrp_ipv6_packet_route_prefix_encode(eigrp_stream_t *stream,
-				      const eigrp_route_descriptor_t *route)
-{
-	(void)stream;
-	(void)route;
-	return 0;
-}
-
 static int eigrp_ipv6_addr_snprintf(char *buf, size_t len,
 				    const eigrp_addr_t *address)
 {
@@ -170,10 +152,6 @@ void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 	vectors->classic_internal_tlv_type = EIGRP_TLV_IPv6_INT;
 	vectors->classic_external_tlv_type = EIGRP_TLV_IPv6_EXT;
 	vectors->multiprotocol_afi = EIGRP_AF_IPv6;
-	vectors->packet_route_prefix_decode =
-		eigrp_ipv6_packet_route_prefix_decode;
-	vectors->packet_route_prefix_encode =
-		eigrp_ipv6_packet_route_prefix_encode;
 	vectors->addr_snprintf = eigrp_ipv6_addr_snprintf;
 	vectors->prefix_snprintf = eigrp_ipv6_prefix_snprintf;
 	vectors->address_validate = eigrp_ipv6_address_validate;

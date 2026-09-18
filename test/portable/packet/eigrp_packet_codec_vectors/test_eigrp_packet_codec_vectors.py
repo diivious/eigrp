@@ -85,8 +85,10 @@ def test_route_tlv_codecs_delegate_address_family_wire_details():
     tlv2 = read("eigrp_tlv2.c")
 
     for source in (tlv1, tlv2):
-        assert "packet_route_prefix_decode" in source
-        assert "packet_route_prefix_encode" in source
+        assert "packet_prefix_decode" in source
+        assert "packet_prefix_encode" in source
+        assert "packet_route_prefix_decode" not in source
+        assert "packet_route_prefix_encode" not in source
         assert "AF_INET" not in source
         assert "prefix4" not in source
         assert "EIGRP_TLV_IPv4" not in source
@@ -108,8 +110,10 @@ def test_address_family_vector_owns_route_family_selectors():
     assert "uint16_t classic_internal_tlv_type;" in types
     assert "uint16_t classic_external_tlv_type;" in types
     assert "uint16_t multiprotocol_afi;" in types
-    assert "packet_route_prefix_decode" in types
-    assert "packet_route_prefix_encode" in types
+    assert "packet_prefix_decode" in types
+    assert "packet_prefix_encode" in types
+    assert "packet_route_prefix_decode" not in types
+    assert "packet_route_prefix_encode" not in types
 
     assert "classic_internal_tlv_type = EIGRP_TLV_IPv4_INT" in ipv4
     assert "classic_external_tlv_type = EIGRP_TLV_IPv4_EXT" in ipv4

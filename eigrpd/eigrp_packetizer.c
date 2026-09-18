@@ -12,6 +12,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_prefix.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_PACKETIZER_WORK,
 		    "EIGRP packetizer work");
@@ -36,7 +37,7 @@ eigrp_packetizer_poison_route_create(eigrp_prefix_descriptor_t *prefix)
 {
 	eigrp_route_descriptor_t *route;
 
-	if (!prefix || !prefix->destination)
+	if (!prefix || !eigrp_prefix_valid(&prefix->destination))
 		return NULL;
 
 	route = eigrp_topology_route_create(NULL);
@@ -44,7 +45,7 @@ eigrp_packetizer_poison_route_create(eigrp_prefix_descriptor_t *prefix)
 		return NULL;
 
 	route->prefix = prefix;
-	route->dest = *prefix->destination;
+	route->dest = prefix->destination;
 	route->type = (prefix->nt == EIGRP_TOPOLOGY_TYPE_REMOTE_EXTERNAL)
 			      ? EIGRP_TLV_IPv4_EXT
 			      : EIGRP_TLV_IPv4_INT;

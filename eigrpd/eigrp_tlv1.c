@@ -25,6 +25,7 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_fsm.h"
+#include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_dump.h"
 
@@ -55,8 +56,8 @@ static bool eigrp_tlv1_af_ready(const eigrp_instance_t *eigrp)
 	return eigrp && eigrp->af_vectors.packet_address_bytes
 	       && eigrp->af_vectors.packet_address_decode
 	       && eigrp->af_vectors.packet_address_encode
-	       && eigrp->af_vectors.packet_route_prefix_decode
-	       && eigrp->af_vectors.packet_route_prefix_encode
+	       && eigrp->af_vectors.packet_prefix_decode
+	       && eigrp->af_vectors.packet_prefix_encode
 	       && eigrp->af_vectors.classic_internal_tlv_type
 	       && eigrp->af_vectors.classic_external_tlv_type;
 }
@@ -283,7 +284,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	 * remaining destinations so the next decoder pass starts on the next TLV
 	 * boundary.
 	 */
-	decoded = eigrp->af_vectors.packet_route_prefix_decode(pkt, route);
+	decoded = eigrp->af_vectors.packet_prefix_decode(pkt, &route->dest);
 	if (!decoded)
 		goto malformed;
 	bytes += decoded;
@@ -313,7 +314,7 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 				   eigrp_stream_t *pkt,
 				   eigrp_route_descriptor_t *route)
 {
-	const struct prefix *filter_prefix;
+	const eigrp_prefix_t *filter_prefix;
 	size_t tlv_start;
 	size_t tlv_end;
 	uint16_t type;
@@ -326,9 +327,9 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 	if (!ei && nbr)
 		ei = nbr->ei;
 
-	filter_prefix = route->prefix ? route->prefix->destination : &route->dest;
+	filter_prefix = route->prefix ? &route->prefix->destination : &route->dest;
 	if (ei && filter_prefix
-	    && eigrp_update_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
+	    && eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
 					filter_prefix)) {
 		zlog_info("Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
 		route->metric.delay = EIGRP_MAX_METRIC;
@@ -357,7 +358,8 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 
 	eigrp_tlv1_metric_encode(pkt, &route->metric);
 
-	encoded = eigrp->af_vectors.packet_route_prefix_encode(pkt, route);
+	encoded = eigrp->af_vectors.packet_prefix_encode(
+		pkt, route->prefix ? &route->prefix->destination : &route->dest);
 	if (!encoded)
 		goto encode_failed;
 
