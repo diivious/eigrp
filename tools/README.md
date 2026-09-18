@@ -21,27 +21,22 @@ All script options use GNU-style `--long-option` arguments.
 
 ## FRR development workflow
 
-Stage source into FRR directly when needed:
+Stage source into FRR through the primary driver:
 
 ```sh
-tools/frr-install.sh --frr-root ~/devel/frr
+tools/frr.sh --install --frr-root ~/devel/frr
 ```
 
 This assembles common `eigrpd/` source plus the top-level FRR adapter files in
-`frr/` into FRR's single `eigrpd/` directory.  It also stages `frr/test/` and
-applies the patches listed in `frr/patch/series` (falling back to `*.patch`
-when no series file exists). Patch application is idempotent: an already-applied
-patch is detected with a reverse `git apply --check`, while an FRR source
-conflict stops the install for review.
+`frr/` into FRR's single `eigrpd/` directory and stages `frr/test/`. Staging is
+always performed with `--no-patches`.
 
-
-Patch ownership is explicit. `--install` applies the managed FRR-wide patches as
-part of installation. `--patch` applies only those patches. Configure, build,
-and check actions restage EIGRP source/test payloads with `--no-patches` and
-therefore do not modify FRR-wide source. `--uut` is the integration exception:
-it applies/validates the managed patch series before staging so the daemon
-cannot be built with northbound callbacks from one project revision and a YANG
-schema from another.
+Patch ownership is explicit. `tools/frr.sh --patch` is the only primary-driver
+action that applies the managed FRR-wide patch series. Install, configure,
+build, check, all, and UUT actions only restage the EIGRP source/test payloads
+and never modify FRR-wide source. Patch application itself remains idempotent:
+an already-applied patch is detected with a reverse `git apply --check`, while
+an FRR source conflict stops the patch action for review.
 
 ```sh
 tools/frr.sh --install --frr-root ~/devel/frr
@@ -67,8 +62,8 @@ Run the full configure/build/check gate:
 tools/frr.sh --all --frr-root ~/devel/frr
 ```
 
-Apply/validate the managed FRR integration patches, build, install, restart
-FRR, and run the live named-mode configuration UUT against `eigrpd`:
+Stage the current EIGRP source, build, install, restart FRR, and run the live
+named-mode configuration UUT against `eigrpd`:
 
 ```sh
 tools/frr.sh --uut --frr-root ~/devel/frr
@@ -82,11 +77,11 @@ writeback suite. Only after IPv4/4453 passes does Stage 2 add IPv6 AS 4453 and
 run the applicable IPv6 suite. Stage 3 then adds IPv4/IPv6 AS 6473 to verify
 multiple autonomous-system contexts and `no address-family`. Stage 4 finally
 verifies that `savage` and `SAVAGE` are distinct named processes.
-`frr.sh --uut` first synchronizes the managed patch state, then installs the
-just-built FRR tree and restarts the `frr` systemd service before invoking
-vtysh. This prevents both an older installed daemon and an older embedded YANG
-model from being exercised. Set `EIGRP_UUT_INTERFACE` when the test interface
-is not `enp0s8`.
+`frr.sh --uut` does not apply managed FRR patches. Required patch state must
+already be present before the UUT is run. The command installs the just-built
+FRR tree and restarts the `frr` systemd service before invoking vtysh so the
+current daemon/build artifacts are exercised. Set `EIGRP_UUT_INTERFACE` when
+the test interface is not `enp0s8`.
 
 ## UUT workflow
 

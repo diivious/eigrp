@@ -37,9 +37,7 @@ Default workflow:
   3. Build FRR/eigrpd.
   4. Run portable and FRR-native EIGRP tests.
 
-Required FRR-wide patches must already have been applied with
-  tools/frr.sh --install
-or
+Required FRR-wide patches must already have been applied explicitly with
   tools/frr.sh --patch
 
 Test selection:

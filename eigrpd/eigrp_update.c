@@ -583,6 +583,7 @@ void eigrp_update_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			packet->length = length;
 
 			//DVS:ipv6 issue
+			packet->dst.afi = AF_INET;
 			packet->dst.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
 
 			packet->sequence_number = seq_no;
@@ -624,6 +625,7 @@ void eigrp_update_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	eigrp_packet_checksum(ei, packet->s, length);
 	packet->length = length;
 	//DVS:ipv6 issue
+	packet->dst.afi = AF_INET;
 	packet->dst.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
 
 	/*This ack number we await from neighbor*/

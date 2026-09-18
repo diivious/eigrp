@@ -68,7 +68,7 @@ eigrp/frr/test/*    -> frr/tests/eigrpd/
 eigrp/frr/patch/*   -> managed patches applied at the FRR repository root
 ```
 
-The expected workflow is driven by `tools/frr.sh` / `tools/frr-install.sh`; canonical project files are not moved as a side effect of staging. FRR-wide patches must be applied idempotently and must fail on unrecognized source drift rather than being silently fuzzed or forced. Patch application is an explicit install-time operation: `tools/frr.sh --install` applies required patches while installing/staging the project, and `tools/frr.sh --patch` applies only the managed patches. Build, check, configure, and UUT actions may restage project source but must not apply or modify FRR-wide patches.
+The expected workflow is driven by `tools/frr.sh` / `tools/frr-install.sh`; canonical project files are not moved as a side effect of staging. FRR-wide patches must be applied idempotently and must fail on unrecognized source drift rather than being silently fuzzed or forced. Patch application is explicit: `tools/frr.sh --patch` is the only driver action that applies managed FRR-wide patches. Install, build, check, configure, and UUT actions may restage project source and tests but must not apply or modify FRR-wide patches.
 
 The project must remain build-compatible with FRR while keeping common EIGRP code independent of FRR-native types and lifecycle assumptions.
 

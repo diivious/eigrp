@@ -240,6 +240,7 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 
 	eigrp_packet_checksum(ei, packet->s, length);
 	packet->length = length;
+	packet->dst.afi = AF_INET;
 	packet->dst.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
 	packet->sequence_number = sequence;
 	packet->sequence_reserved = true;

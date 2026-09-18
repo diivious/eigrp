@@ -151,7 +151,7 @@ def test_named_yang_patch_updates_authoritative_schema_only():
     assert "diff --git a/yang/frr-eigrpd.yang.c b/yang/frr-eigrpd.yang.c" not in patch
 
 
-def test_frr_driver_keeps_patch_application_out_of_normal_build_but_uut_syncs_integration():
+def test_frr_driver_applies_managed_patches_only_for_explicit_patch_action():
     driver = read(ROOT / "tools" / "frr.sh")
 
     stage_start = driver.index("stage_eigrp() {")
@@ -164,12 +164,18 @@ def test_frr_driver_keeps_patch_application_out_of_normal_build_but_uut_syncs_in
     assert 'patch_frr() {' in driver
     assert '--no-eigrpd --no-tests' in driver
 
-    uut_start = driver.index("\tuut)\n")
-    uut_end = driver.index("\t\t;;", uut_start)
-    uut = driver[uut_start:uut_end]
-    assert "install_eigrp" in uut
-    assert "stage_eigrp" not in uut
-    assert "patch_frr" not in uut
+    patch_start = driver.index("\tpatch)\n")
+    patch_end = driver.index("\t\t;;", patch_start)
+    patch = driver[patch_start:patch_end]
+    assert "patch_frr" in patch
+    assert "stage_eigrp" not in patch
+
+    for action in ("install", "configure", "build", "check", "all", "uut"):
+        action_start = driver.index(f"\t{action})\n")
+        action_end = driver.index("\t\t;;", action_start)
+        action_body = driver[action_start:action_end]
+        assert "stage_eigrp" in action_body
+        assert "patch_frr" not in action_body
 
 
 def test_frr_installer_prefers_already_applied_patch_state_and_leaves_generated_files_to_build():

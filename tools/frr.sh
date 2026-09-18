@@ -14,7 +14,7 @@ eigrp_root="$(cd "$script_dir/.." && pwd)"
 action="build"
 action_set=0
 frr_root=""
-jobs="8"
+jobs=""
 configure_first=0
 extra_configure_args=()
 
@@ -24,7 +24,7 @@ usage: $script_name [action] [options] [-- configure-args]
 
 actions:
   --smoke              Run the standalone compile-smoke harness only.
-  --install            Assemble/stage EIGRP and apply required frr/patch/ changes.
+  --install            Assemble/stage EIGRP source and FRR tests without patching.
   --patch              Apply only the managed FRR patches from frr/patch/.
   --configure          Stage EIGRP without patching, then bootstrap/configure FRR.
   --build              Stage EIGRP without patching, then run make. Default.
@@ -131,8 +131,11 @@ run_make() {
 	)
 }
 
-install_eigrp() {
-	"$script_dir/frr-install.sh" --frr-root "$frr_root"
+stage_eigrp() {
+	# Staging may refresh the projected EIGRP daemon/test trees, but it must
+	# never modify FRR-wide source. Managed patches are applied only by
+	# the explicit --patch action.
+	"$script_dir/frr-install.sh" --frr-root "$frr_root" --no-patches
 }
 
 patch_frr() {
@@ -292,32 +295,37 @@ fi
 
 case "$action" in
 	install)
-		install_eigrp
+		stage_eigrp
 		;;
 	patch)
 		patch_frr
 		;;
 	configure)
+		stage_eigrp
 		configure_frr
 		;;
 	build)
+		stage_eigrp
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
 		fi
 		run_make
 		;;
 	check)
+		stage_eigrp
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
 		fi
 		run_make check
 		;;
 	all)
+		stage_eigrp
 		configure_frr
 		run_make
 		run_make check
 		;;
 	uut)
+		stage_eigrp
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr
 		fi

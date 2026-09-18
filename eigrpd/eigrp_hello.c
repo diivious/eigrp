@@ -614,6 +614,7 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_interface_t *ei, in_addr_t addr,
 		// set soruce address for the hello packet
 		//DVS: ipv6 issue
 		//eigrp_addr_copy(packet->dst, addr);
+		packet->dst.afi = AF_INET;
 		packet->dst.ip.v4.s_addr = addr;
 
 		if ((ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)

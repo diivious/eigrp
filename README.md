@@ -44,32 +44,34 @@ git clone https://github.com/frrouting/frr.git frr
 git clone git@github.com:diivious/eigrp.git eigrp
 ```
 
-Install EIGRP into FRR and apply the required managed FRR-wide patches:
+Stage EIGRP source and tests into FRR:
 
 ```sh
 cd eigrp
 tools/frr.sh --install --frr-root ../frr
 ```
 
-To update only the managed FRR-wide patch state:
+Apply or update the managed FRR-wide patch state explicitly:
 
 ```sh
 tools/frr.sh --patch --frr-root ../frr
 ```
 
-The installer projects the repository layout into FRR:
+The staging/patch tooling projects the repository layout into FRR:
 
 ```text
 eigrpd/ + frr/*    -> ../frr/eigrpd/
 frr/test/           -> ../frr/tests/eigrpd/
-frr/patch/series    -> ordered patches applied at ../frr/ repository root
+frr/patch/series    -> ordered patches applied at ../frr/ repository root by --patch
 ```
 
-FRR-wide patches are applied idempotently.  An already-applied patch is left
+FRR-wide patches are applied idempotently. An already-applied patch is left
 unchanged; a patch that is neither applicable nor reverse-applicable stops the
-install so source drift can be reviewed.
+patch action so source drift can be reviewed.
 
-Build FRR normally, or use the helper. Build/configure/UUT staging never applies FRR-wide patches; use `--install` or `--patch` explicitly for that:
+Build FRR normally, or use the helper. Install/build/configure/UUT staging never
+applies FRR-wide patches; use `--patch` explicitly when the managed FRR patch
+state needs to be updated:
 
 ```sh
 tools/frr.sh --configure --frr-root ../frr
