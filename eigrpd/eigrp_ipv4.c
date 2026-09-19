@@ -16,6 +16,7 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_types.h"
+#include "eigrpd/eigrp_southbound.h"
 
 #define EIGRP_IPV4_ADDRESS_BYTES 4U
 #define EIGRP_IPV4_PREFIX_LENGTH_BYTES 1U
@@ -68,11 +69,12 @@ static bool eigrp_ipv4_packet_source_on_link(eigrp_interface_t *ei,
 	if (ei->type == EIGRP_IFTYPE_POINTOPOINT)
 		return true;
 
-	if (ei->address.family != AF_INET)
+	if (ei->address.address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
 		return false;
 
-	masklen2ip(ei->address.prefixlen, &mask);
-	local.s_addr = ei->address.u.prefix4.s_addr & mask.s_addr;
+	masklen2ip(ei->address.prefix_length, &mask);
+	memcpy(&local, ei->address.address.bytes, sizeof(local));
+	local.s_addr &= mask.s_addr;
 	remote.s_addr = source->ip.v4.s_addr & mask.s_addr;
 
 	return IPV4_ADDR_SAME(&local, &remote);
@@ -93,7 +95,7 @@ static int eigrp_ipv4_packet_send(eigrp_instance_t *eigrp,
 		return -1;
 
 	if (packet->dst.ip.v4.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
-		eigrp_intf_ipmulticast(eigrp, &ei->address, ei->ifp->ifindex);
+		(void)eigrp_southbound_multicast_interface_set(eigrp, ei);
 
 	memset(&iph, 0, sizeof(iph));
 	memset(&sa_dst, 0, sizeof(sa_dst));
@@ -127,7 +129,7 @@ static int eigrp_ipv4_packet_send(eigrp_instance_t *eigrp,
 	iph.ip_ttl = EIGRP_IP_TTL;
 	iph.ip_p = IPPROTO_EIGRPIGP;
 	iph.ip_sum = 0;
-	iph.ip_src.s_addr = ei->address.u.prefix4.s_addr;
+	memcpy(&iph.ip_src, ei->address.address.bytes, sizeof(iph.ip_src));
 	iph.ip_dst.s_addr = packet->dst.ip.v4.s_addr;
 
 	msg.msg_name = (caddr_t)&sa_dst;
@@ -148,7 +150,7 @@ static int eigrp_ipv4_packet_send(eigrp_instance_t *eigrp,
 		zlog_warn("*** sendmsg in eigrp_ipv4_packet_send failed to %pI4, "
 			  "id %d, off %d, len %d, interface %s, mtu %u: %s",
 			  &iph.ip_dst, iph.ip_id, iph.ip_off, iph.ip_len,
-			  ei->ifp->name, ei->ifp->mtu, safe_strerror(errno));
+			  ei->name, ei->curr_mtu, safe_strerror(errno));
 
 	return ret;
 }
@@ -160,8 +162,6 @@ static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
 				      eigrp_addr_t *destination,
 				      eigrp_packet_rx_meta_t *meta)
 {
-	struct interface *ifp;
-	struct connected *connected;
 	struct ip *iph;
 	struct iovec iov;
 	struct msghdr msgh;
@@ -246,29 +246,30 @@ static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
 		eigrp_ipv4_packet_header_dump(iph);
 
 	ifindex = getsockopt_ifindex(AF_INET, &msgh);
-	ifp = if_lookup_by_index(ifindex, eigrp->vrf_id);
-	if (!ifp) {
-		connected = if_lookup_address((void *)&iph->ip_src, AF_INET,
-					      eigrp->vrf_id);
-		if (!connected)
-			return false;
-		ifp = connected->ifp;
-	}
+	*ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
+	if (!*ei) {
+		eigrp_interface_t *candidate;
+		struct listnode *node;
 
-	*ei = ifp->info;
+		for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, candidate)) {
+			if (!eigrp_ipv4_packet_source_on_link(candidate, source))
+				continue;
+			*ei = candidate;
+			break;
+		}
+	}
 	if (!*ei)
 		return false;
 
-	if ((*ei)->ifp != ifp) {
+	if (!eigrp_ipv4_packet_source_on_link(*ei, source)) {
 		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
 			zlog_warn("Packet from [%pI4] received on wrong link %s",
-				  &iph->ip_src, ifp->name);
+				  &iph->ip_src, (*ei)->name);
 		*ei = NULL;
 		return false;
 	}
 
-	if (eigrp_intf_lookup_by_local_addr(eigrp, NULL, iph->ip_src)
-	    || IPV4_ADDR_SAME(&iph->ip_src, &(*ei)->address.u.prefix4)) {
+	if (eigrp_intf_lookup_by_local_addr(eigrp, source)) {
 		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
 			zlog_debug("eigrp_ipv4_packet_receive[%pI4]: Dropping self-originated packet",
 				   &iph->ip_src);

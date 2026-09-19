@@ -15,11 +15,134 @@
 #include "eigrp_frr.h"
 
 #include "plist.h"
+#include "table.h"
 #include "vrf.h"
+#include "frrevent.h"
 #include "workqueue.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE, "EIGRP work queue");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE_NAME, "EIGRP work queue name");
+DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_EVENT, "EIGRP host event");
+
+extern struct event_loop *eigrpd_event;
+extern struct in_addr router_id_zebra;
+
+struct eigrp_event {
+	struct event *host_event;
+	eigrp_event_callback_t callback;
+	void *arg;
+	eigrp_event_t **owner;
+};
+
+static void eigrp_southbound_event_run(struct event *host_event)
+{
+	eigrp_event_t *event = EVENT_ARG(host_event);
+	eigrp_event_callback_t callback;
+	void *arg;
+
+	if (!event)
+		return;
+
+	callback = event->callback;
+	arg = event->arg;
+	if (event->owner && *event->owner == event)
+		*event->owner = NULL;
+	event->host_event = NULL;
+	XFREE(MTYPE_EIGRP_EVENT, event);
+
+	if (callback)
+		callback(arg);
+}
+
+static eigrp_event_t *eigrp_southbound_event_prepare(
+	eigrp_event_t **owner, eigrp_event_callback_t callback, void *arg)
+{
+	eigrp_event_t *event;
+
+	if (!owner || !callback)
+		return NULL;
+
+	eigrp_southbound_event_cancel(owner);
+	event = XCALLOC(MTYPE_EIGRP_EVENT, sizeof(*event));
+	event->callback = callback;
+	event->arg = arg;
+	event->owner = owner;
+	*owner = event;
+	return event;
+}
+
+void eigrp_southbound_event_cancel(eigrp_event_t **owner)
+{
+	eigrp_event_t *event;
+
+	if (!owner || !*owner)
+		return;
+
+	event = *owner;
+	*owner = NULL;
+	if (event->host_event)
+		event_cancel(&event->host_event);
+	XFREE(MTYPE_EIGRP_EVENT, event);
+}
+
+void eigrp_southbound_event_add(eigrp_event_t **owner,
+				eigrp_event_callback_t callback, void *arg)
+{
+	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+
+	if (event)
+		event_add_event(eigrpd_event, eigrp_southbound_event_run, event, 0,
+				&event->host_event);
+}
+
+void eigrp_southbound_timer_add(eigrp_event_t **owner,
+				eigrp_event_callback_t callback, void *arg,
+				uint32_t seconds)
+{
+	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+
+	if (event)
+		event_add_timer(eigrpd_event, eigrp_southbound_event_run, event, seconds,
+				&event->host_event);
+}
+
+void eigrp_southbound_timer_msec_add(eigrp_event_t **owner,
+				     eigrp_event_callback_t callback, void *arg,
+				     uint32_t milliseconds)
+{
+	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+
+	if (event)
+		event_add_timer_msec(eigrpd_event, eigrp_southbound_event_run, event,
+				     milliseconds, &event->host_event);
+}
+
+void eigrp_southbound_read_add(eigrp_event_t **owner, int fd,
+			       eigrp_event_callback_t callback, void *arg)
+{
+	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+
+	if (event)
+		event_add_read(eigrpd_event, eigrp_southbound_event_run, event, fd,
+			       &event->host_event);
+}
+
+void eigrp_southbound_write_add(eigrp_event_t **owner, int fd,
+				eigrp_event_callback_t callback, void *arg)
+{
+	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+
+	if (event)
+		event_add_write(eigrpd_event, eigrp_southbound_event_run, event, fd,
+				&event->host_event);
+}
+
+uint32_t eigrp_southbound_timer_remaining_seconds(const eigrp_event_t *event)
+{
+	if (!event || !event->host_event)
+		return 0;
+	return event_timer_remain_second(event->host_event);
+}
 
 struct eigrp_work_queue {
 	eigrp_instance_t *eigrp;
@@ -118,6 +241,177 @@ eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue)
 	return queue ? queue->eigrp : NULL;
 }
 
+
+eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp)
+{
+	struct vrf *vrf;
+	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
+	int fd = -1;
+	int ret;
+#ifdef IP_HDRINCL
+	int hincl = 1;
+#endif
+
+	if (!eigrp)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	vrf = vrf_lookup_by_id((vrf_id_t)eigrp->vrf_id);
+	if (!vrf)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	frr_with_privs (&eigrpd_privs) {
+		fd = vrf_socket(AF_INET, SOCK_RAW, IPPROTO_EIGRPIGP, vrf->vrf_id,
+				vrf->vrf_id != VRF_DEFAULT ? vrf->name : NULL);
+		if (fd < 0) {
+			zlog_err("EIGRP socket: %s", safe_strerror(errno));
+			result = EIGRP_RESULT_INTERNAL_FAILURE;
+		} else {
+#ifdef IP_HDRINCL
+			ret = setsockopt(fd, IPPROTO_IP, IP_HDRINCL, &hincl,
+					 sizeof(hincl));
+			if (ret < 0)
+				zlog_warn("Can't set IP_HDRINCL option for fd %d: %s", fd,
+					  safe_strerror(errno));
+#elif defined(IPTOS_PREC_INTERNETCONTROL)
+			ret = setsockopt_ipv4_tos(fd, IPTOS_PREC_INTERNETCONTROL);
+			if (ret < 0) {
+				zlog_warn("can't set EIGRP IP_TOS on socket %d: %s", fd,
+					  safe_strerror(errno));
+				close(fd);
+				fd = -1;
+				result = EIGRP_RESULT_INTERNAL_FAILURE;
+			}
+#else
+			zlog_warn("IP_HDRINCL option not available");
+#endif
+
+			if (result == EIGRP_RESULT_SUCCESS) {
+				ret = setsockopt_ifindex(AF_INET, fd, 1);
+				if (ret < 0)
+					zlog_warn("Can't set pktinfo option for fd %d", fd);
+			}
+		}
+	}
+
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+
+	eigrp->fd = fd;
+	eigrp->maxsndbuflen = getsockopt_so_sendbuf(fd);
+	return EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_southbound_socket_close(eigrp_instance_t *eigrp)
+{
+	if (!eigrp || eigrp->fd < 0)
+		return;
+	close(eigrp->fd);
+	eigrp->fd = -1;
+}
+
+void eigrp_southbound_socket_send_buffer_ensure(eigrp_instance_t *eigrp,
+						uint32_t minimum)
+{
+	int new_size;
+
+	if (!eigrp || eigrp->fd < 0 || eigrp->maxsndbuflen >= minimum)
+		return;
+
+	setsockopt_so_sendbuf(eigrp->fd, minimum);
+	new_size = getsockopt_so_sendbuf(eigrp->fd);
+	if (new_size < 0 || new_size < (int)minimum)
+		zlog_warn("%s: tried to set SO_SNDBUF to %u, but got %d",
+			  __func__, minimum, new_size);
+	if (new_size >= 0)
+		eigrp->maxsndbuflen = (uint32_t)new_size;
+	else
+		zlog_warn("%s: failed to get SO_SNDBUF", __func__);
+}
+
+bool eigrp_southbound_router_id_get(eigrp_instance_t *eigrp,
+				    struct in_addr *router_id)
+{
+	(void)eigrp;
+	if (!router_id)
+		return false;
+
+	*router_id = router_id_zebra;
+	return router_id->s_addr != INADDR_ANY;
+}
+
+static bool eigrp_southbound_interface_ipv4_address(
+	const eigrp_interface_t *ei, struct in_addr *address)
+{
+	if (!ei || !address
+	    || ei->address.address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return false;
+
+	memcpy(address, ei->address.address.bytes, sizeof(*address));
+	return true;
+}
+
+int eigrp_southbound_multicast_interface_set(eigrp_instance_t *eigrp,
+				             eigrp_interface_t *ei)
+{
+	struct in_addr address;
+	uint8_t val = 0;
+	int ret;
+
+	if (!eigrp || !eigrp_southbound_interface_ipv4_address(ei, &address))
+		return -1;
+
+	ret = setsockopt(eigrp->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &val, sizeof(val));
+	if (ret < 0)
+		zlog_warn("can't disable IP_MULTICAST_LOOP for fd %d: %s",
+			  eigrp->fd, safe_strerror(errno));
+
+	val = 1;
+	ret = setsockopt(eigrp->fd, IPPROTO_IP, IP_MULTICAST_TTL, &val, sizeof(val));
+	if (ret < 0)
+		zlog_warn("can't set IP_MULTICAST_TTL for fd %d: %s",
+			  eigrp->fd, safe_strerror(errno));
+
+	ret = setsockopt_ipv4_multicast_if(eigrp->fd, address, ei->ifindex);
+	if (ret < 0)
+		zlog_warn("can't set multicast interface %s[%u]: %s", ei->name,
+			  ei->ifindex, safe_strerror(errno));
+	return ret;
+}
+
+int eigrp_southbound_multicast_join(eigrp_instance_t *eigrp,
+				    eigrp_interface_t *ei)
+{
+	struct in_addr address;
+	int ret;
+
+	if (!eigrp || !eigrp_southbound_interface_ipv4_address(ei, &address))
+		return -1;
+
+	ret = setsockopt_ipv4_multicast(eigrp->fd, IP_ADD_MEMBERSHIP, address,
+					htonl(EIGRP_MULTICAST_ADDRESS), ei->ifindex);
+	if (ret < 0)
+		zlog_warn("can't join EIGRP multicast group on %s[%u]: %s",
+			  ei->name, ei->ifindex, safe_strerror(errno));
+	return ret;
+}
+
+int eigrp_southbound_multicast_leave(eigrp_instance_t *eigrp,
+				     eigrp_interface_t *ei)
+{
+	struct in_addr address;
+	int ret;
+
+	if (!eigrp || !eigrp_southbound_interface_ipv4_address(ei, &address))
+		return -1;
+
+	ret = setsockopt_ipv4_multicast(eigrp->fd, IP_DROP_MEMBERSHIP, address,
+					htonl(EIGRP_MULTICAST_ADDRESS), ei->ifindex);
+	if (ret < 0)
+		zlog_warn("can't leave EIGRP multicast group on %s[%u]: %s",
+			  ei->name, ei->ifindex, safe_strerror(errno));
+	return ret;
+}
+
 eigrp_result_t eigrp_southbound_instance_create(
 	const char *name, eigrp_address_family_t afi, const char *vrf_name,
 	uint16_t asn, eigrp_instance_t **runtime)
@@ -187,6 +481,8 @@ eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime)
 		return EIGRP_RESULT_NOT_FOUND;
 
 	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+		if (!ei->t_hello)
+			continue;
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 		eigrp_intf_down(ei);
 	}
@@ -204,35 +500,81 @@ eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime)
 		return EIGRP_RESULT_NOT_FOUND;
 	if (runtime->router_id.s_addr == INADDR_ANY)
 		eigrp_router_id_update(runtime);
+	if (runtime->router_id.s_addr == INADDR_ANY)
+		return EIGRP_RESULT_SUCCESS;
 
 	af = eigrp_instance_runtime_config(runtime);
 	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
-		config = af ? eigrp_interface_config_read(af, ei->ifp->name) : NULL;
+		config = af ? eigrp_interface_config_read(af, ei->name) : NULL;
 		if (config)
 			eigrp_interface_runtime_bind(ei, config);
-		if ((config && config->shutdown) || !if_is_operative(ei->ifp))
+		if ((config && config->shutdown) || !ei->operative || ei->t_hello)
 			continue;
 		eigrp_intf_up(runtime, ei);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
+static bool eigrp_southbound_interface_vrf_match(
+	const eigrp_instance_t *eigrp, const struct interface *ifp)
+{
+	if (!eigrp || !ifp)
+		return false;
+	if (ifp->vrf)
+		return ifp->vrf->vrf_id == (vrf_id_t)eigrp->vrf_id;
+	return eigrp->vrf_id == EIGRP_VRF_DEFAULT;
+}
+
+static uint8_t eigrp_southbound_interface_type(const struct interface *ifp)
+{
+	if (if_is_pointopoint(ifp))
+		return EIGRP_IFTYPE_POINTOPOINT;
+	if (if_is_loopback(ifp))
+		return EIGRP_IFTYPE_LOOPBACK;
+	return EIGRP_IFTYPE_BROADCAST;
+}
+
+static bool eigrp_southbound_interface_state_get(
+	struct interface *ifp, const struct prefix *address,
+	eigrp_interface_runtime_state_t *state)
+{
+	if (!ifp || !address || !state)
+		return false;
+
+	memset(state, 0, sizeof(*state));
+	if (eigrp_frr_prefix_import(address, &state->address)
+	    != EIGRP_RESULT_SUCCESS)
+		return false;
+	state->interface_name = ifp->name;
+	state->ifindex = ifp->ifindex;
+	state->type = eigrp_southbound_interface_type(ifp);
+	state->operative = if_is_operative(ifp);
+	state->bandwidth = ifp->bandwidth;
+	state->mtu = ifp->mtu;
+	return true;
+}
+
 static void eigrp_southbound_network_run_interface(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *network,
 	struct interface *ifp)
 {
+	eigrp_interface_runtime_state_t state;
+	eigrp_address_family_config_t *af;
+	eigrp_interface_config_t *config;
 	eigrp_prefix_t connected_prefix;
 	eigrp_interface_t *ei;
 	struct connected *co;
+	bool was_running;
+	uint32_t old_mtu;
 
-	if (!eigrp || !network || !ifp)
+	if (!eigrp || !network || !ifp
+	    || eigrp->router_id.s_addr == INADDR_ANY
+	    || !eigrp_southbound_interface_vrf_match(eigrp, ifp))
 		return;
 
-	/* A network statement enables EIGRP on matching primary addresses. */
 	frr_each (if_connected, ifp->connected, co) {
-		if (!co->address || CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY))
-			continue;
-		if (ifp->info)
+		if (!co->address || co->address->family != AF_INET
+		    || CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY))
 			continue;
 		if (eigrp_frr_prefix_import(co->address, &connected_prefix)
 			    != EIGRP_RESULT_SUCCESS
@@ -240,30 +582,162 @@ static void eigrp_southbound_network_run_interface(
 		    || !eigrp->af_vectors.network_interface_match(
 			    network, &connected_prefix))
 			continue;
-
-		ei = eigrp_intf_new(eigrp, ifp, co->address);
-		if (!ei)
+		if (!eigrp_southbound_interface_state_get(ifp, co->address, &state))
 			continue;
 
-		ei->eigrp = eigrp;
-		{
-			eigrp_address_family_config_t *af =
-				eigrp_instance_runtime_config(eigrp);
-			eigrp_interface_config_t *config = af
-				? eigrp_interface_config_read(af, ifp->name) : NULL;
-			if (config)
-				eigrp_interface_runtime_bind(ei, config);
-			if ((af && af->shutdown) || (config && config->shutdown))
-				continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, state.ifindex);
+		was_running = ei && ei->t_hello;
+		old_mtu = ei ? ei->curr_mtu : state.mtu;
+		if (ei)
+			eigrp_interface_runtime_update(ei, &state);
+		else
+			ei = eigrp_interface_runtime_create(eigrp, &state);
+		if (!ei)
+			return;
+
+		af = eigrp_instance_runtime_config(eigrp);
+		config = af ? eigrp_interface_config_read(af, state.interface_name) : NULL;
+		if (config)
+			eigrp_interface_runtime_bind(ei, config);
+
+		if ((af && af->shutdown) || (config && config->shutdown)
+		    || !state.operative) {
+			if (was_running)
+				eigrp_intf_down(ei);
+			return;
 		}
 
-		/* eigrp_router_id_update() calls eigrp_intf_update() when a
-		 * router ID becomes available, so an operative interface can be
-		 * started here.
-		 */
-		if (if_is_operative(ifp))
+		if (was_running && old_mtu != state.mtu)
+			eigrp_interface_runtime_reset(ei);
+		else if (!was_running)
 			eigrp_intf_up(eigrp, ei);
+		return;
 	}
+}
+
+static void eigrp_southbound_interface_refresh_one(eigrp_instance_t *eigrp,
+					   struct interface *ifp)
+{
+	eigrp_prefix_t network;
+	struct route_node *rn;
+
+	if (!eigrp || !ifp || eigrp->router_id.s_addr == INADDR_ANY
+	    || !eigrp_southbound_interface_vrf_match(eigrp, ifp))
+		return;
+
+	for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
+		if (!rn->info)
+			continue;
+		if (eigrp_frr_prefix_import(&rn->p, &network)
+		    != EIGRP_RESULT_SUCCESS)
+			continue;
+		eigrp_southbound_network_run_interface(eigrp, &network, ifp);
+	}
+}
+
+void eigrp_southbound_interfaces_refresh(eigrp_instance_t *eigrp)
+{
+	struct interface *ifp;
+	struct vrf *vrf;
+
+	if (!eigrp)
+		return;
+	vrf = vrf_lookup_by_id((vrf_id_t)eigrp->vrf_id);
+	if (!vrf)
+		return;
+
+	FOR_ALL_INTERFACES (vrf, ifp)
+		eigrp_southbound_interface_refresh_one(eigrp, ifp);
+}
+
+static int eigrp_southbound_if_real(struct interface *ifp)
+{
+	eigrp_instance_t *eigrp;
+	struct listnode *node;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp))
+		eigrp_southbound_interface_refresh_one(eigrp, ifp);
+	return 0;
+}
+
+static int eigrp_southbound_if_up(struct interface *ifp)
+{
+	return eigrp_southbound_if_real(ifp);
+}
+
+static int eigrp_southbound_if_down(struct interface *ifp)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	eigrp_interface_runtime_state_t state;
+	struct listnode *node;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (!eigrp_southbound_interface_vrf_match(eigrp, ifp))
+			continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
+		if (!ei)
+			continue;
+		memset(&state, 0, sizeof(state));
+		state.interface_name = ifp->name;
+		state.ifindex = ifp->ifindex;
+		state.address = ei->address;
+		state.type = eigrp_southbound_interface_type(ifp);
+		state.operative = false;
+		state.bandwidth = ifp->bandwidth;
+		state.mtu = ifp->mtu;
+		eigrp_interface_runtime_update(ei, &state);
+		eigrp_intf_down(ei);
+	}
+	return 0;
+}
+
+static int eigrp_southbound_if_unreal(struct interface *ifp)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	struct listnode *node;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (!eigrp_southbound_interface_vrf_match(eigrp, ifp))
+			continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
+		if (ei)
+			eigrp_interface_runtime_delete(ei, INTERFACE_DOWN_BY_ZEBRA);
+	}
+	return 0;
+}
+
+void eigrp_southbound_runtime_init(void)
+{
+	hook_register_prio(if_real, 0, eigrp_southbound_if_real);
+	hook_register_prio(if_up, 0, eigrp_southbound_if_up);
+	hook_register_prio(if_down, 0, eigrp_southbound_if_down);
+	hook_register_prio(if_unreal, 0, eigrp_southbound_if_unreal);
+}
+
+eigrp_result_t eigrp_southbound_network_exists(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *exists)
+{
+	struct prefix host_network;
+	struct route_node *rn;
+
+	if (!exists)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	*exists = false;
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (eigrp_frr_prefix_export(network, &host_network)
+	    != EIGRP_RESULT_SUCCESS)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	rn = route_node_lookup(eigrp->networks, &host_network);
+	if (!rn)
+		return EIGRP_RESULT_SUCCESS;
+
+	*exists = (rn->info != NULL);
+	route_unlock_node(rn);
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_southbound_network_create(
@@ -314,37 +788,6 @@ eigrp_result_t eigrp_southbound_network_create(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-/* Legacy FRR interface event entry point.  Keep the host object in the FRR
- * southbound adapter while matching configured networks with portable prefixes.
- */
-void eigrp_intf_update(eigrp_instance_t *eigrp, struct interface *ifp)
-{
-	eigrp_prefix_t network;
-	struct route_node *rn;
-
-	if (!eigrp || !ifp)
-		return;
-
-	if (ifp->vrf) {
-		if (ifp->vrf->vrf_id != eigrp->vrf_id)
-			return;
-	} else if (eigrp->vrf_id != VRF_DEFAULT) {
-		return;
-	}
-
-	if (eigrp->router_id.s_addr == INADDR_ANY)
-		return;
-
-	for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
-		if (!rn->info)
-			continue;
-		if (eigrp_frr_prefix_import(&rn->p, &network)
-		    != EIGRP_RESULT_SUCCESS)
-			continue;
-		eigrp_southbound_network_run_interface(eigrp, &network, ifp);
-	}
-}
-
 eigrp_result_t eigrp_southbound_network_delete(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed)
 {
@@ -387,9 +830,7 @@ eigrp_result_t eigrp_southbound_network_delete(
 	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
 		bool found = false;
 
-		if (eigrp_frr_prefix_import(&ei->address, &connected_prefix)
-		    != EIGRP_RESULT_SUCCESS)
-			continue;
+		connected_prefix = ei->address;
 
 		for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
 			if (!rn->info)
@@ -433,38 +874,32 @@ static int eigrp_southbound_filter_slot(eigrp_offset_direction_t direction)
 	return direction == EIGRP_OFFSET_OUT ? EIGRP_FILTER_OUT : EIGRP_FILTER_IN;
 }
 
-static void eigrp_southbound_distribute_timer_process(struct event *event)
+static void eigrp_southbound_distribute_timer_process(void *arg)
 {
-	eigrp_instance_t *eigrp = EVENT_ARG(event);
+	eigrp_instance_t *eigrp = arg;
 
-	eigrp->t_distribute = NULL;
 	eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER, NULL);
 }
 
-static void eigrp_southbound_distribute_timer_interface(struct event *event)
+static void eigrp_southbound_distribute_timer_interface(void *arg)
 {
-	eigrp_interface_t *ei = EVENT_ARG(event);
+	eigrp_interface_t *ei = arg;
 
-	ei->t_distribute = NULL;
 	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER, NULL);
 }
 
 static void eigrp_southbound_distribute_schedule_process(eigrp_instance_t *eigrp)
 {
-	if (eigrp->t_distribute)
-		event_cancel(&eigrp->t_distribute);
-	event_add_timer(eigrpd_event, eigrp_southbound_distribute_timer_process,
-			eigrp, 10,
-			&eigrp->t_distribute);
+	eigrp_southbound_timer_add(&eigrp->t_distribute,
+				  eigrp_southbound_distribute_timer_process,
+				  eigrp, 10);
 }
 
 static void eigrp_southbound_distribute_schedule_interface(eigrp_interface_t *ei)
 {
-	if (ei->t_distribute)
-		event_cancel(&ei->t_distribute);
-	event_add_timer(eigrpd_event, eigrp_southbound_distribute_timer_interface,
-			ei, 10,
-			&ei->t_distribute);
+	eigrp_southbound_timer_add(&ei->t_distribute,
+				  eigrp_southbound_distribute_timer_interface,
+				  ei, 10);
 }
 
 eigrp_result_t eigrp_southbound_distribute_list_update(

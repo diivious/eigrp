@@ -23,11 +23,4 @@
 
 #define EIGRP_PACKET_MTU(mtu) ((mtu) - (sizeof(struct ip)))
 
-
-/* Event Macros */
-
-#define EIGRP_EVENT_ADD_WRITE(E)					\
-	event_add_write(eigrpd_event, eigrp_packet_write, (E), (E)->fd, &(E)->t_write)
-
-
 #endif /* _ZEBRA_EIGRP_MACROS_H_ */

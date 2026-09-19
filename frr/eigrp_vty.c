@@ -223,7 +223,7 @@ static void eigrp_interface_helper(struct vty *vty, eigrp_instance_t *eigrp,
 		show_ip_eigrp_interface_header(vty, eigrp);
 
 	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		if (!ifname || strcmp(ei->ifp->name, ifname) == 0) {
+		if (!ifname || strcmp(ei->name, ifname) == 0) {
 			show_ip_eigrp_interface_sub(vty, eigrp, ei);
 			if (detail)
 				show_ip_eigrp_interface_detail(vty, eigrp, ei);
@@ -280,7 +280,7 @@ static void eigrp_neighbors_helper(struct vty *vty, eigrp_instance_t *eigrp,
 	show_ip_eigrp_neighbor_header(vty, eigrp);
 
 	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		if (!ifname || strcmp(ei->ifp->name, ifname) == 0) {
+		if (!ifname || strcmp(ei->name, ifname) == 0) {
 			for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
 				if (detail || (nbr->state == EIGRP_NEIGHBOR_UP))
 					show_ip_eigrp_neighbor_sub(vty, nbr,

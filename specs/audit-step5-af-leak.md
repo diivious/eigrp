@@ -62,32 +62,31 @@ and Zebra route-install call paths carry the native EIGRP prefix.  The temporary
 route-prefix AF codec wrappers and topology import/export bridges were removed,
 and protocol processing no longer allocates FRR prefixes with
 `prefix_ipv4_new()`.  The FRR `route_table` storage key remains a localized
-topology implementation detail until the later host-runtime boundary work.
+topology storage implementation detail and is outside this interface/runtime
+sweep.
 The deferred prefix/route descriptor naming decision is unchanged.
 
-## Remaining boundary findings
+## Boundary status and remaining findings
 
-### 1. FRR interface/runtime objects in portable modules
+### 1. Interface/runtime boundary — complete
 
-Primary files include:
+Portable interface/runtime APIs now use EIGRP-owned state and identifiers.
+`eigrp_interface_t` owns its interface name, ifindex, native `eigrp_prefix_t`
+address, operational state, bandwidth, and MTU rather than retaining an FRR
+`struct interface`.  Public runtime APIs use `eigrp_interface_runtime_state_t`,
+`eigrp_vrf_id_t`, `eigrp_ifindex_t`, and opaque `eigrp_event_t` objects.
 
-```text
-eigrpd/eigrp_structs.h
-eigrpd/eigrp_interface.c
-eigrpd/eigrp_interface.h
-eigrpd/eigrp_filter.c
-eigrpd/eigrp_network.c
-eigrpd/eigrp_network.h
-```
+FRR interface/VRF discovery, interface hooks, raw-socket setup, multicast socket
+operations, send-buffer sizing, and FRR event objects are implemented by
+`frr/eigrp_southbound.c`.  Portable protocol code schedules events and requests
+interface/socket services through EIGRP-owned southbound contracts.  Runtime
+state is no longer stored in `ifp->info`.
 
-Common data structures and APIs still expose FRR objects such as `struct
-interface`, `struct vrf`, FRR prefix-list objects, FRR route-map objects, event
-objects, and FRR interface lookup helpers.  Those are genuine host-framework
-coupling because BIRD will provide different interface/configuration/runtime
-objects.
-
-This should be removed by EIGRP-owned southbound/configuration contracts rather
-than by replacing standard IP address types.
+The FRR route-map/prefix-list/distribute-list objects are intentionally left for
+the policy/filter boundary below.  `eigrp_main.c` platform bootstrap and the
+private FRR callbacks in `eigrp_vrf.c` remain governed by the explicitly
+deferred platform-lifecycle/VRF work in `refactor-work.md`; neither is exposed
+through the portable protocol public APIs.
 
 ### 2. FRR route-map/filter integration
 
@@ -105,24 +104,13 @@ interface objects/callback signatures.  BIRD policy integration will use BIRD
 objects, so these dependencies belong behind EIGRP-owned policy/filter
 interfaces with FRR implementations under `frr/`.
 
-### 3. FRR event-loop and daemon integration
+### 3. FRR platform lifecycle integration — deferred
 
-Primary files include:
-
-```text
-eigrpd/eigrpd.h
-eigrpd/eigrp_structs.h
-eigrpd/eigrp_main.c
-eigrpd/eigrp_packet.c
-eigrpd/eigrp_update.c
-eigrpd/eigrp_filter.c
-```
-
-Portable structures and public functions still expose FRR `struct event`,
-`struct event_loop`, Zebra daemon state, and event macros.  Event scheduling is a
-host service and must eventually sit behind an EIGRP-owned abstraction so the
-BIRD implementation can use the BIRD event loop without leaking BIRD objects
-into common APIs.
+Protocol event scheduling no longer exposes or calls FRR `struct event` APIs;
+those objects are private to the FRR southbound implementation.  The remaining
+`struct event_loop` use in `eigrp_main.c` belongs to daemon/platform bootstrap,
+which `refactor-work.md` explicitly defers to the later platform-lifecycle
+boundary.
 
 ### 4. Route/RIB integration
 
@@ -152,9 +140,9 @@ The remaining work should be done in this order:
 1. **Topology prefix representation — complete** — DUAL/topology
    destination/path prefixes now use `eigrp_prefix_t`; temporary route-prefix
    bridges and protocol-side `prefix_ipv4_new()` call sites are removed.
-2. **Interface/runtime boundary** — remove FRR `struct interface`, VRF/event-loop,
-   and interface-discovery objects from portable public APIs where practical,
-   using the existing EIGRP southbound boundary.
+2. **Interface/runtime boundary — complete** — portable public/runtime APIs use
+   EIGRP-owned interface/event types; FRR interface discovery, event scheduling,
+   socket, and interface lifecycle services terminate at the southbound adapter.
 3. **Policy/filter boundary** — isolate FRR route-map/prefix-list/distribute-list
    objects under the FRR adapter while keeping EIGRP filter decisions portable.
 4. **RIB/southbound residuals** — complete the direct Zebra/RIB call audit and

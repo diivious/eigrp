@@ -10,6 +10,8 @@
  *   Peter Paluch
  */
 #include "eigrpd/eigrpd.h"
+
+#include "table.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
@@ -22,6 +24,7 @@
 #include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_packetizer.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_tlv1.h"
 #include "eigrpd/eigrp_tlv2.h"
 
@@ -34,7 +37,6 @@ DEFINE_QOBJ_TYPE(eigrp_instance);
 static struct eigrpd eigrpd;
 struct eigrpd *eigrp_om;
 
-extern struct in_addr router_id_zebra;
 
 /*
  * void eigrp_router_id_update(eigrp_instance_t *eigrp)
@@ -61,33 +63,24 @@ extern struct in_addr router_id_zebra;
  */
 void eigrp_router_id_update(eigrp_instance_t *eigrp)
 {
-	struct vrf *vrf = vrf_lookup_by_id(eigrp->vrf_id);
-	struct interface *ifp;
-	struct in_addr router_id, router_id_old;
+	struct in_addr router_id = {.s_addr = INADDR_ANY};
+	struct in_addr router_id_old;
+
+	if (!eigrp)
+		return;
 
 	router_id_old = eigrp->router_id;
 
 	if (eigrp->router_id_static.s_addr != INADDR_ANY)
 		router_id = eigrp->router_id_static;
-
 	else if (eigrp->router_id.s_addr != INADDR_ANY)
 		router_id = eigrp->router_id;
-
 	else
-		router_id = router_id_zebra;
+		(void)eigrp_southbound_router_id_get(eigrp, &router_id);
 
 	eigrp->router_id = router_id;
-	if (router_id_old.s_addr != router_id.s_addr) {
-		//      if (IS_DEBUG_EIGRP_EVENT)
-		//        zlog_debug("Router-ID[NEW:%s]: Update",
-		//        eigrp_topo_addr2string(eigrp->router_id));
-
-		/* update eigrp_interface's */
-	    FOR_ALL_INTERFACES (vrf, ifp) {
-		    if (ifp)
-			eigrp_intf_update(eigrp, ifp);
-	    }
-	}
+	if (router_id_old.s_addr != router_id.s_addr)
+		eigrp_southbound_interfaces_refresh(eigrp);
 }
 
 void eigrp_init(void)
@@ -104,7 +97,7 @@ void eigrp_init(void)
 }
 
 /* Allocate new eigrp structure. */
-static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
+static eigrp_instance_t *eigrp_new(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp = XCALLOC(MTYPE_EIGRP_TOP, sizeof(struct eigrp_instance));
 
@@ -135,20 +128,17 @@ static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
 	/* Configured network statements are not a topology table. */
 	eigrp->networks = route_table_init();
 
-	eigrp->fd = eigrp_sock_init(vrf_lookup_by_id(vrf_id));
-
-	if (eigrp->fd < 0) {
+	if (eigrp_southbound_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
 		flog_err_sys(
 			EC_LIB_SOCKET,
-			"eigrp_new: fatal error: eigrp_sock_init was unable to open a socket");
+			"eigrp_new: fatal error: host runtime was unable to open an EIGRP socket");
 		exit(1);
 	}
 
-	eigrp->maxsndbuflen = getsockopt_so_sendbuf(eigrp->fd);
-
 	eigrp->ibuf = stream_new(EIGRP_PACKET_MAX_LEN + 1);
 
-	event_add_read(eigrpd_event, eigrp_packet_read, eigrp, eigrp->fd, &eigrp->t_read);
+	eigrp_southbound_read_add(&eigrp->t_read, eigrp->fd,
+				   eigrp_packet_read, eigrp);
 	eigrp->oi_write_q = list_new();
 
 	// DVS: get it into a workable form, but this is an ugly hack
@@ -202,7 +192,7 @@ static eigrp_instance_t *eigrp_new(uint16_t as, vrf_id_t vrf_id)
  *
  * Look for existing eigrp process based on the VRF its running over
  */
-eigrp_instance_t *eigrp_lookup(vrf_id_t vrf_id)
+eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
 	struct listnode *node, *nnode;
@@ -214,7 +204,7 @@ eigrp_instance_t *eigrp_lookup(vrf_id_t vrf_id)
 	return NULL;
 }
 
-eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, vrf_id_t vrf_id)
+eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
 	struct listnode *node, *nnode;
@@ -226,7 +216,7 @@ eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, vrf_id_t vrf_id)
 	return NULL;
 }
 
-eigrp_instance_t *eigrp_get(uint16_t as, vrf_id_t vrf_id)
+eigrp_instance_t *eigrp_get(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
 
@@ -306,11 +296,11 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 		eigrp_intf_free(eigrp, ei, INTERFACE_DOWN_BY_FINAL);
 	}
 
-	event_cancel(&eigrp->t_write);
-	event_cancel(&eigrp->t_read);
+	eigrp_southbound_event_cancel(&eigrp->t_write);
+	eigrp_southbound_event_cancel(&eigrp->t_read);
 	eigrp_packetizer_finish(eigrp);
 	eigrp_eventlog_finish(eigrp);
-	close(eigrp->fd);
+	eigrp_southbound_socket_close(eigrp);
 
 	list_delete(&eigrp->eiflist);
 	list_delete(&eigrp->oi_write_q);

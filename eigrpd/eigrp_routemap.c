@@ -24,68 +24,70 @@
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_macros.h"
 #include "eigrpd/eigrp_routemap.h"
+#include "eigrpd/eigrp_interface.h"
 
-void eigrp_intf_rmap_update(struct if_rmap *if_rmap)
+static void eigrp_intf_rmap_apply(eigrp_interface_t *ei,
+				  const struct if_rmap *if_rmap)
 {
-	struct interface *ifp;
-	eigrp_interface_t *ei, *ei2;
-	struct listnode *node, *nnode;
 	struct route_map *rmap;
-	eigrp_instance_t *e;
 
-	ifp = if_lookup_by_name(if_rmap->ifname, VRF_DEFAULT);
-	if (ifp == NULL)
+	if (!ei || !if_rmap)
 		return;
-
-	ei = NULL;
-	e = eigrp_lookup(ifp->vrf_id);
-	for (ALL_LIST_ELEMENTS(e->eiflist, node, nnode, ei2)) {
-		if (strcmp(ei2->ifp->name, ifp->name) == 0) {
-			ei = ei2;
-			break;
-		}
-	}
 
 	if (if_rmap->routemap[IF_RMAP_IN]) {
 		rmap = route_map_lookup_by_name(if_rmap->routemap[IF_RMAP_IN]);
-		if (rmap)
-			ei->routemap[IF_RMAP_IN] = rmap;
-		else
-			ei->routemap[IF_RMAP_IN] = NULL;
+		ei->routemap[EIGRP_FILTER_IN] = rmap;
 	} else
 		ei->routemap[EIGRP_FILTER_IN] = NULL;
 
 	if (if_rmap->routemap[IF_RMAP_OUT]) {
 		rmap = route_map_lookup_by_name(if_rmap->routemap[IF_RMAP_OUT]);
-		if (rmap)
-			ei->routemap[IF_RMAP_OUT] = rmap;
-		else
-			ei->routemap[IF_RMAP_OUT] = NULL;
+		ei->routemap[EIGRP_FILTER_OUT] = rmap;
 	} else
 		ei->routemap[EIGRP_FILTER_OUT] = NULL;
 }
 
-void eigrp_intf_rmap_update_interface(struct interface *ifp)
+void eigrp_intf_rmap_update(struct if_rmap *if_rmap)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	struct listnode *node;
+
+	if (!if_rmap || !if_rmap->ifname || !eigrp_om || !eigrp_om->eigrp)
+		return;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		ei = eigrp_intf_lookup_by_name(eigrp, if_rmap->ifname);
+		if (ei)
+			eigrp_intf_rmap_apply(ei, if_rmap);
+	}
+}
+
+void eigrp_intf_rmap_update_interface(const char *interface_name)
 {
 	struct if_rmap *if_rmap;
 
-	if_rmap = if_rmap_lookup(ifp->name);
+	if (!interface_name)
+		return;
+	if_rmap = if_rmap_lookup(interface_name);
 	if (if_rmap)
 		eigrp_intf_rmap_update(if_rmap);
 }
 
 void eigrp_routemap_update_redistribute(void)
 {
+	eigrp_instance_t *eigrp;
+	struct listnode *node;
 	int i;
-	eigrp_instance_t *e;
 
-	e = eigrp_lookup(VRF_DEFAULT);
+	if (!eigrp_om || !eigrp_om->eigrp)
+		return;
 
-	if (e) {
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
 		for (i = 0; i < ZEBRA_ROUTE_MAX; i++) {
-			if (e->route_map[i].name)
-				e->route_map[i].map = route_map_lookup_by_name(
-					e->route_map[i].name);
+			if (eigrp->route_map[i].name)
+				eigrp->route_map[i].map = route_map_lookup_by_name(
+					eigrp->route_map[i].name);
 		}
 	}
 }
@@ -93,11 +95,16 @@ void eigrp_routemap_update_redistribute(void)
 /* ARGSUSED */
 void eigrp_rmap_update(const char *notused)
 {
-	struct interface *ifp;
-	struct listnode *node, *nnode;
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	struct listnode *node, *inode;
 
-	for (ALL_LIST_ELEMENTS(iflist, node, nnode, ifp))
-		eigrp_intf_rmap_update_interface(ifp);
+	(void)notused;
+	if (!eigrp_om || !eigrp_om->eigrp)
+		return;
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp))
+		for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, inode, ei))
+			eigrp_intf_rmap_update_interface(ei->name);
 
 	eigrp_routemap_update_redistribute();
 }
@@ -293,26 +300,7 @@ static enum route_map_cmd_result_t
 route_match_interface(void *rule, struct prefix *prefix,
 		      route_map_object_t type, void *object)
 {
-	//  struct rip_info *rinfo;
-	//  struct interface *ifp;
-	//  char *ifname;
-	//
-	//  if (type == RMAP_EIGRP)
-	//    {
-	//      ifname = rule;
-	//      ifp = if_lookup_by_name(ifname);
-	//
-	//      if (!ifp)
-	//   return RMAP_NOMATCH;
-	//
-	//      rinfo = object;
-	//
-	//      /*if (rinfo->ifindex_out == ifp->ifindex || rinfo->ifindex ==
-	//      ifp->ifindex)
-	//   return RMAP_MATCH;
-	//      else
-	//   return RMAP_NOMATCH;*/
-	//    }
+	/* Interface matching is not implemented in this route-map skeleton. */
 	return RMAP_NOMATCH;
 }
 

@@ -32,8 +32,11 @@ typedef enum eigrp_distribute_list_type {
 
 /* EIGRP topology identifiers are 16-bit values on the wire. */
 typedef uint16_t eigrp_topology_id_t;
+typedef uint32_t eigrp_vrf_id_t;
+typedef uint32_t eigrp_ifindex_t;
 
 #define EIGRP_TOPOLOGY_ID_BASE ((eigrp_topology_id_t)0)
+#define EIGRP_VRF_DEFAULT ((eigrp_vrf_id_t)0)
 
 /* Common prefix-limit policy used by process, neighbor, and redistribution. */
 typedef struct eigrp_prefix_limit {
@@ -91,6 +94,7 @@ typedef struct eigrp_prefix_descriptor eigrp_prefix_descriptor_t;
 typedef struct eigrp_route_descriptor eigrp_route_descriptor_t;
 typedef struct eigrp_fsm_action_message eigrp_fsm_action_message_t;
 typedef struct eigrp_work_queue eigrp_work_queue_t;
+typedef struct eigrp_event eigrp_event_t;
 typedef struct eigrp_eventlog eigrp_eventlog_t;
 
 /* Portable configuration objects used by classic/named management adapters. */

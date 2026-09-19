@@ -129,7 +129,7 @@ int eigrp_check_md5_digest(struct stream *s,
 	if (!key) {
 		zlog_warn(
 			"Interface %s: Expected key value not found in config",
-			nbr->ei->ifp->name);
+			nbr->ei->name);
 		memcpy(auth_TLV->digest, orig, EIGRP_AUTH_TYPE_MD5_LEN);
 		eigrph->checksum = saved_checksum;
 		return 0;
@@ -212,12 +212,12 @@ int eigrp_make_sha256_digest(eigrp_interface_t *ei, struct stream *s,
 	if (!key) {
 		zlog_warn(
 			"Interface %s: Expected key value not found in config",
-			ei->ifp->name);
+			ei->name);
 		eigrp_authTLV_SHA256_free(auth_TLV);
 		return 0;
 	}
 
-	inet_ntop(AF_INET, &ei->address.u.prefix4, source_ip, PREFIX_STRLEN);
+	inet_ntop(AF_INET, ei->address.address.bytes, source_ip, PREFIX_STRLEN);
 
 	memset(&ctx, 0, sizeof(ctx));
 	buffer[0] = '\n';

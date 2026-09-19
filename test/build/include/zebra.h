@@ -117,8 +117,6 @@ struct list { struct listnode *head; struct listnode *tail; unsigned int count; 
 struct prefix { uint8_t family; uint8_t prefixlen; union { struct in_addr prefix4; struct in6_addr prefix6; } u; };
 struct prefix_ipv4 { uint8_t family; uint8_t prefixlen; struct in_addr prefix; };
 union sockunion { struct sockaddr sa; struct sockaddr_in sin; struct sockaddr_in6 sin6; };
-struct route_table { struct route_node *top; };
-struct route_node { struct route_node *next; struct route_node *parent; struct route_table *table; struct prefix p; void *info; unsigned int lock; };
 struct event { int dummy; };
 struct event_loop { int dummy; };
 struct stream { unsigned char *data; size_t size; size_t endp; size_t getp; };
@@ -187,19 +185,9 @@ static inline struct list *list_new(void) { return calloc(1, sizeof(struct list)
 static inline void list_delete(struct list **l) { if (l) { free(*l); *l = NULL; } }
 static inline void listnode_add(struct list *l, void *data) { if (!l) return; struct listnode *n = calloc(1, sizeof(*n)); n->data=data; if (!l->head) l->head=n; else l->tail->next=n; l->tail=n; l->count++; }
 static inline void listnode_delete(struct list *l, void *data) { (void)l; (void)data; }
-static inline struct route_table *route_table_init(void) { return calloc(1, sizeof(struct route_table)); }
-static inline void route_table_finish(struct route_table *t) { free(t); }
-static inline struct route_node *route_node_get(struct route_table *t, const struct prefix *p) { (void)p; struct route_node *n=calloc(1,sizeof(*n)); n->table=t; if (p) n->p=*p; return n; }
-
-static inline struct route_node *route_node_match(struct route_table *t, const struct prefix *p) { (void)t; (void)p; return NULL; }
 static inline const char *ifindex2ifname(ifindex_t ifindex, vrf_id_t vrf_id) { (void)ifindex; (void)vrf_id; return "stub0"; }
 static inline void vty_time_print(struct vty *vty, int seconds) { (void)vty; (void)seconds; }
 
-static inline struct route_node *route_node_lookup(struct route_table *t, const struct prefix *p) { (void)t; (void)p; return NULL; }
-static inline struct route_node *route_top(struct route_table *t) { return t ? t->top : NULL; }
-static inline struct route_node *route_next(struct route_node *n) { return n ? n->next : NULL; }
-static inline void route_unlock_node(struct route_node *n) { (void)n; }
-static inline void route_lock_node(struct route_node *n) { (void)n; }
 
 static inline struct stream *stream_new(size_t size) { struct stream *s=calloc(1,sizeof(*s)); s->data=calloc(1,size); s->size=size; return s; }
 static inline void stream_free(struct stream *s) { if (s) { free(s->data); free(s); } }
@@ -339,6 +327,7 @@ extern struct running_config_stub { struct lyd_node *dnode; } *running_config;
 #define MTYPE_EIGRP_SEQ_TLV 1018
 #define MTYPE_EIGRP_PACKETIZER_WORK 1019
 #define MTYPE_EIGRP_PREFIX_SNAPSHOT 1020
+#define MTYPE_EIGRP_EVENT 1021
 #define DISTRIBUTE_V4_IN 0
 #define DISTRIBUTE_V4_OUT 1
 #define ZCAP_NET_RAW 1

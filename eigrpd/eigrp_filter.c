@@ -17,12 +17,12 @@
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_filter.h"
+#include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_southbound.h"
 
 #include "plist.h"
 #include "privs.h"
-#include "vrf.h"
 
 /*
  * FRR policy objects still consume struct prefix.  Keep that host-specific
@@ -81,15 +81,34 @@ bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
 /*
  * Distribute-list update functions.
  */
+static eigrp_instance_t *eigrp_distribute_instance_lookup(
+	struct distribute_ctx *ctx)
+{
+	eigrp_instance_t *eigrp;
+	struct listnode *node;
+
+	if (!ctx || !eigrp_om || !eigrp_om->eigrp)
+		return NULL;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (eigrp->distribute_ctx == ctx)
+			return eigrp;
+	}
+
+	return NULL;
+}
+
 void eigrp_distribute_update(struct distribute_ctx *ctx,
 			     struct distribute *dist)
 {
-	eigrp_instance_t *eigrp = eigrp_lookup(ctx->vrf->vrf_id);
-	struct interface *ifp;
+	eigrp_instance_t *eigrp = eigrp_distribute_instance_lookup(ctx);
 	eigrp_interface_t *ei = NULL;
 	struct access_list *alist;
 	struct prefix_list *plist;
 	// struct route_map *routemap;
+
+	if (!eigrp || !dist)
+		return;
 
 	/* if no interface address is present, set list to eigrp process struct
 	 */
@@ -179,34 +198,17 @@ void eigrp_distribute_update(struct distribute_ctx *ctx,
 		// TODO: check Graceful restart after 10sec
 
 		/* check if there is already GR scheduled */
-		if (eigrp->t_distribute != NULL) {
-			/* if is, cancel schedule */
-			event_cancel(&(eigrp->t_distribute));
-		}
-		/* schedule Graceful restart for whole process in 10sec */
-		eigrp->t_distribute = NULL;
-		event_add_timer(eigrpd_event, eigrp_distribute_timer_process, eigrp,
-				 (10), &eigrp->t_distribute);
+		if (eigrp->t_distribute != NULL)
+			eigrp_southbound_event_cancel(&eigrp->t_distribute);
+		eigrp_southbound_timer_add(&eigrp->t_distribute,
+			eigrp_distribute_timer_process, eigrp, 10);
 
 		return;
 	}
 
-	ifp = if_lookup_by_name(dist->ifname, eigrp->vrf_id);
-	if (ifp == NULL)
+	ei = eigrp_intf_lookup_by_name(eigrp, dist->ifname);
+	if (!ei)
 		return;
-
-	/*struct eigrp_intf_info * info = ifp->info;
-	  ei = info->eigrp_interface;*/
-	struct listnode *node, *nnode;
-	eigrp_interface_t *ei2;
-	/* Find proper interface */
-	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei2)) {
-		if (strcmp(ei2->ifp->name, ifp->name) == 0) {
-			ei = ei2;
-			break;
-		}
-	}
-	assert(ei != NULL);
 
 	/* Access-list for interface in */
 	if (dist->list[DISTRIBUTE_V4_IN]) {
@@ -256,101 +258,69 @@ void eigrp_distribute_update(struct distribute_ctx *ctx,
 
 	// TODO: check Graceful restart after 10sec
 
-	/* Cancel GR scheduled */
-	event_cancel(&(ei->t_distribute));
-
-	/* schedule Graceful restart for interface in 10sec */
-	eigrp->t_distribute = NULL;
-	event_add_timer(eigrpd_event, eigrp_distribute_timer_interface, ei, 10,
-			 &eigrp->t_distribute);
+	/* Cancel and reschedule GR for this interface. */
+	eigrp_southbound_event_cancel(&ei->t_distribute);
+	eigrp_southbound_timer_add(&ei->t_distribute,
+		eigrp_distribute_timer_interface, ei, 10);
 }
 
 /*
  * Function called by prefix-list and access-list update
  */
 static void eigrp_distribute_update_interface(eigrp_instance_t *eigrp,
-					      struct interface *ifp)
+					      const char *interface_name)
 {
 	struct distribute *dist;
 
-	dist = distribute_lookup(eigrp->distribute_ctx, ifp->name);
+	if (!eigrp || !interface_name)
+		return;
+
+	dist = distribute_lookup(eigrp->distribute_ctx, interface_name);
 	if (dist)
 		eigrp_distribute_update(eigrp->distribute_ctx, dist);
 }
 
-/* Update all interface's distribute list.
- * Function used in hook for prefix-list
- */
+/* Update all runtime interfaces after a prefix/access-list change. */
 void eigrp_distribute_update_all(struct prefix_list *notused)
 {
 	eigrp_instance_t *eigrp;
-	struct vrf *vrf;
-	struct interface *ifp;
+	eigrp_interface_t *ei;
+	struct listnode *instance_node;
+	struct listnode *interface_node;
 
-	RB_FOREACH (vrf, vrf_name_head, &vrfs_by_name) {
-		eigrp = eigrp_lookup(vrf->vrf_id);
-		if (eigrp) {
-			FOR_ALL_INTERFACES (vrf, ifp) {
-				eigrp_distribute_update_interface(eigrp, ifp);
-			}
-		}
-	}
+	(void)notused;
+	if (!eigrp_om || !eigrp_om->eigrp)
+		return;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, instance_node, eigrp))
+		for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, interface_node, ei))
+			eigrp_distribute_update_interface(eigrp, ei->name);
 }
 
-/*
- * Function used in hook for acces-list
- */
 void eigrp_distribute_update_all_wrapper(struct access_list *notused)
 {
+	(void)notused;
 	eigrp_distribute_update_all(NULL);
 }
 
-/*
- * @fn eigrp_distribute_timer_process
- *
- * @param[in]   event  current execution event timer is associated with
- *
- * @return int  always returns 0
- *
- * @par
- * Called when 10sec waiting time expire and
- * executes Graceful restart for whole process
- */
-void eigrp_distribute_timer_process(struct event *event)
+void eigrp_distribute_timer_process(void *arg)
 {
-	eigrp_instance_t *eigrp;
+	eigrp_instance_t *eigrp = arg;
 
-	eigrp = EVENT_ARG(event);
+	if (!eigrp)
+		return;
 	eigrp->t_distribute = NULL;
-
-	/* execute GR for whole process */
 	eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER, NULL);
-
-	return;
 }
 
-/*
- * @fn eigrp_distribute_timer_interface
- *
- * @param[in]   event  current execution event timer is associated with
- *
- * @return int  always returns 0
- *
- * @par
- * Called when 10sec waiting time expire and
- * executes Graceful restart for interface
- */
-void eigrp_distribute_timer_interface(struct event *event)
+void eigrp_distribute_timer_interface(void *arg)
 {
-	eigrp_interface_t *ei;
+	eigrp_interface_t *ei = arg;
 
-	ei = EVENT_ARG(event);
+	if (!ei)
+		return;
 	ei->t_distribute = NULL;
-
-	/* execute GR for interface */
 	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER, NULL);
-
-	return;
 }
 
 eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,

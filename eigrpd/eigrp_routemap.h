@@ -16,7 +16,7 @@ extern void eigrp_routemap_update_redistribute(void);
 
 extern void eigrp_route_map_init();
 extern void eigrp_intf_rmap_update(struct if_rmap *);
-extern void eigrp_intf_rmap_update_interface(struct interface *);
+extern void eigrp_intf_rmap_update_interface(const char *interface_name);
 extern void eigrp_rmap_update(const char *);
 
 #endif /* EIGRPD_EIGRP_ROUTEMAP_H_ */

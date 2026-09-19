@@ -49,6 +49,7 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_snmp.h"
 #include "eigrpd/eigrp_filter.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_errors.h"
 #include "eigrpd/eigrp_vrf.h"
 #include "eigrpd/eigrp_cli_classic.h"
@@ -159,17 +160,15 @@ int main(int argc, char **argv, char **envp)
 
 	/* EIGRP frr event init. */
 	eigrp_init();
-	eigrp_om->event = frr_init();
-	eigrp_om->master = eigrp_om->event;
-	master = eigrp_om->event;
-	eigrpd_event = eigrp_om->event;
+	master = frr_init();
+	eigrpd_event = master;
 	libagentx_init();
 
 	eigrp_error_init();
 	eigrp_vrf_init();
 
 	/* EIGRPd init. */
-	eigrp_intf_init();
+	eigrp_southbound_runtime_init();
 	eigrp_zebra_init();
 	eigrp_debug_init();
 

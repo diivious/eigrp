@@ -86,19 +86,27 @@ typedef struct eigrp_interface_state {
 typedef eigrp_result_t (*eigrp_interface_state_walk_cb)(
 	const eigrp_interface_state_t *state, void *arg);
 
-/*Prototypes*/
-extern void eigrp_intf_init(void);
-extern int eigrp_intf_new_hook(struct interface *);
-extern int eigrp_intf_delete_hook(struct interface *);
+/* Host-independent runtime interface state supplied by a southbound adapter. */
+typedef struct eigrp_interface_runtime_state {
+	const char *interface_name;
+	eigrp_ifindex_t ifindex;
+	eigrp_prefix_t address;
+	uint8_t type;
+	bool operative;
+	uint32_t bandwidth;
+	uint32_t mtu;
+} eigrp_interface_runtime_state_t;
 
+/* Prototypes */
 extern bool eigrp_intf_is_passive(eigrp_interface_t *ei);
 extern void eigrp_del_intf_params(eigrp_intf_params_t *);
-extern eigrp_interface_t *eigrp_intf_new(eigrp_instance_t *, struct interface *,
-					 struct prefix *);
+eigrp_interface_t *eigrp_interface_runtime_create(
+	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state);
+void eigrp_interface_runtime_update(eigrp_interface_t *ei,
+				    const eigrp_interface_runtime_state_t *state);
+void eigrp_interface_runtime_delete(eigrp_interface_t *ei, int source);
 extern int eigrp_intf_up(eigrp_instance_t *, eigrp_interface_t *);
-extern void eigrp_intf_update(eigrp_instance_t *, struct interface *);
 extern void eigrp_intf_set_multicast(eigrp_interface_t *);
-extern uint8_t eigrp_default_iftype(struct interface *);
 extern void eigrp_intf_free(eigrp_instance_t *, eigrp_interface_t *, int);
 extern int eigrp_intf_down(eigrp_interface_t *);
 extern const char *eigrp_intf_name_string(eigrp_interface_t *);
@@ -106,18 +114,12 @@ extern void eigrp_interface_encoder_bind(eigrp_interface_t *, uint8_t);
 extern void eigrp_interface_encoder_unbind(eigrp_interface_t *, uint8_t);
 extern void eigrp_interface_encoder_clear(eigrp_interface_t *);
 
-extern int eigrp_intf_ipmulticast(eigrp_instance_t *, struct prefix *,
-				  unsigned int);
-extern int eigrp_intf_add_allspfrouters(eigrp_instance_t *, struct prefix *,
-					unsigned int);
-extern int eigrp_intf_drop_allspfrouters(eigrp_instance_t *top, struct prefix *p,
-					 unsigned int ifindex);
-
-extern eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *,
-							  struct interface *,
-							  struct in_addr);
-extern eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *,
-						    const char *);
+eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *,
+					    const eigrp_addr_t *address);
+eigrp_interface_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *,
+					 eigrp_ifindex_t ifindex);
+eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *,
+				      const char *);
 
 eigrp_result_t eigrp_interface_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
@@ -126,9 +128,6 @@ eigrp_result_t eigrp_interface_state_walk(
 
 /* Portable runtime reset used after interface-affecting metric changes. */
 void eigrp_interface_runtime_reset(eigrp_interface_t *ei);
-
-/* FRR-facing compatibility wrapper. */
-extern void eigrp_intf_reset(struct interface *);
 
 /* Portable interface configuration targets. */
 eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af,

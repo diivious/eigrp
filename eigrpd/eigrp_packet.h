@@ -36,8 +36,9 @@ typedef struct eigrp_tlv_header {
 } eigrp_tlv_header_t;
 
 /*Prototypes*/
-extern void eigrp_packet_read(struct event *);
-extern void eigrp_packet_write(struct event *);
+extern void eigrp_packet_read(void *arg);
+extern void eigrp_packet_write(void *arg);
+extern void eigrp_packet_write_schedule(eigrp_instance_t *eigrp);
 
 extern eigrp_packet_t *eigrp_packet_new(size_t, eigrp_neighbor_t *);
 extern eigrp_packet_t *eigrp_packet_duplicate(eigrp_packet_t *,
@@ -62,8 +63,8 @@ extern void eigrp_packet_output_enqueue(eigrp_instance_t *, eigrp_interface_t *,
 extern void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *);
 extern void eigrp_packet_send_reliably(eigrp_instance_t *, eigrp_neighbor_t *);
 
-extern void eigrp_packet_unack_retrans(struct event *);
-extern void eigrp_packet_unack_multicast_retrans(struct event *);
+extern void eigrp_packet_unack_retrans(void *arg);
+extern void eigrp_packet_unack_multicast_retrans(void *arg);
 
 extern eigrp_route_descriptor_t *eigrp_packet_decoder_safe(
 	eigrp_instance_t *, eigrp_neighbor_t *, eigrp_stream_t *, uint16_t);
@@ -87,7 +88,7 @@ extern void eigrp_hello_send_ack(eigrp_neighbor_t *);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
 			 eigrp_addr_t *, eigrp_interface_t *,
 			 struct stream *, int);
-extern void eigrp_hello_timer(struct event *);
+extern void eigrp_hello_timer(void *arg);
 
 /*
  * These externs are found in eigrp_update.c
@@ -101,7 +102,7 @@ extern void eigrp_update_send_all(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_update_packetize_all(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_neighbor_t *);
 extern void eigrp_update_send_EOT(eigrp_neighbor_t *);
-extern void eigrp_update_send_GR_event(struct event *);
+extern void eigrp_update_send_GR_event(void *arg);
 extern void eigrp_update_send_GR(eigrp_neighbor_t *, enum GR_type,
 				 struct vty *);
 extern void eigrp_update_send_interface_GR(eigrp_interface_t *, enum GR_type,

@@ -16,6 +16,7 @@
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_prefix.h"
@@ -1193,8 +1194,8 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_neighbor_t *nbr,
 	vty_out(vty, "%-3u %-17s %-21s", 0, eigrp_print_addr(&nbr->src),
 		EIGRP_INTF_NAME(nbr->ei));
 	if (nbr->t_holddown)
-		vty_out(vty, "%-7lu",
-			event_timer_remain_second(nbr->t_holddown));
+		vty_out(vty, "%-7u",
+			eigrp_southbound_timer_remaining_seconds(nbr->t_holddown));
 	else
 		vty_out(vty, "-      ");
 	vty_out(vty, "%-8u %-6u %-5u", 0, 0, EIGRP_PACKET_RETRANS_TIME);

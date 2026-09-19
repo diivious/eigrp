@@ -19,6 +19,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_errors.h"
+#include "eigrpd/eigrp_southbound.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_PACKET,          "EIGRP Packet");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_PACKET_QUEUE,    "EIGRP Packet Queue");
@@ -176,9 +177,17 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 	}
 }
 
-void eigrp_packet_write(struct event *event)
+void eigrp_packet_write_schedule(eigrp_instance_t *eigrp)
 {
-	eigrp_instance_t *eigrp = EVENT_ARG(event);
+	if (!eigrp || eigrp->t_write)
+		return;
+	eigrp_southbound_write_add(&eigrp->t_write, eigrp->fd,
+			     eigrp_packet_write, eigrp);
+}
+
+void eigrp_packet_write(void *arg)
+{
+	eigrp_instance_t *eigrp = arg;
 	struct eigrp_header *eigrph;
 	eigrp_interface_t *ei;
 	eigrp_packet_t *packet;
@@ -196,7 +205,7 @@ void eigrp_packet_write(struct event *event)
 	if (!packet) {
 		flog_err(EC_LIB_DEVELOPMENT,
 			 "%s: Interface %s no packet on queue?", __func__,
-			 ei->ifp->name);
+			 ei->name);
 		goto out;
 	}
 	if (packet->length < EIGRP_HEADER_LEN) {
@@ -255,11 +264,11 @@ out:
 
 	/* If packets still remain in queue, call write event. */
 	if (!list_isempty(eigrp->oi_write_q))
-		EIGRP_EVENT_ADD_WRITE(eigrp);
+		eigrp_packet_write_schedule(eigrp);
 }
 
 /* Starting point of packet process function. */
-void eigrp_packet_read(struct event *event)
+void eigrp_packet_read(void *arg)
 {
 	int ret;
 	eigrp_stream_t *ibuf;
@@ -273,11 +282,11 @@ void eigrp_packet_read(struct event *event)
 	uint16_t opcode;
 	uint16_t length;
 
-	eigrp = EVENT_ARG(event);
+	eigrp = arg;
 
 	/* Prepare for the next packet before processing this one. */
-	event_add_read(eigrpd_event, eigrp_packet_read, eigrp, eigrp->fd,
-		       &eigrp->t_read);
+	eigrp_southbound_read_add(&eigrp->t_read, eigrp->fd,
+			    eigrp_packet_read, eigrp);
 
 	stream_reset(eigrp->ibuf);
 	if (!eigrp->af_vectors.packet_receive) {
@@ -464,7 +473,7 @@ void eigrp_packet_output_enqueue(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 		listnode_add(eigrp->oi_write_q, ei);
 		ei->on_write_q = 1;
 	}
-	EIGRP_EVENT_ADD_WRITE(eigrp);
+	eigrp_packet_write_schedule(eigrp);
 }
 
 void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
@@ -486,8 +495,9 @@ void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
 						  address, sizeof(address)),
 			   packet->sequence_number, EIGRP_PACKET_RETRANS_TIME);
 	}
-	event_add_timer(eigrpd_event, eigrp_packet_unack_retrans, nbr,
-			 EIGRP_PACKET_RETRANS_TIME, &packet->t_retrans_timer);
+	eigrp_southbound_timer_add(&packet->t_retrans_timer,
+			    eigrp_packet_unack_retrans, nbr,
+			    EIGRP_PACKET_RETRANS_TIME);
 }
 
 void eigrp_packet_send_reliably(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
@@ -610,7 +620,7 @@ void eigrp_packet_free(eigrp_packet_t *packet)
 	if (packet->s)
 		stream_free(packet->s);
 
-	event_cancel(&packet->t_retrans_timer);
+	eigrp_southbound_event_cancel(&packet->t_retrans_timer);
 
 	XFREE(MTYPE_EIGRP_PACKET, packet);
 }
@@ -860,10 +870,9 @@ static int eigrp_verify_header(eigrp_interface_t *ei, eigrp_addr_t *source,
 	return 0;
 }
 
-void eigrp_packet_unack_retrans(struct event *event)
+void eigrp_packet_unack_retrans(void *arg)
 {
-	eigrp_neighbor_t *nbr;
-	nbr = (eigrp_neighbor_t *)EVENT_ARG(event);
+	eigrp_neighbor_t *nbr = arg;
 
 	eigrp_packet_t *packet;
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
@@ -891,19 +900,18 @@ void eigrp_packet_unack_retrans(struct event *event)
 		}
 
 		/*Start retransmission timer*/
-		event_add_timer(eigrpd_event, eigrp_packet_unack_retrans, nbr,
-				 EIGRP_PACKET_RETRANS_TIME,
-				 &packet->t_retrans_timer);
+		eigrp_southbound_timer_add(&packet->t_retrans_timer,
+				    eigrp_packet_unack_retrans, nbr,
+				    EIGRP_PACKET_RETRANS_TIME);
 
 	}
 
 	return;
 }
 
-void eigrp_packet_unack_multicast_retrans(struct event *event)
+void eigrp_packet_unack_multicast_retrans(void *arg)
 {
-	eigrp_neighbor_t *nbr;
-	nbr = (eigrp_neighbor_t *)EVENT_ARG(event);
+	eigrp_neighbor_t *nbr = arg;
 
 	eigrp_packet_t *packet;
 	packet = eigrp_packet_queue_next(nbr->multicast_queue);
@@ -931,9 +939,9 @@ void eigrp_packet_unack_multicast_retrans(struct event *event)
 		}
 
 		/*Start retransmission timer*/
-		event_add_timer(eigrpd_event, eigrp_packet_unack_multicast_retrans,
-				 nbr, EIGRP_PACKET_RETRANS_TIME,
-				 &packet->t_retrans_timer);
+		eigrp_southbound_timer_add(&packet->t_retrans_timer,
+				    eigrp_packet_unack_multicast_retrans, nbr,
+				    EIGRP_PACKET_RETRANS_TIME);
 
 	}
 
@@ -966,7 +974,7 @@ eigrp_packet_t *eigrp_packet_duplicate(eigrp_packet_t *old,
 {
 	eigrp_packet_t *new;
 
-	new = eigrp_packet_new(EIGRP_PACKET_MTU(nbr->ei->ifp->mtu), nbr);
+	new = eigrp_packet_new(EIGRP_PACKET_MTU(nbr->ei->curr_mtu), nbr);
 	new->length = old->length;
 	new->retrans_counter = old->retrans_counter;
 	new->dst = old->dst;

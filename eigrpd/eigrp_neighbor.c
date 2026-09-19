@@ -18,6 +18,7 @@
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
@@ -465,28 +466,26 @@ void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 	if (nbr->ei)
 		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 
-	/* Cancel all events. */ /* Event lookup cost would be negligible. */
-	event_cancel_event(eigrpd_event, nbr);
+	/* Cancel neighbor-owned host runtime events before releasing queues/state. */
+	eigrp_southbound_event_cancel(&nbr->t_nbr_send_gr);
 	eigrp_packet_queue_free(nbr->multicast_queue);
 	eigrp_packet_queue_free(nbr->retrans_queue);
-	event_cancel(&nbr->t_holddown);
+	eigrp_southbound_event_cancel(&nbr->t_holddown);
 
 	if (nbr->ei)
 		listnode_delete(nbr->ei->nbrs, nbr);
 	XFREE(MTYPE_EIGRP_NEIGHBOR, nbr);
 }
 
-void holddown_timer_expired(struct event *event)
+void eigrp_neighbor_holddown_expired(void *arg)
 {
-	eigrp_neighbor_t *nbr = EVENT_ARG(event);
-	eigrp_instance_t *eigrp = nbr->ei->eigrp;
-
+	eigrp_neighbor_t *nbr = arg;
 	if (IS_DEBUG_EIGRP(0, TIMERS))
 		zlog_debug("EIGRP: hold timer expired for neighbor %s",
 			   eigrp_print_addr(&nbr->src));
 	zlog_info("Neighbor %s (%s) is down: holding time expired",
 		  eigrp_print_addr(&nbr->src),
-		  ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
+		  nbr->ei->name);
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 	eigrp_nbr_delete(nbr);
 
@@ -536,7 +535,7 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 
 		// hold time..
 		nbr->v_holddown = EIGRP_HOLD_INTERVAL_DEFAULT;
-		event_cancel(&nbr->t_holddown);
+		eigrp_southbound_event_cancel(&nbr->t_holddown);
 
 		/* out with the old */
 		if (nbr->multicast_queue)
@@ -576,26 +575,23 @@ const char *eigrp_nbr_state_str(eigrp_neighbor_t *nbr)
 void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 {
 	switch (nbr->state) {
-	case EIGRP_NEIGHBOR_DOWN: {
-		/*Start Hold Down Timer for neighbor*/
-		//     event_cancel(&nbr->t_holddown);
-		//     EVENT_TIMER_ON(eigrpd_event, nbr->t_holddown,
-		//     holddown_timer_expired,
-		//     nbr, nbr->v_holddown);
+	case EIGRP_NEIGHBOR_DOWN:
+		eigrp_southbound_event_cancel(&nbr->t_holddown);
 		break;
-	}
 	case EIGRP_NEIGHBOR_PENDING: {
 		/*Reset Hold Down Timer for neighbor*/
-		event_cancel(&nbr->t_holddown);
-		event_add_timer(eigrpd_event, holddown_timer_expired, nbr,
-				 nbr->v_holddown, &nbr->t_holddown);
+		eigrp_southbound_event_cancel(&nbr->t_holddown);
+		eigrp_southbound_timer_add(&nbr->t_holddown,
+				  eigrp_neighbor_holddown_expired, nbr,
+				  nbr->v_holddown);
 		break;
 	}
 	case EIGRP_NEIGHBOR_UP: {
 		/*Reset Hold Down Timer for neighbor*/
-		event_cancel(&nbr->t_holddown);
-		event_add_timer(eigrpd_event, holddown_timer_expired, nbr,
-				 nbr->v_holddown, &nbr->t_holddown);
+		eigrp_southbound_event_cancel(&nbr->t_holddown);
+		eigrp_southbound_timer_add(&nbr->t_holddown,
+				  eigrp_neighbor_holddown_expired, nbr,
+				  nbr->v_holddown);
 		break;
 	}
 	}

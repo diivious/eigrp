@@ -29,6 +29,7 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_auth.h"
+#include "eigrpd/eigrp_southbound.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF,      "EIGRP interface");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF_INFO, "EIGRP Interface Information");
@@ -36,28 +37,10 @@ DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF_INFO, "EIGRP Interface Information");
 static bool eigrp_interface_destination_get(const eigrp_interface_t *ei,
 					    eigrp_prefix_t *destination)
 {
-	if (!ei || !destination)
+	if (!ei || !destination || !eigrp_prefix_valid(&ei->address))
 		return false;
 
-	memset(destination, 0, sizeof(*destination));
-	destination->prefix_length = ei->address.prefixlen;
-	switch (ei->address.family) {
-	case AF_INET:
-		destination->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
-		memcpy(destination->address.bytes, &ei->address.u.prefix4,
-		       sizeof(ei->address.u.prefix4));
-		break;
-	case AF_INET6:
-		destination->address.afi = EIGRP_ADDRESS_FAMILY_IPV6;
-		memcpy(destination->address.bytes, &ei->address.u.prefix6,
-		       sizeof(ei->address.u.prefix6));
-		break;
-	default:
-		return false;
-	}
-
-	if (!eigrp_prefix_valid(destination))
-		return false;
+	*destination = ei->address;
 	eigrp_prefix_normalize(destination);
 	return true;
 }
@@ -619,66 +602,86 @@ static void eigrp_intf_stream_unset(eigrp_interface_t *ei)
 	if (ei->on_write_q) {
 		listnode_delete(eigrp->oi_write_q, ei);
 		if (list_isempty(eigrp->oi_write_q))
-			event_cancel(&(eigrp->t_write));
+			eigrp_southbound_event_cancel(&eigrp->t_write);
 		ei->on_write_q = 0;
 	}
 }
 
-static uint8_t eigrp_intf_settype(struct interface *ifp)
-{
-	if (if_is_pointopoint(ifp))
-		return EIGRP_IFTYPE_POINTOPOINT;
-	else if (if_is_loopback(ifp))
-		return EIGRP_IFTYPE_LOOPBACK;
-	else
-		return EIGRP_IFTYPE_BROADCAST;
-}
-
 const char *eigrp_intf_name_string(eigrp_interface_t *ei)
 {
-	if (!ei)
+	if (!ei || !ei->name)
 		return "inactive";
 
-	return ei->ifp->name;
+	return ei->name;
 }
 
-eigrp_interface_t *eigrp_intf_new(eigrp_instance_t *eigrp, struct interface *ifp,
-				  struct prefix *p)
+static void eigrp_interface_runtime_state_apply(
+	eigrp_interface_t *ei, const eigrp_interface_runtime_state_t *state)
 {
-	eigrp_interface_t *ei = ifp->info;
+	char *name;
+
+	if (!ei || !state)
+		return;
+
+	if (state->interface_name
+	    && (!ei->name || strcmp(ei->name, state->interface_name) != 0)) {
+		name = XSTRDUP(MTYPE_EIGRP_INTF_INFO, state->interface_name);
+		if (name) {
+			if (ei->name)
+				XFREE(MTYPE_EIGRP_INTF_INFO, ei->name);
+			ei->name = name;
+		}
+	}
+
+	ei->ifindex = state->ifindex;
+	if (eigrp_prefix_valid(&state->address)) {
+		ei->address = state->address;
+		eigrp_prefix_normalize(&ei->address);
+	}
+	ei->type = state->type;
+	ei->operative = state->operative;
+	ei->curr_bandwidth = state->bandwidth;
+	ei->curr_mtu = state->mtu;
+}
+
+eigrp_interface_t *eigrp_interface_runtime_create(
+	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state)
+{
+	eigrp_interface_t *ei;
 	int i;
 
-	if (ei)
+	if (!eigrp || !state || !state->interface_name
+	    || !state->interface_name[0] || !eigrp_prefix_valid(&state->address))
+		return NULL;
+
+	ei = eigrp_intf_lookup_by_ifindex(eigrp, state->ifindex);
+	if (!ei)
+		ei = eigrp_intf_lookup_by_name(eigrp, state->interface_name);
+	if (ei) {
+		eigrp_interface_runtime_state_apply(ei, state);
 		return ei;
+	}
 
-	ei = XCALLOC(MTYPE_EIGRP_INTF, sizeof(eigrp_interface_t));
-
-	/* Set zebra interface pointer. */
-	ei->ifp = ifp;
-
-	/* Relate eigrp interface to eigrp instance. */
+	ei = XCALLOC(MTYPE_EIGRP_INTF, sizeof(*ei));
 	ei->eigrp = eigrp;
+	eigrp_interface_runtime_state_apply(ei, state);
+	if (!ei->name) {
+		XFREE(MTYPE_EIGRP_INTF, ei);
+		return NULL;
+	}
 
-	prefix_copy(&ei->address, p);
-
-	ifp->info = ei;
 	listnode_add(eigrp->eiflist, ei);
-
-	ei->type = EIGRP_IFTYPE_BROADCAST;
-
-	/* Initialize neighbor list. */
 	ei->nbrs = list_new();
-
 	ei->crypt_seqnum = time(NULL);
 	eigrp_interface_encoder_clear(ei);
 
-	/* Initialize lists */
 	for (i = 0; i < EIGRP_FILTER_MAX; i++) {
 		ei->list[i] = NULL;
 		ei->prefix[i] = NULL;
 		ei->routemap[i] = NULL;
 	}
 
+	ei->params.type = state->type;
 	ei->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;
 	ei->params.v_wait = EIGRP_HOLD_INTERVAL_DEFAULT;
 	ei->params.bandwidth = EIGRP_BANDWIDTH_DEFAULT;
@@ -688,131 +691,25 @@ eigrp_interface_t *eigrp_intf_new(eigrp_instance_t *eigrp, struct interface *ifp
 	ei->params.auth_type = EIGRP_AUTH_TYPE_NONE;
 	ei->params.auth_keychain = NULL;
 
-	ei->curr_bandwidth = ifp->bandwidth;
-	ei->curr_mtu = ifp->mtu;
-
 	return ei;
 }
 
-int eigrp_intf_delete_hook(struct interface *ifp)
+void eigrp_interface_runtime_update(eigrp_interface_t *ei,
+				    const eigrp_interface_runtime_state_t *state)
 {
-	eigrp_interface_t *ei = ifp->info;
-	eigrp_instance_t *eigrp;
+	if (!ei || !state)
+		return;
 
+	eigrp_interface_runtime_state_apply(ei, state);
+	ei->params.type = state->type;
+}
+
+void eigrp_interface_runtime_delete(eigrp_interface_t *ei, int source)
+{
 	if (!ei)
-		return 0;
+		return;
 
-	list_delete(&ei->nbrs);
-
-	eigrp = ei->eigrp;
-	listnode_delete(eigrp->eiflist, ei);
-
-	eigrp_packet_queue_free(ei->obuf);
-
-	XFREE(MTYPE_EIGRP_INTF_INFO, ifp->info);
-
-	return 0;
-}
-
-static int eigrp_ifp_create(struct interface *ifp)
-{
-	struct listnode *node, *nnode;
-	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei = ifp->info;
-
-	if (ei) {
-	    ei->params.type = eigrp_intf_settype(ifp);
-
-	    for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-		eigrp_intf_update(eigrp, ifp);
-	    }
-	}
-
-	return 0;
-}
-
-static int eigrp_ifp_up(struct interface *ifp)
-{
-	eigrp_interface_t *ei = ifp->info;
-
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
-		zlog_debug("Zebra: Interface[%s] state change to up.",
-			   ifp->name);
-
-	if (!ei)
-		return 0;
-
-	if (ei->curr_bandwidth != ifp->bandwidth) {
-		if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
-			zlog_debug(
-				"Zebra: Interface[%s] bandwidth change %d -> %d.",
-				ifp->name, ei->curr_bandwidth, ifp->bandwidth);
-
-		ei->curr_bandwidth = ifp->bandwidth;
-		// eigrp_intf_recalculate_output_cost (ifp);
-	}
-
-	if (ei->curr_mtu != ifp->mtu) {
-		if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
-			zlog_debug("Zebra: Interface[%s] MTU change %u -> %u.",
-				   ifp->name, ei->curr_mtu, ifp->mtu);
-
-		ei->curr_mtu = ifp->mtu;
-		/* Must reset the interface (simulate down/up) when MTU
-		 * changes. */
-		eigrp_intf_reset(ifp);
-		return 0;
-	}
-
-	eigrp_intf_up(ei->eigrp, ifp->info);
-
-	return 0;
-}
-
-static int eigrp_ifp_down(struct interface *ifp)
-{
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
-		zlog_debug("Zebra: Interface[%s] state change to down.",
-			   ifp->name);
-
-	if (ifp->info)
-		eigrp_intf_down(ifp->info);
-
-	return 0;
-}
-
-static int eigrp_ifp_destroy(struct interface *ifp)
-{
-	eigrp_interface_t *ei;
-
-	if (if_is_up(ifp))
-		zlog_warn("Zebra: got delete of %s, but interface is still up",
-			  ifp->name);
-
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE))
-		zlog_debug(
-			"Zebra: interface delete %s index %d flags %llx metric %d mtu %d",
-			ifp->name, ifp->ifindex, (unsigned long long)ifp->flags,
-			ifp->metric, ifp->mtu);
-
-	if (ifp->info) {
-		ei = ifp->info;
-		eigrp_intf_free(ei->eigrp, ei, INTERFACE_DOWN_BY_ZEBRA);
-	}
-
-	return 0;
-}
-
-struct list *eigrp_iflist;
-
-void eigrp_intf_init(void)
-{
-	hook_register_prio(if_real, 0, eigrp_ifp_create);
-	hook_register_prio(if_up, 0, eigrp_ifp_up);
-	hook_register_prio(if_down, 0, eigrp_ifp_down);
-	hook_register_prio(if_unreal, 0, eigrp_ifp_destroy);
-	// hook_register_prio(if_add, 0, eigrp_intf_new);
-	hook_register_prio(if_del, 0, eigrp_intf_delete_hook);
+	eigrp_intf_free(ei->eigrp, ei, source);
 }
 
 void eigrp_del_intf_params(eigrp_intf_params_t *eip)
@@ -829,13 +726,13 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	eigrp_interface_t *ei2;
 	struct listnode *node, *nnode;
 
-	eigrp_adjust_sndbuflen(eigrp, ei->ifp->mtu);
+	eigrp_southbound_socket_send_buffer_ensure(eigrp, ei->curr_mtu);
 	eigrp_intf_stream_set(ei);
 
 	/* Set multicast memberships appropriately for new state. */
 	eigrp_intf_set_multicast(ei);
 
-	event_add_event(eigrpd_event, eigrp_hello_timer, ei, (1), &ei->t_hello);
+	eigrp_southbound_event_add(&ei->t_hello, eigrp_hello_timer, ei);
 
 	/*Prepare metrics*/
 	metric.bandwidth = eigrp_bandwidth_to_scaled(ei->params.bandwidth);
@@ -921,7 +818,7 @@ int eigrp_intf_down(eigrp_interface_t *ei)
 
 	/* Shutdown packet reception and sending */
 	if (ei->t_hello)
-		event_cancel(&ei->t_hello);
+		eigrp_southbound_event_cancel(&ei->t_hello);
 
 	eigrp_intf_stream_unset(ei);
 
@@ -942,30 +839,16 @@ bool eigrp_intf_is_passive(eigrp_interface_t *ei)
 
 void eigrp_intf_set_multicast(eigrp_interface_t *ei)
 {
+	if (!ei)
+		return;
+
 	if (!eigrp_intf_is_passive(ei)) {
-		/* The interface should belong to the EIGRP-all-routers group.
-		 */
 		if (!ei->member_allrouters
-		    && (eigrp_intf_add_allspfrouters(ei->eigrp, &ei->address,
-						     ei->ifp->ifindex)
-			>= 0))
-			/* Set the flag only if the system call to join
-			 * succeeded. */
+		    && eigrp_southbound_multicast_join(ei->eigrp, ei) >= 0)
 			ei->member_allrouters = true;
-	} else {
-		/* The interface should NOT belong to the EIGRP-all-routers
-		 * group. */
-		if (ei->member_allrouters) {
-			/* Only actually drop if this is the last reference */
-			eigrp_intf_drop_allspfrouters(ei->eigrp, &ei->address,
-						      ei->ifp->ifindex);
-			/* Unset the flag regardless of whether the system call
-			   to leave
-			   the group succeeded, since it's much safer to assume
-			   that
-			   we are not a member. */
-			ei->member_allrouters = false;
-		}
+	} else if (ei->member_allrouters) {
+		(void)eigrp_southbound_multicast_leave(ei->eigrp, ei);
+		ei->member_allrouters = false;
 	}
 }
 
@@ -975,7 +858,7 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 	eigrp_prefix_descriptor_t *pe = NULL;
 
 	if (source == INTERFACE_DOWN_BY_VTY) {
-		event_cancel(&ei->t_hello);
+		eigrp_southbound_event_cancel(&ei->t_hello);
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 	}
 
@@ -989,10 +872,10 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 	eigrp_intf_down(ei);
 
 	listnode_delete(ei->eigrp->eiflist, ei);
-	if (ei->ifp && ei->ifp->info == ei)
-		ei->ifp->info = NULL;
 	list_delete(&ei->nbrs);
 	eigrp_packet_queue_free(ei->obuf);
+	if (ei->name)
+		XFREE(MTYPE_EIGRP_INTF_INFO, ei->name);
 	XFREE(MTYPE_EIGRP_INTF, ei);
 }
 
@@ -1005,59 +888,58 @@ void eigrp_interface_runtime_reset(eigrp_interface_t *ei)
 	eigrp_intf_up(ei->eigrp, ei);
 }
 
-/* FRR-facing compatibility wrapper.  Classic FRR callbacks continue to set
- * the runtime parameter directly and enter the same EIGRP-owned reset path.
- */
-void eigrp_intf_reset(struct interface *ifp)
-{
-	if (!ifp)
-		return;
-
-	eigrp_interface_runtime_reset(ifp->info);
-}
-
 eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *eigrp,
-						   struct interface *ifp,
-						   struct in_addr address)
+						   const eigrp_addr_t *address)
 {
 	struct listnode *node;
 	eigrp_interface_t *ei;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		if (ifp && ei->ifp != ifp)
-			continue;
+	if (!eigrp || !address)
+		return NULL;
 
-		if (IPV4_ADDR_SAME(&address, &ei->address.u.prefix4))
+	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+		if (address->afi == AF_INET
+		    && ei->address.address.afi == EIGRP_ADDRESS_FAMILY_IPV4
+		    && memcmp(ei->address.address.bytes, &address->ip.v4,
+			      sizeof(address->ip.v4)) == 0)
+			return ei;
+		if (address->afi == AF_INET6
+		    && ei->address.address.afi == EIGRP_ADDRESS_FAMILY_IPV6
+		    && memcmp(ei->address.address.bytes, &address->ip.v6,
+			      sizeof(address->ip.v6)) == 0)
 			return ei;
 	}
 
 	return NULL;
 }
 
-/**
- * @fn eigrp_intf_lookup_by_name
- *
- * @param[in]		eigrp		EIGRP process
- * @param[in]		if_name 	Name of the interface
- *
- * @return eigrp_interface_t *
- *
- * @par
- * Function is used for lookup interface by name.
- */
+eigrp_interface_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *eigrp,
+						 eigrp_ifindex_t ifindex)
+{
+	eigrp_interface_t *ei;
+	struct listnode *node;
+
+	if (!eigrp || !ifindex)
+		return NULL;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+		if (ei->ifindex == ifindex)
+			return ei;
+	return NULL;
+}
+
 eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *eigrp,
 					     const char *if_name)
 {
 	eigrp_interface_t *ei;
 	struct listnode *node;
 
-	/* iterate over all eigrp interfaces */
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		/* compare int name with eigrp interface's name */
-		if (strcmp(ei->ifp->name, if_name) == 0) {
+	if (!eigrp || !if_name)
+		return NULL;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+		if (ei->name && strcmp(ei->name, if_name) == 0)
 			return ei;
-		}
-	}
 
 	return NULL;
 }

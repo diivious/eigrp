@@ -25,6 +25,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_errors.h"
+#include "eigrpd/eigrp_southbound.h"
 
 /*
  * @fn eigrp_hello_timer
@@ -38,11 +39,9 @@
  * Sends hello packet via multicast for all interfaces eigrp
  * is configured for
  */
-void eigrp_hello_timer(struct event *event)
+void eigrp_hello_timer(void *arg)
 {
-	eigrp_interface_t *ei;
-
-	ei = EVENT_ARG(event);
+	eigrp_interface_t *ei = arg;
 
 	if (IS_DEBUG_EIGRP(0, TIMERS))
 		zlog_debug("Start Hello Timer (%s) Expire [%u]",
@@ -59,8 +58,8 @@ void eigrp_hello_timer(struct event *event)
 	}
 
 	/* Hello timer set. */
-	event_add_timer(eigrpd_event, eigrp_hello_timer, ei, ei->params.v_hello,
-			 &ei->t_hello);
+	eigrp_southbound_timer_add(&ei->t_hello, eigrp_hello_timer, ei,
+			    ei->params.v_hello);
 
 	return;
 }
@@ -125,8 +124,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		if (eigrp_nbr_state_get(nbr) == EIGRP_NEIGHBOR_DOWN) {
 			zlog_info("Neighbor %s (%s) is pending: new adjacency",
 				  eigrp_print_addr(&nbr->src),
-				  ifindex2ifname(nbr->ei->ifp->ifindex,
-						 eigrp->vrf_id));
+				  nbr->ei->name);
 
 			/* Expedited hello sent */
 			eigrp_hello_send(nbr->ei, EIGRP_HELLO_NORMAL, &nbr->src);
@@ -142,16 +140,14 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				zlog_info(
 					"Neighbor %s (%s) is down: Interface PEER-TERMINATION received",
 					eigrp_print_addr(&nbr->src),
-					ifindex2ifname(nbr->ei->ifp->ifindex,
-						       eigrp->vrf_id));
+					nbr->ei->name);
 				eigrp_nbr_delete(nbr);
 				return NULL;
 			} else {
 				zlog_info(
 					"Neighbor %s (%s) going down: Kvalue mismatch",
 					eigrp_print_addr(&nbr->src),
-					ifindex2ifname(nbr->ei->ifp->ifindex,
-						       eigrp->vrf_id));
+					nbr->ei->name);
 				eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 			}
 		}
@@ -210,13 +206,15 @@ static void eigrp_peer_termination_decode(eigrp_instance_t *eigrp,
 	struct TLV_Peer_Termination_type *param =
 		(struct TLV_Peer_Termination_type *)tlv;
 
-	uint32_t my_ip = nbr->ei->address.u.prefix4.s_addr;
+	uint32_t my_ip;
+
+	memcpy(&my_ip, nbr->ei->address.address.bytes, sizeof(my_ip));
 	uint32_t received_ip = param->neighbor_ip;
 
 	if (my_ip == received_ip) {
 		zlog_info("Neighbor %s (%s) is down: Peer Termination received",
 			  eigrp_print_addr(&nbr->src),
-			  ifindex2ifname(nbr->ei->ifp->ifindex, eigrp->vrf_id));
+			  nbr->ei->name);
 		/* set neighbor to DOWN */
 		eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 		/* delete neighbor */
@@ -569,7 +567,7 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_interface_t *ei, in_addr_t addr,
 	uint16_t length = EIGRP_HEADER_LEN;
 
 	// allocate a new packet to be sent
-	packet = eigrp_packet_new(EIGRP_PACKET_MTU(ei->ifp->mtu), NULL);
+	packet = eigrp_packet_new(EIGRP_PACKET_MTU(ei->curr_mtu), NULL);
 
 	if (packet) {
 		// encode common header feilds
@@ -665,7 +663,7 @@ void eigrp_hello_send_ack(eigrp_neighbor_t *nbr)
 			listnode_add(nbr->ei->eigrp->oi_write_q, nbr->ei);
 			nbr->ei->on_write_q = 1;
 		}
-		EIGRP_EVENT_ADD_WRITE(nbr->ei->eigrp);
+		eigrp_packet_write_schedule(nbr->ei->eigrp);
 	}
 }
 
@@ -700,7 +698,7 @@ void eigrp_hello_send_unicast(eigrp_interface_t *ei, const eigrp_addr_t *dst)
 		ei->on_write_q = 1;
 	}
 	if (ei->eigrp->t_write == NULL)
-		EIGRP_EVENT_ADD_WRITE(ei->eigrp);
+		eigrp_packet_write_schedule(ei->eigrp);
 }
 
 void eigrp_hello_send(eigrp_interface_t *ei, uint8_t flags,
@@ -730,10 +728,9 @@ void eigrp_hello_send(eigrp_interface_t *ei, uint8_t flags,
 
 		if (ei->eigrp->t_write == NULL) {
 			if (flags & EIGRP_HELLO_GRACEFUL_SHUTDOWN) {
-				event_execute(eigrpd_event, eigrp_packet_write,
-					      ei->eigrp, ei->eigrp->fd, NULL);
+				eigrp_packet_write(ei->eigrp);
 			} else {
-				EIGRP_EVENT_ADD_WRITE(ei->eigrp);
+				eigrp_packet_write_schedule(ei->eigrp);
 			}
 		}
 	}

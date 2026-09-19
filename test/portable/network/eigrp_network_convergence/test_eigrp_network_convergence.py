@@ -137,6 +137,10 @@ def test_classic_frr_network_callbacks_convert_then_call_portable_targets():
     assert "context.runtime = eigrp;" in destroy
     assert "eigrp_network_create(&context, &network)" in create
     assert "eigrp_network_delete(&context, &network)" in destroy
+    assert "eigrp_southbound_network_exists" in create
+    assert "eigrp_southbound_network_exists" in destroy
+    assert "route_node_" not in create
+    assert "route_node_" not in destroy
     assert "eigrp_network_set" not in create
     assert "eigrp_network_unset" not in destroy
 
@@ -162,14 +166,18 @@ def test_frr_southbound_owns_network_interface_walk_and_runtime_storage():
     southbound = read(SOUTHBOUND_C)
     runtime_create = function_body(southbound, "eigrp_southbound_network_create")
     runtime_delete = function_body(southbound, "eigrp_southbound_network_delete")
-    intf_update = function_body(southbound, "eigrp_intf_update")
+    refresh = function_body(southbound, "eigrp_southbound_interfaces_refresh")
+    refresh_one = function_body(southbound, "eigrp_southbound_interface_refresh_one")
 
     assert "FOR_ALL_INTERFACES" in runtime_create
     assert "route_node_get" in runtime_create
     assert "route_node_lookup" in runtime_delete
     assert "eigrp_intf_free" in runtime_delete
-    assert "route_top(eigrp->networks)" in intf_update
+    assert "FOR_ALL_INTERFACES" in refresh
+    assert "route_top(eigrp->networks)" in refresh_one
+    assert "eigrp_southbound_network_run_interface" in refresh_one
     assert "void eigrp_intf_update" not in network
+    assert "void eigrp_intf_update" not in southbound
 
 
 def test_network_interface_participation_uses_selected_af_vector():

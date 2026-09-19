@@ -58,7 +58,7 @@ typedef struct eigrp_extdata {
  *
  */
 struct eigrp_instance {
-	vrf_id_t vrf_id;
+	eigrp_vrf_id_t vrf_id;
 	eigrp_af_vectors_t af_vectors;
 
 	uint16_t AS;	     /* Autonomous system number */
@@ -86,9 +86,9 @@ struct eigrp_instance {
 	struct list *oi_write_q;
 
 	/*Events*/
-	struct event *t_write;
-	struct event *t_read;
-	struct event *t_distribute; /* timer for distribute list */
+	eigrp_event_t *t_write;
+	eigrp_event_t *t_read;
+	eigrp_event_t *t_distribute; /* timer for distribute list */
 
 	struct route_table *networks; /* EIGRP config networks. */
 
@@ -191,10 +191,12 @@ typedef struct eigrp_interface {
 	/* This interface's parent eigrp instance. */
 	eigrp_instance_t *eigrp;
 
-	/* Zebra Interface Properties */
-	struct interface *ifp;	//Interface data from zebra
-	uint8_t type;		// P2P, LOOP, BCAST
-	struct prefix address;	// Interface prefix
+	/* Host-independent runtime interface identity/state. */
+	char *name;
+	eigrp_ifindex_t ifindex;
+	uint8_t type;		/* P2P, LOOP, BCAST */
+	eigrp_prefix_t address;
+	bool operative;
 	uint32_t curr_bandwidth;
 	uint32_t curr_mtu;
 
@@ -212,8 +214,8 @@ typedef struct eigrp_interface {
 	struct list *nbrs; /* EIGRP Neighbor List */
 
 	/* Events. */
-	struct event *t_hello;	     /* timer */
-	struct event *t_distribute; /* timer for distribute list */
+	eigrp_event_t *t_hello;	     /* timer */
+	eigrp_event_t *t_distribute; /* timer for distribute list */
 
 	/* Packet send buffer. */
 	eigrp_packet_queue_t *obuf; /* Output queue */
@@ -254,7 +256,7 @@ typedef struct eigrp_packet {
 	eigrp_addr_t dst;
 
 	/*Packet retransmission event and counter*/
-	struct event *t_retrans_timer;
+	eigrp_event_t *t_retrans_timer;
 	uint8_t retrans_counter;
 
 	/*neighbor details for sendng packet*/

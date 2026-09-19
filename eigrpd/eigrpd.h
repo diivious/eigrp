@@ -16,7 +16,6 @@
 
 #include <zebra.h>
 
-#include "frrevent.h"
 #include "filter.h"
 #include "log.h"
 #include "memory.h"
@@ -42,15 +41,6 @@ typedef struct eigrpd {
 	/* EIGRP instance. */
 	struct list *eigrp;
 
-	/* EIGRP parent event. */
-	struct event_loop *event;
-
-	/* Current FRR daemon event-loop name. */
-	struct event_loop *master;
-
-	/* Zebra interface list. */
-	struct list *iflist;
-
 	/* EIGRP start time. */
 	time_t start_time;
 
@@ -62,8 +52,6 @@ typedef struct eigrpd {
 
 /* Extern variables. */
 extern struct zclient *eigrp_zclient;
-extern struct event_loop *master;
-extern struct event_loop *eigrpd_event;
 extern struct eigrpd *eigrp_om;
 extern struct zebra_privs_t eigrpd_privs;
 
@@ -73,9 +61,9 @@ extern void eigrp_terminate(void);
 extern void eigrp_finish(eigrp_instance_t *);
 extern void eigrp_finish_final(eigrp_instance_t *);
 
-extern eigrp_instance_t *eigrp_get(uint16_t as, vrf_id_t vrf_id);
-extern eigrp_instance_t *eigrp_lookup(vrf_id_t vrf_id);
-extern eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_get(uint16_t as, eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id);
 extern void eigrp_name_set(eigrp_instance_t *, const char *);
 
 extern void eigrp_router_id_update(eigrp_instance_t *);

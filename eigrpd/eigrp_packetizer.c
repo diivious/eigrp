@@ -102,7 +102,7 @@ static void eigrp_packetizer_neighbor_route_send(eigrp_instance_t *eigrp,
 
 	ei = nbr->ei;
 	sequence = eigrp_packet_sequence_reserve(eigrp);
-	packet = eigrp_packet_new(EIGRP_PACKET_MTU(ei->ifp->mtu), nbr);
+	packet = eigrp_packet_new(EIGRP_PACKET_MTU(ei->curr_mtu), nbr);
 	eigrp_packet_header_init(work->opcode, eigrp, packet->s, 0, sequence, 0);
 
 	if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
@@ -212,7 +212,7 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 		}
 	}
 
-	eigrp_mtu = EIGRP_PACKET_MTU(ei->ifp->mtu);
+	eigrp_mtu = EIGRP_PACKET_MTU(ei->curr_mtu);
 	sequence = eigrp_packet_sequence_reserve(eigrp);
 	packet = eigrp_packet_new(eigrp_mtu, NULL);
 	eigrp_packet_header_init(work->opcode, eigrp, packet->s, 0, sequence, 0);

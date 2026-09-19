@@ -14,6 +14,8 @@
  *   Lukas Koribsky
  */
 #include "eigrpd/eigrpd.h"
+
+#include "table.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"

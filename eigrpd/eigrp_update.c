@@ -14,11 +14,14 @@
  *   Lukas Koribsky
  */
 #include "eigrpd/eigrpd.h"
+
+#include "table.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_filter.h"
@@ -148,7 +151,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				      "peer graceful restart complete in one UPDATE");
 		zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
 			  eigrp_print_addr(&nbr->src),
-			  ifindex2ifname(nbr->ei->ifp->ifindex, VRF_DEFAULT));
+			  nbr->ei->name);
 
 		/* get all prefixes from neighbor from topology table */
 		nbr_prefixes = eigrp_neighbor_prefixes_lookup(eigrp, nbr);
@@ -162,7 +165,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				      "peer graceful restart started");
 		zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
 			  eigrp_print_addr(&nbr->src),
-			  ifindex2ifname(nbr->ei->ifp->ifindex, VRF_DEFAULT));
+			  nbr->ei->name);
 
 		/* get all prefixes from neighbor from topology table */
 		nbr_prefixes = eigrp_neighbor_prefixes_lookup(eigrp, nbr);
@@ -215,13 +218,11 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
 			zlog_info("Neighbor %s (%s) is down: peer restarted",
 				  eigrp_print_addr(&nbr->src),
-				  ifindex2ifname(nbr->ei->ifp->ifindex,
-						 VRF_DEFAULT));
+				  nbr->ei->name);
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_PENDING);
 			zlog_info("Neighbor %s (%s) is pending: new adjacency",
 				  eigrp_print_addr(&nbr->src),
-				  ifindex2ifname(nbr->ei->ifp->ifindex,
-						 VRF_DEFAULT));
+				  nbr->ei->name);
 			eigrp_update_send_init(eigrp, nbr);
 		}
 	}
@@ -349,7 +350,7 @@ void eigrp_update_send_init(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
 
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_STARTUP, eigrp, nbr->ei,
 				   nbr, "build INIT UPDATE");
-	packet = eigrp_packet_new(EIGRP_PACKET_MTU(nbr->ei->ifp->mtu), nbr);
+	packet = eigrp_packet_new(EIGRP_PACKET_MTU(nbr->ei->curr_mtu), nbr);
 
 	/* Prepare EIGRP INIT UPDATE header */
 
@@ -456,7 +457,7 @@ void eigrp_update_send_EOT(eigrp_neighbor_t *nbr)
 	eigrp_instance_t *eigrp = ei->eigrp;
 	const eigrp_prefix_t *dest_addr;
 	uint32_t seq_no = eigrp->sequence_number;
-	uint16_t eigrp_mtu = EIGRP_PACKET_MTU(ei->ifp->mtu);
+	uint16_t eigrp_mtu = EIGRP_PACKET_MTU(ei->curr_mtu);
 	struct route_node *rn;
 
 	packet = eigrp_packet_new(eigrp_mtu, nbr);
@@ -521,7 +522,7 @@ void eigrp_update_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	eigrp_route_descriptor_t *route;
 	uint8_t has_tlv;
 	uint32_t seq_no = eigrp->sequence_number;
-	uint16_t eigrp_mtu = EIGRP_PACKET_MTU(ei->ifp->mtu);
+	uint16_t eigrp_mtu = EIGRP_PACKET_MTU(ei->curr_mtu);
 	uint16_t tlv_length;
 	uint16_t length = EIGRP_HEADER_LEN;
 
@@ -733,7 +734,7 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 		}
 	}
 
-	packet = eigrp_packet_new(EIGRP_PACKET_MTU(ei->ifp->mtu), nbr);
+	packet = eigrp_packet_new(EIGRP_PACKET_MTU(ei->curr_mtu), nbr);
 
 	/* Prepare EIGRP Graceful restart UPDATE header */
 	eigrp_packet_header_init(EIGRP_OPC_UPDATE, eigrp, packet->s, flags,
@@ -855,18 +856,15 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
  *
  * Uses nbr_gr_packet_type and t_nbr_send_gr from neighbor.
  */
-void eigrp_update_send_GR_event(struct event *event)
+void eigrp_update_send_GR_event(void *arg)
 {
-	eigrp_neighbor_t *nbr;
-
-	/* get argument from event */
-	nbr = EVENT_ARG(event);
+	eigrp_neighbor_t *nbr = arg;
 
 	/* if there is packet waiting in queue,
 	 * schedule this event again with small delay */
 	if (nbr->retrans_queue->count > 0) {
-		event_add_timer_msec(eigrpd_event, eigrp_update_send_GR_event, nbr,
-				      10, &nbr->t_nbr_send_gr);
+		eigrp_southbound_timer_msec_add(&nbr->t_nbr_send_gr,
+				       eigrp_update_send_GR_event, nbr, 10);
 		return;
 	}
 
@@ -874,9 +872,9 @@ void eigrp_update_send_GR_event(struct event *event)
 	eigrp_update_send_GR_part(nbr);
 
 	/* if it wasn't last chunk, schedule this event again */
-	if (nbr->nbr_gr_packet_type != EIGRP_PACKET_PART_LAST) {
-	    event_execute(eigrpd_event, eigrp_update_send_GR_event, nbr, 0, NULL);
-	}
+	if (nbr->nbr_gr_packet_type != EIGRP_PACKET_PART_LAST)
+		eigrp_southbound_event_add(&nbr->t_nbr_send_gr,
+				       eigrp_update_send_GR_event, nbr);
 
 	return;
 }
@@ -911,20 +909,19 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type,
 		zlog_info(
 			"Neighbor %s (%s) is resync: route configuration changed",
 			eigrp_print_addr(&nbr->src),
-			ifindex2ifname(ei->ifp->ifindex, eigrp->vrf_id));
+			ei->name);
 	} else if (gr_type == EIGRP_GR_MANUAL) {
 		/* Graceful restart was called manually */
 		zlog_info("Neighbor %s (%s) is resync: manually cleared",
 			  eigrp_print_addr(&nbr->src),
-			  ifindex2ifname(ei->ifp->ifindex, eigrp->vrf_id));
+			  ei->name);
 
 		if (vty != NULL) {
 			vty_time_print(vty, 0);
 			vty_out(vty,
 				"Neighbor %s (%s) is resync: manually cleared\n",
 				eigrp_print_addr(&nbr->src),
-				ifindex2ifname(ei->ifp->ifindex,
-					       eigrp->vrf_id));
+				ei->name);
 		}
 	}
 
@@ -944,8 +941,9 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type,
 	/* indicate, that this is first GR Update packet chunk */
 	nbr->nbr_gr_packet_type = EIGRP_PACKET_PART_FIRST;
 
-	/* execute packet sending in event */
-	event_execute(eigrpd_event, eigrp_update_send_GR_event, nbr, 0, NULL);
+	/* Start packet sending through the host event abstraction. */
+	eigrp_southbound_event_add(&nbr->t_nbr_send_gr,
+			       eigrp_update_send_GR_event, nbr);
 }
 
 /**

@@ -886,9 +886,11 @@ def test_named_bandwidth_delay_share_eigrp_runtime_processor_with_classic():
     assert interface_c.count("eigrp_interface_runtime_reset(context->runtime);") >= 4
     assert "void eigrp_interface_runtime_reset(eigrp_interface_t *ei);" in interface_h
 
-    # Do not rewrite the existing FRR classic callbacks.  Their legacy reset
-    # wrapper now funnels into the same EIGRP-owned runtime processor.
+    # Classic FRR callbacks now resolve the host interface to an EIGRP-owned
+    # runtime interface and invoke the same portable reset processor directly.
     assert "ei->params.delay = yang_dnode_get_uint32(args->dnode, NULL);" in nb
     assert "ei->params.bandwidth = yang_dnode_get_uint32(args->dnode, NULL);" in nb
-    assert "eigrp_intf_reset(ifp);" in nb
-    assert "eigrp_interface_runtime_reset(ifp->info);" in interface_c
+    assert "ei = eigrp_interface_lookup_host(ifp);" in nb
+    assert "eigrp_interface_runtime_reset(ei);" in nb
+    assert "eigrp_intf_reset(ifp);" not in nb
+    assert "ifp->info" not in interface_c

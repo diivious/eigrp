@@ -6,6 +6,8 @@
 #ifndef _ZEBRA_EIGRP_SOUTHBOUND_H_
 #define _ZEBRA_EIGRP_SOUTHBOUND_H_
 
+#include <netinet/in.h>
+
 #include "eigrpd/eigrp_result.h"
 #include "eigrpd/eigrp_types.h"
 #include "eigrpd/eigrp_metric.h"
@@ -20,6 +22,40 @@ typedef eigrp_work_queue_result_t (*eigrp_work_queue_func_t)(
 	eigrp_work_queue_t *queue, void *data);
 typedef void (*eigrp_work_queue_delete_func_t)(eigrp_work_queue_t *queue,
 						       void *data);
+
+typedef void (*eigrp_event_callback_t)(void *arg);
+
+/* Host runtime lifecycle and event services. */
+void eigrp_southbound_runtime_init(void);
+void eigrp_southbound_event_cancel(eigrp_event_t **event);
+void eigrp_southbound_event_add(eigrp_event_t **event,
+                                eigrp_event_callback_t callback, void *arg);
+void eigrp_southbound_timer_add(eigrp_event_t **event,
+                                eigrp_event_callback_t callback, void *arg,
+                                uint32_t seconds);
+void eigrp_southbound_timer_msec_add(eigrp_event_t **event,
+                                     eigrp_event_callback_t callback, void *arg,
+                                     uint32_t milliseconds);
+void eigrp_southbound_read_add(eigrp_event_t **event, int fd,
+                               eigrp_event_callback_t callback, void *arg);
+void eigrp_southbound_write_add(eigrp_event_t **event, int fd,
+                                eigrp_event_callback_t callback, void *arg);
+uint32_t eigrp_southbound_timer_remaining_seconds(const eigrp_event_t *event);
+
+/* Host socket/interface services used by the portable runtime. */
+eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp);
+void eigrp_southbound_socket_close(eigrp_instance_t *eigrp);
+void eigrp_southbound_socket_send_buffer_ensure(eigrp_instance_t *eigrp,
+                                                uint32_t minimum);
+bool eigrp_southbound_router_id_get(eigrp_instance_t *eigrp,
+                                    struct in_addr *router_id);
+void eigrp_southbound_interfaces_refresh(eigrp_instance_t *eigrp);
+int eigrp_southbound_multicast_interface_set(eigrp_instance_t *eigrp,
+                                             eigrp_interface_t *ei);
+int eigrp_southbound_multicast_join(eigrp_instance_t *eigrp,
+                                    eigrp_interface_t *ei);
+int eigrp_southbound_multicast_leave(eigrp_instance_t *eigrp,
+                                     eigrp_interface_t *ei);
 
 eigrp_work_queue_t *eigrp_work_queue_new(eigrp_instance_t *eigrp,
 						 const char *name,
@@ -41,6 +77,8 @@ eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime);
 eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime);
 
 /* Host runtime adaptation for IPv4 network statements. */
+eigrp_result_t eigrp_southbound_network_exists(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *exists);
 eigrp_result_t eigrp_southbound_network_create(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed);
 eigrp_result_t eigrp_southbound_network_delete(

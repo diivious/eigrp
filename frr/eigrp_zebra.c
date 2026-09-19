@@ -34,6 +34,7 @@
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_metric.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_frr.h"
 
 /* Zebra structure to hold current status. */
@@ -59,6 +60,13 @@ struct zebra_privs_t eigrpd_privs = {
 /* For registering events. */
 extern struct event_loop *master;
 struct in_addr router_id_zebra;
+
+static const char *eigrp_zebra_prefix_string(const struct prefix *prefix)
+{
+	static char buffer[PREFIX_STRLEN];
+
+	return prefix2str(prefix, buffer, sizeof(buffer));
+}
 
 /* Router-id update message from zebra. */
 static int eigrp_zebra_router_id_update(ZAPI_CALLBACK_ARGS)
@@ -115,7 +123,7 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
 		zlog_debug("EIGRP AS %u: Zebra redistribute %s %s", eigrp->AS,
 			   cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD ? "add" : "delete",
-			   eigrp_print_prefix(&api.prefix));
+			   eigrp_zebra_prefix_string(&api.prefix));
 
 	if (cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD) {
 
@@ -140,7 +148,7 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 
 	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE)) {
 		zlog_debug("Zebra: interface %s address add %s", ifp->name,
-			   eigrp_print_prefix(c->address));
+			   eigrp_zebra_prefix_string(c->address));
 	}
 
 	/*
@@ -152,8 +160,8 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 			    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
 			zlog_debug("EIGRP AS %u: interface %s address add %s",
 				   eigrp->AS, ifp->name,
-				   eigrp_print_prefix(c->address));
-		eigrp_intf_update(eigrp, ifp);
+				   eigrp_zebra_prefix_string(c->address));
+		eigrp_southbound_interfaces_refresh(eigrp);
 	}
 	return 0;
 }
@@ -171,22 +179,40 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 
 	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE)) {
 		zlog_debug("Zebra: interface %s address delete %s",
-			   c->ifp->name, eigrp_print_prefix(c->address));
+			   c->ifp->name, eigrp_zebra_prefix_string(c->address));
 	}
 
 	ifp = c->ifp;
-	ei = ifp->info;
-	if (!ei)
-		return 0;
+	{
+		eigrp_prefix_t removed;
+		eigrp_instance_t *eigrp;
+		struct listnode *node, *nnode;
 
-	if (eigrp_debug_address_family_enabled(
-		    ei->eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
-		zlog_debug("EIGRP AS %u: interface %s address delete %s",
-			   ei->eigrp->AS, ifp->name, eigrp_print_prefix(c->address));
+		if (eigrp_frr_prefix_import(c->address, &removed)
+		    == EIGRP_RESULT_SUCCESS) {
+			for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+				if (eigrp->vrf_id != vrf_id)
+					continue;
+				ei = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
+				if (!ei
+				    || ei->address.prefix_length != removed.prefix_length
+				    || ei->address.address.afi != removed.address.afi
+				    || memcmp(ei->address.address.bytes,
+					      removed.address.bytes,
+					      sizeof(removed.address.bytes)) != 0)
+					continue;
 
-	/* Call interface hook functions to clean up */
-	if (prefix_cmp(&ei->address, c->address) == 0)
-		eigrp_intf_free(ei->eigrp, ei, INTERFACE_DOWN_BY_ZEBRA);
+				if (eigrp_debug_address_family_enabled(
+					    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
+					zlog_debug(
+						"EIGRP AS %u: interface %s address delete %s",
+						eigrp->AS, ifp->name,
+						eigrp_zebra_prefix_string(c->address));
+				eigrp_interface_runtime_delete(
+					ei, INTERFACE_DOWN_BY_ZEBRA);
+			}
+		}
+	}
 
 	connected_free(&c);
 
@@ -231,7 +257,7 @@ void eigrp_zebra_route_add(eigrp_instance_t *eigrp,
 			api_nh->type = NEXTHOP_TYPE_IPV4_IFINDEX;
 		} else
 			api_nh->type = NEXTHOP_TYPE_IFINDEX;
-		api_nh->ifindex = te->ei->ifp->ifindex;
+		api_nh->ifindex = te->ei->ifindex;
 
 		count++;
 	}
@@ -240,7 +266,7 @@ void eigrp_zebra_route_add(eigrp_instance_t *eigrp,
 	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL)) {
-		zlog_debug("Zebra: Route add %s", eigrp_print_prefix(&host_prefix));
+		zlog_debug("Zebra: Route add %s", eigrp_zebra_prefix_string(&host_prefix));
 	}
 
 	zclient_route_send(ZEBRA_ROUTE_ADD, eigrp_zclient, &api);
@@ -267,7 +293,7 @@ void eigrp_zebra_route_delete(eigrp_instance_t *eigrp,
 	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL)) {
-		zlog_debug("Zebra: Route del %s", eigrp_print_prefix(&host_prefix));
+		zlog_debug("Zebra: Route del %s", eigrp_zebra_prefix_string(&host_prefix));
 	}
 }
 

@@ -64,7 +64,7 @@ def test_new_runtime_interface_binds_retained_named_interface_configuration():
     bind = function_body(interface, "eigrp_interface_runtime_bind")
 
     assert "eigrp_instance_runtime_config(eigrp)" in run_interface
-    assert "eigrp_interface_config_read(af, ifp->name)" in run_interface
+    assert "eigrp_interface_config_read(af, state.interface_name)" in run_interface
     assert "eigrp_interface_runtime_bind(ei, config)" in run_interface
     assert "config && config->shutdown" in run_interface
     assert "runtime->params.delay = config->delay;" in bind

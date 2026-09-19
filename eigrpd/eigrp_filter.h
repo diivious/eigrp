@@ -26,8 +26,8 @@ extern void eigrp_distribute_update(struct distribute_ctx *ctx,
 				    struct distribute *dist);
 extern void eigrp_distribute_update_all(struct prefix_list *plist);
 extern void eigrp_distribute_update_all_wrapper(struct access_list *alist);
-extern void eigrp_distribute_timer_process(struct event *event);
-extern void eigrp_distribute_timer_interface(struct event *event);
+extern void eigrp_distribute_timer_process(void *arg);
+extern void eigrp_distribute_timer_interface(void *arg);
 
 bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
 			       eigrp_interface_t *ei, int direction,

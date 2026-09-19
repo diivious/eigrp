@@ -18,6 +18,7 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_redistribute.h"
 #include "eigrpd/eigrp_summary.h"
+#include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_timer.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrp_zebra.h"
@@ -103,12 +104,35 @@ static eigrp_interface_t *eigrp_interface_lookup(const eigrp_instance_t *eigrp,
 	struct listnode *ln;
 
 	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, ln, intf)) {
-		if (strcmp(ifname, intf->ifp->name))
+		if (strcmp(ifname, intf->name))
 			continue;
 
 		return intf;
 	}
 
+	return NULL;
+}
+
+static eigrp_interface_t *eigrp_interface_lookup_host(const struct interface *ifp)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *intf;
+	struct listnode *node;
+
+	if (!ifp)
+		return NULL;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (ifp->vrf) {
+			if (eigrp->vrf_id != ifp->vrf->vrf_id)
+				continue;
+		} else if (eigrp->vrf_id != EIGRP_VRF_DEFAULT) {
+			continue;
+		}
+		intf = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
+		if (intf)
+			return intf;
+	}
 	return NULL;
 }
 
@@ -3018,13 +3042,14 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 {
 	eigrp_instance_context_t context = {0};
 	eigrp_prefix_t network;
-	struct route_node *rnode;
 	struct prefix prefix;
 	eigrp_instance_t *eigrp;
 	eigrp_result_t result;
-	int exists;
+	bool exists;
 
 	yang_dnode_get_ipv4p(&prefix, args->dnode, NULL);
+	if (eigrp_frr_prefix_import(&prefix, &network) != EIGRP_RESULT_SUCCESS)
+		return NB_ERR_INCONSISTENCY;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
@@ -3033,10 +3058,8 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 		if (eigrp == NULL)
 			break;
 
-		rnode = route_node_get(eigrp->networks, &prefix);
-		exists = (rnode->info != NULL);
-		route_unlock_node(rnode);
-		if (exists)
+		result = eigrp_southbound_network_exists(eigrp, &network, &exists);
+		if (result != EIGRP_RESULT_SUCCESS || exists)
 			return NB_ERR_INCONSISTENCY;
 		break;
 	case NB_EV_PREPARE:
@@ -3045,9 +3068,6 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		if (eigrp_frr_prefix_import(&prefix, &network)
-		    != EIGRP_RESULT_SUCCESS)
-			return NB_ERR_INCONSISTENCY;
 		context.runtime = eigrp;
 		result = eigrp_network_create(&context, &network);
 		if (result != EIGRP_RESULT_SUCCESS)
@@ -3062,13 +3082,14 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_context_t context = {0};
 	eigrp_prefix_t network;
-	struct route_node *rnode;
 	struct prefix prefix;
 	eigrp_instance_t *eigrp;
 	eigrp_result_t result;
-	int exists = 0;
+	bool exists;
 
 	yang_dnode_get_ipv4p(&prefix, args->dnode, NULL);
+	if (eigrp_frr_prefix_import(&prefix, &network) != EIGRP_RESULT_SUCCESS)
+		return NB_ERR_INCONSISTENCY;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
@@ -3077,10 +3098,8 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 		if (eigrp == NULL)
 			break;
 
-		rnode = route_node_get(eigrp->networks, &prefix);
-		exists = (rnode->info != NULL);
-		route_unlock_node(rnode);
-		if (exists == 0)
+		result = eigrp_southbound_network_exists(eigrp, &network, &exists);
+		if (result != EIGRP_RESULT_SUCCESS || !exists)
 			return NB_ERR_INCONSISTENCY;
 		break;
 	case NB_EV_PREPARE:
@@ -3089,9 +3108,6 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
-		if (eigrp_frr_prefix_import(&prefix, &network)
-		    != EIGRP_RESULT_SUCCESS)
-			return NB_ERR_INCONSISTENCY;
 		context.runtime = eigrp;
 		result = eigrp_network_delete(&context, &network);
 		if (result != EIGRP_RESULT_SUCCESS
@@ -3356,7 +3372,7 @@ static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 			break;
 		}
 
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -3366,12 +3382,12 @@ static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 
 		ei->params.delay = yang_dnode_get_uint32(args->dnode, NULL);
-		eigrp_intf_reset(ifp);
+		eigrp_interface_runtime_reset(ei);
 		break;
 	}
 
@@ -3397,7 +3413,7 @@ static int lib_interface_eigrp_bandwidth_modify(struct nb_cb_modify_args *args)
 			break;
 		}
 
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -3407,12 +3423,12 @@ static int lib_interface_eigrp_bandwidth_modify(struct nb_cb_modify_args *args)
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 
 		ei->params.bandwidth = yang_dnode_get_uint32(args->dnode, NULL);
-		eigrp_intf_reset(ifp);
+		eigrp_interface_runtime_reset(ei);
 		break;
 	}
 
@@ -3434,7 +3450,7 @@ lib_interface_eigrp_hello_interval_modify(struct nb_cb_modify_args *args)
 		ifp = nb_running_get_entry(args->dnode, NULL, false);
 		if (ifp == NULL)
 			break;
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -3443,7 +3459,7 @@ lib_interface_eigrp_hello_interval_modify(struct nb_cb_modify_args *args)
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		context.runtime = ei;
@@ -3471,7 +3487,7 @@ static int lib_interface_eigrp_hold_time_modify(struct nb_cb_modify_args *args)
 		ifp = nb_running_get_entry(args->dnode, NULL, false);
 		if (ifp == NULL)
 			break;
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -3480,7 +3496,7 @@ static int lib_interface_eigrp_hold_time_modify(struct nb_cb_modify_args *args)
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
-		ei = ifp->info;
+		ei = eigrp_interface_lookup_host(ifp);
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 		context.runtime = ei;
