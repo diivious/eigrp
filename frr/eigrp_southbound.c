@@ -19,10 +19,41 @@
 #include "vrf.h"
 #include "frrevent.h"
 #include "workqueue.h"
+#include "lib/libfrr.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE, "EIGRP work queue");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE_NAME, "EIGRP work queue name");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_EVENT, "EIGRP host event");
+
+void eigrp_southbound_rib_init(void)
+{
+	eigrp_zebra_init();
+}
+
+void eigrp_southbound_rib_finish(void)
+{
+	eigrp_zebra_stop();
+}
+
+void eigrp_southbound_rib_instance_delete(eigrp_instance_t *eigrp)
+{
+	eigrp_zebra_instance_delete(eigrp);
+}
+
+eigrp_result_t eigrp_southbound_route_install(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix,
+	const eigrp_southbound_nexthop_t *nexthops, size_t nexthop_count,
+	uint32_t distance)
+{
+	return eigrp_zebra_route_install(eigrp, prefix, nexthops,
+				 nexthop_count, distance);
+}
+
+eigrp_result_t eigrp_southbound_route_remove(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix)
+{
+	return eigrp_zebra_route_remove(eigrp, prefix);
+}
 
 extern struct event_loop *eigrpd_event;
 extern struct in_addr router_id_zebra;
@@ -714,6 +745,12 @@ void eigrp_southbound_runtime_init(void)
 	hook_register_prio(if_up, 0, eigrp_southbound_if_up);
 	hook_register_prio(if_down, 0, eigrp_southbound_if_down);
 	hook_register_prio(if_unreal, 0, eigrp_southbound_if_unreal);
+}
+
+void eigrp_southbound_runtime_finish(void)
+{
+	vrf_terminate();
+	frr_fini();
 }
 
 eigrp_result_t eigrp_southbound_network_exists(

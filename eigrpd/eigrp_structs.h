@@ -112,9 +112,6 @@ struct eigrp_instance {
 	/*Neighbor self*/
 	eigrp_neighbor_t *neighbor_self;
 
-	/*Configured metric for redistributed routes*/
-	eigrp_metrics_t dmetric[ZEBRA_ROUTE_MAX + 1];
-	int redistribute; /* Num of redistributed protocols. */
 
 	/* Host-independent runtime policy references. */
 	eigrp_filter_runtime_state_t filter;

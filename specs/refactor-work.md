@@ -98,19 +98,26 @@ Do not allow `eigrp_platform.h` to become a generic dumping ground. Timers, work
 
 ## 4. Core-to-Zebra Leakage Audit
 
-Common/core files still need a pre-production audit for direct Zebra/RIB calls and includes. Portable topology/network/neighbor/runtime code should invoke EIGRP-owned southbound operations rather than directly depending on `eigrp_zebra_*`.
+The Step-5 direct Zebra/RIB call audit is complete. Portable topology, network,
+neighbor, and runtime code does not call `eigrp_zebra_*()` or construct Zebra
+RIB objects. Route install/remove and Zebra lifecycle calls terminate at the
+EIGRP-owned southbound interface; the FRR adapter converts EIGRP-owned prefix
+and next-hop snapshots into Zebra `zapi_route`/`zapi_nexthop` objects.
 
-The audit should distinguish clearly among:
+The boundary distinguishes clearly among:
 
 ```text
 DUAL prefix descriptor
 DUAL route descriptor/path
 EIGRP learned route as protocol information
+EIGRP southbound route-install snapshot
 host/Zebra RIB route
 kernel route
 ```
 
-This work should follow the topology descriptor naming decision where practical so the boundary becomes clearer rather than merely renamed.
+The existing FRR `route_table`/`route_node` use in common topology storage is a
+separate storage portability concern rather than a Zebra RIB representation.
+The deferred topology descriptor naming decision remains unchanged.
 
 ## 5. Portability Grooming
 

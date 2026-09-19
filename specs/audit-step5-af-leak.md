@@ -128,12 +128,37 @@ those objects are private to the FRR southbound implementation.  The remaining
 which `refactor-work.md` explicitly defers to the later platform-lifecycle
 boundary.
 
-### 4. Route/RIB integration
+### 4. Route/RIB integration — complete
 
-Direct Zebra/RIB dependencies remain part of the broader core-to-Zebra audit in
-`specs/refactor-work.md`.  Learned EIGRP route state must stay distinct from the
-host RIB representation, and route installation/removal should terminate at a
-southbound operation implemented by the host adapter.
+Portable topology/DUAL code no longer calls `eigrp_zebra_*()` directly.  Route
+installation and removal now terminate at the EIGRP-owned southbound contract:
+
+```text
+DUAL/topology successor selection
+  -> eigrp_southbound_route_install()/remove()
+  -> FRR eigrp_southbound.c
+  -> FRR eigrp_zebra_route_install()/remove()
+  -> Zebra zapi_route / zapi_nexthop
+```
+
+The portable handoff uses `eigrp_prefix_t` plus an ephemeral
+`eigrp_southbound_nexthop_t` snapshot containing only EIGRP-owned interface and
+address data.  Zebra `struct zapi_route`, `struct zapi_nexthop`, route-type
+constants, and `zclient_route_send()` remain private to the FRR adapter.  Host
+RIB objects are therefore constructed only after the route crosses the
+southbound boundary and never become topology/DUAL state.
+
+Zebra process lifecycle is also reached from portable code through
+`eigrp_southbound_rib_init()/finish()`, and per-instance Zebra redistribution
+bookkeeping was moved out of `eigrp_instance_t` into FRR-private adapter state.
+This removes the remaining `ZEBRA_ROUTE_MAX`-sized metric array and Zebra route
+type ownership from portable runtime structures.
+
+The FRR `route_table`/`route_node` objects still used as topology and configured
+network storage are generic trie/storage implementation details, not Zebra RIB
+route objects.  Their broader storage portability can be revisited separately;
+this Step-5 RIB boundary does not change the deferred topology descriptor naming
+decision.
 
 ### 5. Standard socket/address code
 
@@ -163,8 +188,10 @@ The remaining work should be done in this order:
    EIGRP-owned policy names/decisions; FRR route-map, prefix-list, access-list,
    distribute-list objects and callbacks remain inside FRR adapter/integration
    code, with their lifecycle and evaluation owned by `frr/eigrp_policy.c`.
-4. **RIB/southbound residuals** — complete the direct Zebra/RIB call audit and
-   route-install abstraction already tracked by `refactor-work.md`.
+4. **RIB/southbound residuals — complete** — portable topology/runtime code
+   no longer calls the FRR Zebra adapter directly; route install/remove and
+   Zebra lifecycle terminate at EIGRP-owned southbound contracts, and host RIB
+   objects remain FRR-private.
 5. **Deferred portability grooming** — SNMP and other explicitly deferred host
    integration work.
 

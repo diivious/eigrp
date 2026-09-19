@@ -43,6 +43,5 @@ eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
 void eigrp_network_config_delete_all(eigrp_address_family_config_t *af);
 
 
-extern void eigrp_external_routes_refresh(eigrp_instance_t *, int);
 
 #endif /* EIGRP_NETWORK_H_ */

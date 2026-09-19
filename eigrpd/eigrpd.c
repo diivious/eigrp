@@ -22,7 +22,6 @@
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_errors.h"
 #include "eigrpd/eigrp_eventlog.h"
-#include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_packetizer.h"
 #include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_tlv1.h"
@@ -238,9 +237,8 @@ void eigrp_terminate(void)
 	}
 
 	eigrp_instance_config_finish();
-	eigrp_zebra_stop();
-	vrf_terminate();
-	frr_fini();
+	eigrp_southbound_rib_finish();
+	eigrp_southbound_runtime_finish();
 }
 
 void eigrp_finish(eigrp_instance_t *eigrp)
@@ -294,6 +292,7 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 
 	stream_free(eigrp->ibuf);
 	eigrp_southbound_policy_instance_delete(eigrp);
+	eigrp_southbound_rib_instance_delete(eigrp);
 	eigrp_filter_runtime_state_clear(&eigrp->filter);
 	XFREE(MTYPE_EIGRP_TOP, eigrp);
 }

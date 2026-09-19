@@ -330,6 +330,7 @@ extern struct running_config_stub { struct lyd_node *dnode; } *running_config;
 #define MTYPE_EIGRP_PACKETIZER_WORK 1019
 #define MTYPE_EIGRP_PREFIX_SNAPSHOT 1020
 #define MTYPE_EIGRP_EVENT 1021
+#define MTYPE_EIGRP_ZEBRA_INSTANCE 1022
 #define DISTRIBUTE_V4_IN 0
 #define DISTRIBUTE_V4_OUT 1
 #define ZCAP_NET_RAW 1
@@ -394,7 +395,6 @@ extern const struct frr_yang_module_info frr_eigrpd_info;
 extern const struct frr_yang_module_info frr_filter_info;
 extern const struct frr_yang_module_info frr_interface_info;
 extern const struct frr_yang_module_info frr_route_map_info;
-extern const struct frr_yang_module_info frr_vrf_info;
 extern const struct frr_yang_module_info ietf_key_chain_info;
 extern const struct frr_yang_module_info ietf_key_chain_deviation_info;
 extern const void *zclient_options_default;
@@ -489,7 +489,6 @@ static inline void if_rmap_init(enum node_type node) { (void)node; }
 
 static inline int vrf_socket(int family, int type, int proto, vrf_id_t vrf_id, const char *name) { (void)family; (void)type; (void)proto; (void)vrf_id; (void)name; return 0; }
 static inline void vrf_init(void *master, void *info, bool enabled, void *unused) { (void)master; (void)info; (void)enabled; (void)unused; }
-static inline void vrf_terminate(void) {}
 static inline int setsockopt_so_sendbuf(int fd, unsigned int size) { (void)fd; return (int)size; }
 static inline int getsockopt_so_sendbuf(int fd) { (void)fd; return 0; }
 static inline int setsockopt_ifindex(int family, int fd, int val) { (void)family; (void)fd; (void)val; return 0; }
@@ -534,7 +533,6 @@ static inline void frr_opt_add(const char *opts, const struct option *longopts, 
 static inline int frr_getopt(int argc, char **argv, void *longindex) { (void)argc; (void)argv; (void)longindex; return EOF; }
 static inline void frr_help_exit(int status) { exit(status); }
 static inline struct event_loop *frr_init(void) { return calloc(1, sizeof(struct event_loop)); }
-static inline void frr_fini(void) {}
 static inline void frr_config_fork(void) {}
 static inline void frr_run(struct event_loop *m) { (void)m; }
 static inline void zlog_rotate(void) {}

@@ -44,6 +44,7 @@
 /*Metric variance multiplier*/
 #define EIGRP_VARIANCE_DEFAULT 1
 #define EIGRP_MAX_PATHS_DEFAULT 4
+#define EIGRP_MAX_PATHS_MAX 32
 
 /* Return values of functions involved in packet verification */
 #define MSG_OK 0
@@ -85,8 +86,6 @@
 #define EIGRP_MAX_METRIC 0xffffffffU /*4294967295*/
 enum metric_change { METRIC_DECREASE, METRIC_SAME, METRIC_INCREASE };
 
-#define DEFAULT_ROUTE ZEBRA_ROUTE_MAX
-#define DEFAULT_ROUTE_TYPE(T) ((T) == DEFAULT_ROUTE)
 
 /* interface defaults */
 #define EIGRP_BANDWIDTH_DEFAULT 100000

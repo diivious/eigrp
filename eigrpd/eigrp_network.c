@@ -13,7 +13,6 @@
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_instance.h"
-#include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_topology.h"
@@ -228,8 +227,4 @@ eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
 {
 	return eigrp_network_process(context, prefix,
 				     EIGRP_NETWORK_OPERATION_DELETE, NULL);
-}
-
-void eigrp_external_routes_refresh(eigrp_instance_t *eigrp, int type)
-{
 }

@@ -28,7 +28,7 @@
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_errors.h"
-#include "eigrpd/eigrp_zebra.h"
+#include "eigrpd/eigrp_southbound.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_ROUTE_DESCRIPTOR, "EIGRP Route Entry");
 DEFINE_MTYPE(EIGRPD, EIGRP_PREFIX_DESCRIPTOR,       "EIGRP Prefix Entry");
@@ -61,6 +61,48 @@ static bool eigrp_topology_table_key(const eigrp_prefix_t *source,
 	return true;
 }
 
+static bool eigrp_topology_southbound_nexthop(
+	const eigrp_route_descriptor_t *route, eigrp_southbound_nexthop_t *nexthop)
+{
+	if (!route || !route->ei || !nexthop)
+		return false;
+
+	memset(nexthop, 0, sizeof(*nexthop));
+	nexthop->ifindex = route->ei->ifindex;
+
+	if (route->adv_router && route->adv_router->src.afi == AF_INET
+	    && route->adv_router->src.ip.v4.s_addr != INADDR_ANY) {
+		nexthop->gateway_present = true;
+		nexthop->gateway.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		memcpy(nexthop->gateway.bytes, &route->adv_router->src.ip.v4,
+		       sizeof(route->adv_router->src.ip.v4));
+	}
+
+	return true;
+}
+
+static size_t eigrp_topology_southbound_nexthops(
+	const struct list *routes, eigrp_southbound_nexthop_t *nexthops,
+	size_t capacity)
+{
+	eigrp_route_descriptor_t *route;
+	struct listnode *node;
+	size_t count = 0;
+
+	if (!routes || !nexthops || capacity == 0)
+		return 0;
+
+	for (ALL_LIST_ELEMENTS_RO(routes, node, route)) {
+		if (count == capacity)
+			break;
+		if (!eigrp_topology_southbound_nexthop(route, &nexthops[count]))
+			continue;
+		count++;
+	}
+
+	return count;
+}
+
 /**
  * Various fuctions for handling eigrp route descriptors
  */
@@ -88,19 +130,17 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 				eigrp_prefix_descriptor_t *node,
 				eigrp_route_descriptor_t *route)
 {
-	struct list *l = list_new();
-
-	listnode_add(l, route);
+	eigrp_southbound_nexthop_t nexthop;
 
 	if (listnode_lookup(node->entries, route) == NULL) {
 		listnode_add_sort(node->entries, route);
 		route->prefix = node;
 
-		eigrp_zebra_route_add(eigrp, &node->destination, l,
-				      node->fdistance);
+		if (eigrp_topology_southbound_nexthop(route, &nexthop))
+			(void)eigrp_southbound_route_install(
+				eigrp, &node->destination, &nexthop, 1,
+				node->fdistance);
 	}
-
-	list_delete(&l);
 }
 
 
@@ -259,7 +299,7 @@ void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 		eigrp_route_descriptor_delete(eigrp, pe, ne);
 	list_delete(&pe->entries);
 	list_delete(&pe->rij);
-	eigrp_zebra_route_delete(eigrp, &pe->destination);
+	(void)eigrp_southbound_route_remove(eigrp, &pe->destination);
 
 	rn->info = NULL;
 	route_unlock_node(rn); /* lookup reference */
@@ -276,7 +316,7 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
 {
 	if (listnode_lookup(node->entries, route) != NULL) {
 		listnode_delete(node->entries, route);
-		eigrp_zebra_route_delete(eigrp, &node->destination);
+		(void)eigrp_southbound_route_remove(eigrp, &node->destination);
 		XFREE(MTYPE_EIGRP_ROUTE_DESCRIPTOR, route);
 	}
 }
@@ -580,21 +620,27 @@ void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
 void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 				eigrp_prefix_descriptor_t *prefix)
 {
+	eigrp_southbound_nexthop_t nexthops[EIGRP_MAX_PATHS_MAX];
 	struct list *successors;
 	struct listnode *node;
 	eigrp_route_descriptor_t *route;
+	size_t nexthop_count;
 
 	successors = eigrp_topology_get_successor_max(prefix, eigrp->max_paths);
 
 	if (successors) {
-		eigrp_zebra_route_add(eigrp, &prefix->destination, successors,
-				      prefix->fdistance);
+		nexthop_count = eigrp_topology_southbound_nexthops(
+			successors, nexthops, EIGRP_MAX_PATHS_MAX);
+		if (nexthop_count != 0)
+			(void)eigrp_southbound_route_install(
+				eigrp, &prefix->destination, nexthops,
+				nexthop_count, prefix->fdistance);
 		for (ALL_LIST_ELEMENTS_RO(successors, node, route))
 			route->flags |= EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG;
 
 		list_delete(&successors);
 	} else {
-		eigrp_zebra_route_delete(eigrp, &prefix->destination);
+		(void)eigrp_southbound_route_remove(eigrp, &prefix->destination);
 		for (ALL_LIST_ELEMENTS_RO(prefix->entries, node, route))
 			route->flags &= ~EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG;
 	}
@@ -724,7 +770,7 @@ static bool eigrp_topology_prefix_detach(eigrp_instance_t *eigrp,
 		return false;
 
 	listnode_delete(eigrp->topology_changes, prefix);
-	eigrp_zebra_route_delete(eigrp, &prefix->destination);
+	(void)eigrp_southbound_route_remove(eigrp, &prefix->destination);
 	rn->info = NULL;
 	route_unlock_node(rn); /* lookup reference */
 	route_unlock_node(rn); /* initial creation reference */
@@ -1171,7 +1217,7 @@ eigrp_result_t eigrp_topology_maximum_prefix_update(
 eigrp_result_t eigrp_topology_maximum_paths_update(
 	eigrp_instance_context_t *context, uint8_t maximum_paths)
 {
-	if (!maximum_paths || maximum_paths > 32)
+	if (!maximum_paths || maximum_paths > EIGRP_MAX_PATHS_MAX)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;

@@ -103,12 +103,9 @@ extern void eigrp_update_packetize_all(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_neighbor_t *);
 extern void eigrp_update_send_EOT(eigrp_neighbor_t *);
 extern void eigrp_update_send_GR_event(void *arg);
-extern void eigrp_update_send_GR(eigrp_neighbor_t *, enum GR_type,
-				 struct vty *);
-extern void eigrp_update_send_interface_GR(eigrp_interface_t *, enum GR_type,
-					   struct vty *);
-extern void eigrp_update_send_process_GR(eigrp_instance_t *, enum GR_type,
-					 struct vty *);
+extern void eigrp_update_send_GR(eigrp_neighbor_t *, enum GR_type);
+extern void eigrp_update_send_interface_GR(eigrp_interface_t *, enum GR_type);
+extern void eigrp_update_send_process_GR(eigrp_instance_t *, enum GR_type);
 
 /*
  * These externs are found in eigrp_query.c

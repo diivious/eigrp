@@ -18,17 +18,20 @@
 
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_southbound.h"
 
 extern struct zclient *eigrp_zclient;
 
 extern void eigrp_zebra_init(void);
 extern void eigrp_zebra_stop(void);
+extern void eigrp_zebra_instance_delete(eigrp_instance_t *eigrp);
 
-extern void eigrp_zebra_route_add(eigrp_instance_t *eigrp,
-				  const eigrp_prefix_t *prefix,
-				  struct list *successors, uint32_t distance);
-extern void eigrp_zebra_route_delete(eigrp_instance_t *eigrp,
-				     const eigrp_prefix_t *prefix);
+eigrp_result_t eigrp_zebra_route_install(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix,
+	const eigrp_southbound_nexthop_t *nexthops, size_t nexthop_count,
+	uint32_t distance);
+eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
+				       const eigrp_prefix_t *prefix);
 extern int eigrp_redistribute_set(eigrp_instance_t *, int, struct eigrp_metrics);
 extern int eigrp_redistribute_unset(eigrp_instance_t *, int);
 

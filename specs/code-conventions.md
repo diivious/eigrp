@@ -230,8 +230,8 @@ Portable EIGRP modules describe EIGRP protocol concepts. Host adapters describe 
 Examples:
 
 ```text
-eigrp_southbound_*   portable core-to-host runtime contract
-eigrp_zebra_*        FRR Zebra/RIB integration
+eigrp_southbound_*   portable core-to-host runtime/RIB contract
+eigrp_zebra_*        FRR-private Zebra/RIB integration behind southbound
 eigrp_vty_*          FRR VTY presentation
 eigrp_cli_*          FRR CLI/configuration front end
 ```

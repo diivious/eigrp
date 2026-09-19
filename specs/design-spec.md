@@ -117,7 +117,7 @@ The host-facing files have distinct responsibilities. `eigrp_cli.[c|h]` and `eig
 
 `eigrp_southbound.[c|h]` is the EIGRP-to-host runtime adapter. It isolates EIGRP core from host runtime and operating-system behavior, including event queues, work queues, timers, sockets, interface state, and host framework callbacks.
 
-`eigrp_zebra.[c|h]` is FRR-specific southbound/RIB integration. Zebra-specific route, interface, and RIB objects may remain in that adapter. They must not leak into portable EIGRP target APIs merely because Zebra is the current host.
+`eigrp_zebra.[c|h]` is FRR-specific southbound/RIB integration. Zebra-specific route, interface, and RIB objects may remain in that adapter. Portable core code reaches it through EIGRP-owned `eigrp_southbound_*` contracts and must not call `eigrp_zebra_*()` directly or accept Zebra-native RIB objects merely because Zebra is the current host.
 
 The boundary is therefore:
 

@@ -143,7 +143,7 @@ def test_frr_redistribution_adapter_delegates_to_named_zebra_operations():
     assert "eigrp_zebra_redistribute_delete" in adapter_delete
     assert "proto_redistnum(AFI_IP, protocol)" in zebra
     assert "zclient_redistribute(ZEBRA_REDISTRIBUTE_ADD" in zebra_update
-    assert "eigrp->dmetric[type] = runtime_metric;" in zebra_update
+    assert "state->dmetric[type] = runtime_metric;" in zebra_update
     assert "zclient_redistribute(ZEBRA_REDISTRIBUTE_DELETE" in zebra_delete
     assert "eigrp_redistribute_set" not in adapter_update
     assert "eigrp_redistribute_unset" not in adapter_delete

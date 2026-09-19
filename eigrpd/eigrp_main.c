@@ -30,10 +30,10 @@
 #include "memory.h"
 #include "privs.h"
 #include "sigevent.h"
-#include "zclient.h"
 #include "keychain.h"
 #include "libfrr.h"
 #include "routemap.h"
+#include "vrf.h"
 #include "libagentx.h"
 
 #include "eigrpd/eigrpd.h"
@@ -43,7 +43,6 @@
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_vty.h"
-#include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_snmp.h"
 #include "eigrpd/eigrp_filter.h"
@@ -166,7 +165,7 @@ int main(int argc, char **argv, char **envp)
 
 	/* EIGRPd init. */
 	eigrp_southbound_runtime_init();
-	eigrp_zebra_init();
+	eigrp_southbound_rib_init();
 	eigrp_debug_init();
 
 	/* EIGRP VTY inits. */

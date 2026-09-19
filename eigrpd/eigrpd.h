@@ -50,7 +50,6 @@ typedef struct eigrpd {
 } eigrpd_t;
 
 /* Extern variables. */
-extern struct zclient *eigrp_zclient;
 extern struct eigrpd *eigrp_om;
 extern struct zebra_privs_t eigrpd_privs;
 

@@ -244,7 +244,7 @@ void eigrp_distribute_timer_process(void *arg)
 	if (!eigrp)
 		return;
 	eigrp->t_distribute = NULL;
-	eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER, NULL);
+	eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER);
 }
 
 void eigrp_distribute_timer_interface(void *arg)
@@ -254,7 +254,7 @@ void eigrp_distribute_timer_interface(void *arg)
 	if (!ei)
 		return;
 	ei->t_distribute = NULL;
-	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER, NULL);
+	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER);
 }
 
 eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,

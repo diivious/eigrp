@@ -28,7 +28,6 @@
 #include "eigrpd/eigrp_packetizer.h"
 #include "eigrpd/eigrp_prefix.h"
 
-#include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_dump.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_metric.h"
@@ -885,7 +884,6 @@ void eigrp_update_send_GR_event(void *arg)
  * Graceful
  * restart
  * @param[in]		gr_type 	Who executed Graceful restart
- * @param[in]		vty 		Virtual terminal for log output
  *
  * @return void
  *
@@ -894,8 +892,7 @@ void eigrp_update_send_GR_event(void *arg)
  * Creates Update packet with INIT, RS, EOT flags and include
  * all route except those filtered
  */
-void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type,
-			  struct vty *vty)
+void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type)
 {
 	eigrp_prefix_descriptor_t *prefix2;
 	struct list *prefixes;
@@ -915,13 +912,6 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type,
 			  eigrp_print_addr(&nbr->src),
 			  ei->name);
 
-		if (vty != NULL) {
-			vty_time_print(vty, 0);
-			vty_out(vty,
-				"Neighbor %s (%s) is resync: manually cleared\n",
-				eigrp_print_addr(&nbr->src),
-				ei->name);
-		}
 	}
 
 	prefixes = list_new();
@@ -953,7 +943,6 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type,
  * GR
  * is sent
  * @param[in]		gr_type 	Who executed Graceful restart
- * @param[in]		vty 		Virtual terminal for log output
  *
  * @return void
  *
@@ -961,8 +950,7 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type,
  * Function used for sending Graceful restart Update packet
  * to all neighbors on specified interface.
  */
-void eigrp_update_send_interface_GR(eigrp_interface_t *ei, enum GR_type gr_type,
-				    struct vty *vty)
+void eigrp_update_send_interface_GR(eigrp_interface_t *ei, enum GR_type gr_type)
 {
 	struct listnode *node;
 	eigrp_neighbor_t *nbr;
@@ -970,7 +958,7 @@ void eigrp_update_send_interface_GR(eigrp_interface_t *ei, enum GR_type gr_type,
 	/* iterate over all neighbors on eigrp interface */
 	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
 		/* send GR to neighbor */
-		eigrp_update_send_GR(nbr, gr_type, vty);
+		eigrp_update_send_GR(nbr, gr_type);
 	}
 }
 
@@ -979,7 +967,6 @@ void eigrp_update_send_interface_GR(eigrp_interface_t *ei, enum GR_type gr_type,
  *
  * @param[in]		eigrp		EIGRP process
  * @param[in]		gr_type 	Who executed Graceful restart
- * @param[in]		vty 		Virtual terminal for log output
  *
  * @return void
  *
@@ -987,8 +974,7 @@ void eigrp_update_send_interface_GR(eigrp_interface_t *ei, enum GR_type gr_type,
  * Function used for sending Graceful restart Update packet
  * to all neighbors in eigrp process.
  */
-void eigrp_update_send_process_GR(eigrp_instance_t *eigrp, enum GR_type gr_type,
-				  struct vty *vty)
+void eigrp_update_send_process_GR(eigrp_instance_t *eigrp, enum GR_type gr_type)
 {
 	struct listnode *node;
 	eigrp_interface_t *ei;
@@ -996,6 +982,6 @@ void eigrp_update_send_process_GR(eigrp_instance_t *eigrp, enum GR_type gr_type,
 	/* iterate over all eigrp interfaces */
 	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
 		/* send GR to all neighbors on interface */
-		eigrp_update_send_interface_GR(ei, gr_type, vty);
+		eigrp_update_send_interface_GR(ei, gr_type);
 	}
 }

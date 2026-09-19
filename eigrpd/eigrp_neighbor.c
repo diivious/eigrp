@@ -22,7 +22,6 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
-#include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_dump.h"
 
 struct eigrp_neighbor_config {
@@ -672,7 +671,7 @@ static void eigrp_neighbor_clear_soft(eigrp_neighbor_t *nbr,
 				      eigrp_neighbor_clear_cb callback, void *arg)
 {
 	eigrp_neighbor_clear_report(nbr, true, callback, arg);
-	eigrp_update_send_GR(nbr, EIGRP_GR_MANUAL, NULL);
+	eigrp_update_send_GR(nbr, EIGRP_GR_MANUAL);
 }
 
 eigrp_result_t eigrp_neighbor_clear(
