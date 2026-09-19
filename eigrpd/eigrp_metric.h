@@ -78,5 +78,6 @@ eigrp_result_t eigrp_metric_maximum_hops_delete(
 eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
 					    bool enabled);
 eigrp_result_t eigrp_metric_holddown_delete(eigrp_instance_context_t *context);
+void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* _ZEBRA_EIGRP_METRIC_H_ */

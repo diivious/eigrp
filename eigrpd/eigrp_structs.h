@@ -66,6 +66,10 @@ struct eigrp_instance {
 	uint8_t k_values[6]; /*Array for K values configuration*/
 	uint8_t variance;    /*Metric variance multiplier*/
 	uint8_t max_paths;   /*Maximum allowed paths for 1 prefix*/
+	uint8_t max_hops;    /*Maximum accepted path hop count*/
+	bool log_neighbor_changes;
+	bool log_neighbor_warnings;
+	uint16_t log_neighbor_warning_interval;
 
 	/*Name of this EIGRP instance*/
 	char *name;
@@ -189,6 +193,7 @@ typedef struct eigrp_interface {
 	uint16_t tlv1_peer_count;
 	uint16_t tlv2_peer_count;
 	eigrp_packet_encoder_t encoder;
+	bool split_horizon;
 
 	/* Neighbor information. */
 	struct list *nbrs; /* EIGRP Neighbor List */

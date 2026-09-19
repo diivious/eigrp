@@ -147,9 +147,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		/* Graceful restart Update received with all routes */
 		eigrp_debug_nsf_event(eigrp, nbr, flags,
 				      "peer graceful restart complete in one UPDATE");
-		zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
-			  eigrp_print_addr(&nbr->src),
-			  nbr->ei->name);
+		if (eigrp->log_neighbor_changes)
+			zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
+				  eigrp_print_addr(&nbr->src),
+				  nbr->ei->name);
 
 		/* get all prefixes from neighbor from topology table */
 		nbr_prefixes = eigrp_neighbor_prefixes_lookup(eigrp, nbr);
@@ -161,9 +162,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		 */
 		eigrp_debug_nsf_event(eigrp, nbr, flags,
 				      "peer graceful restart started");
-		zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
-			  eigrp_print_addr(&nbr->src),
-			  nbr->ei->name);
+		if (eigrp->log_neighbor_changes)
+			zlog_info("Neighbor %s (%s) is resync: peer graceful-restart",
+				  eigrp_print_addr(&nbr->src),
+				  nbr->ei->name);
 
 		/* get all prefixes from neighbor from topology table */
 		nbr_prefixes = eigrp_neighbor_prefixes_lookup(eigrp, nbr);
@@ -214,13 +216,15 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
-			zlog_info("Neighbor %s (%s) is down: peer restarted",
-				  eigrp_print_addr(&nbr->src),
-				  nbr->ei->name);
+			if (eigrp->log_neighbor_changes)
+				zlog_info("Neighbor %s (%s) is down: peer restarted",
+					  eigrp_print_addr(&nbr->src),
+					  nbr->ei->name);
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_PENDING);
-			zlog_info("Neighbor %s (%s) is pending: new adjacency",
-				  eigrp_print_addr(&nbr->src),
-				  nbr->ei->name);
+			if (eigrp->log_neighbor_changes)
+				zlog_info("Neighbor %s (%s) is pending: new adjacency",
+					  eigrp_print_addr(&nbr->src),
+					  nbr->ei->name);
 			eigrp_update_send_init(eigrp, nbr);
 		}
 	}
@@ -902,15 +906,17 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type)
 
 	if (gr_type == EIGRP_GR_FILTER) {
 		/* function was called after applying filtration */
-		zlog_info(
-			"Neighbor %s (%s) is resync: route configuration changed",
-			eigrp_print_addr(&nbr->src),
-			ei->name);
+		if (eigrp->log_neighbor_changes)
+			zlog_info(
+				"Neighbor %s (%s) is resync: route configuration changed",
+				eigrp_print_addr(&nbr->src),
+				ei->name);
 	} else if (gr_type == EIGRP_GR_MANUAL) {
 		/* Graceful restart was called manually */
-		zlog_info("Neighbor %s (%s) is resync: manually cleared",
-			  eigrp_print_addr(&nbr->src),
-			  ei->name);
+		if (eigrp->log_neighbor_changes)
+			zlog_info("Neighbor %s (%s) is resync: manually cleared",
+				  eigrp_print_addr(&nbr->src),
+				  ei->name);
 
 	}
 

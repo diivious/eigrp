@@ -30,6 +30,25 @@ struct eigrp_neighbor_config {
 	eigrp_neighbor_config_t *next;
 };
 
+struct eigrp_neighbor_policy_entry {
+	eigrp_address_t address;
+	char *description;
+	bool maximum_prefix_configured;
+	eigrp_prefix_limit_t maximum_prefix;
+	struct eigrp_neighbor_policy_entry *next;
+};
+
+struct eigrp_neighbor_policy_state {
+	struct eigrp_neighbor_policy_entry *entries;
+	bool maximum_prefix_all_configured;
+	eigrp_prefix_limit_t maximum_prefix_all;
+	bool log_changes_configured;
+	bool log_changes;
+	bool log_warnings_configured;
+	bool log_warnings;
+	uint16_t log_warning_interval;
+};
+
 static char *eigrp_neighbor_string_duplicate(const char *value)
 {
 	size_t len;
@@ -482,9 +501,10 @@ void eigrp_neighbor_holddown_expired(void *arg)
 	if (IS_DEBUG_EIGRP(0, TIMERS))
 		zlog_debug("EIGRP: hold timer expired for neighbor %s",
 			   eigrp_print_addr(&nbr->src));
-	zlog_info("Neighbor %s (%s) is down: holding time expired",
-		  eigrp_print_addr(&nbr->src),
-		  nbr->ei->name);
+	if (nbr->ei->eigrp->log_neighbor_changes)
+		zlog_info("Neighbor %s (%s) is down: holding time expired",
+			  eigrp_print_addr(&nbr->src),
+			  nbr->ei->name);
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 	eigrp_nbr_delete(nbr);
 
@@ -761,7 +781,7 @@ eigrp_result_t eigrp_neighbor_clear(
 int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *erd,
 				  eigrp_interface_t *ei)
 {
-	if (erd->distance == EIGRP_MAX_METRIC)
+	if (!ei || !ei->split_horizon || erd->distance == EIGRP_MAX_METRIC)
 		return 0;
 
 	return (erd->ei == ei);
@@ -773,58 +793,208 @@ static bool eigrp_neighbor_config_address_valid(const eigrp_address_t *address)
 			   || address->afi == EIGRP_ADDRESS_FAMILY_IPV6);
 }
 
+static eigrp_neighbor_policy_state_t *eigrp_neighbor_policy_state_get(
+	eigrp_address_family_config_t *af)
+{
+	if (!af)
+		return NULL;
+	if (!af->neighbor_policy) {
+		af->neighbor_policy = calloc(1, sizeof(*af->neighbor_policy));
+		if (!af->neighbor_policy)
+			return NULL;
+		af->neighbor_policy->log_changes = true;
+		af->neighbor_policy->log_warnings = true;
+		af->neighbor_policy->log_warning_interval = 10;
+	}
+	return af->neighbor_policy;
+}
+
+static struct eigrp_neighbor_policy_entry *eigrp_neighbor_policy_entry_find(
+	eigrp_neighbor_policy_state_t *state, const eigrp_address_t *address)
+{
+	struct eigrp_neighbor_policy_entry *entry;
+
+	if (!state)
+		return NULL;
+	for (entry = state->entries; entry; entry = entry->next)
+		if (eigrp_neighbor_address_equal(&entry->address, address))
+			return entry;
+	return NULL;
+}
+
+static struct eigrp_neighbor_policy_entry *eigrp_neighbor_policy_entry_get(
+	eigrp_address_family_config_t *af, const eigrp_address_t *address)
+{
+	eigrp_neighbor_policy_state_t *state;
+	struct eigrp_neighbor_policy_entry *entry;
+
+	state = eigrp_neighbor_policy_state_get(af);
+	if (!state)
+		return NULL;
+	entry = eigrp_neighbor_policy_entry_find(state, address);
+	if (entry)
+		return entry;
+	entry = calloc(1, sizeof(*entry));
+	if (!entry)
+		return NULL;
+	entry->address = *address;
+	entry->next = state->entries;
+	state->entries = entry;
+	return entry;
+}
+
+static void eigrp_neighbor_policy_entry_prune(
+	eigrp_neighbor_policy_state_t *state,
+	struct eigrp_neighbor_policy_entry *entry)
+{
+	struct eigrp_neighbor_policy_entry **cursor;
+
+	if (!state || !entry || entry->description
+	    || entry->maximum_prefix_configured)
+		return;
+	for (cursor = &state->entries; *cursor; cursor = &(*cursor)->next) {
+		if (*cursor != entry)
+			continue;
+		*cursor = entry->next;
+		free(entry);
+		return;
+	}
+}
+
+static eigrp_result_t eigrp_neighbor_policy_context_validate(
+	eigrp_instance_context_t *context, const eigrp_address_t *address)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (address && context->config && address->afi != context->config->afi)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	return EIGRP_RESULT_SUCCESS;
+}
+
 eigrp_result_t eigrp_neighbor_description_update(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const char *description)
 {
+	struct eigrp_neighbor_policy_entry *entry;
+	char *copy;
+	eigrp_result_t result;
+
 	if (!eigrp_neighbor_config_address_valid(address) || !description
 	    || !description[0] || strlen(description) > 80)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	result = eigrp_neighbor_policy_context_validate(context, address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (!context->config)
+		return EIGRP_RESULT_SUCCESS;
+
+	copy = eigrp_neighbor_string_duplicate(description);
+	if (!copy)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	entry = eigrp_neighbor_policy_entry_get(context->config, address);
+	if (!entry) {
+		free(copy);
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
+	free(entry->description);
+	entry->description = copy;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_description_delete(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
+	eigrp_neighbor_policy_state_t *state;
+	struct eigrp_neighbor_policy_entry *entry;
+	eigrp_result_t result;
+
 	if (!eigrp_neighbor_config_address_valid(address))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
+	result = eigrp_neighbor_policy_context_validate(context, address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (!context->config || !context->config->neighbor_policy)
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	state = context->config->neighbor_policy;
+	entry = eigrp_neighbor_policy_entry_find(state, address);
+	if (!entry || !entry->description)
+		return EIGRP_RESULT_NOT_FOUND;
+	free(entry->description);
+	entry->description = NULL;
+	eigrp_neighbor_policy_entry_prune(state, entry);
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_maximum_prefix_update(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const eigrp_prefix_limit_t *limit)
 {
+	struct eigrp_neighbor_policy_entry *entry;
+	eigrp_result_t result;
+
 	if (!eigrp_neighbor_config_address_valid(address) || !limit
 	    || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	result = eigrp_neighbor_policy_context_validate(context, address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (context->config) {
+		entry = eigrp_neighbor_policy_entry_get(context->config, address);
+		if (!entry)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		entry->maximum_prefix = *limit;
+		entry->maximum_prefix_configured = true;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
+	eigrp_neighbor_policy_state_t *state;
+	struct eigrp_neighbor_policy_entry *entry;
+	eigrp_result_t result;
+
 	if (!eigrp_neighbor_config_address_valid(address))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	result = eigrp_neighbor_policy_context_validate(context, address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (context->config && context->config->neighbor_policy) {
+		state = context->config->neighbor_policy;
+		entry = eigrp_neighbor_policy_entry_find(state, address);
+		if (entry && entry->maximum_prefix_configured) {
+			entry->maximum_prefix_configured = false;
+			memset(&entry->maximum_prefix, 0,
+			       sizeof(entry->maximum_prefix));
+			eigrp_neighbor_policy_entry_prune(state, entry);
+			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+						: EIGRP_RESULT_SUCCESS;
+		}
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_NOT_FOUND;
 }
 
 eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
+	eigrp_neighbor_policy_state_t *state;
+
 	if (!limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		state = eigrp_neighbor_policy_state_get(context->config);
+		if (!state)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		state->maximum_prefix_all = *limit;
+		state->maximum_prefix_all_configured = true;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
@@ -832,27 +1002,72 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && context->config->neighbor_policy) {
+		context->config->neighbor_policy->maximum_prefix_all_configured = false;
+		memset(&context->config->neighbor_policy->maximum_prefix_all, 0,
+		       sizeof(context->config->neighbor_policy->maximum_prefix_all));
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_log_changes_update(
 	eigrp_instance_context_t *context, bool enabled)
 {
-	(void)enabled;
+	eigrp_neighbor_policy_state_t *state;
+
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		state = eigrp_neighbor_policy_state_get(context->config);
+		if (!state)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		state->log_changes_configured = true;
+		state->log_changes = enabled;
+	}
+	if (context->runtime)
+		context->runtime->log_neighbor_changes = enabled;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_neighbor_log_changes_reset(eigrp_instance_context_t *context)
+{
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->neighbor_policy) {
+		context->config->neighbor_policy->log_changes_configured = false;
+		context->config->neighbor_policy->log_changes = true;
+	}
+	if (context->runtime)
+		context->runtime->log_neighbor_changes = true;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_log_warnings_update(
 	eigrp_instance_context_t *context, bool enabled, uint16_t seconds)
 {
-	(void)enabled;
+	eigrp_neighbor_policy_state_t *state;
+
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (enabled && !seconds)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		state = eigrp_neighbor_policy_state_get(context->config);
+		if (!state)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		state->log_warnings_configured = true;
+		state->log_warnings = enabled;
+		state->log_warning_interval = seconds ? seconds : 10;
+	}
+	if (context->runtime) {
+		context->runtime->log_neighbor_warnings = enabled;
+		context->runtime->log_neighbor_warning_interval =
+			seconds ? seconds : 10;
+	}
+	/* Warning de-duplication/rate limiting is not yet in the runtime path. */
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_neighbor_log_warnings_delete(
@@ -860,5 +1075,31 @@ eigrp_result_t eigrp_neighbor_log_warnings_delete(
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && context->config->neighbor_policy) {
+		context->config->neighbor_policy->log_warnings_configured = false;
+		context->config->neighbor_policy->log_warnings = true;
+		context->config->neighbor_policy->log_warning_interval = 10;
+	}
+	if (context->runtime) {
+		context->runtime->log_neighbor_warnings = true;
+		context->runtime->log_neighbor_warning_interval = 10;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_neighbor_policy_delete_all(eigrp_address_family_config_t *af)
+{
+	struct eigrp_neighbor_policy_entry *entry;
+	struct eigrp_neighbor_policy_entry *next;
+
+	if (!af || !af->neighbor_policy)
+		return;
+	for (entry = af->neighbor_policy->entries; entry; entry = next) {
+		next = entry->next;
+		free(entry->description);
+		free(entry);
+	}
+	free(af->neighbor_policy);
+	af->neighbor_policy = NULL;
 }

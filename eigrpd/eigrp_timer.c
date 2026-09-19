@@ -6,11 +6,17 @@
  */
 
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrp_timer.h"
 #include "eigrp_interface.h"
+
+struct eigrp_timer_config {
+	bool active_time_configured;
+	uint16_t active_time_seconds;
+};
 
 struct eigrp_timer_walk_context {
 	eigrp_timer_state_cb callback;
@@ -37,17 +43,40 @@ static eigrp_result_t eigrp_timer_interface_state(
 eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
 					      uint16_t seconds)
 {
-	(void)seconds;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		if (!context->config->timer_config) {
+			context->config->timer_config =
+				calloc(1, sizeof(*context->config->timer_config));
+			if (!context->config->timer_config)
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+		}
+		context->config->timer_config->active_time_configured = true;
+		context->config->timer_config->active_time_seconds = seconds;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_timer_active_time_delete(eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && context->config->timer_config) {
+		context->config->timer_config->active_time_configured = false;
+		context->config->timer_config->active_time_seconds = 0;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af)
+{
+	if (!af)
+		return;
+	free(af->timer_config);
+	af->timer_config = NULL;
 }
 
 eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,

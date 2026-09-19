@@ -27,6 +27,7 @@ typedef eigrp_result_t (*eigrp_timer_state_cb)(const eigrp_timer_state_t *state,
 eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
 					      uint16_t seconds);
 eigrp_result_t eigrp_timer_active_time_delete(eigrp_instance_context_t *context);
+void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af);
 eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 				eigrp_timer_state_cb callback, void *arg);
 

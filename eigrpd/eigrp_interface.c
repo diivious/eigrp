@@ -286,6 +286,7 @@ void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
 		runtime->params.v_wait = config->hold_time;
 	runtime->params.passive_interface = config->passive
 		? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+	runtime->split_horizon = config->split_horizon;
 
 	/* Authentication is retained on the named af-interface object.  When a
 	 * network statement creates the runtime interface after configuration was
@@ -499,7 +500,7 @@ eigrp_result_t eigrp_interface_split_horizon_update(
 	if (context->config)
 		context->config->split_horizon = enabled;
 	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
+		context->runtime->split_horizon = enabled;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -510,8 +511,17 @@ eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *contex
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config)
 		context->config->shutdown = shutdown;
-	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->runtime) {
+		if (shutdown && context->runtime->t_hello) {
+			eigrp_hello_send(context->runtime,
+					 EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
+			eigrp_intf_down(context->runtime);
+		} else if (!shutdown && context->runtime->operative
+			   && !context->runtime->t_hello) {
+			(void)eigrp_southbound_address_family_start(
+				context->runtime->eigrp);
+		}
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -674,6 +684,7 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 	ei->nbrs = list_new();
 	ei->crypt_seqnum = time(NULL);
 	eigrp_interface_encoder_clear(ei);
+	ei->split_horizon = true;
 
 	ei->params.type = state->type;
 	ei->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;

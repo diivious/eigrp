@@ -176,9 +176,12 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
 	eigrp_instance_context_t *context);
 eigrp_result_t eigrp_neighbor_log_changes_update(
 	eigrp_instance_context_t *context, bool enabled);
+eigrp_result_t eigrp_neighbor_log_changes_reset(
+	eigrp_instance_context_t *context);
 eigrp_result_t eigrp_neighbor_log_warnings_update(
 	eigrp_instance_context_t *context, bool enabled, uint16_t seconds);
 eigrp_result_t eigrp_neighbor_log_warnings_delete(
 	eigrp_instance_context_t *context);
+void eigrp_neighbor_policy_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* _ZEBRA_EIGRP_NEIGHBOR_H */

@@ -23,5 +23,6 @@ eigrp_result_t eigrp_redistribute_maximum_prefix_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
 eigrp_result_t eigrp_redistribute_maximum_prefix_delete(
 	eigrp_instance_context_t *context);
+void eigrp_redistribute_policy_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* EIGRPD_EIGRP_REDISTRIBUTE_H_ */

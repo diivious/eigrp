@@ -122,9 +122,10 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	 */
 	if (eigrp_hello_k_same(eigrp, nbr)) {
 		if (eigrp_nbr_state_get(nbr) == EIGRP_NEIGHBOR_DOWN) {
-			zlog_info("Neighbor %s (%s) is pending: new adjacency",
-				  eigrp_print_addr(&nbr->src),
-				  nbr->ei->name);
+			if (eigrp->log_neighbor_changes)
+				zlog_info("Neighbor %s (%s) is pending: new adjacency",
+					  eigrp_print_addr(&nbr->src),
+					  nbr->ei->name);
 
 			/* Expedited hello sent */
 			eigrp_hello_send(nbr->ei, EIGRP_HELLO_NORMAL, &nbr->src);
@@ -137,17 +138,19 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	} else {
 		if (eigrp_nbr_state_get(nbr) != EIGRP_NEIGHBOR_DOWN) {
 			if ((param->K1 & param->K2 & param->K3 & param->K4 & param->K5) == 255) {
-				zlog_info(
-					"Neighbor %s (%s) is down: Interface PEER-TERMINATION received",
-					eigrp_print_addr(&nbr->src),
-					nbr->ei->name);
+				if (eigrp->log_neighbor_changes)
+					zlog_info(
+						"Neighbor %s (%s) is down: Interface PEER-TERMINATION received",
+						eigrp_print_addr(&nbr->src),
+						nbr->ei->name);
 				eigrp_nbr_delete(nbr);
 				return NULL;
 			} else {
-				zlog_info(
-					"Neighbor %s (%s) going down: Kvalue mismatch",
-					eigrp_print_addr(&nbr->src),
-					nbr->ei->name);
+				if (eigrp->log_neighbor_changes)
+					zlog_info(
+						"Neighbor %s (%s) going down: Kvalue mismatch",
+						eigrp_print_addr(&nbr->src),
+						nbr->ei->name);
 				eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 			}
 		}
@@ -212,9 +215,10 @@ static void eigrp_peer_termination_decode(eigrp_instance_t *eigrp,
 	uint32_t received_ip = param->neighbor_ip;
 
 	if (my_ip == received_ip) {
-		zlog_info("Neighbor %s (%s) is down: Peer Termination received",
-			  eigrp_print_addr(&nbr->src),
-			  nbr->ei->name);
+		if (eigrp->log_neighbor_changes)
+			zlog_info("Neighbor %s (%s) is down: Peer Termination received",
+				  eigrp_print_addr(&nbr->src),
+				  nbr->ei->name);
 		/* set neighbor to DOWN */
 		eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
 		/* delete neighbor */

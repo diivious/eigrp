@@ -4,9 +4,24 @@
  * Authors:
  *   Donnie Savage
  */
+#include <stdlib.h>
+
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_metric.h"
+
+struct eigrp_metric_config {
+	bool default_metric_configured;
+	eigrp_metric_values_t default_metric;
+	bool weights_configured;
+	eigrp_metric_weights_t weights;
+	bool variance_configured;
+	uint8_t variance;
+	bool traffic_share_balanced;
+	bool maximum_hops_configured;
+	uint8_t maximum_hops;
+	bool holddown_enabled;
+};
 
 eigrp_scaled_t eigrp_bandwidth_to_scaled(eigrp_bandwidth_t bandwidth)
 {
@@ -89,15 +104,22 @@ eigrp_metric_t eigrp_calculate_total_metrics(eigrp_instance_t *eigrp,
 					     eigrp_route_descriptor_t *entry)
 {
 	eigrp_interface_t *ei = entry->ei;
-	eigrp_delay_t temp_delay;
+	eigrp_delay_t link_delay;
 	eigrp_bandwidth_t bw;
 
 	entry->total_metric = entry->reported_metric;
-	temp_delay = entry->total_metric.delay
-		     + eigrp_delay_to_scaled(ei->params.delay);
+	link_delay = eigrp_delay_to_scaled(ei->params.delay);
+	if (entry->total_metric.delay >= EIGRP_METRIC_MAX - link_delay)
+		entry->total_metric.delay = EIGRP_METRIC_MAX;
+	else
+		entry->total_metric.delay += link_delay;
 
-	entry->total_metric.delay =
-		temp_delay > EIGRP_METRIC_MAX ? EIGRP_METRIC_MAX : temp_delay;
+	if (entry->total_metric.hop_count == UINT8_MAX)
+		entry->total_metric.delay = EIGRP_METRIC_MAX;
+	else
+		entry->total_metric.hop_count++;
+	if (entry->total_metric.hop_count > eigrp->max_hops)
+		entry->total_metric.delay = EIGRP_METRIC_MAX;
 
 	bw = eigrp_bandwidth_to_scaled(ei->params.bandwidth);
 	entry->total_metric.bandwidth = entry->total_metric.bandwidth > bw
@@ -133,31 +155,70 @@ static bool eigrp_metric_values_valid(const eigrp_metric_values_t *metric)
 	return metric && metric->bandwidth && metric->load && metric->mtu;
 }
 
+static eigrp_metric_config_t *eigrp_metric_config_get(
+	eigrp_address_family_config_t *af)
+{
+	if (!af)
+		return NULL;
+	if (!af->metric_config) {
+		af->metric_config = calloc(1, sizeof(*af->metric_config));
+		if (!af->metric_config)
+			return NULL;
+		af->metric_config->traffic_share_balanced = true;
+		af->metric_config->holddown_enabled = true;
+	}
+	return af->metric_config;
+}
+
 eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
 					   const eigrp_metric_values_t *metric)
 {
+	eigrp_metric_config_t *config;
+
 	if (!eigrp_metric_values_valid(metric))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->default_metric = *metric;
+		config->default_metric_configured = true;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_default_delete(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->default_metric_configured = false;
+		memset(&context->config->metric_config->default_metric, 0,
+		       sizeof(context->config->metric_config->default_metric));
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
 					   const eigrp_metric_weights_t *weights)
 {
+	eigrp_metric_config_t *config;
+
 	if (!weights || weights->tos != 0)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->weights = *weights;
+		config->weights_configured = true;
+	}
 	if (context->runtime) {
 		context->runtime->k_values[0] = weights->k1;
 		context->runtime->k_values[1] = weights->k2;
@@ -165,16 +226,19 @@ eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
 		context->runtime->k_values[3] = weights->k4;
 		context->runtime->k_values[4] = weights->k5;
 		context->runtime->k_values[5] = weights->k6;
-		return EIGRP_RESULT_SUCCESS;
 	}
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->weights_configured = false;
+		memset(&context->config->metric_config->weights, 0,
+		       sizeof(context->config->metric_config->weights));
+	}
 	if (context->runtime) {
 		context->runtime->k_values[0] = EIGRP_K1_DEFAULT;
 		context->runtime->k_values[1] = EIGRP_K2_DEFAULT;
@@ -182,55 +246,80 @@ eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
 		context->runtime->k_values[3] = EIGRP_K4_DEFAULT;
 		context->runtime->k_values[4] = EIGRP_K5_DEFAULT;
 		context->runtime->k_values[5] = EIGRP_K6_DEFAULT;
-		return EIGRP_RESULT_SUCCESS;
 	}
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_variance_update(eigrp_instance_context_t *context,
 					    uint8_t variance)
 {
+	eigrp_metric_config_t *config;
+
 	if (variance < 1 || variance > 128)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-
-	if (context->runtime) {
-		context->runtime->variance = variance;
-		return EIGRP_RESULT_SUCCESS;
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->variance = variance;
+		config->variance_configured = true;
 	}
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->runtime)
+		context->runtime->variance = variance;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_variance_delete(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-
-	if (context->runtime) {
-		context->runtime->variance = EIGRP_VARIANCE_DEFAULT;
-		return EIGRP_RESULT_SUCCESS;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->variance_configured = false;
+		context->config->metric_config->variance = 0;
 	}
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->runtime)
+		context->runtime->variance = EIGRP_VARIANCE_DEFAULT;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_traffic_share_balanced_update(
 	eigrp_instance_context_t *context, bool enabled)
 {
-	(void)enabled;
+	eigrp_metric_config_t *config;
+
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->traffic_share_balanced = enabled;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_maximum_hops_update(
 	eigrp_instance_context_t *context, uint8_t maximum_hops)
 {
+	eigrp_metric_config_t *config;
+
 	if (!maximum_hops)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->maximum_hops = maximum_hops;
+		config->maximum_hops_configured = true;
+	}
+	if (context->runtime)
+		context->runtime->max_hops = maximum_hops;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_maximum_hops_delete(
@@ -238,19 +327,41 @@ eigrp_result_t eigrp_metric_maximum_hops_delete(
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->maximum_hops_configured = false;
+		context->config->metric_config->maximum_hops = 0;
+	}
+	if (context->runtime)
+		context->runtime->max_hops = EIGRP_MAX_HOPS;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
 					    bool enabled)
 {
-	(void)enabled;
+	eigrp_metric_config_t *config;
+
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->holddown_enabled = enabled;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_metric_holddown_delete(eigrp_instance_context_t *context)
 {
 	return eigrp_metric_holddown_update(context, true);
+}
+
+void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af)
+{
+	if (!af)
+		return;
+	free(af->metric_config);
+	af->metric_config = NULL;
 }

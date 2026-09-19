@@ -19,6 +19,11 @@ struct eigrp_redistribute_config {
 	eigrp_redistribute_config_t *next;
 };
 
+struct eigrp_redistribute_policy_config {
+	bool maximum_prefix_configured;
+	eigrp_prefix_limit_t maximum_prefix;
+};
+
 static char *eigrp_redistribute_string_duplicate(const char *value)
 {
 	size_t len;
@@ -222,7 +227,18 @@ eigrp_result_t eigrp_redistribute_maximum_prefix_update(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		if (!context->config->redistribute_policy) {
+			context->config->redistribute_policy =
+				calloc(1, sizeof(*context->config->redistribute_policy));
+			if (!context->config->redistribute_policy)
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+		}
+		context->config->redistribute_policy->maximum_prefix = *limit;
+		context->config->redistribute_policy->maximum_prefix_configured = true;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_redistribute_maximum_prefix_delete(
@@ -230,5 +246,19 @@ eigrp_result_t eigrp_redistribute_maximum_prefix_delete(
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && context->config->redistribute_policy) {
+		context->config->redistribute_policy->maximum_prefix_configured = false;
+		memset(&context->config->redistribute_policy->maximum_prefix, 0,
+		       sizeof(context->config->redistribute_policy->maximum_prefix));
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_redistribute_policy_delete_all(eigrp_address_family_config_t *af)
+{
+	if (!af)
+		return;
+	free(af->redistribute_policy);
+	af->redistribute_policy = NULL;
 }

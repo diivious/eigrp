@@ -1400,7 +1400,7 @@ static int eigrpd_named_log_neighbor_changes_destroy(struct nb_cb_destroy_args *
     if (args->event != NB_EV_APPLY) return NB_OK;
     if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_neighbor_log_changes_update(&context, true), true);
+    return eigrpd_named_config_result(eigrp_neighbor_log_changes_reset(&context), true);
 }
 
 static int eigrpd_named_log_neighbor_warnings_apply(const struct lyd_node *dnode)

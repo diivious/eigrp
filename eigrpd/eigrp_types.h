@@ -126,6 +126,12 @@ typedef struct eigrp_neighbor_config eigrp_neighbor_config_t;
 typedef struct eigrp_summary_config eigrp_summary_config_t;
 typedef struct eigrp_redistribute_config eigrp_redistribute_config_t;
 typedef struct eigrp_distribute_list_config eigrp_distribute_list_config_t;
+typedef struct eigrp_offset_config eigrp_offset_config_t;
+typedef struct eigrp_metric_config eigrp_metric_config_t;
+typedef struct eigrp_summary_state eigrp_summary_state_t;
+typedef struct eigrp_timer_config eigrp_timer_config_t;
+typedef struct eigrp_neighbor_policy_state eigrp_neighbor_policy_state_t;
+typedef struct eigrp_redistribute_policy_config eigrp_redistribute_policy_config_t;
 
 typedef struct eigrp_state_request {
 	eigrp_address_family_t afi;

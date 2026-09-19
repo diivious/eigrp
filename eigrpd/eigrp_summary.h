@@ -37,5 +37,6 @@ eigrp_result_t eigrp_summary_metric_update(eigrp_instance_context_t *context,
 					   const eigrp_summary_metric_config_t *config);
 eigrp_result_t eigrp_summary_metric_delete(eigrp_instance_context_t *context,
 					   const eigrp_prefix_t *prefix);
+void eigrp_summary_state_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* EIGRPD_EIGRP_SUMMARY_H_ */

@@ -42,6 +42,12 @@ struct eigrp_address_family_config {
 	eigrp_interface_config_t *interfaces;
 	eigrp_redistribute_config_t *redistributions;
 	eigrp_distribute_list_config_t *distribute_lists;
+	eigrp_offset_config_t *offsets;
+	eigrp_metric_config_t *metric_config;
+	eigrp_summary_state_t *summary_state;
+	eigrp_timer_config_t *timer_config;
+	eigrp_neighbor_policy_state_t *neighbor_policy;
+	eigrp_redistribute_policy_config_t *redistribute_policy;
 	eigrp_address_family_config_t *next;
 };
 

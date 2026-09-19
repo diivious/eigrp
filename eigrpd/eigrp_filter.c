@@ -24,6 +24,14 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_southbound.h"
 
+struct eigrp_offset_config {
+	char *access_list;
+	eigrp_offset_direction_t direction;
+	uint32_t offset;
+	char *interface_name;
+	eigrp_offset_config_t *next;
+};
+
 static char *eigrp_filter_string_duplicate(const char *value)
 {
 	size_t len;
@@ -257,21 +265,84 @@ void eigrp_distribute_timer_interface(void *arg)
 	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER);
 }
 
+static bool eigrp_offset_interface_equal(const char *a, const char *b)
+{
+	if (!a || !b)
+		return a == b;
+	return strcmp(a, b) == 0;
+}
+
+static eigrp_offset_config_t *eigrp_offset_config_find(
+	eigrp_address_family_config_t *af, const char *access_list,
+	eigrp_offset_direction_t direction, const char *interface_name)
+{
+	eigrp_offset_config_t *config;
+
+	if (!af)
+		return NULL;
+	for (config = af->offsets; config; config = config->next)
+		if (config->direction == direction
+		    && strcmp(config->access_list, access_list) == 0
+		    && eigrp_offset_interface_equal(config->interface_name,
+						 interface_name))
+			return config;
+	return NULL;
+}
+
 eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
 				   const char *access_list,
 				   eigrp_offset_direction_t direction,
 				   uint32_t offset,
 				   const char *interface_name)
 {
-	(void)offset;
-	(void)interface_name;
+	eigrp_offset_config_t *config;
+	char *access_copy;
+	char *interface_copy = NULL;
+
 	if (!access_list || !access_list[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (direction != EIGRP_OFFSET_IN && direction != EIGRP_OFFSET_OUT)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (interface_name && !interface_name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+
+	if (context->config) {
+		config = eigrp_offset_config_find(context->config, access_list,
+						 direction, interface_name);
+		if (config) {
+			config->offset = offset;
+		} else {
+			access_copy = eigrp_filter_string_duplicate(access_list);
+			if (!access_copy)
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+			if (interface_name) {
+				interface_copy =
+					eigrp_filter_string_duplicate(interface_name);
+				if (!interface_copy) {
+					free(access_copy);
+					return EIGRP_RESULT_INTERNAL_FAILURE;
+				}
+			}
+			config = calloc(1, sizeof(*config));
+			if (!config) {
+				free(access_copy);
+				free(interface_copy);
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+			}
+			config->access_list = access_copy;
+			config->direction = direction;
+			config->offset = offset;
+			config->interface_name = interface_copy;
+			config->next = context->config->offsets;
+			context->config->offsets = config;
+		}
+	}
+
+	/* Metric offset application is retained but not yet in the data path. */
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
@@ -280,8 +351,55 @@ eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
 				   uint32_t offset,
 				   const char *interface_name)
 {
-	return eigrp_offset_update(context, access_list, direction, offset,
-				   interface_name);
+	eigrp_offset_config_t **cursor;
+	eigrp_offset_config_t *config;
+
+	(void)offset;
+	if (!access_list || !access_list[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (direction != EIGRP_OFFSET_IN && direction != EIGRP_OFFSET_OUT)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (interface_name && !interface_name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	if (context->config) {
+		for (cursor = &context->config->offsets; *cursor;
+		     cursor = &(*cursor)->next) {
+			config = *cursor;
+			if (config->direction != direction
+			    || strcmp(config->access_list, access_list) != 0
+			    || !eigrp_offset_interface_equal(config->interface_name,
+							     interface_name))
+				continue;
+			*cursor = config->next;
+			free(config->access_list);
+			free(config->interface_name);
+			free(config);
+			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+						: EIGRP_RESULT_SUCCESS;
+		}
+		if (!context->runtime)
+			return EIGRP_RESULT_NOT_FOUND;
+	}
+	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+void eigrp_offset_config_delete_all(eigrp_address_family_config_t *af)
+{
+	eigrp_offset_config_t *config;
+	eigrp_offset_config_t *next;
+
+	if (!af)
+		return;
+	for (config = af->offsets; config; config = next) {
+		next = config->next;
+		free(config->access_list);
+		free(config->interface_name);
+		free(config);
+	}
+	af->offsets = NULL;
 }
 
 struct eigrp_distribute_list_config {

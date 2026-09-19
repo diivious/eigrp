@@ -149,6 +149,10 @@ static eigrp_instance_t *eigrp_new(uint16_t as, eigrp_vrf_id_t vrf_id)
 	eigrp->topology_table = eigrp_topology_table_create();
 	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
 	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
+	eigrp->max_hops = EIGRP_MAX_HOPS;
+	eigrp->log_neighbor_changes = true;
+	eigrp->log_neighbor_warnings = true;
+	eigrp->log_neighbor_warning_interval = 10;
 
 	eigrp->serno = 0;
 	eigrp->serno_last_update = 0;

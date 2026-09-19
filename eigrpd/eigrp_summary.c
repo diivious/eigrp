@@ -21,6 +21,17 @@ struct eigrp_summary_config {
 	eigrp_summary_config_t *next;
 };
 
+struct eigrp_summary_metric_entry {
+	eigrp_prefix_t prefix;
+	eigrp_summary_metric_config_t config;
+	struct eigrp_summary_metric_entry *next;
+};
+
+struct eigrp_summary_state {
+	bool auto_summary;
+	struct eigrp_summary_metric_entry *metrics;
+};
+
 static bool eigrp_summary_prefix_valid(const eigrp_prefix_t *prefix)
 {
 	if (!prefix)
@@ -179,25 +190,49 @@ void eigrp_summary_delete_all(eigrp_interface_config_t *interface)
 	interface->summaries = NULL;
 }
 
+static eigrp_summary_state_t *eigrp_summary_state_get(
+	eigrp_address_family_config_t *af)
+{
+	if (!af)
+		return NULL;
+	if (!af->summary_state) {
+		af->summary_state = calloc(1, sizeof(*af->summary_state));
+		if (!af->summary_state)
+			return NULL;
+	}
+	return af->summary_state;
+}
+
 eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
 					 bool enabled)
 {
 	const eigrp_af_vectors_t *vectors;
+	eigrp_summary_state_t *state;
 
-	(void)enabled;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	vectors = eigrp_summary_context_vectors(context);
 	if (!vectors || !vectors->summary_auto_prefix)
 		return EIGRP_RESULT_UNSUPPORTED;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		state = eigrp_summary_state_get(context->config);
+		if (!state)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		state->auto_summary = enabled;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_summary_metric_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_t *prefix,
 	const eigrp_summary_metric_config_t *config)
 {
-	if (!prefix || !config
+	eigrp_summary_state_t *state;
+	struct eigrp_summary_metric_entry *entry;
+	eigrp_prefix_t normalized;
+
+	if (!eigrp_summary_prefix_valid(prefix) || !config
 	    || (!config->metric_configured && !config->distance_configured))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (config->metric_configured
@@ -208,15 +243,81 @@ eigrp_result_t eigrp_summary_metric_update(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && prefix->address.afi != context->config->afi)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (context->config) {
+		state = eigrp_summary_state_get(context->config);
+		if (!state)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		normalized = *prefix;
+		eigrp_summary_prefix_normalize(&normalized);
+		for (entry = state->metrics; entry; entry = entry->next) {
+			if (!eigrp_summary_prefix_equal(&entry->prefix, &normalized))
+				continue;
+			entry->config = *config;
+			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+						: EIGRP_RESULT_SUCCESS;
+		}
+		entry = calloc(1, sizeof(*entry));
+		if (!entry)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		entry->prefix = normalized;
+		entry->config = *config;
+		entry->next = state->metrics;
+		state->metrics = entry;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_summary_metric_delete(eigrp_instance_context_t *context,
 					   const eigrp_prefix_t *prefix)
 {
-	if (!prefix)
+	eigrp_summary_state_t *state;
+	struct eigrp_summary_metric_entry **cursor;
+	struct eigrp_summary_metric_entry *entry;
+	eigrp_prefix_t normalized;
+
+	if (!eigrp_summary_prefix_valid(prefix))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config && prefix->address.afi != context->config->afi)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (context->config && context->config->summary_state) {
+		state = context->config->summary_state;
+		normalized = *prefix;
+		eigrp_summary_prefix_normalize(&normalized);
+		for (cursor = &state->metrics; *cursor;
+		     cursor = &(*cursor)->next) {
+			entry = *cursor;
+			if (!eigrp_summary_prefix_equal(&entry->prefix, &normalized))
+				continue;
+			*cursor = entry->next;
+			free(entry);
+			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+						: EIGRP_RESULT_SUCCESS;
+		}
+		if (!context->runtime)
+			return EIGRP_RESULT_NOT_FOUND;
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_NOT_FOUND;
+}
+
+void eigrp_summary_state_delete_all(eigrp_address_family_config_t *af)
+{
+	struct eigrp_summary_metric_entry *entry;
+	struct eigrp_summary_metric_entry *next;
+
+	if (!af || !af->summary_state)
+		return;
+	for (entry = af->summary_state->metrics; entry; entry = next) {
+		next = entry->next;
+		free(entry);
+	}
+	free(af->summary_state);
+	af->summary_state = NULL;
 }

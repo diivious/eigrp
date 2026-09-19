@@ -46,6 +46,7 @@ eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
                                    eigrp_offset_direction_t direction,
                                    uint32_t offset,
                                    const char *interface_name);
+void eigrp_offset_config_delete_all(eigrp_address_family_config_t *af);
 eigrp_result_t eigrp_distribute_list_update(
         eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
         const char *name, eigrp_offset_direction_t direction,
