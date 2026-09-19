@@ -7,6 +7,8 @@
 
 #include <string.h>
 
+#include "linklist.h"
+
 #include "lib/table.h"
 
 #include "eigrpd/eigrpd.h"
@@ -136,17 +138,15 @@ eigrp_result_t eigrp_statistics_traffic_show(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	memset(state, 0, sizeof(*state));
-	/* Only counters currently maintained by the packet paths are marked valid. */
-	state->sent_valid = EIGRP_STATISTICS_TRAFFIC_QUERY
+	/* Validated packet I/O owns all IPv4 traffic counters. */
+	state->sent_valid = EIGRP_STATISTICS_TRAFFIC_ACK
+			    | EIGRP_STATISTICS_TRAFFIC_HELLO
+			    | EIGRP_STATISTICS_TRAFFIC_UPDATE
+			    | EIGRP_STATISTICS_TRAFFIC_QUERY
 			    | EIGRP_STATISTICS_TRAFFIC_REPLY
 			    | EIGRP_STATISTICS_TRAFFIC_SIA_QUERY
 			    | EIGRP_STATISTICS_TRAFFIC_SIA_REPLY;
-	state->received_valid = EIGRP_STATISTICS_TRAFFIC_HELLO
-				| EIGRP_STATISTICS_TRAFFIC_UPDATE
-				| EIGRP_STATISTICS_TRAFFIC_QUERY
-				| EIGRP_STATISTICS_TRAFFIC_REPLY
-				| EIGRP_STATISTICS_TRAFFIC_SIA_QUERY
-				| EIGRP_STATISTICS_TRAFFIC_SIA_REPLY;
+	state->received_valid = state->sent_valid;
 	for (ALL_LIST_ELEMENTS_RO(context->runtime->eiflist, node, interface)) {
 		state->sent_ack += interface->stats.sent.ack;
 		state->sent_hello += interface->stats.sent.hello;

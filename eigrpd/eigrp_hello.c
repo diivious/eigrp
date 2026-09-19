@@ -350,9 +350,7 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 
 	/*If received packet is hello with Parameter TLV*/
 	if (ntohl(eigrph->ack) == 0) {
-		/* increment statistics. */
-		ei->stats.rcvd.hello++;
-		if (nbr)
+			if (nbr)
 			eigrp_nbr_state_update(nbr);
 	}
 

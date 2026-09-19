@@ -7,37 +7,33 @@
 
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "linklist.h"
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrp_timer.h"
 #include "eigrp_interface.h"
+#include "eigrp_neighbor.h"
+#include "eigrp_southbound.h"
 
 struct eigrp_timer_config {
 	bool active_time_configured;
 	uint16_t active_time_seconds;
 };
 
-struct eigrp_timer_walk_context {
-	eigrp_timer_state_cb callback;
-	void *arg;
-};
-
-static eigrp_result_t eigrp_timer_interface_state(
-	const eigrp_interface_state_t *interface, void *arg)
+static void eigrp_timer_neighbor_address(const eigrp_neighbor_t *nbr,
+					 eigrp_address_t *address)
 {
-	struct eigrp_timer_walk_context *context = arg;
-	eigrp_timer_state_t state = {
-		.interface_name = interface->interface_name,
-		.config_present = interface->config_present,
-		.runtime_present = interface->runtime_present,
-		.hello_interval_configured = interface->hello_interval_configured,
-		.hold_time_configured = interface->hold_time_configured,
-		.hello_interval = interface->hello_interval,
-		.hold_time = interface->hold_time,
-	};
-
-	return context->callback(&state, context->arg);
+	memset(address, 0, sizeof(*address));
+	if (nbr->src.afi == AF_INET6) {
+		address->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		memcpy(address->bytes, &nbr->src.ip.v6, 16);
+		return;
+	}
+	address->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
 eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
@@ -82,20 +78,53 @@ void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af)
 eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 				eigrp_timer_state_cb callback, void *arg)
 {
-	struct eigrp_timer_walk_context walk = {
-		.callback = callback,
-		.arg = arg,
-	};
+	eigrp_interface_t *interface;
+	eigrp_neighbor_t *neighbor;
+	struct listnode *interface_node;
+	struct listnode *neighbor_node;
 	eigrp_result_t result;
 
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (!callback)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	result = eigrp_interface_state_walk(context->config, context->runtime, NULL,
-					    eigrp_timer_interface_state, &walk);
-	if (result == EIGRP_RESULT_NOT_FOUND)
+	if (!context->runtime)
 		return EIGRP_RESULT_SUCCESS;
-	return result;
+
+	for (ALL_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
+				  interface)) {
+		if (interface->t_hello) {
+			eigrp_timer_state_t state = {
+				.type = EIGRP_TIMER_STATE_HELLO,
+				.interface_name = eigrp_intf_name_string(interface),
+				.expiration_seconds =
+					eigrp_southbound_timer_remaining_seconds(
+						interface->t_hello),
+			};
+
+			result = callback(&state, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+		}
+
+		for (ALL_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
+			eigrp_timer_state_t state = {0};
+
+			if (neighbor->state == EIGRP_NEIGHBOR_DOWN
+			    || !neighbor->t_holddown)
+				continue;
+			state.type = EIGRP_TIMER_STATE_PEER_HOLD;
+			state.interface_name = eigrp_intf_name_string(interface);
+			state.neighbor_present = true;
+			eigrp_timer_neighbor_address(neighbor, &state.neighbor_address);
+			state.expiration_seconds =
+				eigrp_southbound_timer_remaining_seconds(
+					neighbor->t_holddown);
+			result = callback(&state, arg);
+			if (result != EIGRP_RESULT_SUCCESS)
+				return result;
+		}
+	}
+
+	return EIGRP_RESULT_SUCCESS;
 }

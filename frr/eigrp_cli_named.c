@@ -3097,8 +3097,29 @@ static eigrp_result_t eigrp_vty_interface_state_render(
 				: "runtime unavailable");
 		vty_out(show->vty, "  Authentication: %s\n",
 			state->authentication_configured ? "configured" : "not configured");
-		vty_out(show->vty,
-			"  SRTT, pacing time, flow timer, and suppression counters: not exposed by the current backend\n");
+		vty_out(show->vty, "  Split-horizon: %s\n",
+			state->split_horizon ? "enabled" : "disabled");
+		if (state->runtime_present) {
+			if (state->hello_timer_running)
+				vty_out(show->vty, "  Next hello: %u seconds\n",
+					state->hello_timer_remaining);
+			else
+				vty_out(show->vty, "  Next hello: not scheduled\n");
+			vty_out(show->vty,
+				"  Un/reliable mcasts: %" PRIu64 "/%" PRIu64
+				"  Un/reliable ucasts: %" PRIu64 "/%" PRIu64 "\n",
+				state->unreliable_multicast_sent,
+				state->reliable_multicast_sent,
+				state->unreliable_unicast_sent,
+				state->reliable_unicast_sent);
+			vty_out(show->vty,
+				"  Mcast exceptions: %" PRIu64 "  CR packets: %" PRIu64
+				"  Retransmissions sent: %" PRIu64 "\n",
+				state->multicast_exceptions, state->cr_packets_sent,
+				state->retransmissions_sent);
+			vty_out(show->vty,
+				"  Mean SRTT, pacing/flow timers, ACK suppression, and out-of-sequence counters: n/a (not maintained by the current transport)\n");
+		}
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -3134,6 +3155,25 @@ static eigrp_result_t eigrp_vty_interface_context_render(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+static const char *eigrp_vty_duration_string(uint64_t seconds, char *buffer,
+					     size_t size)
+{
+	uint64_t days = seconds / 86400U;
+	uint64_t hours = (seconds % 86400U) / 3600U;
+	uint64_t minutes = (seconds % 3600U) / 60U;
+	uint64_t secs = seconds % 60U;
+
+	if (days)
+		snprintf(buffer, size, "%llud%02llu:%02llu",
+			 (unsigned long long)days, (unsigned long long)hours,
+			 (unsigned long long)minutes);
+	else
+		snprintf(buffer, size, "%02llu:%02llu:%02llu",
+			 (unsigned long long)hours, (unsigned long long)minutes,
+			 (unsigned long long)secs);
+	return buffer;
+}
+
 struct eigrp_vty_neighbor_show {
 	struct vty *vty;
 	bool detail;
@@ -3146,6 +3186,8 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 {
 	struct eigrp_vty_neighbor_show *show = arg;
 	char address[INET6_ADDRSTRLEN];
+	char uptime[32];
+	char srtt[16];
 
 	if (!show->printed_header) {
 		if (show->static_only)
@@ -3153,30 +3195,40 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 				"Interface", "State");
 		else
 			vty_out(show->vty,
-				"%-40s %-22s %-8s %-8s %-12s %-10s\n", "Address",
-				"Interface", "Hold", "RelQ", "Seq", "State");
+				"%-40s %-18s %-6s %-12s %-6s %-6s %-5s %-10s\n",
+				"Address", "Interface", "Hold", "Uptime", "SRTT",
+				"RTO", "Q", "Seq");
 		show->printed_header = true;
 	}
 
 	if (show->static_only) {
 		vty_out(show->vty, "%-40s %-22s %-12s\n",
 			eigrp_vty_address_string(&state->address, address,
-						 sizeof(address)),
+					 sizeof(address)),
 			state->interface_name, state->state_name);
 		return EIGRP_RESULT_SUCCESS;
 	}
 
-	vty_out(show->vty, "%-40s %-22s %-8u %-8lu %-12u %-10s\n",
+	if (state->srtt_valid)
+		snprintf(srtt, sizeof(srtt), "%u", state->srtt_msec);
+	else
+		snprintf(srtt, sizeof(srtt), "n/a");
+	eigrp_vty_duration_string(state->uptime_seconds, uptime, sizeof(uptime));
+	vty_out(show->vty, "%-40s %-18s %-6u %-12s %-6s %-6u %-5lu %-10u\n",
 		eigrp_vty_address_string(&state->address, address, sizeof(address)),
-		state->interface_name, state->hold_time, state->reliable_queue_count,
-		state->sequence_number, state->state_name);
+		state->interface_name, state->hold_time, uptime, srtt, state->rto_msec,
+		state->reliable_queue_count, state->sequence_number);
 	if (show->detail) {
 		vty_out(show->vty,
-			"  Version %u.%u/%u.%u, TLV version %u, retransmissions %u\n",
+			"  Version %u.%u/%u.%u, TLV version %u, State: %s, Retrans: %" PRIu64
+			", Retries: %u, Prefixes: %u\n",
 			state->os_major, state->os_minor, state->tlv_major,
-			state->tlv_minor, state->tlv_version, state->retransmit_count);
-		vty_out(show->vty,
-			"  Uptime, SRTT, and adaptive RTO state: not exposed by the current backend\n");
+			state->tlv_minor, state->tlv_version, state->state_name,
+			state->retransmit_count, state->retry_count, state->prefix_count);
+		if (!state->srtt_valid)
+			vty_out(show->vty,
+				"  SRTT: n/a; transport uses the fixed %u ms retransmission interval\n",
+				state->rto_msec);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -3360,11 +3412,9 @@ DEFPY(show_eigrp_interface,
 		.detail = detail != NULL,
 	};
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast interface state",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "interfaces",
 					  eigrp_vty_interface_context_render, &options);
 }
@@ -3393,11 +3443,9 @@ DEFPY(show_eigrp_neighbor,
 		.static_only = argv_find(argv, argc, "static", &index),
 	};
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast neighbor state",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "neighbors",
 					  eigrp_vty_neighbor_context_render, &options);
 }
@@ -3421,11 +3469,9 @@ DEFPY(show_eigrp_topology_all,
 		.all_links = all != NULL,
 	};
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast topology state",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "topology",
 					  eigrp_vty_topology_context_render, &options);
 }
@@ -3452,11 +3498,9 @@ DEFPY(show_eigrp_topology,
 		.all_links = all != NULL,
 	};
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast topology state",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	if (!eigrp_vty_destination_parse(target, request.afi, &destination)) {
 		vty_out(vty, "%% Malformed topology destination: %s\n", target);
 		return CMD_WARNING;
@@ -3476,10 +3520,16 @@ static eigrp_result_t eigrp_vty_accounting_state_render(
 	struct eigrp_vty_accounting_show *show = arg;
 	char address[INET6_ADDRSTRLEN];
 
-	vty_out(show->vty, "%-10s %-40s %-22s %u\n", state->neighbor_state,
+	const char *code = strcmp(state->neighbor_state, "Up") == 0
+				   ? "A"
+				   : strcmp(state->neighbor_state, "Waiting for Init") == 0
+					     ? "P"
+					     : "D";
+
+	vty_out(show->vty, "%-5s %-40s %-22s %-10u %-9s %s\n", code,
 		eigrp_vty_address_string(&state->neighbor_address, address,
 					 sizeof(address)),
-		state->interface_name, state->prefix_count);
+		state->interface_name, state->prefix_count, "n/a", "n/a");
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -3499,39 +3549,21 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 	(void)arg;
 	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
 				       "Accounting");
-	vty_out(vty, "%-10s %-40s %-22s %s\n", "State", "Address/Source",
-		"Interface", "Prefixes");
+	vty_out(vty, "States: A-Adjacency, P-Pending, D-Down\n");
+	vty_out(vty, "%-5s %-40s %-22s %-10s %-9s %s\n", "State",
+		"Address/Source", "Interface", "Prefixes", "Restart", "Restart/Reset(s)");
 	result = eigrp_statistics_accounting_show(
 		&context, &total_prefix_count, eigrp_vty_accounting_state_render, &show);
 	if (result == EIGRP_RESULT_SUCCESS) {
 		vty_out(vty, "Total Prefix Count: %u\n", total_prefix_count);
 		vty_out(vty,
-			"Restart count and restart/reset timers: not exposed by the current backend\n");
+			"Restart fields are n/a until neighbor maximum-prefix enforcement is implemented.\n");
 	} else if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, "  Runtime accounting data is not available\n");
 	} else {
 		eigrp_cli_result_render(vty, "accounting", result);
 	}
 	return EIGRP_RESULT_SUCCESS;
-}
-
-static void eigrp_vty_traffic_field_render(struct vty *vty, const char *name,
-					   uint16_t field,
-					   const eigrp_statistics_traffic_state_t *state,
-					   uint64_t sent, uint64_t received)
-{
-	char sent_text[32];
-	char received_text[32];
-
-	if (state->sent_valid & field)
-		snprintfrr(sent_text, sizeof(sent_text), "%" PRIu64, sent);
-	else
-		snprintf(sent_text, sizeof(sent_text), "n/a");
-	if (state->received_valid & field)
-		snprintfrr(received_text, sizeof(received_text), "%" PRIu64, received);
-	else
-		snprintf(received_text, sizeof(received_text), "n/a");
-	vty_out(vty, "  %-14s %12s %12s\n", name, sent_text, received_text);
 }
 
 static eigrp_result_t eigrp_vty_traffic_context_render(
@@ -3551,30 +3583,20 @@ static eigrp_result_t eigrp_vty_traffic_context_render(
 				       "Traffic Statistics");
 	result = eigrp_statistics_traffic_show(&context, &state);
 	if (result == EIGRP_RESULT_SUCCESS) {
-		vty_out(vty, "                         Sent       Received\n");
-		eigrp_vty_traffic_field_render(
-			vty, "Hellos", EIGRP_STATISTICS_TRAFFIC_HELLO, &state,
+		vty_out(vty, "  Hellos sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_hello, state.received_hello);
-		eigrp_vty_traffic_field_render(
-			vty, "Updates", EIGRP_STATISTICS_TRAFFIC_UPDATE, &state,
+		vty_out(vty, "  Updates sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_update, state.received_update);
-		eigrp_vty_traffic_field_render(
-			vty, "Queries", EIGRP_STATISTICS_TRAFFIC_QUERY, &state,
+		vty_out(vty, "  Queries sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_query, state.received_query);
-		eigrp_vty_traffic_field_render(
-			vty, "Replies", EIGRP_STATISTICS_TRAFFIC_REPLY, &state,
+		vty_out(vty, "  Replies sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_reply, state.received_reply);
-		eigrp_vty_traffic_field_render(
-			vty, "ACKs", EIGRP_STATISTICS_TRAFFIC_ACK, &state,
+		vty_out(vty, "  Acks sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_ack, state.received_ack);
-		eigrp_vty_traffic_field_render(
-			vty, "SIA-Queries", EIGRP_STATISTICS_TRAFFIC_SIA_QUERY,
-			&state, state.sent_sia_query, state.received_sia_query);
-		eigrp_vty_traffic_field_render(
-			vty, "SIA-Replies", EIGRP_STATISTICS_TRAFFIC_SIA_REPLY,
-			&state, state.sent_sia_reply, state.received_sia_reply);
-		vty_out(vty,
-			"  n/a means the current packet path does not maintain that counter\n");
+		vty_out(vty, "  SIA-Queries sent/received: %" PRIu64 "/%" PRIu64 "\n",
+			state.sent_sia_query, state.received_sia_query);
+		vty_out(vty, "  SIA-Replies sent/received: %" PRIu64 "/%" PRIu64 "\n",
+			state.sent_sia_reply, state.received_sia_reply);
 	} else if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, "  Runtime traffic counters are not available\n");
 	} else {
@@ -3592,22 +3614,29 @@ static eigrp_result_t eigrp_vty_timer_state_render(const eigrp_timer_state_t *st
 						   void *arg)
 {
 	struct eigrp_vty_timer_show *show = arg;
+	char address[INET6_ADDRSTRLEN];
 
 	if (!show->printed_header) {
-		vty_out(show->vty, "%-22s %-10s %-16s %-16s\n", "Interface", "Source",
-			"Hello interval", "Hold time");
+		vty_out(show->vty, "%-10s %-12s %-22s %s\n", "Process", "Expires",
+			"Type", "Detail");
 		show->printed_header = true;
 	}
-	vty_out(show->vty, "%-22s %-10s ", state->interface_name,
-		state->runtime_present ? "runtime" : "config");
-	if (state->runtime_present || state->hello_interval_configured)
-		vty_out(show->vty, "%-16u ", state->hello_interval);
-	else
-		vty_out(show->vty, "%-16s ", "default");
-	if (state->runtime_present || state->hold_time_configured)
-		vty_out(show->vty, "%-16u\n", state->hold_time);
-	else
-		vty_out(show->vty, "%-16s\n", "default");
+
+	if (state->type == EIGRP_TIMER_STATE_HELLO) {
+		vty_out(show->vty, "%-10s %-12u %-22s %s\n", "Hello",
+			state->expiration_seconds, "Hello", state->interface_name);
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (state->type == EIGRP_TIMER_STATE_PEER_HOLD) {
+		vty_out(show->vty, "%-10s %-12u %-22s %s via %s\n", "Update",
+			state->expiration_seconds, "Peer holding",
+			state->neighbor_present
+				? eigrp_vty_address_string(&state->neighbor_address, address,
+						 sizeof(address))
+				: "-",
+			state->interface_name ? state->interface_name : "-");
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -3630,9 +3659,9 @@ static eigrp_result_t eigrp_vty_timer_context_render(
 	if (result != EIGRP_RESULT_SUCCESS)
 		eigrp_cli_result_render(vty, "timers", result);
 	if (!show.printed_header)
-		vty_out(vty, "  No interface timer state is currently available\n");
+		vty_out(vty, "  No active IPv4 EIGRP timers are currently scheduled\n");
 	vty_out(vty,
-		"  Timer expiration scheduling and SIA process expiration: not exposed by the current portable backend\n");
+		"  SIA process expiration: n/a until ACTIVE-time enforcement is implemented\n");
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -3705,11 +3734,9 @@ DEFPY(show_eigrp_accounting,
 {
 	eigrp_state_request_t request;
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast accounting",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "accounting",
 					  eigrp_vty_accounting_context_render, NULL);
 }
@@ -3723,11 +3750,9 @@ DEFPY(show_eigrp_event,
 {
 	eigrp_state_request_t request;
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast events",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "events",
 					  eigrp_vty_event_context_render, NULL);
 }
@@ -3741,11 +3766,9 @@ DEFPY(show_eigrp_timer,
 {
 	eigrp_state_request_t request;
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast timers",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "timers",
 					  eigrp_vty_timer_context_render, NULL);
 }
@@ -3759,11 +3782,9 @@ DEFPY(show_eigrp_traffic,
 {
 	eigrp_state_request_t request;
 
-	if (eigrp_vty_multicast_requested(argv, argc))
-		return eigrp_cli_result_render(vty, "multicast traffic",
-					       EIGRP_RESULT_UNSUPPORTED);
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
+	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "traffic",
 					  eigrp_vty_traffic_context_render, NULL);
 }

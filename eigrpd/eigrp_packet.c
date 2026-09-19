@@ -52,6 +52,118 @@ static int eigrp_packet_auth_digest_validate(eigrp_interface_t *ei,
 
 #define EIGRP_PACKET_ADDR_TEXT_SIZE 64U
 
+static bool eigrp_packet_header_is_ack(const struct eigrp_header *header)
+{
+	return header && header->opcode == EIGRP_OPC_HELLO
+	       && ntohl(header->sequence) == 0 && ntohl(header->ack) != 0;
+}
+
+static void eigrp_packet_opcode_counter_increment(eigrp_intf_stats_t *stats,
+						  bool sent,
+						  const struct eigrp_header *header)
+{
+	if (!stats || !header)
+		return;
+
+	if (eigrp_packet_header_is_ack(header)) {
+		if (sent)
+			stats->sent.ack++;
+		else
+			stats->rcvd.ack++;
+		return;
+	}
+
+	switch (header->opcode) {
+	case EIGRP_OPC_HELLO:
+		if (sent)
+			stats->sent.hello++;
+		else
+			stats->rcvd.hello++;
+		break;
+	case EIGRP_OPC_UPDATE:
+		if (sent)
+			stats->sent.update++;
+		else
+			stats->rcvd.update++;
+		break;
+	case EIGRP_OPC_QUERY:
+		if (sent)
+			stats->sent.query++;
+		else
+			stats->rcvd.query++;
+		break;
+	case EIGRP_OPC_REPLY:
+		if (sent)
+			stats->sent.reply++;
+		else
+			stats->rcvd.reply++;
+		break;
+	case EIGRP_OPC_SIAQUERY:
+		if (sent)
+			stats->sent.siaQuery++;
+		else
+			stats->rcvd.siaQuery++;
+		break;
+	case EIGRP_OPC_SIAREPLY:
+		if (sent)
+			stats->sent.siaReply++;
+		else
+			stats->rcvd.siaReply++;
+		break;
+	default:
+		break;
+	}
+}
+
+static bool eigrp_packet_destination_is_ipv4_multicast(const eigrp_packet_t *packet)
+{
+	return packet && packet->dst.afi == AF_INET
+	       && packet->dst.ip.v4.s_addr == htonl(EIGRP_MULTICAST_ADDRESS);
+}
+
+static void eigrp_packet_send_stats_record(eigrp_interface_t *ei,
+					   const eigrp_packet_t *packet,
+					   const struct eigrp_header *header)
+{
+	bool reliable;
+	bool multicast;
+
+	if (!ei || !packet || !header)
+		return;
+
+	eigrp_packet_opcode_counter_increment(&ei->stats, true, header);
+	reliable = ntohl(header->sequence) != 0;
+	multicast = eigrp_packet_destination_is_ipv4_multicast(packet);
+	if (multicast) {
+		if (reliable)
+			ei->stats.reliable_multicast_sent++;
+		else
+			ei->stats.unreliable_multicast_sent++;
+	} else {
+		if (reliable)
+			ei->stats.reliable_unicast_sent++;
+		else
+			ei->stats.unreliable_unicast_sent++;
+	}
+	if (ntohl(header->flags) & EIGRP_CR_FLAG)
+		ei->stats.cr_packets_sent++;
+	if (packet->retransmission) {
+		ei->stats.retransmissions_sent++;
+		if (packet->nbr)
+			packet->nbr->retransmissions++;
+	}
+	if (packet->multicast_exception)
+		ei->stats.multicast_exceptions++;
+}
+
+static void eigrp_packet_receive_stats_record(eigrp_interface_t *ei,
+					      const struct eigrp_header *header)
+{
+	if (!ei || !header)
+		return;
+	eigrp_packet_opcode_counter_increment(&ei->stats, false, header);
+}
+
 static const char *eigrp_packet_addr_text(eigrp_instance_t *eigrp,
 					 const eigrp_addr_t *address,
 					 char *buf, size_t len)
@@ -240,6 +352,8 @@ void eigrp_packet_write(void *arg)
 	}
 
 	eigrp_debug_packet_send(ei, packet, ret);
+	if (ret >= 0)
+		eigrp_packet_send_stats_record(ei, packet, eigrph);
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		char destination[EIGRP_PACKET_ADDR_TEXT_SIZE];
@@ -371,6 +485,7 @@ void eigrp_packet_read(void *arg)
 		if (eigrp_packet_auth_digest_validate(ei, nbr, eigrph, length) < 0)
 			return;
 
+		eigrp_packet_receive_stats_record(ei, eigrph);
 		eigrp_hello_receive(eigrp, eigrph, &src, ei, ibuf, length);
 		return;
 	}
@@ -382,6 +497,7 @@ void eigrp_packet_read(void *arg)
 	if (eigrp_packet_auth_digest_validate(ei, nbr, eigrph, length) < 0)
 		return;
 
+	eigrp_packet_receive_stats_record(ei, eigrph);
 	if (ntohl(eigrph->ack))
 		eigrp_packet_ack(eigrp, eigrph, nbr);
 
@@ -891,6 +1007,7 @@ void eigrp_packet_unack_retrans(void *arg)
 		}
 		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
 		duplicate = eigrp_packet_duplicate(packet, nbr);
+		duplicate->retransmission = true;
 		eigrp_addr_copy(&duplicate->dst, &nbr->src);
 		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
 
@@ -930,6 +1047,8 @@ void eigrp_packet_unack_multicast_retrans(void *arg)
 		}
 		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
 		duplicate = eigrp_packet_duplicate(packet, nbr);
+		duplicate->retransmission = true;
+		duplicate->multicast_exception = true;
 		eigrp_addr_copy(&duplicate->dst, &nbr->src);
 		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
 
@@ -981,6 +1100,8 @@ eigrp_packet_t *eigrp_packet_duplicate(eigrp_packet_t *old,
 	new->dst = old->dst;
 	new->sequence_number = old->sequence_number;
 	new->sequence_reserved = old->sequence_reserved;
+	new->retransmission = false;
+	new->multicast_exception = false;
 	stream_copy(new->s, old->s);
 
 	return new;

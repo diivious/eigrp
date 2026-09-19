@@ -64,6 +64,7 @@ void eigrp_southbound_read_add(eigrp_event_t **event, int fd,
 void eigrp_southbound_write_add(eigrp_event_t **event, int fd,
                                 eigrp_event_callback_t callback, void *arg);
 uint32_t eigrp_southbound_timer_remaining_seconds(const eigrp_event_t *event);
+uint64_t eigrp_southbound_monotime_msec(void);
 
 /* Host socket/interface services used by the portable runtime. */
 eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp);

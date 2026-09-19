@@ -113,8 +113,6 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 
-	/* increment statistics. */
-	ei->stats.rcvd.query++;
 
 	/* get neighbor struct */
 	nbr->recv_sequence_number = ntohl(eigrph->sequence);

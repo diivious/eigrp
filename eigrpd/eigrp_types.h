@@ -138,6 +138,8 @@ typedef struct eigrp_state_request {
 	const char *vrf_name;
 	uint16_t asn; /* zero means all configured AS contexts */
 	bool all_vrfs; /* otherwise a NULL VRF name means the default VRF */
+	/* Cisco's token selects the EIGRP Multicast Address Family (MAF). */
+	bool multicast;
 } eigrp_state_request_t;
 
 // basic packet processor definitions

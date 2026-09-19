@@ -149,24 +149,33 @@ enum { MEMBER_ALLROUTERS = 0,
 
 typedef struct eigrp_intf_stats {
 	struct {
-		int ack;
-		int hello;  /* Hello message input count. */
-		int query;  /* Query message input count. */
-		int reply;  /* Reply message input count. */
-		int update; /* Update message input count. */
-		int siaQuery;
-		int siaReply;
+		uint64_t ack;
+		uint64_t hello;  /* Hello message input count. */
+		uint64_t query;  /* Query message input count. */
+		uint64_t reply;  /* Reply message input count. */
+		uint64_t update; /* Update message input count. */
+		uint64_t siaQuery;
+		uint64_t siaReply;
 	} rcvd;
 
 	struct {
-		int ack;
-		int hello;  /* Hello message output count. */
-		int query;  /* Query message output count. */
-		int reply;  /* Reply message output count. */
-		int update; /* Update message output count. */
-		int siaQuery;
-		int siaReply;
+		uint64_t ack;
+		uint64_t hello;  /* Hello message output count. */
+		uint64_t query;  /* Query message output count. */
+		uint64_t reply;  /* Reply message output count. */
+		uint64_t update; /* Update message output count. */
+		uint64_t siaQuery;
+		uint64_t siaReply;
 	} sent;
+
+	/* Reliable-transport/interface detail counters used by EXEC state. */
+	uint64_t unreliable_multicast_sent;
+	uint64_t reliable_multicast_sent;
+	uint64_t unreliable_unicast_sent;
+	uint64_t reliable_unicast_sent;
+	uint64_t multicast_exceptions;
+	uint64_t cr_packets_sent;
+	uint64_t retransmissions_sent;
 } eigrp_intf_stats_t;
 
 /*EIGRP interface structure*/
@@ -244,6 +253,8 @@ typedef struct eigrp_packet {
 	eigrp_neighbor_t *nbr;
 	uint32_t sequence_number;
 	bool sequence_reserved;
+	bool retransmission;
+	bool multicast_exception;
 
 	/* EIGRP packet length. */
 	uint16_t length;

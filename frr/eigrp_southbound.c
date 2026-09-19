@@ -175,6 +175,14 @@ uint32_t eigrp_southbound_timer_remaining_seconds(const eigrp_event_t *event)
 	return event_timer_remain_second(event->host_event);
 }
 
+uint64_t eigrp_southbound_monotime_msec(void)
+{
+	struct timeval now;
+
+	monotime(&now);
+	return (uint64_t)now.tv_sec * 1000U + (uint64_t)now.tv_usec / 1000U;
+}
+
 struct eigrp_work_queue {
 	eigrp_instance_t *eigrp;
 	struct work_queue *host_queue;

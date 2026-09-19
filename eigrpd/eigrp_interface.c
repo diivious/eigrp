@@ -88,6 +88,8 @@ static void eigrp_interface_state_from_config(eigrp_interface_state_t *state,
 	state->passive = config->passive;
 	state->authentication_configured = config->authentication_mode_configured;
 	state->authentication_mode = config->authentication_mode;
+	state->next_hop_self = config->next_hop_self;
+	state->split_horizon = config->split_horizon;
 	state->bandwidth_percent_configured = config->bandwidth_percent_configured;
 	state->hello_interval_configured = config->hello_interval_configured;
 	state->hold_time_configured = config->hold_time_configured;
@@ -128,6 +130,18 @@ static eigrp_result_t eigrp_interface_state_emit(
 		state.load = ei->params.load;
 		state.tlv1_peer_count = ei->tlv1_peer_count;
 		state.tlv2_peer_count = ei->tlv2_peer_count;
+		state.split_horizon = ei->split_horizon;
+		state.hello_timer_running = ei->t_hello != NULL;
+		state.hello_timer_remaining =
+			eigrp_southbound_timer_remaining_seconds(ei->t_hello);
+		state.unreliable_multicast_sent =
+			ei->stats.unreliable_multicast_sent;
+		state.reliable_multicast_sent = ei->stats.reliable_multicast_sent;
+		state.unreliable_unicast_sent = ei->stats.unreliable_unicast_sent;
+		state.reliable_unicast_sent = ei->stats.reliable_unicast_sent;
+		state.multicast_exceptions = ei->stats.multicast_exceptions;
+		state.cr_packets_sent = ei->stats.cr_packets_sent;
+		state.retransmissions_sent = ei->stats.retransmissions_sent;
 	}
 
 	return callback(&state, arg);

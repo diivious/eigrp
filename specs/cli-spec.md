@@ -287,6 +287,23 @@ show eigrp tech-support
 
 Do not install `show eigrp plugins`.
 
+### 8.1 `multicast` show selector
+
+Retain the optional `multicast` selector in the named-mode address-family show
+grammar where the Cisco command surface documents it.  This token selects the
+EIGRP **Multicast Address Family (MAF)**; it is not a request to show ordinary
+IPv4 multicast transport state such as 224.0.0.10 membership or reliable
+first-send multicast behavior.  RFC 7868 assigns VRID `0x0000` to the Unicast
+Address Family and VRID `0x0001` to the Multicast Address Family.
+
+The current project models only the unicast address-family configuration/runtime
+path.  Therefore a parsed `multicast` show request is carried through the
+EIGRP-owned `eigrp_state_request_t` to the instance state target, which returns
+`EIGRP_RESULT_NOT_IMPLEMENTED`.  Do not remove the grammar token, reinterpret it
+as normal packet multicast state, or reject it in the FRR CLI adapter as an
+unsupported spelling.  If MAF is implemented later, the same request/target
+boundary becomes the implementation entry point.
+
 A partially implemented show command must display all real information currently available. Missing backend data must not cause the entire command to be replaced by an empty generic stub.
 
 Debug command coverage should include protocol debugging such as:

@@ -400,15 +400,23 @@ def test_named_show_clippy_forwards_address_family_filters():
         assert f"{name}_magic(self, vty, argc, argv, NULL, NULL, 0, NULL)" not in block
 
 
-def test_traffic_show_marks_unmaintained_counters_unavailable():
+def test_traffic_show_reports_all_ipv4_packet_counters():
     statistics = read(ROOT / "eigrpd" / "eigrp_statistics.c")
     vty = read(VTY)
 
-    assert "sent_valid" in statistics
-    assert "received_valid" in statistics
-    assert "state->sent_valid & field" in vty
-    assert "state->received_valid & field" in vty
-    assert "n/a means the current packet path does not maintain that counter" in vty
+    assert "Validated packet I/O owns all IPv4 traffic counters." in statistics
+    assert "state->received_valid = state->sent_valid;" in statistics
+    for label in (
+        "Hellos sent/received",
+        "Updates sent/received",
+        "Queries sent/received",
+        "Replies sent/received",
+        "Acks sent/received",
+        "SIA-Queries sent/received",
+        "SIA-Replies sent/received",
+    ):
+        assert label in vty
+    assert "n/a means the current packet path does not maintain that counter" not in vty
 
 
 def test_protocol_and_tech_support_walk_all_named_vrfs():

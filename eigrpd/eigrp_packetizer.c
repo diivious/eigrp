@@ -56,30 +56,6 @@ eigrp_packetizer_poison_route_create(eigrp_prefix_descriptor_t *prefix)
 	return route;
 }
 
-static void eigrp_packetizer_neighbor_stat(eigrp_neighbor_t *nbr,
-					   uint8_t opcode)
-{
-	if (!nbr || !nbr->ei)
-		return;
-
-	switch (opcode) {
-	case EIGRP_OPC_QUERY:
-		nbr->ei->stats.sent.query++;
-		break;
-	case EIGRP_OPC_REPLY:
-		nbr->ei->stats.sent.reply++;
-		break;
-	case EIGRP_OPC_SIAQUERY:
-		nbr->ei->stats.sent.siaQuery++;
-		break;
-	case EIGRP_OPC_SIAREPLY:
-		nbr->ei->stats.sent.siaReply++;
-		break;
-	default:
-		break;
-	}
-}
-
 static void eigrp_packetizer_neighbor_route_send(eigrp_instance_t *eigrp,
 						 eigrp_packetizer_work_t *work)
 {
@@ -153,7 +129,6 @@ static void eigrp_packetizer_neighbor_route_send(eigrp_instance_t *eigrp,
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, ei, nbr,
 				   "linked opcode %u seq %u to reliable queue (depth %lu)",
 				   work->opcode, sequence, nbr->retrans_queue->count);
-	eigrp_packetizer_neighbor_stat(nbr, work->opcode);
 
 	if (nbr->retrans_queue->count == 1)
 		eigrp_packet_send_reliably(eigrp, nbr);
@@ -274,10 +249,6 @@ static void eigrp_packetizer_query_interface_send(eigrp_instance_t *eigrp,
 		else
 			eigrp_packet_free(packet);
 	}
-	if (work->opcode == EIGRP_OPC_SIAQUERY)
-		ei->stats.sent.siaQuery++;
-	else
-		ei->stats.sent.query++;
 }
 
 static void eigrp_packetizer_query_send(eigrp_instance_t *eigrp,

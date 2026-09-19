@@ -11,14 +11,17 @@
 #include "eigrp_result.h"
 #include "eigrp_types.h"
 
+typedef enum eigrp_timer_state_type {
+	EIGRP_TIMER_STATE_HELLO = 0,
+	EIGRP_TIMER_STATE_PEER_HOLD,
+} eigrp_timer_state_type_t;
+
 typedef struct eigrp_timer_state {
+	eigrp_timer_state_type_t type;
 	const char *interface_name;
-	bool config_present;
-	bool runtime_present;
-	bool hello_interval_configured;
-	bool hold_time_configured;
-	uint32_t hello_interval;
-	uint16_t hold_time;
+	bool neighbor_present;
+	eigrp_address_t neighbor_address;
+	uint32_t expiration_seconds;
 } eigrp_timer_state_t;
 
 typedef eigrp_result_t (*eigrp_timer_state_cb)(const eigrp_timer_state_t *state,

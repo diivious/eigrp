@@ -54,8 +54,10 @@ typedef struct eigrp_neighbor {
 	uint32_t recv_sequence_number; /* Last received sequence Number. */
 	uint32_t init_sequence_number;
 
-	/*If packet is unacknowledged, we try to send it again 16 times*/
+	/* If a packet is unacknowledged, retry it up to the transport limit. */
 	uint8_t retrans_counter;
+	uint64_t retransmissions;
+	uint64_t up_since_msec;
 
 	eigrp_addr_t src;		/* Neighbor Src address. */
 
@@ -88,9 +90,15 @@ typedef struct eigrp_neighbor_state {
 	bool static_configured;
 	bool runtime_present;
 	uint16_t hold_time;
+	uint64_t uptime_seconds;
 	unsigned long reliable_queue_count;
 	uint32_t sequence_number;
-	uint8_t retransmit_count;
+	uint32_t prefix_count;
+	uint64_t retransmit_count;
+	uint8_t retry_count;
+	bool srtt_valid;
+	uint32_t srtt_msec;
+	uint32_t rto_msec;
 	uint8_t os_major;
 	uint8_t os_minor;
 	uint8_t tlv_major;

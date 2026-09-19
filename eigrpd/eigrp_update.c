@@ -126,8 +126,6 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	uint8_t graceful_restart_final;
 	struct list *nbr_prefixes = NULL;
 
-	/* increment statistics. */
-	ei->stats.rcvd.update++;
 
 	flags = ntohl(eigrph->flags);
 	if (flags & EIGRP_CR_FLAG) {

@@ -78,6 +78,17 @@ typedef struct eigrp_interface_state {
 	uint8_t load;
 	uint16_t tlv1_peer_count;
 	uint16_t tlv2_peer_count;
+	bool split_horizon;
+	bool next_hop_self;
+	bool hello_timer_running;
+	uint32_t hello_timer_remaining;
+	uint64_t unreliable_multicast_sent;
+	uint64_t reliable_multicast_sent;
+	uint64_t unreliable_unicast_sent;
+	uint64_t reliable_unicast_sent;
+	uint64_t multicast_exceptions;
+	uint64_t cr_packets_sent;
+	uint64_t retransmissions_sent;
 	bool bandwidth_percent_configured;
 	bool hello_interval_configured;
 	bool hold_time_configured;

@@ -287,6 +287,14 @@ eigrp_result_t eigrp_instance_address_family_walk(
 	if (request->afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    && request->afi != EIGRP_ADDRESS_FAMILY_IPV6)
 		return EIGRP_RESULT_UNSUPPORTED;
+	/*
+	 * The CLI token selects EIGRP's Multicast Address Family (VRID 0x0001),
+	 * not normal multicast packet transport.  The MAF config/runtime model
+	 * is intentionally deferred, so keep the grammar but terminate the real
+	 * state target truthfully here.
+	 */
+	if (request->multicast)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	/* A normal show request without an explicit VRF is scoped to default. */
 	vrf_name = request->vrf_name ? request->vrf_name : "default";

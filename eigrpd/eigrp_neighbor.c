@@ -13,6 +13,8 @@
  *   Martin Kontsek
  *   Lukas Koribsky
  */
+#include "lib/table.h"
+
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_neighbor.h"
@@ -238,6 +240,32 @@ static void eigrp_neighbor_runtime_address(const eigrp_neighbor_t *nbr,
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
+static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
+					    eigrp_neighbor_t *neighbor)
+{
+	eigrp_prefix_descriptor_t *prefix;
+	eigrp_route_descriptor_t *route;
+	struct route_node *route_node;
+	struct listnode *list_node;
+	uint32_t count = 0;
+
+	if (!runtime || !runtime->topology_table || !neighbor)
+		return 0;
+	for (route_node = route_top(runtime->topology_table); route_node;
+	     route_node = route_next(route_node)) {
+		prefix = route_node->info;
+		if (!prefix)
+			continue;
+		for (ALL_LIST_ELEMENTS_RO(prefix->entries, list_node, route)) {
+			if (route->adv_router == neighbor) {
+				count++;
+				break;
+			}
+		}
+	}
+	return count;
+}
+
 eigrp_result_t eigrp_neighbor_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,
@@ -296,11 +324,24 @@ eigrp_result_t eigrp_neighbor_state_walk(
 			state.interface_name = name;
 			state.state_name = eigrp_nbr_state_str(nbr);
 			state.runtime_present = true;
-			state.hold_time = nbr->v_holddown;
+			state.hold_time = (uint16_t)eigrp_southbound_timer_remaining_seconds(
+				nbr->t_holddown);
+			if (nbr->up_since_msec) {
+				uint64_t now = eigrp_southbound_monotime_msec();
+
+				if (now >= nbr->up_since_msec)
+					state.uptime_seconds =
+						(now - nbr->up_since_msec) / 1000U;
+			}
 			state.reliable_queue_count =
 				nbr->retrans_queue ? nbr->retrans_queue->count : 0;
 			state.sequence_number = nbr->recv_sequence_number;
-			state.retransmit_count = nbr->retrans_counter;
+			state.prefix_count = eigrp_neighbor_prefix_count(runtime, nbr);
+			state.retransmit_count = nbr->retransmissions;
+			if (nbr->retrans_queue && nbr->retrans_queue->tail)
+				state.retry_count = nbr->retrans_queue->tail->retrans_counter;
+			state.srtt_valid = false;
+			state.rto_msec = EIGRP_PACKET_RETRANS_TIME * 1000U;
 			state.os_major = nbr->os_rel_major;
 			state.os_minor = nbr->os_rel_minor;
 			state.tlv_major = nbr->tlv_rel_major;
@@ -535,8 +576,13 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 				   nbr->ei ? nbr->ei->eigrp : NULL, nbr->ei, nbr,
 				   "neighbor left UP state");
 
-	if (state == EIGRP_NEIGHBOR_UP && old_state != EIGRP_NEIGHBOR_UP)
+	if (state == EIGRP_NEIGHBOR_UP && old_state != EIGRP_NEIGHBOR_UP) {
 		eigrp_interface_encoder_bind(nbr->ei, nbr->tlv_version);
+		nbr->up_since_msec = eigrp_southbound_monotime_msec();
+		nbr->retransmissions = 0;
+	} else if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP) {
+		nbr->up_since_msec = 0;
+	}
 
 	if (eigrp_nbr_state_get(nbr) == EIGRP_NEIGHBOR_DOWN) {
 		// reset all the seq/ack counters
