@@ -88,21 +88,37 @@ private FRR callbacks in `eigrp_vrf.c` remain governed by the explicitly
 deferred platform-lifecycle/VRF work in `refactor-work.md`; neither is exposed
 through the portable protocol public APIs.
 
-### 2. FRR route-map/filter integration
+### 2. Policy/filter boundary — complete
 
-Primary files include:
+`eigrp_filter.c` remains the portable feature owner.  Runtime process/interface
+filter state now stores EIGRP-owned policy names in
+`eigrp_filter_runtime_state_t`; `eigrp_instance_t` and `eigrp_interface_t` no
+longer contain FRR access-list, prefix-list, route-map, or distribute-context
+objects.
+
+Prefix decisions cross the EIGRP-owned southbound contract:
 
 ```text
-eigrpd/eigrp_routemap.c
-eigrpd/eigrp_routemap.h
-eigrpd/eigrp_filter.c
-eigrpd/eigrp_structs.h
+eigrp_filter_prefix_apply()
+  -> eigrp_southbound_filter_evaluate()
+  -> FRR eigrp_policy_filter_evaluate()
+  -> FRR access-list/prefix-list object
+  -> eigrp_filter_decision_t
 ```
 
-These paths directly depend on FRR route-map, prefix-list, distribute-list, and
-interface objects/callback signatures.  BIRD policy integration will use BIRD
-objects, so these dependencies belong behind EIGRP-owned policy/filter
-interfaces with FRR implementations under `frr/`.
+Classic FRR distribute-list callbacks are private to `frr/eigrp_policy.c`.  The
+adapter converts the FRR distribute object into an
+`eigrp_filter_runtime_snapshot_t` and calls `eigrp_filter_runtime_replace()`.
+Named distribute-list configuration continues to terminate at the portable
+`eigrp_distribute_list_*()` targets and updates the same EIGRP-owned runtime
+name state.  FRR access-list/prefix-list change hooks notify the feature owner
+through `eigrp_filter_runtime_refresh_all()` so graceful filter refresh remains
+portable.
+
+The obsolete, unbuilt common `eigrp_routemap.[c|h]` skeleton was removed.
+Route-map framework initialization remains FRR-owned in `frr/eigrp_policy.c`;
+named redistribution continues to retain only the route-map name while runtime
+route-map application remains explicitly unimplemented.
 
 ### 3. FRR platform lifecycle integration — deferred
 
@@ -143,8 +159,10 @@ The remaining work should be done in this order:
 2. **Interface/runtime boundary — complete** — portable public/runtime APIs use
    EIGRP-owned interface/event types; FRR interface discovery, event scheduling,
    socket, and interface lifecycle services terminate at the southbound adapter.
-3. **Policy/filter boundary** — isolate FRR route-map/prefix-list/distribute-list
-   objects under the FRR adapter while keeping EIGRP filter decisions portable.
+3. **Policy/filter boundary — complete** — portable runtime state carries only
+   EIGRP-owned policy names/decisions; FRR route-map, prefix-list, access-list,
+   distribute-list objects and callbacks remain inside FRR adapter/integration
+   code, with their lifecycle and evaluation owned by `frr/eigrp_policy.c`.
 4. **RIB/southbound residuals** — complete the direct Zebra/RIB call audit and
    route-install abstraction already tracked by `refactor-work.md`.
 5. **Deferred portability grooming** — SNMP and other explicitly deferred host

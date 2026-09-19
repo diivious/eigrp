@@ -29,6 +29,7 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_auth.h"
+#include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_southbound.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF,      "EIGRP interface");
@@ -648,7 +649,6 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state)
 {
 	eigrp_interface_t *ei;
-	int i;
 
 	if (!eigrp || !state || !state->interface_name
 	    || !state->interface_name[0] || !eigrp_prefix_valid(&state->address))
@@ -674,12 +674,6 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 	ei->nbrs = list_new();
 	ei->crypt_seqnum = time(NULL);
 	eigrp_interface_encoder_clear(ei);
-
-	for (i = 0; i < EIGRP_FILTER_MAX; i++) {
-		ei->list[i] = NULL;
-		ei->prefix[i] = NULL;
-		ei->routemap[i] = NULL;
-	}
 
 	ei->params.type = state->type;
 	ei->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;
@@ -874,6 +868,7 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 	listnode_delete(ei->eigrp->eiflist, ei);
 	list_delete(&ei->nbrs);
 	eigrp_packet_queue_free(ei->obuf);
+	eigrp_filter_runtime_state_clear(&ei->filter);
 	if (ei->name)
 		XFREE(MTYPE_EIGRP_INTF_INFO, ei->name);
 	XFREE(MTYPE_EIGRP_INTF, ei);

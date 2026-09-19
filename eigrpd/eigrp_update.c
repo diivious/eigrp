@@ -33,7 +33,6 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_metric.h"
 
-#include "routemap.h"
 
 /**
  * @fn remove_received_prefix_gr

@@ -74,8 +74,14 @@
 #define ZEBRA_FLAG_SELECTED 0x1
 #define ZEBRA_FLAG_INTERNAL 0x2
 #define RIB_SYSTEM_ROUTE 0x1
-#define AFI_IP 1
-#define AFI_IP6 2
+typedef enum {
+	AFI_UNSPEC = 0,
+	AFI_IP = 1,
+	AFI_IP6 = 2,
+	AFI_L2VPN = 3,
+	AFI_BGP_LS = 4,
+	AFI_MAX = 5,
+} afi_t;
 #define SAFI_UNICAST 1
 #define VTY_TERM 0
 #define VTY_FILE 1
@@ -87,10 +93,6 @@
 #define CMD_ATTR_NOSH 0x04
 #define CMD_ATTR_DEPRECATED 0x08
 #define XREFT_DEFUN 0
-#define QOBJ_FIELDS int qobj_dummy
-#define DECLARE_QOBJ_TYPE(x)
-#define DEFINE_QOBJ_TYPE(x)
-#define QOBJ_REG(obj, type) do { (void)(obj); } while (0)
 #define DECLARE_MGROUP(x)
 #define DEFINE_MGROUP(a,b)
 #define DEFINE_MTYPE_STATIC(a,b,c)

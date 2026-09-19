@@ -26,6 +26,7 @@
 #include "eigrp_cli_named.h"
 #include "eigrp_northbound.h"
 #include "eigrp_frr.h"
+#include "eigrp_policy.h"
 
 #include "lib/keychain.h"
 #include "lib/distribute.h"
@@ -3152,7 +3153,10 @@ static int eigrp_northbound_distribute_list_create(
 		return NB_OK;
 
 	eigrp = nb_running_get_entry(args->dnode, NULL, true);
-	group_distribute_list_create_helper(args, eigrp->distribute_ctx);
+	if (!eigrp || !eigrp_policy_distribute_context(eigrp))
+		return NB_ERR_INCONSISTENCY;
+	group_distribute_list_create_helper(
+		args, eigrp_policy_distribute_context(eigrp));
 
 	return NB_OK;
 }

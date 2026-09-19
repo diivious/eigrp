@@ -25,7 +25,6 @@
 #include "vty.h"
 #include "command.h"
 #include "filter.h"
-#include "plist.h"
 #include "stream.h"
 #include "log.h"
 #include "memory.h"
@@ -33,7 +32,6 @@
 #include "sigevent.h"
 #include "zclient.h"
 #include "keychain.h"
-#include "distribute.h"
 #include "libfrr.h"
 #include "routemap.h"
 #include "libagentx.h"
@@ -83,9 +81,8 @@ static FRR_NORETURN void sigint(void)
 {
 	zlog_notice("Terminating on signal");
 	keychain_terminate();
-	route_map_finish();
-	prefix_list_reset();
 	eigrp_terminate();
+	eigrp_southbound_policy_finish();
 	exit(0);
 }
 
@@ -183,26 +180,8 @@ int main(int argc, char **argv, char **envp)
 	eigrp_snmp_init();
 #endif /* HAVE_SNMP */
 
-	/* Access list install. */
-	access_list_init();
-	access_list_add_hook(eigrp_distribute_update_all_wrapper);
-	access_list_delete_hook(eigrp_distribute_update_all_wrapper);
-
-	/* Prefix list initialize. */
-	prefix_list_init();
-	prefix_list_add_hook(eigrp_distribute_update_all);
-	prefix_list_delete_hook(eigrp_distribute_update_all);
-
-	/*
-	 * XXX: This is just to get the CLI installed to suppress VTYSH errors.
-	 * Routemaps in EIGRP are not yet functional.
-	 */
-	route_map_init();
-	/* eigrp_route_map_init();
-	 * route_map_add_hook(eigrp_rmap_update);
-	 * route_map_delete_hook(eigrp_rmap_update);
-	 */
-	/* if_rmap_init(EIGRP_NODE); */
+	/* FRR policy object lifecycle and callbacks stay behind southbound. */
+	eigrp_southbound_policy_init();
 
 	frr_config_fork();
 	frr_run(master);

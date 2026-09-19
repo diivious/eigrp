@@ -142,6 +142,65 @@ patch_frr() {
 	"$script_dir/frr-install.sh" --frr-root "$frr_root" --no-eigrpd --no-tests
 }
 
+cleanup_stale_eigrpd_uut() {
+	local pids remaining live pid state i
+
+	pids="$(pgrep -x eigrpd 2>/dev/null || true)"
+	if [[ -z "$pids" ]]; then
+		echo "preflight: no existing eigrpd processes"
+		return 0
+	fi
+
+	echo "preflight: existing eigrpd processes"
+	ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,args= 2>/dev/null || true
+	echo "preflight: terminate existing eigrpd processes"
+	# pgrep returns one numeric PID per line; word splitting is intentional here.
+	# shellcheck disable=SC2086
+	sudo kill -TERM $pids 2>/dev/null || true
+
+	for i in $(seq 1 5); do
+		sleep 1
+		remaining="$(pgrep -x eigrpd 2>/dev/null || true)"
+		[[ -z "$remaining" ]] && {
+			echo "preflight: eigrpd cleanup complete"
+			return 0
+		}
+	done
+
+	echo "preflight: force-kill surviving eigrpd processes"
+	# shellcheck disable=SC2086
+	sudo kill -KILL $remaining 2>/dev/null || true
+	sleep 1
+
+	remaining="$(pgrep -x eigrpd 2>/dev/null || true)"
+	[[ -z "$remaining" ]] && {
+		echo "preflight: eigrpd cleanup complete"
+		return 0
+	}
+
+	# A true zombie cannot be killed and does not retain sockets or other daemon
+	# runtime resources.  Fail only when a live/stopped eigrpd survived cleanup.
+	live=""
+	while read -r pid; do
+		[[ -n "$pid" ]] || continue
+		state="$(ps -o stat= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+		[[ -n "$state" ]] || continue
+		case "$state" in
+			Z*) ;;
+			*) live="${live}${live:+ }${pid}" ;;
+		esac
+	done <<< "$remaining"
+
+	if [[ -n "$live" ]]; then
+		echo "error: eigrpd processes survived UUT preflight cleanup: $live" >&2
+		ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,args= >&2 || true
+		return 1
+	fi
+
+	echo "preflight: only defunct eigrpd process entries remain; continuing"
+	ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,args= 2>/dev/null || true
+}
+
 start_eigrpd_uut() {
 	local frrcommon="/usr/lib/frr/frrcommon.sh"
 	local i
@@ -325,6 +384,7 @@ case "$action" in
 		run_make check
 		;;
 	uut)
+		cleanup_stale_eigrpd_uut
 		stage_eigrp
 		if [[ "$configure_first" -eq 1 ]]; then
 			configure_frr

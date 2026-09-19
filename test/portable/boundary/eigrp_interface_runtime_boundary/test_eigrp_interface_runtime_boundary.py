@@ -172,3 +172,26 @@ def test_route_table_users_include_the_host_storage_header_directly():
                 f"{source.relative_to(ROOT)} uses FRR route-table storage "
                 "without including table.h directly"
             )
+
+
+def test_portable_runtime_does_not_depend_on_frr_qobj_registration():
+    """QOBJ is FRR object-registration machinery, not EIGRP runtime state."""
+    forbidden = (
+        "QOBJ_FIELDS",
+        "DECLARE_QOBJ_TYPE",
+        "DEFINE_QOBJ_TYPE",
+        "QOBJ_REG",
+        "QOBJ_UNREG",
+    )
+
+    for path in sorted((ROOT / "eigrpd").glob("*.[ch]")):
+        text = path.read_text()
+        for token in forbidden:
+            assert token not in text, (
+                f"{path.relative_to(ROOT)} depends on FRR qobj runtime state: {token}"
+            )
+
+    # Do not let the standalone harness hide this dependency again.
+    zebra_stub = read("test/build/include/zebra.h")
+    for token in forbidden:
+        assert token not in zebra_stub

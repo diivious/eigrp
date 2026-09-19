@@ -78,10 +78,14 @@ run the applicable IPv6 suite. Stage 3 then adds IPv4/IPv6 AS 6473 to verify
 multiple autonomous-system contexts and `no address-family`. Stage 4 finally
 verifies that `savage` and `SAVAGE` are distinct named processes.
 `frr.sh --uut` does not apply managed FRR patches. Required patch state must
-already be present before the UUT is run. The command installs the just-built
-FRR tree and restarts the `frr` systemd service before invoking vtysh so the
-current daemon/build artifacts are exercised. Set `EIGRP_UUT_INTERFACE` when
-the test interface is not `enp0s8`.
+already be present before the UUT is run. As its first preflight step it prints
+any existing `eigrpd` processes and terminates stale daemon instances (TERM,
+then KILL if required) before staging/building the new UUT. A true defunct
+process entry is reported but does not fail the run because it cannot retain
+daemon sockets or runtime state. The command installs the just-built FRR tree
+and restarts the `frr` systemd service before invoking vtysh so the current
+daemon/build artifacts are exercised. Set `EIGRP_UUT_INTERFACE` when the test
+interface is not `enp0s8`.
 
 ## UUT workflow
 

@@ -13,6 +13,9 @@
  *   Martin Kontsek
  *   Lukas Koribsky
  */
+#include <stdlib.h>
+#include <string.h>
+
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_const.h"
@@ -21,286 +24,217 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_southbound.h"
 
-#include "plist.h"
-#include "privs.h"
-
-/*
- * FRR policy objects still consume struct prefix.  Keep that host-specific
- * representation local to the filter boundary while protocol callers pass the
- * native EIGRP prefix representation.
- */
-bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
-			       eigrp_interface_t *ei, int direction,
-			       const eigrp_prefix_t *prefix)
+static char *eigrp_filter_string_duplicate(const char *value)
 {
-	struct access_list *alist;
-	struct prefix_list *plist;
-	struct prefix host_prefix;
+	size_t len;
+	char *copy;
 
-	if (!eigrp || !ei || !prefix)
-		return false;
+	if (!value)
+		return NULL;
+	len = strlen(value) + 1;
+	copy = malloc(len);
+	if (!copy)
+		return NULL;
+	memcpy(copy, value, len);
+	return copy;
+}
 
-	memset(&host_prefix, 0, sizeof(host_prefix));
-	if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4) {
-		if (prefix->prefix_length > IPV4_MAX_BITLEN)
-			return false;
-		host_prefix.family = AF_INET;
-		host_prefix.prefixlen = prefix->prefix_length;
-		memcpy(&host_prefix.u.prefix4, prefix->address.bytes,
-		       sizeof(host_prefix.u.prefix4));
-	} else if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV6) {
-		if (prefix->prefix_length > 128)
-			return false;
-		host_prefix.family = AF_INET6;
-		host_prefix.prefixlen = prefix->prefix_length;
-		memcpy(&host_prefix.u.prefix6, prefix->address.bytes,
-		       sizeof(host_prefix.u.prefix6));
-	} else {
-		return false;
+static bool eigrp_filter_string_equal(const char *a, const char *b)
+{
+	if (!a || !b)
+		return a == b;
+	return strcmp(a, b) == 0;
+}
+
+void eigrp_filter_runtime_state_clear(eigrp_filter_runtime_state_t *state)
+{
+	int direction;
+
+	if (!state)
+		return;
+
+	for (direction = 0; direction < EIGRP_FILTER_MAX; direction++) {
+		free(state->access_list[direction]);
+		free(state->prefix_list[direction]);
+		state->access_list[direction] = NULL;
+		state->prefix_list[direction] = NULL;
 	}
+}
 
-	alist = eigrp->list[direction];
-	if (alist && access_list_apply(alist, &host_prefix) == FILTER_DENY)
-		return true;
+static bool eigrp_filter_runtime_state_equal(
+	const eigrp_filter_runtime_state_t *state,
+	const eigrp_filter_runtime_snapshot_t *snapshot)
+{
+	int direction;
 
-	plist = eigrp->prefix[direction];
-	if (plist && prefix_list_apply(plist, &host_prefix) == PREFIX_DENY)
-		return true;
+	for (direction = 0; direction < EIGRP_FILTER_MAX; direction++) {
+		if (!eigrp_filter_string_equal(state->access_list[direction],
+					       snapshot->access_list[direction])
+		    || !eigrp_filter_string_equal(state->prefix_list[direction],
+						 snapshot->prefix_list[direction]))
+			return false;
+	}
+	return true;
+}
 
-	alist = ei->list[direction];
-	if (alist && access_list_apply(alist, &host_prefix) == FILTER_DENY)
-		return true;
+static eigrp_result_t eigrp_filter_runtime_state_copy(
+	eigrp_filter_runtime_state_t *state,
+	const eigrp_filter_runtime_snapshot_t *snapshot)
+{
+	int direction;
 
-	plist = ei->prefix[direction];
-	if (plist && prefix_list_apply(plist, &host_prefix) == PREFIX_DENY)
-		return true;
+	memset(state, 0, sizeof(*state));
+	for (direction = 0; direction < EIGRP_FILTER_MAX; direction++) {
+		if (snapshot->access_list[direction]) {
+			state->access_list[direction] = eigrp_filter_string_duplicate(
+				snapshot->access_list[direction]);
+			if (!state->access_list[direction])
+				goto failure;
+		}
+		if (snapshot->prefix_list[direction]) {
+			state->prefix_list[direction] = eigrp_filter_string_duplicate(
+				snapshot->prefix_list[direction]);
+			if (!state->prefix_list[direction])
+				goto failure;
+		}
+	}
+	return EIGRP_RESULT_SUCCESS;
 
+failure:
+	eigrp_filter_runtime_state_clear(state);
+	return EIGRP_RESULT_INTERNAL_FAILURE;
+}
+
+static bool eigrp_filter_runtime_state_active(
+	const eigrp_filter_runtime_state_t *state)
+{
+	int direction;
+
+	if (!state)
+		return false;
+	for (direction = 0; direction < EIGRP_FILTER_MAX; direction++)
+		if (state->access_list[direction] || state->prefix_list[direction])
+			return true;
 	return false;
 }
 
-/*
- * Distribute-list update functions.
- */
-static eigrp_instance_t *eigrp_distribute_instance_lookup(
-	struct distribute_ctx *ctx)
+static void eigrp_filter_schedule_process(eigrp_instance_t *eigrp)
 {
-	eigrp_instance_t *eigrp;
-	struct listnode *node;
-
-	if (!ctx || !eigrp_om || !eigrp_om->eigrp)
-		return NULL;
-
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (eigrp->distribute_ctx == ctx)
-			return eigrp;
-	}
-
-	return NULL;
+	if (!eigrp)
+		return;
+	eigrp_southbound_timer_add(&eigrp->t_distribute,
+				   eigrp_distribute_timer_process, eigrp, 10);
 }
 
-void eigrp_distribute_update(struct distribute_ctx *ctx,
-			     struct distribute *dist)
+static void eigrp_filter_schedule_interface(eigrp_interface_t *ei)
 {
-	eigrp_instance_t *eigrp = eigrp_distribute_instance_lookup(ctx);
-	eigrp_interface_t *ei = NULL;
-	struct access_list *alist;
-	struct prefix_list *plist;
-	// struct route_map *routemap;
-
-	if (!eigrp || !dist)
-		return;
-
-	/* if no interface address is present, set list to eigrp process struct
-	 */
-
-	/* Check if distribute-list was set for process or interface */
-	if (!dist->ifname) {
-		/* access list IN for whole process */
-		if (dist->list[DISTRIBUTE_V4_IN]) {
-			alist = access_list_lookup(
-				AFI_IP, dist->list[DISTRIBUTE_V4_IN]);
-			if (alist)
-				eigrp->list[EIGRP_FILTER_IN] = alist;
-			else
-				eigrp->list[EIGRP_FILTER_IN] = NULL;
-		} else {
-			eigrp->list[EIGRP_FILTER_IN] = NULL;
-		}
-
-		/* access list OUT for whole process */
-		if (dist->list[DISTRIBUTE_V4_OUT]) {
-			alist = access_list_lookup(
-				AFI_IP, dist->list[DISTRIBUTE_V4_OUT]);
-			if (alist)
-				eigrp->list[EIGRP_FILTER_OUT] = alist;
-			else
-				eigrp->list[EIGRP_FILTER_OUT] = NULL;
-		} else {
-			eigrp->list[EIGRP_FILTER_OUT] = NULL;
-		}
-
-		/* PREFIX_LIST IN for process */
-		if (dist->prefix[DISTRIBUTE_V4_IN]) {
-			plist = prefix_list_lookup(
-				AFI_IP, dist->prefix[DISTRIBUTE_V4_IN]);
-			if (plist) {
-				eigrp->prefix[EIGRP_FILTER_IN] = plist;
-			} else
-				eigrp->prefix[EIGRP_FILTER_IN] = NULL;
-		} else
-			eigrp->prefix[EIGRP_FILTER_IN] = NULL;
-
-		/* PREFIX_LIST OUT for process */
-		if (dist->prefix[DISTRIBUTE_V4_OUT]) {
-			plist = prefix_list_lookup(
-				AFI_IP, dist->prefix[DISTRIBUTE_V4_OUT]);
-			if (plist) {
-				eigrp->prefix[EIGRP_FILTER_OUT] = plist;
-
-			} else
-				eigrp->prefix[EIGRP_FILTER_OUT] = NULL;
-		} else
-			eigrp->prefix[EIGRP_FILTER_OUT] = NULL;
-
-// This is commented out, because the distribute.[ch] code
-// changes looked poorly written from first glance
-// commit was 133bdf2d
-// TODO: DBS
-#if 0
-	/* route-map IN for whole process */
-	if (dist->route[DISTRIBUTE_V4_IN])
-        {
-	    routemap = route_map_lookup_by_name (dist->route[DISTRIBUTE_V4_IN]);
-	    if (routemap)
-		eigrp->routemap[EIGRP_FILTER_IN] = routemap;
-	    else
-		eigrp->routemap[EIGRP_FILTER_IN] = NULL;
-        }
-	else
-        {
-	    eigrp->routemap[EIGRP_FILTER_IN] = NULL;
-        }
-
-	/* route-map OUT for whole process */
-	if (dist->route[DISTRIBUTE_V4_OUT])
-        {
-	    routemap = route_map_lookup_by_name (dist->route[DISTRIBUTE_V4_OUT]);
-	    if (routemap)
-		eigrp->routemap[EIGRP_FILTER_OUT] = routemap;
-	    else
-		eigrp->routemap[EIGRP_FILTER_OUT] = NULL;
-        }
-	else
-        {
-	    eigrp->routemap[EIGRP_FILTER_OUT] = NULL;
-        }
-#endif
-		// TODO: check Graceful restart after 10sec
-
-		/* check if there is already GR scheduled */
-		if (eigrp->t_distribute != NULL)
-			eigrp_southbound_event_cancel(&eigrp->t_distribute);
-		eigrp_southbound_timer_add(&eigrp->t_distribute,
-			eigrp_distribute_timer_process, eigrp, 10);
-
-		return;
-	}
-
-	ei = eigrp_intf_lookup_by_name(eigrp, dist->ifname);
 	if (!ei)
 		return;
+	eigrp_southbound_timer_add(&ei->t_distribute,
+				   eigrp_distribute_timer_interface, ei, 10);
+}
 
-	/* Access-list for interface in */
-	if (dist->list[DISTRIBUTE_V4_IN]) {
-		alist = access_list_lookup(AFI_IP,
-					   dist->list[DISTRIBUTE_V4_IN]);
-		if (alist) {
-			ei->list[EIGRP_FILTER_IN] = alist;
-		} else
-			ei->list[EIGRP_FILTER_IN] = NULL;
+eigrp_result_t eigrp_filter_runtime_replace(
+	eigrp_instance_t *eigrp, const char *interface_name,
+	const eigrp_filter_runtime_snapshot_t *snapshot)
+{
+	eigrp_filter_runtime_state_t replacement;
+	eigrp_filter_runtime_state_t *state;
+	eigrp_interface_t *ei = NULL;
+	eigrp_result_t result;
+
+	if (!eigrp || !snapshot)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (interface_name && !interface_name[0])
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (interface_name) {
+		ei = eigrp_intf_lookup_by_name(eigrp, interface_name);
+		if (!ei)
+			return EIGRP_RESULT_NOT_FOUND;
+		state = &ei->filter;
 	} else {
-		ei->list[EIGRP_FILTER_IN] = NULL;
+		state = &eigrp->filter;
 	}
 
-	/* Access-list for interface in */
-	if (dist->list[DISTRIBUTE_V4_OUT]) {
-		alist = access_list_lookup(AFI_IP,
-					   dist->list[DISTRIBUTE_V4_OUT]);
-		if (alist)
-			ei->list[EIGRP_FILTER_OUT] = alist;
-		else
-			ei->list[EIGRP_FILTER_OUT] = NULL;
+	if (eigrp_filter_runtime_state_equal(state, snapshot))
+		return EIGRP_RESULT_SUCCESS;
 
-	} else
-		ei->list[EIGRP_FILTER_OUT] = NULL;
+	result = eigrp_filter_runtime_state_copy(&replacement, snapshot);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
 
-	/* Prefix-list for interface in */
-	if (dist->prefix[DISTRIBUTE_V4_IN]) {
-		plist = prefix_list_lookup(AFI_IP,
-					   dist->prefix[DISTRIBUTE_V4_IN]);
-		if (plist)
-			ei->prefix[EIGRP_FILTER_IN] = plist;
-		else
-			ei->prefix[EIGRP_FILTER_IN] = NULL;
-	} else
-		ei->prefix[EIGRP_FILTER_IN] = NULL;
-
-	/* Prefix-list for interface out */
-	if (dist->prefix[DISTRIBUTE_V4_OUT]) {
-		plist = prefix_list_lookup(AFI_IP,
-					   dist->prefix[DISTRIBUTE_V4_OUT]);
-		if (plist)
-			ei->prefix[EIGRP_FILTER_OUT] = plist;
-		else
-			ei->prefix[EIGRP_FILTER_OUT] = NULL;
-	} else
-		ei->prefix[EIGRP_FILTER_OUT] = NULL;
-
-	// TODO: check Graceful restart after 10sec
-
-	/* Cancel and reschedule GR for this interface. */
-	eigrp_southbound_event_cancel(&ei->t_distribute);
-	eigrp_southbound_timer_add(&ei->t_distribute,
-		eigrp_distribute_timer_interface, ei, 10);
+	eigrp_filter_runtime_state_clear(state);
+	*state = replacement;
+	if (ei)
+		eigrp_filter_schedule_interface(ei);
+	else
+		eigrp_filter_schedule_process(eigrp);
+	return EIGRP_RESULT_SUCCESS;
 }
 
-/*
- * Function called by prefix-list and access-list update
- */
-static void eigrp_distribute_update_interface(eigrp_instance_t *eigrp,
-					      const char *interface_name)
-{
-	struct distribute *dist;
-
-	if (!eigrp || !interface_name)
-		return;
-
-	dist = distribute_lookup(eigrp->distribute_ctx, interface_name);
-	if (dist)
-		eigrp_distribute_update(eigrp->distribute_ctx, dist);
-}
-
-/* Update all runtime interfaces after a prefix/access-list change. */
-void eigrp_distribute_update_all(struct prefix_list *notused)
+void eigrp_filter_runtime_refresh_all(void)
 {
 	eigrp_instance_t *eigrp;
 	eigrp_interface_t *ei;
 	struct listnode *instance_node;
 	struct listnode *interface_node;
 
-	(void)notused;
 	if (!eigrp_om || !eigrp_om->eigrp)
 		return;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, instance_node, eigrp))
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, instance_node, eigrp)) {
+		if (eigrp_filter_runtime_state_active(&eigrp->filter))
+			eigrp_filter_schedule_process(eigrp);
 		for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, interface_node, ei))
-			eigrp_distribute_update_interface(eigrp, ei->name);
+			if (eigrp_filter_runtime_state_active(&ei->filter))
+				eigrp_filter_schedule_interface(ei);
+	}
 }
 
-void eigrp_distribute_update_all_wrapper(struct access_list *notused)
+static bool eigrp_filter_reference_denies(
+	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
+	const char *name, const eigrp_prefix_t *prefix)
 {
-	(void)notused;
-	eigrp_distribute_update_all(NULL);
+	eigrp_filter_decision_t decision = EIGRP_FILTER_DECISION_PERMIT;
+	eigrp_result_t result;
+
+	if (!name)
+		return false;
+	result = eigrp_southbound_filter_evaluate(eigrp, type, name, prefix,
+						 &decision);
+	return result == EIGRP_RESULT_SUCCESS
+	       && decision == EIGRP_FILTER_DECISION_DENY;
+}
+
+static bool eigrp_filter_runtime_state_denies(
+	eigrp_instance_t *eigrp, const eigrp_filter_runtime_state_t *state,
+	int direction, const eigrp_prefix_t *prefix)
+{
+	if (eigrp_filter_reference_denies(
+		    eigrp, EIGRP_DISTRIBUTE_ACCESS_LIST,
+		    state->access_list[direction], prefix))
+		return true;
+	if (eigrp_filter_reference_denies(
+		    eigrp, EIGRP_DISTRIBUTE_PREFIX_LIST,
+		    state->prefix_list[direction], prefix))
+		return true;
+	return false;
+}
+
+bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
+			       eigrp_interface_t *ei, int direction,
+			       const eigrp_prefix_t *prefix)
+{
+	if (!eigrp || !ei || !prefix || direction < 0
+	    || direction >= EIGRP_FILTER_MAX)
+		return false;
+
+	if (eigrp_filter_runtime_state_denies(eigrp, &eigrp->filter, direction,
+					       prefix))
+		return true;
+	return eigrp_filter_runtime_state_denies(eigrp, &ei->filter, direction,
+						 prefix);
 }
 
 void eigrp_distribute_timer_process(void *arg)
@@ -422,6 +356,43 @@ static bool eigrp_distribute_runtime_result_committable(eigrp_result_t result)
 	       || result == EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+static eigrp_result_t eigrp_filter_runtime_reference_update(
+	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
+	const char *name, eigrp_offset_direction_t direction,
+	const char *interface_name, bool remove)
+{
+	eigrp_filter_runtime_snapshot_t snapshot;
+	eigrp_filter_runtime_state_t *state;
+	eigrp_interface_t *ei = NULL;
+	int slot = direction == EIGRP_OFFSET_OUT ? EIGRP_FILTER_OUT
+						     : EIGRP_FILTER_IN;
+
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (interface_name) {
+		ei = eigrp_intf_lookup_by_name(eigrp, interface_name);
+		if (!ei)
+			return remove ? EIGRP_RESULT_NOT_FOUND
+				      : EIGRP_RESULT_SUCCESS;
+		state = &ei->filter;
+	} else {
+		state = &eigrp->filter;
+	}
+
+	memset(&snapshot, 0, sizeof(snapshot));
+	for (int i = 0; i < EIGRP_FILTER_MAX; i++) {
+		snapshot.access_list[i] = state->access_list[i];
+		snapshot.prefix_list[i] = state->prefix_list[i];
+	}
+
+	if (type == EIGRP_DISTRIBUTE_ACCESS_LIST)
+		snapshot.access_list[slot] = remove ? NULL : name;
+	else
+		snapshot.prefix_list[slot] = remove ? NULL : name;
+
+	return eigrp_filter_runtime_replace(eigrp, interface_name, &snapshot);
+}
+
 eigrp_result_t eigrp_distribute_list_update(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
@@ -468,8 +439,8 @@ eigrp_result_t eigrp_distribute_list_update(
 
 	result = EIGRP_RESULT_SUCCESS;
 	if (context->runtime)
-		result = eigrp_southbound_distribute_list_update(
-			context->runtime, type, name, direction, interface_name);
+		result = eigrp_filter_runtime_reference_update(
+			context->runtime, type, name, direction, interface_name, false);
 	if (!eigrp_distribute_runtime_result_committable(result)) {
 		free(new_name);
 		if (new_config) {
@@ -523,7 +494,7 @@ eigrp_result_t eigrp_distribute_list_delete(
 			break;
 		}
 		/* The retained named filter entry is the ownership marker for this
-		 * host mutation.  Do not clear a filter installed by classic FRR
+		 * runtime reference.  Do not clear a filter installed by classic
 		 * configuration when no named entry exists.
 		 */
 		if (!config)
@@ -532,8 +503,8 @@ eigrp_result_t eigrp_distribute_list_delete(
 
 	result = EIGRP_RESULT_NOT_FOUND;
 	if (context->runtime) {
-		result = eigrp_southbound_distribute_list_delete(
-			context->runtime, type, name, direction, interface_name);
+		result = eigrp_filter_runtime_reference_update(
+			context->runtime, type, name, direction, interface_name, true);
 		if (result != EIGRP_RESULT_SUCCESS
 		    && result != EIGRP_RESULT_NOT_FOUND
 		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)

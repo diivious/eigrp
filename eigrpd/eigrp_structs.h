@@ -116,27 +116,10 @@ struct eigrp_instance {
 	eigrp_metrics_t dmetric[ZEBRA_ROUTE_MAX + 1];
 	int redistribute; /* Num of redistributed protocols. */
 
-	/* Access-list. */
-	struct access_list *list[EIGRP_FILTER_MAX];
-	/* Prefix-list. */
-	struct prefix_list *prefix[EIGRP_FILTER_MAX];
-	/* Route-map. */
-	struct route_map *routemap[EIGRP_FILTER_MAX];
+	/* Host-independent runtime policy references. */
+	eigrp_filter_runtime_state_t filter;
 
-	/* For redistribute route map. */
-	struct {
-		char *name;
-		struct route_map *map;
-		int metric_config;
-		uint32_t metric;
-	} route_map[ZEBRA_ROUTE_MAX];
-
-	/* distribute_ctx */
-	struct distribute_ctx *distribute_ctx;
-
-	QOBJ_FIELDS;
 };
-DECLARE_QOBJ_TYPE(eigrp);
 
 typedef struct eigrp_packet_queue {
 	eigrp_packet_t *head;
@@ -225,12 +208,8 @@ typedef struct eigrp_interface {
 	/* Statistics fields. */
 	eigrp_intf_stats_t stats; // Statistics fields
 
-	/* Access-list. */
-	struct access_list *list[EIGRP_FILTER_MAX];
-	/* Prefix-list. */
-	struct prefix_list *prefix[EIGRP_FILTER_MAX];
-	/* Route-map. */
-	struct route_map *routemap[EIGRP_FILTER_MAX];
+	/* Host-independent runtime policy references. */
+	eigrp_filter_runtime_state_t filter;
 } eigrp_interface_t;
 
 /* Determines if it is first or last packet

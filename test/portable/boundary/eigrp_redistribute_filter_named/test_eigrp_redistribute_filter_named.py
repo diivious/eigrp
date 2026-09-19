@@ -15,6 +15,7 @@ REDIST_C = ROOT / "eigrpd" / "eigrp_redistribute.c"
 FILTER_C = ROOT / "eigrpd" / "eigrp_filter.c"
 SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_southbound.h"
 SOUTHBOUND_C = ROOT / "frr" / "eigrp_southbound.c"
+POLICY_C = ROOT / "frr" / "eigrp_policy.c"
 ZEBRA_C = ROOT / "frr" / "eigrp_zebra.c"
 NORTHBOUND = ROOT / "frr" / "eigrp_northbound.c"
 CONVENTIONS = ROOT / "specs" / "code-conventions.md"
@@ -67,15 +68,17 @@ def test_named_redistribution_target_owns_state_then_crosses_southbound_boundary
     assert "eigrp_redistribute_unset" not in delete
 
 
-def test_named_distribute_list_target_owns_common_filter_state_then_uses_adapter():
+def test_named_distribute_list_target_owns_common_filter_state_and_runtime_names():
     filt = read(FILTER_C)
     update = function_body(filt, "eigrp_distribute_list_update")
     delete = function_body(filt, "eigrp_distribute_list_delete")
 
     assert "eigrp_distribute_list_config_find" in update
-    assert "eigrp_southbound_distribute_list_update" in update
+    assert "eigrp_filter_runtime_reference_update" in update
     assert "context->config->distribute_lists" in update
-    assert "eigrp_southbound_distribute_list_delete" in delete
+    assert "eigrp_filter_runtime_reference_update" in delete
+    assert "eigrp_southbound_distribute_list_update" not in update
+    assert "eigrp_southbound_distribute_list_delete" not in delete
     assert "access_list_lookup" not in update
     assert "prefix_list_lookup" not in update
     assert "group_distribute_list" not in update
@@ -87,8 +90,9 @@ def test_southbound_contract_is_eigrp_owned_not_frr_cli_or_yang_objects():
     for target in (
         "eigrp_southbound_redistribute_update",
         "eigrp_southbound_redistribute_delete",
-        "eigrp_southbound_distribute_list_update",
-        "eigrp_southbound_distribute_list_delete",
+        "eigrp_southbound_policy_instance_create",
+        "eigrp_southbound_policy_instance_delete",
+        "eigrp_southbound_filter_evaluate",
     ):
         assert target in header
     for host_type in (
@@ -147,20 +151,25 @@ def test_frr_redistribution_adapter_delegates_to_named_zebra_operations():
     assert "eigrp_redistribute_unset" not in zebra_delete
 
 
-def test_frr_filter_adapter_resolves_host_lists_and_schedules_runtime_refresh():
+def test_frr_filter_adapter_owns_host_policy_objects_and_returns_portable_decision():
     southbound = read(SOUTHBOUND_C)
-    update = function_body(southbound, "eigrp_southbound_distribute_list_update")
-    delete = function_body(southbound, "eigrp_southbound_distribute_list_delete")
+    policy = read(POLICY_C)
+    evaluate = function_body(policy, "eigrp_policy_filter_evaluate")
+    callback = function_body(policy, "eigrp_policy_distribute_update")
 
-    assert "access_list_lookup(AFI_IP, name)" in update
-    assert "prefix_list_lookup(AFI_IP, name)" in update
-    assert "eigrp_intf_lookup_by_name(eigrp, interface_name)" in update
-    assert "eigrp_southbound_distribute_schedule_interface" in update
-    assert "eigrp_southbound_distribute_schedule_process" in update
-    assert "eigrp_southbound_distribute_schedule_interface" in delete
-    assert "eigrp_southbound_distribute_schedule_process" in delete
-    assert "eigrp_distribute_timer_process" not in southbound
-    assert "eigrp_distribute_timer_interface" not in southbound
+    assert "access_list_lookup(afi, name)" in evaluate
+    assert "prefix_list_lookup(afi, name)" in evaluate
+    assert "access_list_apply(access, &host_prefix)" in evaluate
+    assert "prefix_list_apply(plist, &host_prefix)" in evaluate
+    assert "EIGRP_FILTER_DECISION_DENY" in evaluate
+    assert "eigrp_filter_runtime_replace" in callback
+    assert "dist->list[DISTRIBUTE_V4_IN]" in callback
+    assert "dist->prefix[DISTRIBUTE_V4_OUT]" in callback
+    assert "access_list_lookup" not in southbound
+    assert "prefix_list_lookup" not in southbound
+    assert "return eigrp_policy_filter_evaluate" in function_body(
+        southbound, "eigrp_southbound_filter_evaluate"
+    )
 
 
 def test_classic_endpoints_remain_unmodified_and_separate():
@@ -191,5 +200,5 @@ def test_non_convergence_exception_is_documented():
 
     assert "### Redistribution and distribute-list exception" in conventions
     assert "eigrp_southbound_redistribute_*()" in conventions
-    assert "eigrp_southbound_distribute_list_*()" in conventions
-    assert "must not be described or tested as true classic/named endpoint convergence" in conventions
+    assert "eigrp_southbound_filter_evaluate()" in conventions
+    assert "public classic/named configuration endpoints remain intentionally separate" in conventions

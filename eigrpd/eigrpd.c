@@ -32,7 +32,6 @@
 
 DEFINE_MGROUP(EIGRPD, "eigrpd");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_TOP, "EIGRP structure");
-DEFINE_QOBJ_TYPE(eigrp_instance);
 
 static struct eigrpd eigrpd;
 struct eigrpd *eigrp_om;
@@ -159,29 +158,8 @@ static eigrp_instance_t *eigrp_new(uint16_t as, eigrp_vrf_id_t vrf_id)
 	/* Diagnostic logging is best-effort and must not block protocol startup. */
 	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
 
-	eigrp->list[EIGRP_FILTER_IN] = NULL;
-	eigrp->list[EIGRP_FILTER_OUT] = NULL;
-
-	eigrp->prefix[EIGRP_FILTER_IN] = NULL;
-	eigrp->prefix[EIGRP_FILTER_OUT] = NULL;
-
-	eigrp->routemap[EIGRP_FILTER_IN] = NULL;
-	eigrp->routemap[EIGRP_FILTER_OUT] = NULL;
-
-	/* Distribute list install. */
-	eigrp->distribute_ctx =
-		distribute_list_ctx_create(vrf_lookup_by_id(eigrp->vrf_id));
-	distribute_list_add_hook(eigrp->distribute_ctx,
-				 eigrp_distribute_update);
-	distribute_list_delete_hook(eigrp->distribute_ctx,
-				    eigrp_distribute_update);
-
-	/*
-	  eigrp->if_rmap_ctx = if_rmap_ctx_create(eigrp->vrf_id);
-	  if_rmap_hook_add (eigrp_intf_rmap_update);
-	  if_rmap_hook_delete (eigrp_intf_rmap_update);
-	*/
-	QOBJ_REG(eigrp, eigrp_instance);
+	/* Host policy objects are created and retained by the southbound adapter. */
+	(void)eigrp_southbound_policy_instance_create(eigrp);
 	return eigrp;
 }
 
@@ -315,6 +293,7 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 		XFREE(MTYPE_EIGRP_TOP, eigrp->name);
 
 	stream_free(eigrp->ibuf);
-	distribute_list_delete(&eigrp->distribute_ctx);
+	eigrp_southbound_policy_instance_delete(eigrp);
+	eigrp_filter_runtime_state_clear(&eigrp->filter);
 	XFREE(MTYPE_EIGRP_TOP, eigrp);
 }

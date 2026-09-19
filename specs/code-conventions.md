@@ -199,18 +199,22 @@ named redistribute    -> FRR named NB   -> eigrp_redistribute_update/delete()
                                       -> eigrp_southbound_redistribute_*()
                                       -> FRR Zebra subscription
 
-classic distribute-list -> FRR distribute framework -> legacy filter callback
+classic distribute-list -> FRR distribute framework -> FRR policy adapter
+                                         -> eigrp_filter_runtime_replace()
 named distribute-list   -> FRR named NB -> eigrp_distribute_list_*()
-                                         -> portable filter state
-                                         -> eigrp_southbound_distribute_list_*()
-                                         -> FRR filter objects/runtime
+                                         -> portable retained/runtime filter state
+filter decision          -> eigrp_filter_prefix_apply()
+                         -> eigrp_southbound_filter_evaluate()
+                         -> FRR policy adapter -> portable decision
 ```
 
 Do not route the named path through `eigrp_redistribute_set/unset()` or the FRR
 `group_distribute_list_*` callbacks merely to reuse the classic implementation.
-Those endpoints consume FRR-owned state.  A future approved classic refactor may
-move both surfaces onto the portable targets, but until then this pair must not
-be described or tested as true classic/named endpoint convergence.
+Those endpoints consume FRR-owned state.  Classic distribute-list callbacks now
+normalize FRR state into the portable filter runtime representation, while the
+public classic/named configuration endpoints remain intentionally separate.
+Redistribution remains non-converged at the public endpoint until its classic
+FRR callback is intentionally refactored.
 
 Redistribution configuration, including route-map policy, is retained by the
 portable named state.  The current FRR external-route receive callback does not

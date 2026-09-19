@@ -30,6 +30,26 @@ typedef enum eigrp_distribute_list_type {
 	EIGRP_DISTRIBUTE_PREFIX_LIST,
 } eigrp_distribute_list_type_t;
 
+/* Portable policy result returned by a host policy adapter. */
+typedef enum eigrp_filter_decision {
+	EIGRP_FILTER_DECISION_PERMIT = 0,
+	EIGRP_FILTER_DECISION_DENY,
+} eigrp_filter_decision_t;
+
+/*
+ * Runtime filter references are EIGRP-owned names, never host policy objects.
+ * The host adapter resolves these names when a prefix decision is required.
+ */
+typedef struct eigrp_filter_runtime_state {
+	char *access_list[EIGRP_FILTER_MAX];
+	char *prefix_list[EIGRP_FILTER_MAX];
+} eigrp_filter_runtime_state_t;
+
+typedef struct eigrp_filter_runtime_snapshot {
+	const char *access_list[EIGRP_FILTER_MAX];
+	const char *prefix_list[EIGRP_FILTER_MAX];
+} eigrp_filter_runtime_snapshot_t;
+
 /* EIGRP topology identifiers are 16-bit values on the wire. */
 typedef uint16_t eigrp_topology_id_t;
 typedef uint32_t eigrp_vrf_id_t;

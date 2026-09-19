@@ -91,14 +91,14 @@ eigrp_result_t eigrp_southbound_redistribute_update(
 eigrp_result_t eigrp_southbound_redistribute_delete(
 	eigrp_instance_t *eigrp, const char *protocol);
 
-/* Host/filter adaptation for distribute-list references. */
-eigrp_result_t eigrp_southbound_distribute_list_update(
+/* Host policy/filter adaptation.  Host policy objects remain private. */
+void eigrp_southbound_policy_init(void);
+void eigrp_southbound_policy_finish(void);
+eigrp_result_t eigrp_southbound_policy_instance_create(eigrp_instance_t *eigrp);
+void eigrp_southbound_policy_instance_delete(eigrp_instance_t *eigrp);
+eigrp_result_t eigrp_southbound_filter_evaluate(
 	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
-	const char *name, eigrp_offset_direction_t direction,
-	const char *interface_name);
-eigrp_result_t eigrp_southbound_distribute_list_delete(
-	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
-	const char *name, eigrp_offset_direction_t direction,
-	const char *interface_name);
+	const char *name, const eigrp_prefix_t *prefix,
+	eigrp_filter_decision_t *decision);
 
 #endif /* _ZEBRA_EIGRP_SOUTHBOUND_H_ */

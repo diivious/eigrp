@@ -178,6 +178,34 @@ def test_frr_driver_applies_managed_patches_only_for_explicit_patch_action():
         assert "patch_frr" not in action_body
 
 
+def test_frr_uut_preflight_removes_stale_eigrpd_before_staging():
+    driver = read(ROOT / "tools" / "frr.sh")
+
+    cleanup_start = driver.index("cleanup_stale_eigrpd_uut() {")
+    cleanup_end = driver.index("\n}\n", cleanup_start)
+    cleanup = driver[cleanup_start:cleanup_end]
+    assert "ps -C eigrpd" in cleanup
+    assert "pgrep -x eigrpd" in cleanup
+    assert "sudo kill -TERM" in cleanup
+    assert "sudo kill -KILL" in cleanup
+
+    uut_start = driver.index("\tuut)\n")
+    uut_end = driver.index("\t\t;;", uut_start)
+    uut = driver[uut_start:uut_end]
+    assert uut.index("cleanup_stale_eigrpd_uut") < uut.index("stage_eigrp")
+
+
+def test_aggregate_frr_uut_uses_same_stale_daemon_preflight():
+    driver = read(ROOT / "tools" / "frr-uut.sh")
+
+    assert "cleanup_stale_eigrpd_uut() {" in driver
+    assert "ps -C eigrpd" in driver
+    assert "sudo kill -TERM" in driver
+    assert "sudo kill -KILL" in driver
+    assert '( "$test_mode" == "all" || "$test_mode" == "frr" )' in driver
+    assert driver.index("cleanup_stale_eigrpd_uut\nfi") < driver.index("build_local_uut\n\nif [[")
+
+
 def test_frr_installer_prefers_already_applied_patch_state_and_leaves_generated_files_to_build():
     installer = read(ROOT / "tools" / "frr-install.sh")
     patch_state = installer[installer.index("patch_state() {"):installer.index("\ninstall_patch_file() {", installer.index("patch_state() {"))]

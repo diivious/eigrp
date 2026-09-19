@@ -16,7 +16,6 @@
 
 #include <zebra.h>
 
-#include "filter.h"
 #include "log.h"
 #include "memory.h"
 
