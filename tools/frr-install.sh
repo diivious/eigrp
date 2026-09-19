@@ -186,6 +186,8 @@ eigrp_grammar_schema_current() {
 	grep -Fq "must \". != 'hmac-sha-256' or (../authentication-encryption-type and ../authentication-password)\";" "$yang" || return 1
 	grep -Fq 'when "../administrative-distance";' "$yang" || return 1
 	grep -Fq 'description "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6";' "$yang" || return 1
+	grep -Fq 'description "IPv4 or IPv6 summary prefix";' "$yang" || return 1
+	grep -Fq 'description "Fixed metric for an IPv4 or IPv6 summary aggregate";' "$yang" || return 1
 
 	neighbor_policy="$(sed -n '/^[[:space:]]*list neighbor-policy {/,/^[[:space:]]*container neighbor-maximum-prefix {/p' "$yang")"
 	[[ -n "$neighbor_policy" ]] || return 1
@@ -237,6 +239,10 @@ patch_semantically_applied() {
 			;;
 		frr-eigrp-yang.patch)
 			grep -Fq 'EIGRP_STEP1_CONFIG_COMPLETE' "$yang"
+			;;
+		eigrp-named-ipv6.patch)
+			grep -Fq 'description "IPv4 or IPv6 summary prefix";' "$yang" &&
+			grep -Fq 'description "Fixed metric for an IPv4 or IPv6 summary aggregate";' "$yang"
 			;;
 		*)
 			return 1

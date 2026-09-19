@@ -94,22 +94,35 @@ void eigrp_init(void)
 	eigrp_om->start_time = tv.tv_sec;
 }
 
-/* Allocate new eigrp structure. */
-static eigrp_instance_t *eigrp_new(uint16_t as, eigrp_vrf_id_t vrf_id)
+/* Allocate a protocol runtime/control context. */
+static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
+				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
 {
 	eigrp_instance_t *eigrp = XCALLOC(MTYPE_EIGRP_TOP, sizeof(struct eigrp_instance));
+	eigrp_addr_t src = {0};
 
-	/* init information relevant to peers */
+	/* Initialize address-family-independent control state first. */
 	eigrp->vrf_id = vrf_id;
-	/* All runtime instances are IPv4 until the IPv6 data path is enabled. */
-	eigrp_ipv4_init(&eigrp->af_vectors);
+	eigrp->data_path_ready = data_path_ready;
+	switch (afi) {
+	case EIGRP_ADDRESS_FAMILY_IPV4:
+		eigrp_ipv4_init(&eigrp->af_vectors);
+		break;
+	case EIGRP_ADDRESS_FAMILY_IPV6:
+		eigrp_ipv6_init(&eigrp->af_vectors);
+		break;
+	default:
+		XFREE(MTYPE_EIGRP_TOP, eigrp);
+		return NULL;
+	}
 	eigrp->vrid = 0;
 	eigrp->AS = as;
 	eigrp->router_id.s_addr = INADDR_ANY;
 	eigrp->router_id_static.s_addr = INADDR_ANY;
 	eigrp->sequence_number = 1;
+	eigrp->fd = -1;
 
-	/*Configure default K Values for EIGRP Process*/
+	/* Configure default K values for the control context. */
 	eigrp->k_values[0] = EIGRP_K1_DEFAULT;
 	eigrp->k_values[1] = EIGRP_K2_DEFAULT;
 	eigrp->k_values[2] = EIGRP_K3_DEFAULT;
@@ -120,11 +133,26 @@ static eigrp_instance_t *eigrp_new(uint16_t as, eigrp_vrf_id_t vrf_id)
 	eigrp_tlv1_init(&eigrp->tlv1_codec);
 	eigrp_tlv2_init(&eigrp->tlv2_codec);
 
-	/* init internal data structures */
+	/* Control/runtime state exists for both IPv4 and IPv6 named AFs. */
 	eigrp->eiflist = list_new();
 	eigrp->passive_interface_default = EIGRP_INTF_ACTIVE;
-	/* Configured network statements are not a topology table. */
 	eigrp->networks = route_table_init();
+	eigrp->oi_write_q = list_new();
+	eigrp->topology_table = eigrp_topology_table_create();
+	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
+	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
+	eigrp->max_hops = EIGRP_MAX_HOPS;
+	eigrp->log_neighbor_changes = true;
+	eigrp->log_neighbor_warnings = true;
+	eigrp->log_neighbor_warning_interval = 10;
+	eigrp->topology_changes = list_new();
+
+	/* Diagnostic/control state is valid before a packet data path exists. */
+	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
+	(void)eigrp_southbound_policy_instance_create(eigrp);
+
+	if (!data_path_ready)
+		return eigrp;
 
 	if (eigrp_southbound_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
 		flog_err_sys(
@@ -134,44 +162,19 @@ static eigrp_instance_t *eigrp_new(uint16_t as, eigrp_vrf_id_t vrf_id)
 	}
 
 	eigrp->ibuf = stream_new(EIGRP_PACKET_MAX_LEN + 1);
-
 	eigrp_southbound_read_add(&eigrp->t_read, eigrp->fd,
 				   eigrp_packet_read, eigrp);
-	eigrp->oi_write_q = list_new();
 
-	// DVS: get it into a workable form, but this is an ugly hack
-	//      cleaning these up as I get ipv6 fixed
-	eigrp_addr_t src;
-	src.afi = AF_INET;
-	src.ip.v4.s_addr = INADDR_ANY;
-
+	/* The self-neighbor is wire/data-path state and is created only there. */
+	src.afi = afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
 	eigrp->neighbor_self = eigrp_nbr_create(NULL, &src);
-	eigrp->topology_table = eigrp_topology_table_create();
-	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
-	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
-	eigrp->max_hops = EIGRP_MAX_HOPS;
-	eigrp->log_neighbor_changes = true;
-	eigrp->log_neighbor_warnings = true;
-	eigrp->log_neighbor_warning_interval = 10;
-
-	eigrp->serno = 0;
-	eigrp->serno_last_update = 0;
-	eigrp->topology_changes = list_new();
 	eigrp_packetizer_init(eigrp);
-	/* Diagnostic logging is best-effort and must not block protocol startup. */
-	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
-
-	/* Host policy objects are created and retained by the southbound adapter. */
-	(void)eigrp_southbound_policy_instance_create(eigrp);
 	return eigrp;
 }
 
 /*
- * DVS: broken
- *	if you try to run multiple eigrp instances over single VRF
- *	lot of code does not pass vrf_id?
- *
- * Look for existing eigrp process based on the VRF its running over
+ * Legacy classic callers are IPv4.  Keep these lookups IPv4-only so adding a
+ * named IPv6 control runtime cannot redirect Zebra/classic code to IPv6.
  */
 eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id)
 {
@@ -179,7 +182,23 @@ eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id)
 	struct listnode *node, *nnode;
 
 	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-		if (eigrp->vrf_id == vrf_id)
+		if (eigrp->af_vectors.afi == EIGRP_ADDRESS_FAMILY_IPV4
+		    && eigrp->vrf_id == vrf_id)
+			return eigrp;
+	}
+	return NULL;
+}
+
+eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_address_family_t afi,
+					     uint16_t as,
+					     eigrp_vrf_id_t vrf_id)
+{
+	eigrp_instance_t *eigrp;
+	struct listnode *node, *nnode;
+
+	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+		if (eigrp->af_vectors.afi == afi && eigrp->AS == as
+		    && eigrp->vrf_id == vrf_id)
 			return eigrp;
 	}
 	return NULL;
@@ -187,27 +206,27 @@ eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id)
 
 eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
-	eigrp_instance_t *eigrp;
-	struct listnode *node, *nnode;
+	return eigrp_lookup_by_af_as_vrf(EIGRP_ADDRESS_FAMILY_IPV4, as, vrf_id);
+}
 
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-		if (eigrp->AS == as && eigrp->vrf_id == vrf_id)
-			return eigrp;
+eigrp_instance_t *eigrp_get_by_af(eigrp_address_family_t afi, uint16_t as,
+				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
+{
+	eigrp_instance_t *eigrp;
+
+	eigrp = eigrp_lookup_by_af_as_vrf(afi, as, vrf_id);
+	if (eigrp == NULL) {
+		eigrp = eigrp_new(afi, as, vrf_id, data_path_ready);
+		if (!eigrp)
+			return NULL;
+		listnode_add(eigrp_om->eigrp, eigrp);
 	}
-	return NULL;
+	return eigrp;
 }
 
 eigrp_instance_t *eigrp_get(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
-	eigrp_instance_t *eigrp;
-
-	eigrp = eigrp_lookup_by_as_vrf(as, vrf_id);
-	if (eigrp == NULL) {
-		eigrp = eigrp_new(as, vrf_id);
-		listnode_add(eigrp_om->eigrp, eigrp);
-	}
-
-	return eigrp;
+	return eigrp_get_by_af(EIGRP_ADDRESS_FAMILY_IPV4, as, vrf_id, true);
 }
 
 void eigrp_name_set(eigrp_instance_t *eigrp, const char *name)
@@ -286,7 +305,8 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	list_delete(&eigrp->oi_write_q);
 
 	eigrp_topology_table_delete(eigrp, eigrp->topology_table);
-	eigrp_nbr_delete(eigrp->neighbor_self);
+	if (eigrp->neighbor_self)
+		eigrp_nbr_delete(eigrp->neighbor_self);
 
 	list_delete(&eigrp->topology_changes);
 	listnode_delete(eigrp_om->eigrp, eigrp);
@@ -294,7 +314,8 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	if (eigrp->name)
 		XFREE(MTYPE_EIGRP_TOP, eigrp->name);
 
-	stream_free(eigrp->ibuf);
+	if (eigrp->ibuf)
+		stream_free(eigrp->ibuf);
 	eigrp_southbound_policy_instance_delete(eigrp);
 	eigrp_southbound_rib_instance_delete(eigrp);
 	eigrp_filter_runtime_state_clear(&eigrp->filter);

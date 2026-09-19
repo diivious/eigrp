@@ -60,6 +60,48 @@
 #endif
 #endif
 
+static bool eigrp_cli_summary_prefix_display(const char *prefix, char *address,
+					      size_t address_len, char *mask,
+					      size_t mask_len, bool *ipv6)
+{
+	char buffer[INET6_ADDRSTRLEN + 4];
+	char *slash;
+	char *end = NULL;
+	unsigned long plen;
+	struct in_addr in4;
+	struct in_addr mask4;
+	uint32_t host_mask;
+
+	if (!prefix || !address || !mask || !ipv6 || strlen(prefix) >= sizeof(buffer))
+		return false;
+	strlcpy(buffer, prefix, sizeof(buffer));
+	slash = strchr(buffer, '/');
+	if (!slash)
+		return false;
+	*slash++ = '\0';
+	plen = strtoul(slash, &end, 10);
+	if (!end || *end != '\0')
+		return false;
+
+	*ipv6 = strchr(buffer, ':') != NULL;
+	if (*ipv6) {
+		struct in6_addr in6;
+		if (plen > 128 || inet_pton(AF_INET6, buffer, &in6) != 1)
+			return false;
+		strlcpy(address, prefix, address_len);
+		mask[0] = '\0';
+		return true;
+	}
+
+	if (plen > 32 || inet_pton(AF_INET, buffer, &in4) != 1)
+		return false;
+	if (!inet_ntop(AF_INET, &in4, address, address_len))
+		return false;
+	host_mask = plen == 0 ? 0 : (0xffffffffU << (32 - plen));
+	mask4.s_addr = htonl(host_mask);
+	return inet_ntop(AF_INET, &mask4, mask, mask_len) != NULL;
+}
+
 void eigrp_cli_named_show_header(struct vty *vty, const struct lyd_node *dnode,
 				 bool show_defaults)
 {
@@ -231,10 +273,19 @@ void eigrp_cli_named_show_af_interface_summary(struct vty *vty,
 					       const struct lyd_node *dnode,
 					       bool show_defaults)
 {
+	char address[INET6_ADDRSTRLEN + 4];
+	char mask[INET_ADDRSTRLEN];
+	bool ipv6;
+	const char *prefix = yang_dnode_get_string(dnode, "prefix");
+
 	(void)show_defaults;
-	vty_out(vty, "   summary-address %s %s",
-		yang_dnode_get_string(dnode, "address"),
-		yang_dnode_get_string(dnode, "mask"));
+	if (!eigrp_cli_summary_prefix_display(prefix, address, sizeof(address), mask,
+					      sizeof(mask), &ipv6))
+		return;
+	if (ipv6)
+		vty_out(vty, "   summary-address %s", address);
+	else
+		vty_out(vty, "   summary-address %s %s", address, mask);
 	if (yang_dnode_exists(dnode, "administrative-distance"))
 		vty_out(vty, " %u",
 			yang_dnode_get_uint8(dnode, "administrative-distance"));
@@ -411,10 +462,19 @@ void eigrp_cli_named_show_summary_metric(struct vty *vty,
 					 const struct lyd_node *dnode,
 					 bool show_defaults)
 {
+	char address[INET6_ADDRSTRLEN + 4];
+	char mask[INET_ADDRSTRLEN];
+	bool ipv6;
+	const char *prefix = yang_dnode_get_string(dnode, "prefix");
+
 	(void)show_defaults;
-	vty_out(vty, "   summary-metric %s %s",
-		yang_dnode_get_string(dnode, "address"),
-		yang_dnode_get_string(dnode, "mask"));
+	if (!eigrp_cli_summary_prefix_display(prefix, address, sizeof(address), mask,
+					      sizeof(mask), &ipv6))
+		return;
+	if (ipv6)
+		vty_out(vty, "   summary-metric %s", address);
+	else
+		vty_out(vty, "   summary-metric %s %s", address, mask);
 	if (yang_dnode_exists(dnode, "bandwidth"))
 		vty_out(vty, " %u %u %u %u %u",
 			yang_dnode_get_uint32(dnode, "bandwidth"),
@@ -1958,59 +2018,110 @@ DEFUN(no_eigrp_af_interface_split_horizon,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
-static int eigrp_cli_af_interface_summary_set(
-	struct vty *vty, const char *address, const char *mask,
-	const char *distance, const char *leak_map, bool remove)
+static bool eigrp_cli_ipv4_summary_prefix(const char *address, const char *mask,
+                                           char *prefix, size_t prefix_len)
 {
-	char interface_name[IFNAMSIZ];
-	char afi[8];
-	char xpath[XPATH_MAXLEN];
-	char child[XPATH_MAXLEN];
+    struct in_addr address4;
+    struct in_addr mask4;
+    struct in_addr network4;
+    uint32_t host_mask;
+    uint32_t inverse;
+    uint8_t plen = 0;
+    char network[INET_ADDRSTRLEN];
 
-	if (!eigrp_cli_af_interface_path(vty, interface_name, sizeof(interface_name)))
-		return CMD_WARNING;
-	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))
-	    || strcmp(afi, "ipv4") != 0) {
-		vty_out(vty, "%% summary-address is valid only under named IPv4 address-family\n");
-		return CMD_WARNING;
-	}
-	snprintf(xpath, sizeof(xpath),
-		 "./summary-address[address='%s'][mask='%s']", address, mask);
-	if (remove) {
-		nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
-		return nb_cli_apply_changes(vty, NULL);
-	}
-	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
-	if (!eigrp_cli_xpath_leaf_build(child, sizeof(child), xpath,
-				       "administrative-distance"))
-		return CMD_WARNING;
-	nb_cli_enqueue_change(vty, child, distance ? NB_OP_MODIFY : NB_OP_DESTROY,
-			distance);
-	if (!eigrp_cli_xpath_leaf_build(child, sizeof(child), xpath, "leak-map"))
-		return CMD_WARNING;
-	nb_cli_enqueue_change(vty, child, leak_map ? NB_OP_MODIFY : NB_OP_DESTROY,
-			leak_map);
-	return nb_cli_apply_changes(vty, NULL);
+    if (!address || !mask || !prefix
+        || inet_pton(AF_INET, address, &address4) != 1
+        || inet_pton(AF_INET, mask, &mask4) != 1)
+        return false;
+    host_mask = ntohl(mask4.s_addr);
+    inverse = ~host_mask;
+    if ((inverse & (inverse + 1U)) != 0)
+        return false;
+    while (host_mask & 0x80000000U) {
+        plen++;
+        host_mask <<= 1;
+    }
+    network4.s_addr = address4.s_addr & mask4.s_addr;
+    if (!inet_ntop(AF_INET, &network4, network, sizeof(network)))
+        return false;
+    snprintf(prefix, prefix_len, "%s/%u", network, plen);
+    return true;
+}
+
+static const char *eigrp_cli_ipv6_prefix(int argc, struct cmd_token *argv[])
+{
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        const char *value = eigrp_cli_token_value(argv[i]);
+        char address[INET6_ADDRSTRLEN];
+        const char *slash;
+        char *end = NULL;
+        unsigned long plen;
+        size_t len;
+        struct in6_addr parsed;
+
+        if (!value || !strchr(value, ':') || !(slash = strchr(value, '/')))
+            continue;
+        len = (size_t)(slash - value);
+        if (len == 0 || len >= sizeof(address))
+            continue;
+        memcpy(address, value, len);
+        address[len] = '\0';
+        plen = strtoul(slash + 1, &end, 10);
+        if (end && *end == '\0' && plen <= 128
+            && inet_pton(AF_INET6, address, &parsed) == 1)
+            return value;
+    }
+    return NULL;
+}
+
+static int eigrp_cli_af_interface_summary_set(
+    struct vty *vty, const char *prefix, const char *distance,
+    const char *leak_map, bool remove)
+{
+    char interface_name[IFNAMSIZ];
+    char xpath[XPATH_MAXLEN];
+    char child[XPATH_MAXLEN];
+
+    if (!eigrp_cli_af_interface_path(vty, interface_name, sizeof(interface_name)))
+        return CMD_WARNING;
+    snprintf(xpath, sizeof(xpath), "./summary-address[prefix='%s']", prefix);
+    if (remove) {
+        nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+        return nb_cli_apply_changes(vty, NULL);
+    }
+    nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
+    if (!eigrp_cli_xpath_leaf_build(child, sizeof(child), xpath,
+                                    "administrative-distance"))
+        return CMD_WARNING;
+    nb_cli_enqueue_change(vty, child, distance ? NB_OP_MODIFY : NB_OP_DESTROY,
+                          distance);
+    if (!eigrp_cli_xpath_leaf_build(child, sizeof(child), xpath, "leak-map"))
+        return CMD_WARNING;
+    nb_cli_enqueue_change(vty, child, leak_map ? NB_OP_MODIFY : NB_OP_DESTROY,
+                          leak_map);
+    return nb_cli_apply_changes(vty, NULL);
 }
 
 static bool eigrp_cli_ipv4_pair(int argc, struct cmd_token *argv[],
-				const char **address, const char **mask)
+                                const char **address, const char **mask)
 {
-	int i;
+    int i;
 
-	*address = NULL;
-	*mask = NULL;
-	for (i = 0; i < argc; i++) {
-		const char *value = eigrp_cli_token_value(argv[i]);
-		struct in_addr parsed;
-		if (!value || inet_aton(value, &parsed) == 0)
-			continue;
-		if (!*address)
-			*address = value;
-		else if (!*mask)
-			*mask = value;
-	}
-	return *address && *mask;
+    *address = NULL;
+    *mask = NULL;
+    for (i = 0; i < argc; i++) {
+        const char *value = eigrp_cli_token_value(argv[i]);
+        struct in_addr parsed;
+        if (!value || inet_aton(value, &parsed) == 0)
+            continue;
+        if (!*address)
+            *address = value;
+        else if (!*mask)
+            *mask = value;
+    }
+    return *address && *mask;
 }
 
 DEFUN(eigrp_af_interface_summary_address,
@@ -2023,27 +2134,61 @@ DEFUN(eigrp_af_interface_summary_address,
       "Leak selected component routes\n"
       "Route-map name\n")
 {
-	const char *address, *mask;
-	const char *distance = NULL;
-	const char *leak_map = eigrp_cli_token_after(argc, argv, "leak-map");
-	int i;
+    const char *address, *mask;
+    const char *distance = NULL;
+    const char *leak_map = eigrp_cli_token_after(argc, argv, "leak-map");
+    char prefix[INET_ADDRSTRLEN + 4];
+    int i;
 
-	if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask))
-		return CMD_WARNING;
-	for (i = 0; i < argc; i++) {
-		const char *value = eigrp_cli_token_value(argv[i]);
-		char *end = NULL;
-		unsigned long n;
-		if (!value || value == address || value == mask)
-			continue;
-		n = strtoul(value, &end, 10);
-		if (end && *end == '\0' && n >= 1 && n <= 255) {
-			distance = value;
-			break;
-		}
-	}
-	return eigrp_cli_af_interface_summary_set(vty, address, mask, distance,
-					   leak_map, false);
+    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
+        || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
+        return CMD_WARNING;
+    for (i = 0; i < argc; i++) {
+        const char *value = eigrp_cli_token_value(argv[i]);
+        char *end = NULL;
+        unsigned long n;
+        if (!value || value == address || value == mask)
+            continue;
+        n = strtoul(value, &end, 10);
+        if (end && *end == '\0' && n >= 1 && n <= 255) {
+            distance = value;
+            break;
+        }
+    }
+    return eigrp_cli_af_interface_summary_set(vty, prefix, distance, leak_map,
+                                               false);
+}
+
+DEFUN(eigrp_af_interface_summary_address_ipv6,
+      eigrp_af_interface_summary_address_ipv6_cmd,
+      "summary-address X:X::X:X/M [(1-255) [leak-map WORD]]",
+      "Perform address summarization\n"
+      "Summary IPv6 prefix\n"
+      "Administrative distance\n"
+      "Leak selected component routes\n"
+      "Route-map name\n")
+{
+    const char *prefix = eigrp_cli_ipv6_prefix(argc, argv);
+    const char *distance = NULL;
+    const char *leak_map = eigrp_cli_token_after(argc, argv, "leak-map");
+    int i;
+
+    if (!prefix)
+        return CMD_WARNING;
+    for (i = 0; i < argc; i++) {
+        const char *value = eigrp_cli_token_value(argv[i]);
+        char *end = NULL;
+        unsigned long n;
+        if (!value || value == prefix)
+            continue;
+        n = strtoul(value, &end, 10);
+        if (end && *end == '\0' && n >= 1 && n <= 255) {
+            distance = value;
+            break;
+        }
+    }
+    return eigrp_cli_af_interface_summary_set(vty, prefix, distance, leak_map,
+                                               false);
 }
 
 DEFUN(no_eigrp_af_interface_summary_address,
@@ -2057,11 +2202,30 @@ DEFUN(no_eigrp_af_interface_summary_address,
       "Leak selected component routes\n"
       "Route-map name\n")
 {
-	const char *address, *mask;
+    const char *address, *mask;
+    char prefix[INET_ADDRSTRLEN + 4];
 
-	if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask))
-		return CMD_WARNING;
-	return eigrp_cli_af_interface_summary_set(vty, address, mask, NULL, NULL, true);
+    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
+        || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
+        return CMD_WARNING;
+    return eigrp_cli_af_interface_summary_set(vty, prefix, NULL, NULL, true);
+}
+
+DEFUN(no_eigrp_af_interface_summary_address_ipv6,
+      no_eigrp_af_interface_summary_address_ipv6_cmd,
+      "no summary-address X:X::X:X/M [(1-255) [leak-map WORD]]",
+      NO_STR
+      "Perform address summarization\n"
+      "Summary IPv6 prefix\n"
+      "Administrative distance\n"
+      "Leak selected component routes\n"
+      "Route-map name\n")
+{
+    const char *prefix = eigrp_cli_ipv6_prefix(argc, argv);
+
+    if (!prefix)
+        return CMD_WARNING;
+    return eigrp_cli_af_interface_summary_set(vty, prefix, NULL, NULL, true);
 }
 
 DEFUN(eigrp_topology_base,
@@ -2536,24 +2700,18 @@ DEFUN(no_eigrp_redistribute_maximum_prefix,
 }
 
 static int eigrp_cli_summary_metric_set(struct vty *vty,
-                                        const char *address, const char *mask,
+                                        const char *prefix,
                                         const char **metric,
                                         const char *distance, bool remove)
 {
-    char afi[8];
     char xpath[XPATH_MAXLEN];
     char child[XPATH_MAXLEN];
     static const char *leaves[] = {"bandwidth", "delay", "reliability", "load", "mtu"};
     int i;
 
-    if (!eigrp_cli_named_topology_required(vty)
-        || !eigrp_cli_current_afi(vty, afi, sizeof(afi))
-        || strcmp(afi, "ipv4") != 0) {
-        vty_out(vty, "%% summary-metric is valid only under named IPv4 topology\n");
+    if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
-    }
-    snprintf(xpath, sizeof(xpath), "./summary-metric[address='%s'][mask='%s']",
-             address, mask);
+    snprintf(xpath, sizeof(xpath), "./summary-metric[prefix='%s']", prefix);
     if (remove) {
         nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
         return nb_cli_apply_changes(vty, NULL);
@@ -2583,16 +2741,41 @@ DEFUN(eigrp_summary_metric,
     const char *args[7] = {0};
     const char *metric[5];
     const char *distance = eigrp_cli_token_after(argc, argv, "distance");
+    char prefix[INET_ADDRSTRLEN + 4];
     int count, i;
 
-    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask))
+    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
+        || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
         return CMD_WARNING;
     count = eigrp_cli_token_values_after(argc, argv, "summary-metric", args, 7);
     if (count < 7)
         return CMD_WARNING;
     for (i = 0; i < 5; i++)
         metric[i] = args[i + 2];
-    return eigrp_cli_summary_metric_set(vty, address, mask, metric, distance, false);
+    return eigrp_cli_summary_metric_set(vty, prefix, metric, distance, false);
+}
+
+DEFUN(eigrp_summary_metric_ipv6,
+      eigrp_summary_metric_ipv6_cmd,
+      "summary-metric X:X::X:X/M (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535) [distance (1-255)]",
+      "Configure summary metric\n" "Summary IPv6 prefix\n"
+      "Bandwidth metric\n" "Delay metric\n" "Reliability metric\n" "Load metric\n"
+      "MTU metric\n" "Administrative distance\n" "Distance\n")
+{
+    const char *prefix = eigrp_cli_ipv6_prefix(argc, argv);
+    const char *args[6] = {0};
+    const char *metric[5];
+    const char *distance = eigrp_cli_token_after(argc, argv, "distance");
+    int count, i;
+
+    if (!prefix)
+        return CMD_WARNING;
+    count = eigrp_cli_token_values_after(argc, argv, "summary-metric", args, 6);
+    if (count < 6)
+        return CMD_WARNING;
+    for (i = 0; i < 5; i++)
+        metric[i] = args[i + 1];
+    return eigrp_cli_summary_metric_set(vty, prefix, metric, distance, false);
 }
 
 DEFUN(eigrp_summary_metric_distance,
@@ -2602,9 +2785,26 @@ DEFUN(eigrp_summary_metric_distance,
       "Administrative distance\n" "Distance\n")
 {
     const char *address, *mask;
-    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask))
+    char prefix[INET_ADDRSTRLEN + 4];
+
+    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
+        || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
         return CMD_WARNING;
-    return eigrp_cli_summary_metric_set(vty, address, mask, NULL,
+    return eigrp_cli_summary_metric_set(vty, prefix, NULL,
+                                        eigrp_cli_token_after(argc, argv, "distance"), false);
+}
+
+DEFUN(eigrp_summary_metric_distance_ipv6,
+      eigrp_summary_metric_distance_ipv6_cmd,
+      "summary-metric X:X::X:X/M distance (1-255)",
+      "Configure summary metric\n" "Summary IPv6 prefix\n"
+      "Administrative distance\n" "Distance\n")
+{
+    const char *prefix = eigrp_cli_ipv6_prefix(argc, argv);
+
+    if (!prefix)
+        return CMD_WARNING;
+    return eigrp_cli_summary_metric_set(vty, prefix, NULL,
                                         eigrp_cli_token_after(argc, argv, "distance"), false);
 }
 
@@ -2615,9 +2815,24 @@ DEFUN(no_eigrp_summary_metric,
       "Summary subnet mask\n")
 {
     const char *address, *mask;
-    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask))
+    char prefix[INET_ADDRSTRLEN + 4];
+
+    if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
+        || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
         return CMD_WARNING;
-    return eigrp_cli_summary_metric_set(vty, address, mask, NULL, NULL, true);
+    return eigrp_cli_summary_metric_set(vty, prefix, NULL, NULL, true);
+}
+
+DEFUN(no_eigrp_summary_metric_ipv6,
+      no_eigrp_summary_metric_ipv6_cmd,
+      "no summary-metric X:X::X:X/M",
+      NO_STR "Configure summary metric\n" "Summary IPv6 prefix\n")
+{
+    const char *prefix = eigrp_cli_ipv6_prefix(argc, argv);
+
+    if (!prefix)
+        return CMD_WARNING;
+    return eigrp_cli_summary_metric_set(vty, prefix, NULL, NULL, true);
 }
 
 DEFUN(eigrp_traffic_share_balanced,
@@ -4350,7 +4565,9 @@ void eigrp_cli_named_init(void)
     install_element(EIGRP_NODE, &eigrp_af_interface_split_horizon_cmd);
     install_element(EIGRP_NODE, &no_eigrp_af_interface_split_horizon_cmd);
     install_element(EIGRP_NODE, &eigrp_af_interface_summary_address_cmd);
+    install_element(EIGRP_NODE, &eigrp_af_interface_summary_address_ipv6_cmd);
     install_element(EIGRP_NODE, &no_eigrp_af_interface_summary_address_cmd);
+    install_element(EIGRP_NODE, &no_eigrp_af_interface_summary_address_ipv6_cmd);
     install_element(EIGRP_NODE, &eigrp_topology_base_cmd);
     install_element(EIGRP_NODE, &eigrp_exit_af_topology_cmd);
     install_element(EIGRP_NODE, &eigrp_auto_summary_cmd);
@@ -4374,8 +4591,11 @@ void eigrp_cli_named_init(void)
     install_element(EIGRP_NODE, &eigrp_redistribute_maximum_prefix_cmd);
     install_element(EIGRP_NODE, &no_eigrp_redistribute_maximum_prefix_cmd);
     install_element(EIGRP_NODE, &eigrp_summary_metric_cmd);
+    install_element(EIGRP_NODE, &eigrp_summary_metric_ipv6_cmd);
     install_element(EIGRP_NODE, &eigrp_summary_metric_distance_cmd);
+    install_element(EIGRP_NODE, &eigrp_summary_metric_distance_ipv6_cmd);
     install_element(EIGRP_NODE, &no_eigrp_summary_metric_cmd);
+    install_element(EIGRP_NODE, &no_eigrp_summary_metric_ipv6_cmd);
     install_element(EIGRP_NODE, &eigrp_traffic_share_balanced_cmd);
     install_element(EIGRP_NODE, &no_eigrp_traffic_share_balanced_cmd);
 

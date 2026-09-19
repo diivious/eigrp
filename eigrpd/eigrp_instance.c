@@ -57,12 +57,10 @@ static eigrp_result_t eigrp_instance_address_family_runtime_create(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	/*
-	 * IPv6 named-mode configuration is required now, but its runtime/data
-	 * path is intentionally not created until IPv6 protocol support exists.
+	 * Every named AF owns a runtime/control context.  IPv6 deliberately gets
+	 * a control-only context; the southbound/runtime allocator leaves packet
+	 * I/O disabled until the IPv6 data path exists.
 	 */
-	if (af->afi == EIGRP_ADDRESS_FAMILY_IPV6)
-		return EIGRP_RESULT_SUCCESS;
-
 	result = eigrp_southbound_instance_create(
 		name, af->afi, af->vrf_name, af->asn, &runtime);
 	if (result != EIGRP_RESULT_SUCCESS)
@@ -440,7 +438,9 @@ eigrp_result_t eigrp_instance_address_family_shutdown_update(
 	result = shutdown
 		 ? eigrp_southbound_address_family_stop(af->runtime)
 		 : eigrp_southbound_address_family_start(af->runtime);
-	if (result != EIGRP_RESULT_SUCCESS)
+	/* NOT_IMPLEMENTED is a truthful data-path boundary, not config failure. */
+	if (result != EIGRP_RESULT_SUCCESS
+	    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
 		af->shutdown = !shutdown;
 	return result;
 }

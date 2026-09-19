@@ -306,9 +306,11 @@ eigrp_result_t eigrp_neighbor_state_walk(
 
 	if (!runtime) {
 		if (config && config->afi == EIGRP_ADDRESS_FAMILY_IPV6)
-			return EIGRP_RESULT_UNSUPPORTED;
+			return EIGRP_RESULT_NOT_IMPLEMENTED;
 		return EIGRP_RESULT_NOT_FOUND;
 	}
+	if (!runtime->data_path_ready)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
 		const char *name = eigrp_intf_name_string(ei);
@@ -755,6 +757,8 @@ eigrp_result_t eigrp_neighbor_clear(
 		*affected_count = 0;
 	if (!runtime || !request)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!runtime->data_path_ready)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (request->interface_name && request->address)
 		return EIGRP_RESULT_CONFLICT;
 	if (request->address

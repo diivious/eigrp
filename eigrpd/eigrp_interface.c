@@ -160,6 +160,8 @@ eigrp_result_t eigrp_interface_state_walk(
 
 	if (!callback || (!config && !runtime))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (runtime && !runtime->data_path_ready)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	if (runtime && runtime->eiflist) {
 		for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {

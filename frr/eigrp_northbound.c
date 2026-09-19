@@ -350,78 +350,39 @@ static bool eigrpd_named_address_parse(const char *text,
 }
 
 static bool eigrpd_named_prefix_parse(const char *text,
-				      eigrp_prefix_t *prefix)
+                                      eigrp_prefix_t *prefix)
 {
-	char address[INET_ADDRSTRLEN];
-	const char *slash;
-	char *end = NULL;
-	unsigned long prefix_length;
-	size_t address_length;
+    char address[INET6_ADDRSTRLEN];
+    const char *slash;
+    char *end = NULL;
+    unsigned long prefix_length;
+    size_t address_length;
+    eigrp_address_family_t afi;
+    int family;
 
-	if (!text || !prefix)
-		return false;
+    if (!text || !prefix)
+        return false;
+    slash = strchr(text, '/');
+    if (!slash)
+        return false;
+    address_length = (size_t)(slash - text);
+    if (address_length == 0 || address_length >= sizeof(address))
+        return false;
+    memcpy(address, text, address_length);
+    address[address_length] = '\0';
 
-	slash = strchr(text, '/');
-	if (!slash)
-		return false;
-	address_length = (size_t)(slash - text);
-	if (address_length == 0 || address_length >= sizeof(address))
-		return false;
-	memcpy(address, text, address_length);
-	address[address_length] = '\0';
+    afi = strchr(address, ':') ? EIGRP_ADDRESS_FAMILY_IPV6
+                               : EIGRP_ADDRESS_FAMILY_IPV4;
+    family = afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
+    prefix_length = strtoul(slash + 1, &end, 10);
+    if (!end || *end != '\0'
+        || prefix_length > (afi == EIGRP_ADDRESS_FAMILY_IPV6 ? 128 : 32))
+        return false;
 
-	prefix_length = strtoul(slash + 1, &end, 10);
-	if (!end || *end != '\0' || prefix_length > 32)
-		return false;
-
-	memset(prefix, 0, sizeof(*prefix));
-	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
-	prefix->prefix_length = (uint8_t)prefix_length;
-	return inet_pton(AF_INET, address, prefix->address.bytes) == 1;
-}
-
-static bool eigrpd_named_ipv4_mask_prefix_length(const char *text,
-					  uint8_t *prefix_length)
-{
-	eigrp_address_t mask_address;
-	uint32_t mask;
-	uint8_t length = 0;
-	bool zero_seen = false;
-	int bit;
-
-	if (!prefix_length
-	    || !eigrpd_named_address_parse(text, EIGRP_ADDRESS_FAMILY_IPV4,
-				       &mask_address))
-		return false;
-	memcpy(&mask, mask_address.bytes, sizeof(mask));
-	mask = ntohl(mask);
-	for (bit = 31; bit >= 0; bit--) {
-		if (mask & (1U << bit)) {
-			if (zero_seen)
-				return false;
-			length++;
-		} else {
-			zero_seen = true;
-		}
-	}
-	*prefix_length = length;
-	return true;
-}
-
-static bool eigrpd_named_summary_prefix_parse(const char *address_text,
-					       const char *mask_text,
-					       eigrp_prefix_t *prefix)
-{
-	uint8_t prefix_length;
-
-	if (!prefix
-	    || !eigrpd_named_address_parse(address_text,
-				       EIGRP_ADDRESS_FAMILY_IPV4,
-				       &prefix->address)
-	    || !eigrpd_named_ipv4_mask_prefix_length(mask_text, &prefix_length))
-		return false;
-	prefix->prefix_length = prefix_length;
-	return true;
+    memset(prefix, 0, sizeof(*prefix));
+    prefix->address.afi = afi;
+    prefix->prefix_length = (uint8_t)prefix_length;
+    return inet_pton(family, address, prefix->address.bytes) == 1;
 }
 
 static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
@@ -590,7 +551,7 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 		return NB_ERR_INCONSISTENCY;
 	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
 	result = eigrp_instance_address_family_shutdown_update(af, true);
-	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, false);
 }
 
 static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
@@ -608,9 +569,7 @@ static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 		return NB_ERR_INCONSISTENCY;
 	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
 	result = eigrp_instance_address_family_shutdown_update(af, false);
-	return result == EIGRP_RESULT_SUCCESS || result == EIGRP_RESULT_NOT_FOUND
-		       ? NB_OK
-		       : NB_ERR_INCONSISTENCY;
+	return eigrpd_named_config_result(result, true);
 }
 
 static bool eigrpd_named_af_interface_context(
@@ -1128,12 +1087,11 @@ static int eigrpd_named_af_interface_summary_apply_options(
 
 	if (!eigrpd_named_af_interface_context(dnode, true, &name, &afi,
 						    &vrf, &asn, &interface_name)
-	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
 						       interface_name, &context)
-	    || !eigrpd_named_summary_prefix_parse(
-		    yang_dnode_get_string(dnode, "address"),
-		    yang_dnode_get_string(dnode, "mask"), &prefix))
+	    || !eigrpd_named_prefix_parse(yang_dnode_get_string(dnode, "prefix"),
+					   &prefix)
+	    || prefix.address.afi != afi)
 		return NB_ERR_INCONSISTENCY;
 	if (!omit_distance && yang_dnode_exists(dnode, "administrative-distance"))
 		options.administrative_distance =
@@ -1194,12 +1152,11 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
 		return NB_OK;
 	if (!eigrpd_named_af_interface_context(args->dnode, true, &name, &afi,
 						 &vrf, &asn, &interface_name)
-	    || afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    || !eigrpd_named_interface_context_resolve(name, afi, vrf, asn,
 						       interface_name, &context)
-	    || !eigrpd_named_summary_prefix_parse(
-		    yang_dnode_get_string(args->dnode, "address"),
-		    yang_dnode_get_string(args->dnode, "mask"), &prefix))
+	    || !eigrpd_named_prefix_parse(
+		    yang_dnode_get_string(args->dnode, "prefix"), &prefix)
+	    || prefix.address.afi != afi)
 		return NB_ERR_INCONSISTENCY;
 	result = eigrp_summary_delete(&context, &prefix);
 	return eigrpd_named_config_result(result, true);
@@ -1507,34 +1464,11 @@ static void eigrpd_named_prefix_limit_get(const struct lyd_node *dnode,
 }
 
 static bool eigrpd_named_summary_prefix_get(const struct lyd_node *dnode,
-					     eigrp_prefix_t *prefix)
+                                             eigrp_prefix_t *prefix)
 {
-	struct in_addr address;
-	struct in_addr mask;
-	uint32_t host_mask;
-	uint32_t inverse;
-	uint8_t prefix_length = 0;
-
-	if (!dnode || !prefix
-	    || inet_pton(AF_INET, yang_dnode_get_string(dnode, "address"),
-			 &address) != 1
-	    || inet_pton(AF_INET, yang_dnode_get_string(dnode, "mask"), &mask) != 1)
-		return false;
-
-	host_mask = ntohl(mask.s_addr);
-	inverse = ~host_mask;
-	if ((inverse & (inverse + 1U)) != 0)
-		return false;
-	while (host_mask & 0x80000000U) {
-		prefix_length++;
-		host_mask <<= 1;
-	}
-
-	memset(prefix, 0, sizeof(*prefix));
-	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
-	memcpy(prefix->address.bytes, &address, sizeof(address));
-	prefix->prefix_length = prefix_length;
-	return true;
+    return dnode && prefix
+           && eigrpd_named_prefix_parse(yang_dnode_get_string(dnode, "prefix"),
+                                        prefix);
 }
 
 static int eigrpd_named_topology_create(struct nb_cb_create_args *args)
@@ -2322,9 +2256,9 @@ static int eigrpd_named_summary_metric_apply(const struct lyd_node *dnode)
     uint16_t asn;
 
     if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
-        || afi != EIGRP_ADDRESS_FAMILY_IPV4
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)
-        || !eigrpd_named_summary_prefix_get(dnode, &prefix))
+        || !eigrpd_named_summary_prefix_get(dnode, &prefix)
+        || prefix.address.afi != afi)
         return NB_ERR_INCONSISTENCY;
     if (yang_dnode_exists(dnode, "bandwidth")) {
         config.metric_configured = true;
@@ -2379,7 +2313,8 @@ static int eigrpd_named_summary_metric_destroy(struct nb_cb_destroy_args *args)
 						  &asn)
 	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
 						      &context)
-	    || !eigrpd_named_summary_prefix_get(args->dnode, &prefix))
+	    || !eigrpd_named_summary_prefix_get(args->dnode, &prefix)
+	    || prefix.address.afi != afi)
 		return NB_ERR_INCONSISTENCY;
 	return eigrpd_named_config_result(
 		eigrp_summary_metric_delete(&context, &prefix), true);

@@ -472,7 +472,7 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     assert '"./maximum-prefix", true, false' in cli
     assert '"./offset-list[access-list=' in cli
     assert '"./redistribute[protocol=' in cli
-    assert '"./summary-metric[address=' in cli
+    assert '"./summary-metric[prefix=' in cli
     assert '"./traffic-share-balanced", NB_OP_MODIFY' in cli
     assert 'nb_cli_enqueue_change(vty, "./metric-weights", NB_OP_CREATE, NULL);' in cli
     assert 'snprintf(child, sizeof(child), "%s/metrics", xpath);' in cli
@@ -578,7 +578,7 @@ def test_final_yang_patch_and_patch_detection_are_semantic():
         for line in read(ROOT / "frr" / "patch" / "series").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    assert series[-1] == "frr-eigrp-yang.patch"
+    assert series[-2:] == ["frr-eigrp-yang.patch", "eigrp-named-ipv6.patch"]
     assert "eigrp-grammar-placement.patch" not in series
 
     patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
@@ -594,6 +594,8 @@ def test_final_yang_patch_and_patch_detection_are_semantic():
     assert "EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY" in installer
     assert "frr-eigrp-yang.patch)" in installer
     assert "EIGRP_STEP1_CONFIG_COMPLETE" in installer
+    assert "eigrp-named-ipv6.patch)" in installer
+    assert 'description "IPv4 or IPv6 summary prefix";' in installer
     assert "eigrp-grammar-placement.patch)" not in installer
     assert "eigrp_grammar_schema_current" in installer
 

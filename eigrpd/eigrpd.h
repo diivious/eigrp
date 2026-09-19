@@ -60,8 +60,12 @@ extern void eigrp_finish(eigrp_instance_t *);
 extern void eigrp_finish_final(eigrp_instance_t *);
 
 extern eigrp_instance_t *eigrp_get(uint16_t as, eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_get_by_af(eigrp_address_family_t afi, uint16_t as,
+					eigrp_vrf_id_t vrf_id, bool data_path_ready);
 extern eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id);
 extern eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_address_family_t afi,
+					       uint16_t as, eigrp_vrf_id_t vrf_id);
 extern void eigrp_name_set(eigrp_instance_t *, const char *);
 
 extern void eigrp_router_id_update(eigrp_instance_t *);

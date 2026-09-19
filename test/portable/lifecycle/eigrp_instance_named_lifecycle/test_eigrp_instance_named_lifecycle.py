@@ -53,8 +53,9 @@ def test_address_family_configuration_owns_runtime_binding():
 
     assert "eigrp_instance_t *runtime;" in header
     assert "eigrp_instance_address_family_runtime_create(name, af)" in create
-    assert "af->afi == EIGRP_ADDRESS_FAMILY_IPV6" in runtime_create
     assert "eigrp_southbound_instance_create(" in runtime_create
+    assert "af->runtime = runtime;" in runtime_create
+    assert "EIGRP_ADDRESS_FAMILY_IPV6" not in runtime_create
     assert "af->runtime = runtime;" in runtime_create
 
 
@@ -111,9 +112,10 @@ def test_frr_southbound_owns_named_vrf_resolution_and_runtime_creation():
     assert "eigrp_southbound_instance_create(" in header
     assert "eigrp_southbound_instance_delete(" in header
     assert "vrf_lookup_by_name(vrf_name)" in create
-    assert "eigrp_lookup_by_as_vrf(asn, vrf->vrf_id)" in create
+    assert "eigrp_lookup_by_af_as_vrf(afi, asn, vrf->vrf_id)" in create
     assert "return EIGRP_RESULT_CONFLICT;" in create
-    assert "eigrp_get(asn, vrf->vrf_id)" in create
+    assert "eigrp_get_by_af(afi, asn, vrf->vrf_id" in create
+    assert "afi == EIGRP_ADDRESS_FAMILY_IPV4" in create
     assert "eigrp_name_set(eigrp, name);" in create
     assert "eigrp_finish_final(runtime);" in delete
 

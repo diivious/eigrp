@@ -463,7 +463,8 @@ eigrp_result_t eigrp_southbound_instance_create(
 	if (!name || !name[0] || !vrf_name || !vrf_name[0] || asn == 0
 	    || !runtime)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    && afi != EIGRP_ADDRESS_FAMILY_IPV6)
 		return EIGRP_RESULT_UNSUPPORTED;
 
 	vrf = vrf_lookup_by_name(vrf_name);
@@ -475,7 +476,7 @@ eigrp_result_t eigrp_southbound_instance_create(
 	 * local configuration ownership only, so two different parents (or a
 	 * classic instance and a named parent) must not share one runtime.
 	 */
-	eigrp = eigrp_lookup_by_as_vrf(asn, vrf->vrf_id);
+	eigrp = eigrp_lookup_by_af_as_vrf(afi, asn, vrf->vrf_id);
 	if (eigrp) {
 		if (!eigrp->name || strcmp(eigrp->name, name) != 0)
 			return EIGRP_RESULT_CONFLICT;
@@ -483,7 +484,8 @@ eigrp_result_t eigrp_southbound_instance_create(
 		return EIGRP_RESULT_SUCCESS;
 	}
 
-	eigrp = eigrp_get(asn, vrf->vrf_id);
+	eigrp = eigrp_get_by_af(afi, asn, vrf->vrf_id,
+			       afi == EIGRP_ADDRESS_FAMILY_IPV4);
 	if (!eigrp)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 	eigrp_name_set(eigrp, name);
@@ -507,8 +509,14 @@ eigrp_result_t eigrp_southbound_instance_delete(
 
 void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime)
 {
-	if (runtime)
-		eigrp_router_id_update(runtime);
+	if (!runtime)
+		return;
+	if (!runtime->data_path_ready) {
+		/* Router ID is control state; do not walk host interfaces for IPv6. */
+		runtime->router_id = runtime->router_id_static;
+		return;
+	}
+	eigrp_router_id_update(runtime);
 }
 
 eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime)
@@ -518,6 +526,8 @@ eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime)
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
+	if (!runtime->data_path_ready)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
 		if (!ei->t_hello)
@@ -537,6 +547,8 @@ eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime)
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
+	if (!runtime->data_path_ready)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (runtime->router_id.s_addr == INADDR_ANY)
 		eigrp_router_id_update(runtime);
 	if (runtime->router_id.s_addr == INADDR_ANY)
@@ -905,12 +917,16 @@ eigrp_result_t eigrp_southbound_redistribute_update(
 	eigrp_instance_t *eigrp, const char *protocol,
 	const eigrp_metric_values_t *metric, const char *route_map)
 {
+	if (!eigrp || !eigrp->data_path_ready)
+		return eigrp ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_NOT_FOUND;
 	return eigrp_zebra_redistribute_update(eigrp, protocol, metric, route_map);
 }
 
 eigrp_result_t eigrp_southbound_redistribute_delete(
 	eigrp_instance_t *eigrp, const char *protocol)
 {
+	if (!eigrp || !eigrp->data_path_ready)
+		return eigrp ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_NOT_FOUND;
 	return eigrp_zebra_redistribute_delete(eigrp, protocol);
 }
 

@@ -42,6 +42,10 @@ Current integration patches:
   neighbor metadata/prefix limits, full prefix-limit policy, maximum paths,
   metric holddown/maximum hops, event-log size, distribute-list, redistribution
   route-map/prefix limits, HMAC-SHA-256 credentials, and complete summary forms.
+- `eigrp-named-ipv6.patch` generalizes the managed summary-address and
+  summary-metric keys to `inet:ip-prefix`, allowing the same named-mode summary
+  command/runtime targets to retain IPv4 and IPv6 prefixes without enabling the
+  IPv6 packet data path.
 
 The YANG patches modify only `yang/frr-eigrpd.yang`. After patch installation,
 `tools/frr-install.sh` removes FRR's generated `yang/frr-eigrpd.yang.c`; the FRR

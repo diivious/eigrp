@@ -6,3 +6,4 @@ eigrp-named-af-interface.patch
 eigrp-named-topology.patch
 eigrp-named-topology-callbacks.patch
 frr-eigrp-yang.patch
+eigrp-named-ipv6.patch

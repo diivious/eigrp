@@ -15,6 +15,7 @@ TYPES_H = ROOT / "eigrpd" / "eigrp_types.h"
 IPV4_C = ROOT / "eigrpd" / "eigrp_ipv4.c"
 IPV6_C = ROOT / "eigrpd" / "eigrp_ipv6.c"
 NORTHBOUND = ROOT / "frr" / "eigrp_northbound.c"
+CLI_NAMED = ROOT / "frr" / "eigrp_cli_named.c"
 
 
 def read(path: Path) -> str:
@@ -72,20 +73,24 @@ def test_manual_summary_common_path_has_no_frr_or_ipv4_wire_types():
     assert "eigrp_summary_prefix_normalize" in delete
 
 
-def test_named_ipv4_summary_adapter_converts_address_mask_to_prefix():
+def test_named_summary_adapter_uses_generic_prefix_boundary():
     northbound = read(NORTHBOUND)
-    parser = function_body(northbound, "eigrpd_named_summary_prefix_parse")
+    cli = read(CLI_NAMED)
+    parser = function_body(northbound, "eigrpd_named_prefix_parse")
+    ipv4_adapter = function_body(cli, "eigrp_cli_ipv4_summary_prefix")
     apply = function_body(
         northbound, "eigrpd_named_af_interface_summary_apply_options"
     )
     destroy = function_body(northbound, "eigrpd_named_af_interface_summary_destroy")
 
-    assert "eigrpd_named_ipv4_mask_prefix_length" in parser
-    assert "prefix->prefix_length = prefix_length" in parser
+    assert "INET6_ADDRSTRLEN" in parser
+    assert "EIGRP_ADDRESS_FAMILY_IPV6" in parser
+    assert "prefix->prefix_length = (uint8_t)prefix_length" in parser
+    assert "network4.s_addr = address4.s_addr & mask4.s_addr" in ipv4_adapter
+    assert '"%s/%u"' in ipv4_adapter
     assert "eigrp_summary_create(&context, &prefix, &options)" in apply
     assert "eigrp_summary_delete(&context, &prefix)" in destroy
-    assert "&address, &mask" not in apply
-    assert "&address, &mask" not in destroy
+    assert 'yang_dnode_get_string(dnode, "prefix")' in apply
 
 
 def test_auto_summary_capability_is_selected_by_af_vector():

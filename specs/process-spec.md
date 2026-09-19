@@ -4,7 +4,7 @@ Named EIGRP is modeled as a parent process with one or more address-family proto
 
 `router eigrp <name>` creates the parent named process container. Removing that command destroys the parent process and all child address-family state.
 
-Each configured `address-family <afi> [vrf <vrf>] autonomous-system <as>` creates an EIGRP address-family protocol context. When the runtime for that address family is implemented and enabled, that context owns its packet-processing worker/thread, topology table, neighbor table, packetizer queue, interface packet queues, timers, and reliable-transport state.
+Each configured `address-family <afi> [vrf <vrf>] autonomous-system <as>` creates an EIGRP address-family protocol context. Every named address family binds a control runtime keyed by address family, VRF, and AS. When the packet data path for that address family is implemented and enabled, that runtime additionally owns packet receive/send processing, packetizer queues, interface packet queues, transport timers, and reliable-transport state.
 
 The address-family configuration object owns the binding to that runtime context. Creating an IPv4 named address family establishes the runtime binding through the EIGRP southbound lifecycle API after the host VRF has been resolved. Child configuration such as network, interface, topology, filter, and redistribution commands consumes this binding; those commands must not independently look up or create an EIGRP process. Removing the address family tears down the bound runtime before its retained configuration is freed. Removing the named parent first tears down every bound child runtime.
 
@@ -12,7 +12,7 @@ Named-mode configuration supports both IPv4 and IPv6 address-family contexts eve
 
 Configuration and route objects passed into common EIGRP code must identify their address family explicitly and contain normalized address/prefix data for that family. IPv4 and IPv6 should share common target functions wherever their protocol behavior is otherwise identical; the AF/type carried by the EIGRP object selects the correct data representation and later runtime behavior.
 
-Until the IPv6 data path is implemented, IPv6 runtime target functions may return the EIGRP structured `not implemented` result while preserving the configured IPv6 state.
+Until the IPv6 data path is implemented, the IPv6 control runtime has `data_path_ready == false`. Common control targets operate on that runtime; packet-, adjacency-, interface-I/O-, and RIB-dependent targets return the EIGRP structured `not implemented` result while preserving configured IPv6 state.
 
 The same retention rule applies when an IPv4 runtime exists but a particular runtime action is not implemented yet: configuration is committed first, and the target may then report structured `not implemented` for the missing runtime behavior. Merely having a live runtime must not turn a previously retainable named command into a failed configuration transaction.
 
@@ -39,4 +39,4 @@ The protocol runtime/process context is represented by `eigrp_instance_t`. As pr
 
 The named router parent is configuration ownership, not an on-wire or worker identity. A configured `{name, AF, VRF, AS}` address-family must bind to an unambiguous runtime EIGRP instance/worker context. The pre-production lifecycle consolidation is tracked in `refactor-work.md`.
 
-The current IPv4 binding deliberately reuses the existing FRR-backed runtime allocation/destruction machinery behind `eigrp_southbound.[c|h]`; it does not rename or broadly restructure the legacy low-level lifecycle functions. IPv6 remains configuration-only with no runtime binding until its data path is implemented.
+The current binding deliberately reuses the existing FRR-backed runtime allocation/destruction machinery behind `eigrp_southbound.[c|h]`; it does not rename or broadly restructure the legacy low-level lifecycle functions. IPv4 creates a data-path-ready runtime. IPv6 creates the same AF/VRF/AS-scoped control runtime with `data_path_ready == false`; it must not open an EIGRP socket, start receive processing, create the self-neighbor, initialize packetization, send Hellos, join multicast, advertise topology, or install routes until the IPv6 data path is implemented.

@@ -1,0 +1,39 @@
+--- a/yang/frr-eigrpd.yang
++++ b/yang/frr-eigrpd.yang
+@@ -205,17 +205,12 @@
+       }
+ 
+       list summary-address {
+-        key "address mask";
+-        description "IPv4 manual summary configured on this interface";
++        key "prefix";
++        description "Manual summary configured on this address-family interface";
+ 
+-        leaf address {
+-          type inet:ipv4-address;
+-          description "IPv4 summary network address";
+-        }
+-
+-        leaf mask {
+-          type inet:ipv4-address;
+-          description "IPv4 summary subnet mask";
++        leaf prefix {
++          type inet:ip-prefix;
++          description "IPv4 or IPv6 summary prefix";
+         }
+ 
+         leaf administrative-distance {
+@@ -786,10 +781,9 @@
+       }
+ 
+       list summary-metric {
+-        key "address mask";
+-        description "Fixed metric for an IPv4 summary aggregate";
+-        leaf address { type inet:ipv4-address; }
+-        leaf mask { type inet:ipv4-address; }
++        key "prefix";
++        description "Fixed metric for an IPv4 or IPv6 summary aggregate";
++        leaf prefix { type inet:ip-prefix; }
+         leaf bandwidth { type uint32 { range "1..4294967295"; } }
+         leaf delay { type uint32; }
+         leaf reliability { type uint8; }

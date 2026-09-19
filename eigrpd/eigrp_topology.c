@@ -1111,9 +1111,11 @@ eigrp_result_t eigrp_topology_state_walk(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!runtime) {
 		if (config && config->afi == EIGRP_ADDRESS_FAMILY_IPV6)
-			return EIGRP_RESULT_UNSUPPORTED;
+			return EIGRP_RESULT_NOT_IMPLEMENTED;
 		return EIGRP_RESULT_NOT_FOUND;
 	}
+	if (!runtime->data_path_ready)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (!runtime->topology_table)
 		return EIGRP_RESULT_NOT_FOUND;
 
