@@ -378,11 +378,46 @@ def test_named_topology_destination_accepts_ipv4_and_ipv6_text():
     vty = read(VTY)
     clippy = read(CLIPPY)
 
-    assert "topology WORD$target [all-links]$all" in vty
+    assert "topology [(1-65535)$as] WORD$target [all-links]$all" in vty
     assert "inet_pton(family, address, destination->address.bytes)" in vty
     assert "EIGRP_ADDRESS_FAMILY_IPV6" in vty
     assert "const char * target" in clippy
     assert 'varname, "target"' in clippy
+
+
+def test_topology_show_places_optional_as_after_topology_keyword():
+    named = read(VTY)
+    classic = read(CLASSIC_VTY)
+
+    assert (
+        '"show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] '
+        '[multicast] topology [(1-65535)$as] [all-links]$all"'
+        in named
+    )
+    assert (
+        '"show ip eigrp [vrf NAME] topology [(1-65535)$as] '
+        '[all-links$all]"'
+        in classic
+    )
+    assert "[(1-65535)$as] [multicast] topology" not in named[
+        named.index("DEFPY(show_eigrp_topology_all,"):
+        named.index("struct eigrp_vty_accounting_show")
+    ]
+
+
+def test_topology_show_uses_common_runtime_instance_walk():
+    named = read(VTY)
+    classic = read(CLASSIC_VTY)
+    topology = read(TOPOLOGY_C)
+    header = read(ROOT / "eigrpd" / "eigrp_topology.h")
+
+    assert "eigrp_topology_instance_walk(" in header
+    assert "for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp" in topology
+    assert "runtime->af_vectors.afi != afi" in topology
+    assert "runtime->vrf_id != vrf_id" in topology
+    assert "if (asn && runtime->AS != asn)" in topology
+    assert "eigrp_topology_instance_walk(" in named
+    assert "eigrp_topology_instance_walk(" in classic
 
 
 def test_named_show_clippy_forwards_address_family_filters():

@@ -48,6 +48,8 @@ typedef eigrp_result_t (*eigrp_topology_prefix_state_cb)(
 	const eigrp_topology_prefix_state_t *state, void *arg);
 typedef eigrp_result_t (*eigrp_topology_route_state_cb)(
 	const eigrp_topology_route_state_t *state, void *arg);
+typedef eigrp_result_t (*eigrp_topology_instance_walk_cb)(
+	eigrp_instance_t *runtime, void *arg);
 
 typedef struct eigrp_topology_clear_request {
 	const eigrp_prefix_t *destination; /* NULL clears the whole topology */
@@ -107,6 +109,9 @@ eigrp_result_t eigrp_topology_state_walk(
 	const eigrp_prefix_t *destination, bool all_links,
 	eigrp_topology_prefix_state_cb prefix_callback,
 	eigrp_topology_route_state_cb route_callback, void *arg);
+eigrp_result_t eigrp_topology_instance_walk(
+	eigrp_address_family_t afi, eigrp_vrf_id_t vrf_id, uint16_t asn,
+	eigrp_topology_instance_walk_cb callback, void *arg);
 eigrp_result_t eigrp_topology_clear(
 	eigrp_instance_context_t *context,
 	const eigrp_topology_clear_request_t *request, size_t *affected_count);

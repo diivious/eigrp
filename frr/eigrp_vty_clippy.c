@@ -1,4 +1,4 @@
-/* show_ip_eigrp_topology_all => "show ip eigrp [vrf NAME] topology [all-links$all]" */
+/* show_ip_eigrp_topology_all => "show ip eigrp [vrf NAME] topology [(1-65535)$as] [all-links$all]" */
 DEFUN_CMD_FUNC_DECL(show_ip_eigrp_topology_all)
 #define funcdecl_show_ip_eigrp_topology_all static int show_ip_eigrp_topology_all_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -6,61 +6,11 @@ DEFUN_CMD_FUNC_DECL(show_ip_eigrp_topology_all)
 	int argc __attribute__ ((unused)),\
 	struct cmd_token *argv[] __attribute__ ((unused)),\
 	const char * vrf,\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)),\
 	const char * all)
 funcdecl_show_ip_eigrp_topology_all;
 DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology_all)
-{
-#if 2 /* anything to parse? */
-	int _i;
-#if 0 /* anything that can fail? */
-	unsigned _fail = 0, _failcnt = 0;
-#endif
-	const char *vrf = NULL;
-	const char *all = NULL;
-
-	for (_i = 0; _i < argc; _i++) {
-		if (!argv[_i]->varname)
-			continue;
-#if 0 /* anything that can fail? */
-		_fail = 0;
-#endif
-
-		if (!strcmp(argv[_i]->varname, "vrf")) {
-			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		}
-		if (!strcmp(argv[_i]->varname, "all")) {
-			all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
-		}
-#if 0 /* anything that can fail? */
-		if (_fail)
-			vty_out (vty, "%% invalid input for %s: %s\n",
-				   argv[_i]->varname, argv[_i]->arg);
-		_failcnt += _fail;
-#endif
-	}
-#if 0 /* anything that can fail? */
-	if (_failcnt)
-		return CMD_WARNING;
-#endif
-#endif
-
-	return show_ip_eigrp_topology_all_magic(self, vty, argc, argv, vrf, all);
-}
-
-/* show_ip_eigrp_topology => "show ip eigrp [vrf NAME] topology <A.B.C.D$address|A.B.C.D/M$prefix>" */
-DEFUN_CMD_FUNC_DECL(show_ip_eigrp_topology)
-#define funcdecl_show_ip_eigrp_topology static int show_ip_eigrp_topology_magic(\
-	const struct cmd_element *self __attribute__ ((unused)),\
-	struct vty *vty __attribute__ ((unused)),\
-	int argc __attribute__ ((unused)),\
-	struct cmd_token *argv[] __attribute__ ((unused)),\
-	const char * vrf,\
-	struct in_addr address,\
-	const char * address_str __attribute__ ((unused)),\
-	const struct prefix_ipv4 * prefix,\
-	const char * prefix_str __attribute__ ((unused)))
-funcdecl_show_ip_eigrp_topology;
-DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology)
 {
 #if 3 /* anything to parse? */
 	int _i;
@@ -68,6 +18,70 @@ DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology)
 	unsigned _fail = 0, _failcnt = 0;
 #endif
 	const char *vrf = NULL;
+	int64_t as = 0;
+	const char *as_str = NULL;
+	const char *all = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+#if 1 /* anything that can fail? */
+		_fail = 0;
+#endif
+
+		if (!strcmp(argv[_i]->varname, "vrf")) {
+			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "all")) {
+			all = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 1 /* anything that can fail? */
+		if (_fail)
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+#endif
+	}
+#if 1 /* anything that can fail? */
+	if (_failcnt)
+		return CMD_WARNING;
+#endif
+#endif
+
+	return show_ip_eigrp_topology_all_magic(self, vty, argc, argv, vrf, as, as_str, all);
+}
+
+/* show_ip_eigrp_topology => "show ip eigrp [vrf NAME] topology [(1-65535)$as] <A.B.C.D$address|A.B.C.D/M$prefix>" */
+DEFUN_CMD_FUNC_DECL(show_ip_eigrp_topology)
+#define funcdecl_show_ip_eigrp_topology static int show_ip_eigrp_topology_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * vrf,\
+	int64_t as,\
+	const char * as_str __attribute__ ((unused)),\
+	struct in_addr address,\
+	const char * address_str __attribute__ ((unused)),\
+	const struct prefix_ipv4 * prefix,\
+	const char * prefix_str __attribute__ ((unused)))
+funcdecl_show_ip_eigrp_topology;
+DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology)
+{
+#if 4 /* anything to parse? */
+	int _i;
+#if 1 /* anything that can fail? */
+	unsigned _fail = 0, _failcnt = 0;
+#endif
+	const char *vrf = NULL;
+	int64_t as = 0;
+	const char *as_str = NULL;
 	struct in_addr address = { INADDR_ANY };
 	const char *address_str = NULL;
 	struct prefix_ipv4 prefix = { };
@@ -82,6 +96,12 @@ DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology)
 
 		if (!strcmp(argv[_i]->varname, "vrf")) {
 			vrf = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "as")) {
+			as_str = argv[_i]->arg;
+			char *_end;
+			as = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
 		if (!strcmp(argv[_i]->varname, "address")) {
 			address_str = argv[_i]->arg;
@@ -104,7 +124,7 @@ DEFUN_CMD_FUNC_TEXT(show_ip_eigrp_topology)
 #endif
 #endif
 
-	return show_ip_eigrp_topology_magic(self, vty, argc, argv, vrf, address, address_str, &prefix, prefix_str);
+	return show_ip_eigrp_topology_magic(self, vty, argc, argv, vrf, as, as_str, address, address_str, &prefix, prefix_str);
 }
 
 /* show_ip_eigrp_interfaces => "show ip eigrp [vrf NAME] interfaces [IFNAME] [detail]$detail" */

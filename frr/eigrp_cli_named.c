@@ -4062,8 +4062,12 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 	struct eigrp_vty_topology_show show = {.vty = vty};
 	eigrp_result_t result;
 
-	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
-				       "Topology Table");
+	if (af)
+		eigrp_vty_named_context_header(vty, instance_name, af, runtime,
+					       "Topology Table");
+	else
+		vty_out(vty, "\nEIGRP-%s Topology Table for AS(%u)\n",
+			eigrp_vty_afi_name(runtime->af_vectors.afi), runtime->AS);
 	vty_out(vty,
 		"Codes: P - Passive, A - Active; route flags identify successors and feasible successors\n");
 	result = eigrp_topology_state_walk(
@@ -4077,6 +4081,56 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 	if (result != EIGRP_RESULT_SUCCESS)
 		eigrp_cli_result_render(vty, "topology state", result);
 	return EIGRP_RESULT_SUCCESS;
+}
+
+struct eigrp_vty_topology_instance_walk {
+	struct vty *vty;
+	struct eigrp_vty_topology_context *options;
+};
+
+static eigrp_result_t eigrp_vty_topology_instance_render(
+	eigrp_instance_t *runtime, void *arg)
+{
+	struct eigrp_vty_topology_instance_walk *walk = arg;
+	eigrp_address_family_config_t *af = eigrp_instance_runtime_config(runtime);
+
+	return eigrp_vty_topology_context_render(
+		walk->vty, runtime->name, af, runtime, walk->options);
+}
+
+static int eigrp_vty_topology_walk(struct vty *vty,
+				   const eigrp_state_request_t *request,
+				   struct eigrp_vty_topology_context *options)
+{
+	struct eigrp_vty_topology_instance_walk walk = {
+		.vty = vty,
+		.options = options,
+	};
+	struct vrf *vrf;
+	eigrp_result_t result;
+
+	if (request->multicast)
+		return eigrp_cli_result_render(vty, "topology",
+					       EIGRP_RESULT_NOT_IMPLEMENTED);
+
+	vrf = eigrp_vty_vrf_lookup(vty, request->vrf_name);
+	if (!vrf)
+		return CMD_WARNING;
+
+	result = eigrp_topology_instance_walk(
+		request->afi, vrf->vrf_id, request->asn,
+		eigrp_vty_topology_instance_render, &walk);
+	if (result == EIGRP_RESULT_NOT_FOUND) {
+		vty_out(vty,
+			"%% EIGRP topology address-family %s autonomous-system %s is not configured%s%s\n",
+			eigrp_vty_afi_name(request->afi),
+			request->asn ? "requested" : "any",
+			request->vrf_name ? " in VRF " : "",
+			request->vrf_name ? request->vrf_name : "");
+		return CMD_SUCCESS;
+	}
+
+	return eigrp_cli_result_render(vty, "topology", result);
 }
 
 static bool eigrp_vty_state_request_build(
@@ -4205,23 +4259,23 @@ DEFPY(show_eigrp_neighbor,
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology [all-links]$all`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] [all-links]$all`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_topology_state_walk()
  */
 DEFPY(show_eigrp_topology_all,
       show_eigrp_topology_all_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology [all-links]$all",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] [all-links]$all",
       SHOW_STR
       EIGRP_STR
       "Address-family information\n"
       "IPv4 address-family\n"
       "IPv6 address-family\n"
       VRF_CMD_HELP_STR
-      AS_STR
       "Display multicast instances\n"
       "Display EIGRP topology table\n"
+      AS_STR
       "Display all topology links\n")
 {
 	eigrp_state_request_t request;
@@ -4232,28 +4286,27 @@ DEFPY(show_eigrp_topology_all,
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
 	request.multicast = eigrp_vty_multicast_requested(argv, argc);
-	return eigrp_vty_named_state_walk(vty, &request, "topology",
-					  eigrp_vty_topology_context_render, &options);
+	return eigrp_vty_topology_walk(vty, &request, &options);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology WORD$target [all-links]$all`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] WORD$target [all-links]$all`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_topology_state_walk()
  */
 DEFPY(show_eigrp_topology,
       show_eigrp_topology_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] topology WORD$target [all-links]$all",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] WORD$target [all-links]$all",
       SHOW_STR
       EIGRP_STR
       "Address-family information\n"
       "IPv4 address-family\n"
       "IPv6 address-family\n"
       VRF_CMD_HELP_STR
-      AS_STR
       "Display multicast instances\n"
       "Display EIGRP topology table\n"
+      AS_STR
       "Network address or prefix\n"
       "Display all topology links\n")
 {
@@ -4272,8 +4325,7 @@ DEFPY(show_eigrp_topology,
 		return CMD_WARNING;
 	}
 
-	return eigrp_vty_named_state_walk(vty, &request, "topology",
-					  eigrp_vty_topology_context_render, &options);
+	return eigrp_vty_topology_walk(vty, &request, &options);
 }
 
 struct eigrp_vty_accounting_show {

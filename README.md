@@ -31,16 +31,16 @@ copy and then copy changes back.
 
 The normative project documents are:
 
-- `specs/design-spec.md` — architecture, portability, ownership boundaries, and
+- `specs/design-spec.md` - architecture, portability, ownership boundaries, and
   protocol implementation rules.
-- `specs/code-conventions.md` — human-navigation naming and public target rules.
-- `specs/cli-spec.md` — classic/named CLI scope, management flow, configuration
+- `specs/code-conventions.md` - human-navigation naming and public target rules.
+- `specs/cli-spec.md` - classic/named CLI scope, management flow, configuration
   retention, and operational command rules.
-- `specs/process-spec.md` — named parent/address-family runtime ownership and
+- `specs/process-spec.md` - named parent/address-family runtime ownership and
   packet demultiplexing model.
-- `specs/packetizing-spec.md` — DUAL-to-packet pipeline, TLV dispatch, packet
+- `specs/packetizing-spec.md` - DUAL-to-packet pipeline, TLV dispatch, packet
   queues, pacing, and reliable transport ownership.
-- `specs/refactor-work.md` — deliberately deferred pre-production cleanup. Work
+- `specs/refactor-work.md` - deliberately deferred pre-production cleanup. Work
   listed there is not permission for unrelated rename-only churn.
 
 `specs/EIGRP-Config-Guide.md` and `specs/EIGRP-Named-Mode.md` are command/reference
@@ -180,9 +180,9 @@ starts the just-built `eigrpd`, and drives the daemon with
 
 Named-mode validation is intentionally ordered:
 
-1. `router eigrp savage`, IPv4 AF AS 4453 — applicable commands, mutation,
+1. `router eigrp savage`, IPv4 AF AS 4453 - applicable commands, mutation,
    writeback, and documented `no` forms.
-2. IPv6 AF AS 4453 — the same configuration/writeback discipline for commands
+2. IPv6 AF AS 4453 - the same configuration/writeback discipline for commands
    applicable to IPv6.
 3. Additional AS contexts under the same named parent.
 4. Case-sensitive named parents such as `savage` and `SAVAGE`.

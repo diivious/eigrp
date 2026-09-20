@@ -1173,6 +1173,49 @@ eigrp_result_t eigrp_topology_state_walk(
 	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
 
+/*
+ * Syntax:
+ *   EXEC: topology show commands with an optional autonomous-system filter
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Walks every EIGRP runtime matching {AF, VRF, optional AS}.  Management
+ * adapters resolve host VRF names to the portable VRF identifier before
+ * calling this target; instance selection remains common EIGRP behavior.
+ */
+eigrp_result_t eigrp_topology_instance_walk(
+	eigrp_address_family_t afi, eigrp_vrf_id_t vrf_id, uint16_t asn,
+	eigrp_topology_instance_walk_cb callback, void *arg)
+{
+	eigrp_instance_t *runtime;
+	struct listnode *node;
+	eigrp_result_t result;
+	bool matched = false;
+
+	if (!callback)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    && afi != EIGRP_ADDRESS_FAMILY_IPV6)
+		return EIGRP_RESULT_UNSUPPORTED;
+	if (!eigrp_om || !eigrp_om->eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, runtime)) {
+		if (runtime->af_vectors.afi != afi || runtime->vrf_id != vrf_id)
+			continue;
+		if (asn && runtime->AS != asn)
+			continue;
+
+		matched = true;
+		result = callback(runtime, arg);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return result;
+	}
+
+	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
+}
+
 static eigrp_result_t
 eigrp_topology_context_validate(const eigrp_instance_context_t *context)
 {

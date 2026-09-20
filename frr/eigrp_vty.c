@@ -54,6 +54,8 @@
 #ifdef EIGRP_STANDALONE_BUILD
 /* Standalone compile shim for variables normally supplied by FRR clippy. */
 static const char *vrf = NULL;
+static int64_t as = 0;
+static const char *as_str = NULL;
 static const char *all = NULL;
 static const char *address_str = NULL;
 static const char *prefix_str = "0.0.0.0/0";
@@ -83,7 +85,7 @@ static void eigrp_vty_display_prefix_entry(struct vty *vty, eigrp_instance_t *ei
 	}
 }
 
-static eigrp_instance_t *eigrp_vty_get_eigrp(struct vty *vty, const char *vrf_name)
+static struct vrf *eigrp_vty_get_vrf(struct vty *vty, const char *vrf_name)
 {
 	struct vrf *vrf;
 
@@ -98,6 +100,16 @@ static eigrp_instance_t *eigrp_vty_get_eigrp(struct vty *vty, const char *vrf_na
 			vrf_name ? vrf_name : VRF_DEFAULT_NAME);
 		return NULL;
 	}
+
+	return vrf;
+}
+
+static eigrp_instance_t *eigrp_vty_get_eigrp(struct vty *vty, const char *vrf_name)
+{
+	struct vrf *vrf = eigrp_vty_get_vrf(vty, vrf_name);
+
+	if (!vrf)
+		return NULL;
 
 	return eigrp_lookup(vrf->vrf_id);
 }
@@ -120,71 +132,149 @@ static void eigrp_topology_helper(struct vty *vty, eigrp_instance_t *eigrp,
 	}
 }
 
+struct eigrp_vty_topology_walk_context {
+	struct vty *vty;
+	const char *all;
+	const struct prefix *prefix;
+	const char *vrf_name;
+	bool print_vrf;
+	bool vrf_printed;
+	unsigned int matched;
+};
+
+static void eigrp_vty_topology_vrf_header(
+	struct eigrp_vty_topology_walk_context *ctx)
+{
+	if (!ctx->print_vrf || ctx->vrf_printed)
+		return;
+
+	vty_out(ctx->vty, "VRF %s:\n", ctx->vrf_name);
+	ctx->vrf_printed = true;
+}
+
+static eigrp_result_t eigrp_vty_topology_instance_render(
+	eigrp_instance_t *eigrp, void *arg)
+{
+	struct eigrp_vty_topology_walk_context *ctx = arg;
+
+	eigrp_vty_topology_vrf_header(ctx);
+	eigrp_topology_helper(ctx->vty, eigrp, ctx->all);
+	ctx->matched++;
+	return EIGRP_RESULT_SUCCESS;
+}
+
+static eigrp_result_t eigrp_vty_topology_prefix_instance_render(
+	eigrp_instance_t *eigrp, void *arg)
+{
+	struct eigrp_vty_topology_walk_context *ctx = arg;
+	eigrp_prefix_descriptor_t *tn;
+	struct route_node *rn;
+
+	eigrp_vty_topology_vrf_header(ctx);
+	show_ip_eigrp_topology_header(ctx->vty, eigrp);
+	ctx->matched++;
+
+	rn = route_node_match(eigrp->topology_table, ctx->prefix);
+	if (!rn) {
+		vty_out(ctx->vty, "%% Network not in table\n");
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	tn = rn->info;
+	if (!tn) {
+		vty_out(ctx->vty, "%% Network not in table\n");
+		route_unlock_node(rn);
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	eigrp_vty_display_prefix_entry(ctx->vty, eigrp, tn, ctx->all != NULL);
+	route_unlock_node(rn);
+	return EIGRP_RESULT_SUCCESS;
+}
+
+static eigrp_result_t eigrp_vty_topology_walk_vrf(
+	struct eigrp_vty_topology_walk_context *ctx, eigrp_vrf_id_t vrf_id,
+	uint16_t asn, eigrp_topology_instance_walk_cb callback)
+{
+	return eigrp_topology_instance_walk(EIGRP_ADDRESS_FAMILY_IPV4, vrf_id,
+					    asn, callback, ctx);
+}
+
 DEFPY (show_ip_eigrp_topology_all,
        show_ip_eigrp_topology_all_cmd,
-       "show ip eigrp [vrf NAME] topology [all-links$all]",
+       "show ip eigrp [vrf NAME] topology [(1-65535)$as] [all-links$all]",
        SHOW_STR
        IP_STR
        "IP-EIGRP show commands\n"
        VRF_CMD_HELP_STR
        "IP-EIGRP topology\n"
+       AS_STR
        "Show all links in topology table\n")
 {
-	eigrp_instance_t *eigrp;
+	struct eigrp_vty_topology_walk_context ctx = {
+		.vty = vty,
+		.all = all,
+	};
+	eigrp_result_t result;
+	uint16_t asn = as > 0 ? (uint16_t)as : 0;
 
 	if (vrf && strncmp(vrf, "all", sizeof("all")) == 0) {
 		struct vrf *v;
 
 		RB_FOREACH (v, vrf_name_head, &vrfs_by_name) {
-			eigrp = eigrp_lookup(v->vrf_id);
-			if (!eigrp)
-				continue;
-
-			vty_out(vty, "VRF %s:\n", v->name);
-
-			eigrp_topology_helper(vty, eigrp, all);
+			ctx.vrf_name = v->name;
+			ctx.print_vrf = true;
+			ctx.vrf_printed = false;
+			(void)eigrp_vty_topology_walk_vrf(
+				&ctx, v->vrf_id, asn,
+				eigrp_vty_topology_instance_render);
 		}
 	} else {
-		eigrp = eigrp_vty_get_eigrp(vty, vrf);
-		if (eigrp == NULL) {
+		struct vrf *v = eigrp_vty_get_vrf(vty, vrf);
+
+		if (!v)
+			return CMD_WARNING;
+		result = eigrp_vty_topology_walk_vrf(
+			&ctx, v->vrf_id, asn, eigrp_vty_topology_instance_render);
+		if (result == EIGRP_RESULT_NOT_FOUND) {
 			vty_out(vty, " EIGRP Routing Process not enabled\n");
 			return CMD_SUCCESS;
 		}
-
-		eigrp_topology_helper(vty, eigrp, all);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return CMD_WARNING;
 	}
+
+	if (!ctx.matched)
+		vty_out(vty, " EIGRP Routing Process not enabled\n");
 
 	return CMD_SUCCESS;
 }
 
 DEFPY (show_ip_eigrp_topology,
        show_ip_eigrp_topology_cmd,
-       "show ip eigrp [vrf NAME] topology <A.B.C.D$address|A.B.C.D/M$prefix>",
+       "show ip eigrp [vrf NAME] topology [(1-65535)$as] <A.B.C.D$address|A.B.C.D/M$prefix>",
        SHOW_STR
        IP_STR
        "IP-EIGRP show commands\n"
        VRF_CMD_HELP_STR
        "IP-EIGRP topology\n"
+       AS_STR
        "For a specific address\n"
        "For a specific prefix\n")
 {
-	eigrp_instance_t *eigrp;
-	eigrp_prefix_descriptor_t *tn;
-	struct route_node *rn;
+	struct eigrp_vty_topology_walk_context ctx = {
+		.vty = vty,
+		.all = NULL,
+	};
+	eigrp_result_t result;
 	struct prefix cmp;
+	struct vrf *v;
+	uint16_t asn = as > 0 ? (uint16_t)as : 0;
 
 	if (vrf && strncmp(vrf, "all", sizeof("all")) == 0) {
 		vty_out(vty, "Specifying vrf `all` for a particular address/prefix makes no sense\n");
 		return CMD_SUCCESS;
 	}
-
-	eigrp = eigrp_vty_get_eigrp(vty, vrf);
-	if (eigrp == NULL) {
-		vty_out(vty, " EIGRP Routing Process not enabled\n");
-		return CMD_SUCCESS;
-	}
-
-	show_ip_eigrp_topology_header(vty, eigrp);
 
 	if (address_str)
 		prefix_str = address_str;
@@ -194,22 +284,18 @@ DEFPY (show_ip_eigrp_topology,
 		return CMD_WARNING;
 	}
 
-	rn = route_node_match(eigrp->topology_table, &cmp);
-	if (!rn) {
-		vty_out(vty, "%% Network not in table\n");
+	ctx.prefix = &cmp;
+	v = eigrp_vty_get_vrf(vty, vrf);
+	if (!v)
 		return CMD_WARNING;
+	result = eigrp_vty_topology_walk_vrf(
+		&ctx, v->vrf_id, asn, eigrp_vty_topology_prefix_instance_render);
+	if (result == EIGRP_RESULT_NOT_FOUND) {
+		vty_out(vty, " EIGRP Routing Process not enabled\n");
+		return CMD_SUCCESS;
 	}
-
-	if (!rn->info) {
-		vty_out(vty, "%% Network not in table\n");
-		route_unlock_node(rn);
+	if (result != EIGRP_RESULT_SUCCESS)
 		return CMD_WARNING;
-	}
-
-	tn = rn->info;
-	eigrp_vty_display_prefix_entry(vty, eigrp, tn, argc == 5);
-
-	route_unlock_node(rn);
 	return CMD_SUCCESS;
 }
 
