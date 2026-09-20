@@ -26,6 +26,109 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_dump.h"
 
+#define EIGRP_NEIGHBOR_SRTT_ALPHA_SHIFT 3U /* alpha = 1/8 */
+#define EIGRP_NEIGHBOR_RTTVAR_BETA_SHIFT 2U /* beta = 1/4 */
+
+static uint32_t eigrp_neighbor_rto_calculate(uint32_t srtt_msec)
+{
+	uint64_t rto = (uint64_t)srtt_msec * EIGRP_TRANSPORT_RTO_SRTT_MULTIPLIER;
+
+	if (rto < EIGRP_TRANSPORT_RTO_MIN_MSEC)
+		return EIGRP_TRANSPORT_RTO_MIN_MSEC;
+	if (rto > EIGRP_TRANSPORT_RTO_MAX_MSEC)
+		return EIGRP_TRANSPORT_RTO_MAX_MSEC;
+	return (uint32_t)rto;
+}
+
+void eigrp_neighbor_rtt_reset(eigrp_neighbor_t *nbr)
+{
+	if (!nbr)
+		return;
+
+	nbr->srtt_valid = false;
+	nbr->srtt_msec = 0;
+	nbr->rttvar_msec = 0;
+	nbr->rto_msec = EIGRP_TRANSPORT_RTO_INITIAL_MSEC;
+}
+
+static void eigrp_neighbor_rtt_sample(eigrp_neighbor_t *nbr,
+				      uint32_t sample_msec)
+{
+	int64_t error;
+	int64_t variance_error;
+	int64_t srtt;
+	int64_t rttvar;
+
+	if (!nbr)
+		return;
+
+	if (!nbr->srtt_valid) {
+		nbr->srtt_valid = true;
+		nbr->srtt_msec = sample_msec;
+		nbr->rttvar_msec = sample_msec / 2U;
+		nbr->rto_msec = eigrp_neighbor_rto_calculate(nbr->srtt_msec);
+		return;
+	}
+
+	/* RFC 6298 ordering: RTTVAR uses the old SRTT, then SRTT is updated. */
+	error = (int64_t)sample_msec - (int64_t)nbr->srtt_msec;
+	variance_error = (error < 0 ? -error : error)
+			 - (int64_t)nbr->rttvar_msec;
+	rttvar = (int64_t)nbr->rttvar_msec
+		 + variance_error / (1U << EIGRP_NEIGHBOR_RTTVAR_BETA_SHIFT);
+	if (rttvar < 0)
+		rttvar = 0;
+	nbr->rttvar_msec = (uint32_t)rttvar;
+
+	srtt = (int64_t)nbr->srtt_msec
+	       + error / (1U << EIGRP_NEIGHBOR_SRTT_ALPHA_SHIFT);
+	if (srtt < 0)
+		srtt = 0;
+	nbr->srtt_msec = (uint32_t)srtt;
+	nbr->rto_msec = eigrp_neighbor_rto_calculate(nbr->srtt_msec);
+}
+
+void eigrp_neighbor_srtt_update(eigrp_neighbor_t *nbr,
+				const eigrp_packet_t *packet)
+{
+	uint64_t now_msec;
+	uint64_t sample_msec;
+
+	if (!nbr || !packet || packet->retrans_counter != 0
+	    || packet->sent_msec == 0)
+		return;
+
+	now_msec = eigrp_southbound_monotime_msec();
+	if (now_msec < packet->sent_msec)
+		return;
+
+	sample_msec = now_msec - packet->sent_msec;
+	if (sample_msec > UINT32_MAX)
+		sample_msec = UINT32_MAX;
+	eigrp_neighbor_rtt_sample(nbr, (uint32_t)sample_msec);
+}
+
+void eigrp_neighbor_rto_backoff(eigrp_neighbor_t *nbr)
+{
+	uint64_t rto;
+
+	if (!nbr)
+		return;
+
+	rto = eigrp_neighbor_rto_get(nbr);
+	rto *= 2U;
+	if (rto > EIGRP_TRANSPORT_RTO_MAX_MSEC)
+		rto = EIGRP_TRANSPORT_RTO_MAX_MSEC;
+	nbr->rto_msec = (uint32_t)rto;
+}
+
+uint32_t eigrp_neighbor_rto_get(const eigrp_neighbor_t *nbr)
+{
+	if (!nbr || nbr->rto_msec == 0)
+		return EIGRP_TRANSPORT_RTO_INITIAL_MSEC;
+	return nbr->rto_msec;
+}
+
 struct eigrp_neighbor_config {
 	eigrp_address_t address;
 	char *interface_name;
@@ -376,8 +479,9 @@ eigrp_result_t eigrp_neighbor_state_walk(
 			state.retransmit_count = nbr->retransmissions;
 			if (nbr->retrans_queue && nbr->retrans_queue->tail)
 				state.retry_count = nbr->retrans_queue->tail->retrans_counter;
-			state.srtt_valid = false;
-			state.rto_msec = EIGRP_PACKET_RETRANS_TIME * 1000U;
+			state.srtt_valid = nbr->srtt_valid;
+			state.srtt_msec = nbr->srtt_msec;
+			state.rto_msec = eigrp_neighbor_rto_get(nbr);
 			state.os_major = nbr->os_rel_major;
 			state.os_minor = nbr->os_rel_minor;
 			state.tlv_major = nbr->tlv_rel_major;
@@ -625,6 +729,7 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 		nbr->recv_sequence_number = 0;
 		nbr->init_sequence_number = 0;
 		nbr->retrans_counter = 0;
+		eigrp_neighbor_rtt_reset(nbr);
 
 		// Kvalues
 		nbr->K1 = EIGRP_K1_DEFAULT;

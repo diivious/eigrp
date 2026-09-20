@@ -392,6 +392,22 @@ Retransmission is unicast only to the neighbor(s) that still owe the ACK.
 Do not re-encode the packet for retransmission merely because the retransmit is
 unicast.
 
+Each neighbor maintains its own SRTT, RTT variation, and RTO. RTT samples are
+taken only from successfully ACKed reliable packets that have not been
+retransmitted. The sample is measured from the packet's first successful wire
+send to receipt of the matching ACK; HELLO traffic does not create RTT samples.
+
+The first valid sample initializes `SRTT = R` and `RTTVAR = R/2`. Later samples
+use Jacobson-style smoothing with `alpha = 1/8` and `beta = 1/4`, updating
+RTTVAR from the old SRTT before updating SRTT. The EIGRP operational RTO is
+`6 * SRTT`, clamped to 200 through 5000 milliseconds. Before the first valid
+sample, the implementation uses a 2000 millisecond initial RTO. A timeout backs
+the current RTO off, never beyond 5000 milliseconds; a later unambiguous RTT
+sample replaces the backed-off value with a newly calculated RTO. The peer is
+allowed 16 retransmissions of the same reliable packet; if the sixteenth retry
+is also not acknowledged, the neighbor is reset with the `retry limit exceeded`
+reason.
+
 ### 14.4 Conditional receive
 
 Conditional Receive/Sequence TLV behavior is part of reliable transport, not a

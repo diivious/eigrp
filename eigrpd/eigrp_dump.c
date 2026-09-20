@@ -948,7 +948,7 @@ void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
 		   eigrp_debug_packet_category_name(
 			   eigrp_debug_packet_category_get(header)),
 		   EIGRP_INTF_NAME(nbr->ei), eigrp_print_addr(&nbr->src), retry_count,
-		   EIGRP_PACKET_RETRANS_TIME * 1000U);
+		   eigrp_neighbor_rto_get(nbr));
 	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
 		   ntohl(header->sequence), ntohl(header->ack));
@@ -1214,6 +1214,7 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_neighbor_t *nbr,
 {
 	char hold[16];
 	char uptime[32];
+	char srtt[16];
 	uint64_t uptime_seconds = 0;
 	uint8_t retry_count = 0;
 
@@ -1232,10 +1233,14 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_neighbor_t *nbr,
 		snprintf(uptime, sizeof(uptime), "-");
 	if (nbr->retrans_queue && nbr->retrans_queue->tail)
 		retry_count = nbr->retrans_queue->tail->retrans_counter;
+	if (nbr->srtt_valid)
+		snprintf(srtt, sizeof(srtt), "%u", nbr->srtt_msec);
+	else
+		snprintf(srtt, sizeof(srtt), "n/a");
 
 	vty_out(vty, "%-3s %-23s %-15s %-5s %-8s %-6s %-5u %-3lu %u\n", "-",
 		eigrp_print_addr(&nbr->src), EIGRP_INTF_NAME(nbr->ei), hold, uptime,
-		"n/a", EIGRP_PACKET_RETRANS_TIME * 1000U,
+		srtt, eigrp_neighbor_rto_get(nbr),
 		nbr->retrans_queue ? nbr->retrans_queue->count : 0,
 		nbr->recv_sequence_number);
 

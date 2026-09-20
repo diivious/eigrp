@@ -59,6 +59,12 @@ typedef struct eigrp_neighbor {
 	uint64_t retransmissions;
 	uint64_t up_since_msec;
 
+	/* Per-neighbor Reliable Transport Protocol RTT/RTO state. */
+	bool srtt_valid;
+	uint32_t srtt_msec;
+	uint32_t rttvar_msec;
+	uint32_t rto_msec;
+
 	eigrp_addr_t src;		/* Neighbor Src address. */
 
 	/* Timer values. */
@@ -142,6 +148,13 @@ extern void eigrp_neighbor_decoder_bind(eigrp_neighbor_t *, eigrp_tlv_codec_t *)
 extern uint8_t eigrp_nbr_state_get(eigrp_neighbor_t *);
 extern int eigrp_nbr_count_get(eigrp_instance_t *);
 extern const char *eigrp_nbr_state_str(eigrp_neighbor_t *);
+
+/* Per-neighbor Reliable Transport Protocol RTT/RTO state. */
+void eigrp_neighbor_rtt_reset(eigrp_neighbor_t *nbr);
+void eigrp_neighbor_srtt_update(eigrp_neighbor_t *nbr,
+				const eigrp_packet_t *packet);
+void eigrp_neighbor_rto_backoff(eigrp_neighbor_t *nbr);
+uint32_t eigrp_neighbor_rto_get(const eigrp_neighbor_t *nbr);
 extern eigrp_neighbor_t *eigrp_nbr_lookup_by_addr(eigrp_interface_t *,
 						  struct in_addr *);
 extern eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *,

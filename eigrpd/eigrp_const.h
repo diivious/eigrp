@@ -36,9 +36,12 @@
 #define EIGRP_NEIGHBOR_UP 2
 #define EIGRP_NEIGHBOR_STATE_MAX 3
 
-/*Packet requiring ack will be retransmitted again after this time*/
-#define EIGRP_PACKET_RETRANS_TIME 2 /* in seconds */
-#define EIGRP_PACKET_RETRANS_MAX 16 /* number of retrans attempts */
+/* Reliable Transport Protocol retransmission timing. */
+#define EIGRP_TRANSPORT_RTO_INITIAL_MSEC 2000U
+#define EIGRP_TRANSPORT_RTO_MIN_MSEC 200U
+#define EIGRP_TRANSPORT_RTO_MAX_MSEC 5000U
+#define EIGRP_TRANSPORT_RTO_SRTT_MULTIPLIER 6U
+#define EIGRP_TRANSPORT_RETRANS_MAX 16U
 #define PLAINTEXT_LENGTH 81
 
 /*Metric variance multiplier*/

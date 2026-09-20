@@ -231,10 +231,19 @@ uint16_t eigrp_packet_encoder_both(eigrp_instance_t *eigrp,
 	return len1 + len2;
 }
 
-static int eigrp_retrans_count_exceeded(eigrp_packet_t *packet,
-					eigrp_neighbor_t *nbr)
+static void eigrp_packet_retransmit_limit_exceeded(eigrp_neighbor_t *nbr)
 {
-	return 1;
+	char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp)
+		return;
+
+	if (nbr->ei->eigrp->log_neighbor_changes)
+		zlog_info("Neighbor %s (%s) is down: retry limit exceeded",
+			  eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
+					 sizeof(address)),
+			  nbr->ei->name);
+	eigrp_nbr_delete(nbr);
 }
 
 /*
@@ -247,6 +256,7 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
 	if ((packet) && (ntohl(eigrph->ack) == packet->sequence_number)) {
+		eigrp_neighbor_srtt_update(nbr, packet);
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
 				   "ACK %u matched reliable sequence", ntohl(eigrph->ack));
 		packet = eigrp_packet_dequeue(nbr->retrans_queue);
@@ -277,6 +287,7 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 	packet = eigrp_packet_queue_next(nbr->multicast_queue);
 	if (packet) {
 		if (ntohl(eigrph->ack) == packet->sequence_number) {
+			eigrp_neighbor_srtt_update(nbr, packet);
 			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
 					   "ACK %u matched multicast sequence", ntohl(eigrph->ack));
 			packet = eigrp_packet_dequeue(nbr->multicast_queue);
@@ -289,6 +300,51 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 			}
 		}
 	}
+}
+
+static void eigrp_packet_reliable_neighbor_send_record(eigrp_neighbor_t *nbr,
+					       uint32_t sequence,
+					       uint64_t now_msec)
+{
+	eigrp_packet_t *queued;
+
+	if (!nbr || sequence == 0)
+		return;
+
+	queued = eigrp_packet_queue_next(nbr->retrans_queue);
+	if ((!queued || queued->sequence_number != sequence)
+	    && nbr->multicast_queue)
+		queued = eigrp_packet_queue_next(nbr->multicast_queue);
+	if (!queued || queued->sequence_number != sequence || queued->sent_msec != 0)
+		return;
+
+	queued->sent_msec = now_msec;
+	/* The RTO starts at the successful wire send, not queue creation. */
+	eigrp_packet_retransmit_timer_start(nbr);
+}
+
+static void eigrp_packet_reliable_send_record(eigrp_interface_t *ei,
+				      eigrp_packet_t *packet)
+{
+	eigrp_neighbor_t *nbr;
+	struct listnode *node;
+	uint64_t now_msec;
+
+	if (!ei || !packet || packet->sequence_number == 0 || packet->retransmission)
+		return;
+
+	now_msec = eigrp_southbound_monotime_msec();
+	if (packet->nbr) {
+		eigrp_packet_reliable_neighbor_send_record(packet->nbr,
+						 packet->sequence_number, now_msec);
+		return;
+	}
+
+	/* One reliable multicast wire send is an independent RTT start point for
+	 * every neighbor that currently owns this sequence in its RTP queue. */
+	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr))
+		eigrp_packet_reliable_neighbor_send_record(nbr, packet->sequence_number,
+						 now_msec);
 }
 
 void eigrp_packet_write_schedule(eigrp_instance_t *eigrp)
@@ -353,8 +409,10 @@ void eigrp_packet_write(void *arg)
 	}
 
 	eigrp_debug_packet_send(ei, packet, ret);
-	if (ret >= 0)
+	if (ret >= 0) {
 		eigrp_packet_send_stats_record(ei, packet, eigrph);
+		eigrp_packet_reliable_send_record(ei, packet);
+	}
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		char destination[EIGRP_PACKET_ADDR_TEXT_SIZE];
@@ -597,6 +655,7 @@ void eigrp_packet_output_enqueue(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
 {
 	eigrp_packet_t *packet;
+	uint32_t rto_msec;
 
 	if (!nbr || !nbr->retrans_queue)
 		return;
@@ -605,17 +664,17 @@ void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
 	if (!packet)
 		return;
 
+	rto_msec = eigrp_neighbor_rto_get(nbr);
 	if (IS_DEBUG_EIGRP(0, TIMERS)) {
 		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
-		zlog_debug("EIGRP: start retransmit timer nbr %s seq %u interval %u",
+		zlog_debug("EIGRP: start retransmit timer nbr %s seq %u interval %u ms",
 			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src,
 						  address, sizeof(address)),
-			   packet->sequence_number, EIGRP_PACKET_RETRANS_TIME);
+			   packet->sequence_number, rto_msec);
 	}
-	eigrp_southbound_timer_add(&packet->t_retrans_timer,
-			    eigrp_packet_unack_retrans, nbr,
-			    EIGRP_PACKET_RETRANS_TIME);
+	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
+				 eigrp_packet_unack_retrans, nbr, rto_msec);
 }
 
 void eigrp_packet_send_reliably(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
@@ -991,82 +1050,76 @@ static int eigrp_verify_header(eigrp_interface_t *ei, eigrp_addr_t *source,
 void eigrp_packet_unack_retrans(void *arg)
 {
 	eigrp_neighbor_t *nbr = arg;
-
 	eigrp_packet_t *packet;
+	eigrp_packet_t *duplicate;
+
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
+	if (!packet)
+		return;
 
-	if (packet) {
-		eigrp_packet_t *duplicate;
-		if (IS_DEBUG_EIGRP(0, TIMERS)) {
-			char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
-
-			zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
-				   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src,
-							  address, sizeof(address)),
-				   packet->sequence_number,
-				   packet->retrans_counter + 1);
-		}
-		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
-		duplicate = eigrp_packet_duplicate(packet, nbr);
-		duplicate->retransmission = true;
-		eigrp_addr_copy(&duplicate->dst, &nbr->src);
-		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
-
-		packet->retrans_counter++;
-		if (packet->retrans_counter == EIGRP_PACKET_RETRANS_MAX) {
-			eigrp_retrans_count_exceeded(packet, nbr);
-			return;
-		}
-
-		/*Start retransmission timer*/
-		eigrp_southbound_timer_add(&packet->t_retrans_timer,
-				    eigrp_packet_unack_retrans, nbr,
-				    EIGRP_PACKET_RETRANS_TIME);
-
+	/* Give the peer all 16 retries.  Tear it down only after retry 16
+	 * has itself gone unacknowledged. */
+	if (packet->retrans_counter >= EIGRP_TRANSPORT_RETRANS_MAX) {
+		eigrp_packet_retransmit_limit_exceeded(nbr);
+		return;
 	}
 
-	return;
+	eigrp_neighbor_rto_backoff(nbr);
+	if (IS_DEBUG_EIGRP(0, TIMERS)) {
+		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
+
+		zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
+			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
+						  sizeof(address)),
+			   packet->sequence_number, packet->retrans_counter + 1);
+	}
+	eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
+	duplicate = eigrp_packet_duplicate(packet, nbr);
+	duplicate->retransmission = true;
+	eigrp_addr_copy(&duplicate->dst, &nbr->src);
+	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
+
+	packet->retrans_counter++;
+	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
+				 eigrp_packet_unack_retrans, nbr,
+				 eigrp_neighbor_rto_get(nbr));
 }
 
 void eigrp_packet_unack_multicast_retrans(void *arg)
 {
 	eigrp_neighbor_t *nbr = arg;
-
 	eigrp_packet_t *packet;
+	eigrp_packet_t *duplicate;
+
 	packet = eigrp_packet_queue_next(nbr->multicast_queue);
+	if (!packet)
+		return;
 
-	if (packet) {
-		eigrp_packet_t *duplicate;
-		if (IS_DEBUG_EIGRP(0, TIMERS)) {
-			char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
-
-			zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
-				   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src,
-							  address, sizeof(address)),
-				   packet->sequence_number,
-				   packet->retrans_counter + 1);
-		}
-		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
-		duplicate = eigrp_packet_duplicate(packet, nbr);
-		duplicate->retransmission = true;
-		duplicate->multicast_exception = true;
-		eigrp_addr_copy(&duplicate->dst, &nbr->src);
-		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
-
-		packet->retrans_counter++;
-		if (packet->retrans_counter == EIGRP_PACKET_RETRANS_MAX) {
-		    eigrp_retrans_count_exceeded(packet, nbr);
-		    return;
-		}
-
-		/*Start retransmission timer*/
-		eigrp_southbound_timer_add(&packet->t_retrans_timer,
-				    eigrp_packet_unack_multicast_retrans, nbr,
-				    EIGRP_PACKET_RETRANS_TIME);
-
+	if (packet->retrans_counter >= EIGRP_TRANSPORT_RETRANS_MAX) {
+		eigrp_packet_retransmit_limit_exceeded(nbr);
+		return;
 	}
 
-	return;
+	eigrp_neighbor_rto_backoff(nbr);
+	if (IS_DEBUG_EIGRP(0, TIMERS)) {
+		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
+
+		zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
+			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
+						  sizeof(address)),
+			   packet->sequence_number, packet->retrans_counter + 1);
+	}
+	eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
+	duplicate = eigrp_packet_duplicate(packet, nbr);
+	duplicate->retransmission = true;
+	duplicate->multicast_exception = true;
+	eigrp_addr_copy(&duplicate->dst, &nbr->src);
+	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
+
+	packet->retrans_counter++;
+	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
+				 eigrp_packet_unack_multicast_retrans, nbr,
+				 eigrp_neighbor_rto_get(nbr));
 }
 
 /* Get packet from tail of queue. */

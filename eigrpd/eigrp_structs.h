@@ -261,6 +261,7 @@ typedef struct eigrp_packet {
 	bool sequence_reserved;
 	bool retransmission;
 	bool multicast_exception;
+	uint64_t sent_msec; /* first successful wire send; RTT sampling only */
 
 	/* EIGRP packet length. */
 	uint16_t length;

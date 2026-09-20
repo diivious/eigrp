@@ -90,21 +90,25 @@ def test_neighbor_change_messages_use_established_transition_reasons():
     assert "adjacency became full" not in packet
 
 
-def test_neighbor_output_uses_real_available_transport_state_without_synthesizing_srtt():
+def test_neighbor_output_uses_measured_transport_state_when_available():
     dump = read(DUMP)
     named = read(NAMED)
 
     assert "nbr->up_since_msec" in dump
     assert "nbr->retransmissions" in dump
     assert "nbr->retrans_queue->tail->retrans_counter" in dump
-    assert "EIGRP_PACKET_RETRANS_TIME * 1000U" in dump
-    assert '"n/a"' in dump
+    assert "nbr->srtt_valid" in dump
+    assert "nbr->srtt_msec" in dump
+    assert "eigrp_neighbor_rto_get(nbr)" in dump
+    assert 'snprintf(srtt, sizeof(srtt), "n/a")' in dump
     assert '"%-3s %-23s' in dump
 
     assert "state->uptime_seconds" in named
     assert "state->retransmit_count" in named
     assert "state->retry_count" in named
     assert "state->prefix_count" in named
+    assert "state->srtt_valid" in named
+    assert "state->srtt_msec" in named
     assert 'snprintf(srtt, sizeof(srtt), "n/a")' in named
     assert "SRTT: n/a; transport uses the fixed" not in named
 

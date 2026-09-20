@@ -42,7 +42,8 @@ def test_traffic_counters_are_owned_by_validated_packet_io():
     assert "ntohl(header->sequence) == 0" in classifier
     assert "ntohl(header->ack) != 0" in classifier
 
-    assert "if (ret >= 0)\n\t\teigrp_packet_send_stats_record" in packet
+    assert "if (ret >= 0) {" in packet
+    assert "eigrp_packet_send_stats_record(ei, packet, eigrph);" in packet
     assert packet.count("eigrp_packet_receive_stats_record(ei, eigrph);") == 2
     assert "Validated packet I/O owns all IPv4 traffic counters." in statistics
     assert "state->received_valid = state->sent_valid;" in statistics
@@ -107,7 +108,9 @@ def test_neighbor_detail_uses_live_hold_uptime_retry_and_prefix_state():
     assert "uint32_t prefix_count;" in neighbor_h
     assert "uint64_t retransmit_count;" in neighbor_h
     assert "uint8_t retry_count;" in neighbor_h
-    assert "EIGRP_PACKET_RETRANS_TIME * 1000U" in neighbor_c
+    assert "state.srtt_valid = nbr->srtt_valid" in neighbor_c
+    assert "state.srtt_msec = nbr->srtt_msec" in neighbor_c
+    assert "state.rto_msec = eigrp_neighbor_rto_get(nbr)" in neighbor_c
     assert "eigrp_neighbor_prefix_count(runtime, nbr)" in neighbor_c
     assert "nbr->retrans_queue->tail->retrans_counter" in neighbor_c
     assert "uint64_t eigrp_southbound_monotime_msec(void);" in southbound_h
