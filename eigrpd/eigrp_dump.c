@@ -888,13 +888,15 @@ void eigrp_debug_packet_send(eigrp_interface_t *ei,
 		zlog_debug("EIGRP: Sending %s on %s dst %s",
 			   eigrp_debug_packet_category_name(category), ifname,
 			   eigrp_print_addr((eigrp_addr_t *)&packet->dst));
-	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u, length %u, send-result %d",
+	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
-		   ntohl(header->sequence), ntohl(header->ack), packet->length,
-		   send_result);
+		   ntohl(header->sequence), ntohl(header->ack));
 
-	if (state & EIGRP_DEBUG_PACKET_DETAIL)
+	if (state & EIGRP_DEBUG_PACKET_DETAIL) {
+		zlog_debug("  packet length %u, send-result %d", packet->length,
+			   send_result);
 		eigrp_debug_packet_detail_dump(header, packet->length);
+	}
 }
 
 void eigrp_debug_packet_receive(eigrp_interface_t *ei,
@@ -917,18 +919,18 @@ void eigrp_debug_packet_receive(eigrp_interface_t *ei,
 	zlog_debug("EIGRP: Received %s on %s nbr %s",
 		   eigrp_debug_packet_category_name(category), EIGRP_INTF_NAME(ei),
 		   eigrp_print_addr((eigrp_addr_t *)source));
-	if (destination)
-		zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u, length %u, dst %s",
-			   ntohs(header->ASNumber), ntohl(header->flags),
-			   ntohl(header->sequence), ntohl(header->ack), length,
-			   eigrp_print_addr((eigrp_addr_t *)destination));
-	else
-		zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u, length %u",
-			   ntohs(header->ASNumber), ntohl(header->flags),
-			   ntohl(header->sequence), ntohl(header->ack), length);
+	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
+		   ntohs(header->ASNumber), ntohl(header->flags),
+		   ntohl(header->sequence), ntohl(header->ack));
 
-	if (state & EIGRP_DEBUG_PACKET_DETAIL)
+	if (state & EIGRP_DEBUG_PACKET_DETAIL) {
+		if (destination)
+			zlog_debug("  packet length %u, dst %s", length,
+				   eigrp_print_addr((eigrp_addr_t *)destination));
+		else
+			zlog_debug("  packet length %u", length);
 		eigrp_debug_packet_detail_dump(header, length);
+	}
 }
 
 void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
@@ -942,16 +944,18 @@ void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
 		return;
 	header = (const eigrp_header_t *)STREAM_DATA(packet->s);
 
-	zlog_debug("EIGRP: Retransmitting %s on %s nbr %s, retry %u, RTO %u",
+	zlog_debug("EIGRP: Sending %s on %s nbr %s, retry %u, RTO %u",
 		   eigrp_debug_packet_category_name(
 			   eigrp_debug_packet_category_get(header)),
 		   EIGRP_INTF_NAME(nbr->ei), eigrp_print_addr(&nbr->src), retry_count,
 		   EIGRP_PACKET_RETRANS_TIME * 1000U);
-	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u, length %u",
+	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
-		   ntohl(header->sequence), ntohl(header->ack), packet->length);
-	if (state & EIGRP_DEBUG_PACKET_DETAIL)
+		   ntohl(header->sequence), ntohl(header->ack));
+	if (state & EIGRP_DEBUG_PACKET_DETAIL) {
+		zlog_debug("  packet length %u", packet->length);
 		eigrp_debug_packet_detail_dump(header, packet->length);
+	}
 }
 
 static void eigrp_debug_transmit_write(struct vty *vty, unsigned long state)
@@ -1180,37 +1184,68 @@ void show_ip_eigrp_interface_detail(struct vty *vty, eigrp_instance_t *eigrp,
 
 void show_ip_eigrp_neighbor_header(struct vty *vty, eigrp_instance_t *eigrp)
 {
+	vty_out(vty, "\nIP-EIGRP neighbors for process %u\n", eigrp->AS);
 	vty_out(vty,
-		"\nEIGRP neighbors for AS(%d)\n\n%-3s %-17s %-20s %-6s %-8s %-6s %-5s %-5s %-5s\n %-41s %-6s %-8s %-6s %-4s %-6s %-5s \n",
-		eigrp->AS, "H", "Address", "Interface", "Hold", "Uptime",
-		"SRTT", "RTO", "Q", "Seq", "", "(sec)", "", "(ms)", "", "Cnt",
-		"Num");
+		"H   Address                 Interface       Hold Uptime   SRTT   RTO  Q  Seq\n");
+	vty_out(vty,
+		"                                           (sec)          (ms)       Cnt Num\n");
+}
+
+static const char *eigrp_dump_duration_string(uint64_t seconds, char *buffer,
+					      size_t size)
+{
+	uint64_t days = seconds / 86400U;
+	uint64_t hours = (seconds % 86400U) / 3600U;
+	uint64_t minutes = (seconds % 3600U) / 60U;
+	uint64_t secs = seconds % 60U;
+
+	if (days)
+		snprintf(buffer, size, "%llud%02lluh", (unsigned long long)days,
+			 (unsigned long long)hours);
+	else
+		snprintf(buffer, size, "%02llu:%02llu:%02llu",
+			 (unsigned long long)hours, (unsigned long long)minutes,
+			 (unsigned long long)secs);
+	return buffer;
 }
 
 void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_neighbor_t *nbr,
 				int detail)
 {
+	char hold[16];
+	char uptime[32];
+	uint64_t uptime_seconds = 0;
+	uint8_t retry_count = 0;
 
-	vty_out(vty, "%-3u %-17s %-21s", 0, eigrp_print_addr(&nbr->src),
-		EIGRP_INTF_NAME(nbr->ei));
 	if (nbr->t_holddown)
-		vty_out(vty, "%-7u",
-			eigrp_southbound_timer_remaining_seconds(nbr->t_holddown));
+		snprintf(hold, sizeof(hold), "%u",
+			 eigrp_southbound_timer_remaining_seconds(nbr->t_holddown));
 	else
-		vty_out(vty, "-      ");
-	vty_out(vty, "%-8u %-6u %-5u", 0, 0, EIGRP_PACKET_RETRANS_TIME);
-	vty_out(vty, "%-7lu", nbr->retrans_queue->count);
-	vty_out(vty, "%u\n", nbr->recv_sequence_number);
+		snprintf(hold, sizeof(hold), "-");
+	if (nbr->up_since_msec) {
+		uint64_t now = eigrp_southbound_monotime_msec();
+
+		if (now >= nbr->up_since_msec)
+			uptime_seconds = (now - nbr->up_since_msec) / 1000U;
+		eigrp_dump_duration_string(uptime_seconds, uptime, sizeof(uptime));
+	} else
+		snprintf(uptime, sizeof(uptime), "-");
+	if (nbr->retrans_queue && nbr->retrans_queue->tail)
+		retry_count = nbr->retrans_queue->tail->retrans_counter;
+
+	vty_out(vty, "%-3s %-23s %-15s %-5s %-8s %-6s %-5u %-3lu %u\n", "-",
+		eigrp_print_addr(&nbr->src), EIGRP_INTF_NAME(nbr->ei), hold, uptime,
+		"n/a", EIGRP_PACKET_RETRANS_TIME * 1000U,
+		nbr->retrans_queue ? nbr->retrans_queue->count : 0,
+		nbr->recv_sequence_number);
 
 
 	if (detail) {
-		vty_out(vty, "    Version %u.%u/%u.%u", nbr->os_rel_major,
+		vty_out(vty, "   Version %u.%u/%u.%u", nbr->os_rel_major,
 			nbr->os_rel_minor, nbr->tlv_rel_major,
 			nbr->tlv_rel_minor);
-		vty_out(vty, ", TLV version: %u", nbr->tlv_version);
-		vty_out(vty, ", Retrans: %lu, Retries: %lu",
-			nbr->retrans_queue->count, 0UL);
-		vty_out(vty, ", %s\n", eigrp_nbr_state_str(nbr));
+		vty_out(vty, ", Retrans: %" PRIu64 ", Retries: %u\n",
+			nbr->retransmissions, retry_count);
 	}
 }
 
@@ -1219,49 +1254,54 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_neighbor_t *nbr,
  */
 void show_ip_eigrp_topology_header(struct vty *vty, eigrp_instance_t *eigrp)
 {
-	vty_out(vty, "\nEIGRP Topology Table for AS(%d)/ID(%s)\n\n", eigrp->AS,
-		eigrp_print_routerid(eigrp->router_id));
+	vty_out(vty, "\nIP-EIGRP Topology Table for AS(%d)/ID(%s)\n\n",
+		eigrp->AS, eigrp_print_routerid(eigrp->router_id));
 	vty_out(vty,
 		"Codes: P - Passive, A - Active, U - Update, Q - Query, "
-		"R - Reply\n       r - reply Status, s - sia Status\n\n");
+		"R - Reply,\n       r - reply Status, s - sia Status\n\n");
 }
 
 void show_ip_eigrp_prefix_descriptor(struct vty *vty,
-				     eigrp_prefix_descriptor_t *tn)
+				     eigrp_prefix_descriptor_t *tn,
+				     bool include_serial)
 {
 	struct list *successors = eigrp_topology_get_successor(tn);
 	char buffer[EIGRP_PREFIX_STRLEN] = "invalid";
 
 	eigrp_prefix_snprintf(buffer, sizeof(buffer), &tn->destination);
-	vty_out(vty, "%-3c", (tn->state > 0) ? 'A' : 'P');
-	vty_out(vty, "%s, ", buffer);
-	vty_out(vty, "%u successors, ", (successors) ? successors->count : 0);
-	vty_out(vty, "FD is %u, serno: %" PRIu64 " \n", tn->fdistance,
-		tn->serno);
+	vty_out(vty, "%c %s, %u successors, FD is ",
+		(tn->state > 0) ? 'A' : 'P', buffer,
+		(successors) ? successors->count : 0);
+	if (tn->fdistance == EIGRP_MAX_METRIC)
+		vty_out(vty, "Inaccessible");
+	else
+		vty_out(vty, "%u", tn->fdistance);
+	if (include_serial)
+		vty_out(vty, ", serno %" PRIu64, tn->serno);
+	vty_out(vty, "\n");
 
 	if (successors)
 		list_delete(&successors);
 }
 
 void show_ip_eigrp_route_descriptor(struct vty *vty, eigrp_instance_t *eigrp,
-				    eigrp_route_descriptor_t *te, bool *first)
+				    eigrp_route_descriptor_t *te, bool *first,
+				    bool include_serial)
 {
 	if (te->reported_distance == EIGRP_MAX_METRIC)
 		return;
 
 	if (*first) {
-		show_ip_eigrp_prefix_descriptor(vty, te->prefix);
+		show_ip_eigrp_prefix_descriptor(vty, te->prefix, include_serial);
 		*first = false;
 	}
 
 	if (te->adv_router == eigrp->neighbor_self)
-		vty_out(vty, "%-7s%s, %s\n", " ", "via Connected",
-			EIGRP_INTF_NAME(te->ei));
-	else {
-		vty_out(vty, "%-7s%s%s (%u/%u), %s\n", " ", "via ",
+		vty_out(vty, "        via Connected, %s\n", EIGRP_INTF_NAME(te->ei));
+	else
+		vty_out(vty, "        via %s (%u/%u), %s\n",
 			eigrp_print_addr(&te->adv_router->src), te->distance,
 			te->reported_distance, EIGRP_INTF_NAME(te->ei));
-	}
 }
 
 

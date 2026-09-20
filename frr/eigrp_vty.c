@@ -79,7 +79,7 @@ static void eigrp_vty_display_prefix_entry(struct vty *vty, eigrp_instance_t *ei
 			 == EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)
 			|| ((te->flags & EIGRP_ROUTE_DESCRIPTOR_FSUCCESSOR_FLAG)
 			    == EIGRP_ROUTE_DESCRIPTOR_FSUCCESSOR_FLAG))) {
-			show_ip_eigrp_route_descriptor(vty, eigrp, te, &first);
+			show_ip_eigrp_route_descriptor(vty, eigrp, te, &first, all);
 			first = false;
 		}
 	}

@@ -115,7 +115,7 @@ def test_neighbor_detail_uses_live_hold_uptime_retry_and_prefix_state():
 
     for label in ("Hold", "Uptime", "SRTT", "RTO", "Retrans:", "Retries:", "Prefixes:"):
         assert label in vty
-    assert "State: %s" in vty
+    assert "TLV version %u, State: %s" not in vty
 
 
 def test_timer_show_walks_actual_runtime_expirations():

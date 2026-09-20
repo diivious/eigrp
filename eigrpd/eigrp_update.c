@@ -219,10 +219,6 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 					  eigrp_print_addr(&nbr->src),
 					  nbr->ei->name);
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_PENDING);
-			if (eigrp->log_neighbor_changes)
-				zlog_info("Neighbor %s (%s) is pending: new adjacency",
-					  eigrp_print_addr(&nbr->src),
-					  nbr->ei->name);
 			eigrp_update_send_init(eigrp, nbr);
 		}
 	}

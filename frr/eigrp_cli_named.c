@@ -3906,9 +3906,8 @@ static const char *eigrp_vty_duration_string(uint64_t seconds, char *buffer,
 	uint64_t secs = seconds % 60U;
 
 	if (days)
-		snprintf(buffer, size, "%llud%02llu:%02llu",
-			 (unsigned long long)days, (unsigned long long)hours,
-			 (unsigned long long)minutes);
+		snprintf(buffer, size, "%llud%02lluh", (unsigned long long)days,
+			 (unsigned long long)hours);
 	else
 		snprintf(buffer, size, "%02llu:%02llu:%02llu",
 			 (unsigned long long)hours, (unsigned long long)minutes,
@@ -3921,6 +3920,7 @@ struct eigrp_vty_neighbor_show {
 	bool detail;
 	bool static_only;
 	bool printed_header;
+	size_t address_width;
 };
 
 static eigrp_result_t eigrp_vty_neighbor_state_render(
@@ -3932,14 +3932,22 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 	char srtt[16];
 
 	if (!show->printed_header) {
-		if (show->static_only)
+		show->address_width = state->address.afi == EIGRP_ADDRESS_FAMILY_IPV6
+					      ? 40U
+					      : 23U;
+		if (show->static_only) {
 			vty_out(show->vty, "%-40s %-22s %-12s\n", "Address",
 				"Interface", "State");
-		else
+		} else {
 			vty_out(show->vty,
-				"%-40s %-18s %-6s %-12s %-6s %-6s %-5s %-10s\n",
+				"%-*s %-15s %-5s %-8s %-6s %-5s %-3s %-10s\n",
+				(int)show->address_width,
 				"Address", "Interface", "Hold", "Uptime", "SRTT",
 				"RTO", "Q", "Seq");
+			vty_out(show->vty, "%*s %-15s %-5s %-8s %-6s %-5s %-3s %-10s\n",
+				(int)show->address_width, "", "", "(sec)", "",
+				"(ms)", "", "Cnt", "Num");
+		}
 		show->printed_header = true;
 	}
 
@@ -3956,21 +3964,18 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 	else
 		snprintf(srtt, sizeof(srtt), "n/a");
 	eigrp_vty_duration_string(state->uptime_seconds, uptime, sizeof(uptime));
-	vty_out(show->vty, "%-40s %-18s %-6u %-12s %-6s %-6u %-5lu %-10u\n",
+	vty_out(show->vty, "%-*s %-15s %-5u %-8s %-6s %-5u %-3lu %-10u\n",
+		(int)show->address_width,
 		eigrp_vty_address_string(&state->address, address, sizeof(address)),
 		state->interface_name, state->hold_time, uptime, srtt, state->rto_msec,
 		state->reliable_queue_count, state->sequence_number);
 	if (show->detail) {
 		vty_out(show->vty,
-			"  Version %u.%u/%u.%u, TLV version %u, State: %s, Retrans: %" PRIu64
+			"   Version %u.%u/%u.%u, Retrans: %" PRIu64
 			", Retries: %u, Prefixes: %u\n",
 			state->os_major, state->os_minor, state->tlv_major,
-			state->tlv_minor, state->tlv_version, state->state_name,
-			state->retransmit_count, state->retry_count, state->prefix_count);
-		if (!state->srtt_valid)
-			vty_out(show->vty,
-				"  SRTT: n/a; transport uses the fixed %u ms retransmission interval\n",
-				state->rto_msec);
+			state->tlv_minor, state->retransmit_count, state->retry_count,
+			state->prefix_count);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -4014,6 +4019,7 @@ static eigrp_result_t eigrp_vty_neighbor_context_render(
 
 struct eigrp_vty_topology_show {
 	struct vty *vty;
+	bool include_serial;
 };
 
 static eigrp_result_t eigrp_vty_topology_prefix_render(
@@ -4022,10 +4028,17 @@ static eigrp_result_t eigrp_vty_topology_prefix_render(
 	struct eigrp_vty_topology_show *show = arg;
 	char prefix[INET6_ADDRSTRLEN + 8];
 
-	vty_out(show->vty, "%c %s, %u successors, FD is %u, serno: %" PRIu64 "\n",
+	vty_out(show->vty, "%c %s, %u successors, FD is ",
 		state->active ? 'A' : 'P',
 		eigrp_vty_prefix_string(&state->destination, prefix, sizeof(prefix)),
-		state->successor_count, state->feasible_distance, state->serial_number);
+		state->successor_count);
+	if (state->feasible_distance == EIGRP_MAX_METRIC)
+		vty_out(show->vty, "Inaccessible");
+	else
+		vty_out(show->vty, "%u", state->feasible_distance);
+	if (show->include_serial)
+		vty_out(show->vty, ", serno %" PRIu64, state->serial_number);
+	vty_out(show->vty, "\n");
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -4034,18 +4047,16 @@ static eigrp_result_t eigrp_vty_topology_route_render(
 {
 	struct eigrp_vty_topology_show *show = arg;
 	char address[INET6_ADDRSTRLEN];
-	const char *flags = state->successor ? "successor"
-			    : state->feasible_successor ? "feasible-successor" : "other";
 
 	if (state->connected)
-		vty_out(show->vty, "       via Connected, %s [%s]\n",
-			state->interface_name ? state->interface_name : "<unknown>", flags);
+		vty_out(show->vty, "        via Connected, %s\n",
+			state->interface_name ? state->interface_name : "<unknown>");
 	else
-		vty_out(show->vty, "       via %s (%u/%u), %s [%s]\n",
+		vty_out(show->vty, "        via %s (%u/%u), %s\n",
 			eigrp_vty_address_string(&state->next_hop, address,
 						 sizeof(address)),
 			state->distance, state->reported_distance,
-			state->interface_name ? state->interface_name : "<unknown>", flags);
+			state->interface_name ? state->interface_name : "<unknown>");
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -4059,7 +4070,10 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_topology_context *options = arg;
-	struct eigrp_vty_topology_show show = {.vty = vty};
+	struct eigrp_vty_topology_show show = {
+		.vty = vty,
+		.include_serial = options->all_links,
+	};
 	eigrp_result_t result;
 
 	if (af)
@@ -4069,7 +4083,8 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 		vty_out(vty, "\nEIGRP-%s Topology Table for AS(%u)\n",
 			eigrp_vty_afi_name(runtime->af_vectors.afi), runtime->AS);
 	vty_out(vty,
-		"Codes: P - Passive, A - Active; route flags identify successors and feasible successors\n");
+		"Codes: P - Passive, A - Active, U - Update, Q - Query, R - Reply,\n"
+		"       r - reply Status, s - sia Status\n\n");
 	result = eigrp_topology_state_walk(
 		af, runtime, options->destination, options->all_links,
 		eigrp_vty_topology_prefix_render, eigrp_vty_topology_route_render, &show);

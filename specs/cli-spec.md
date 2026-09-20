@@ -334,6 +334,55 @@ Debug commands use real operational targets and EIGRP-owned results. FRR debug
 command objects may retain host naming conventions because they are adapter
 objects, not portable APIs.
 
+### 10.3 Operational output conventions
+
+For EIGRP-owned operational presentation that is already implemented, use the
+Cisco EIGRP troubleshooting output as the display-format reference:
+
+```text
+https://www.cisco.com/c/en/us/support/docs/ip/enhanced-interior-gateway-routing-protocol-eigrp/118974-technote-eigrp-00.html
+```
+
+This is a presentation rule, not a protocol-capability rule. It applies to
+EIGRP-owned headings, capitalization, field labels, topology terminology,
+neighbor-change reason text, and packet-debug wording where the implementation
+has the corresponding real state.
+
+Examples include:
+
+```text
+IP-EIGRP neighbors for process <AS>
+H   Address ... Interface ... Hold Uptime SRTT RTO Q Seq
+
+IP-EIGRP Topology Table for AS(<AS>)/ID(<router-id>)
+Codes: P - Passive, A - Active, U - Update, Q - Query, R - Reply,
+       r - reply Status, s - sia Status
+
+P <prefix>, <n> successors, FD is <metric>
+P <prefix>, 0 successors, FD is Inaccessible
+P <prefix>, <n> successors, FD is <metric>, serno <serial>  # all-links
+
+EIGRP: Sending <PACKET> on <interface> ...
+EIGRP: Received <PACKET> on <interface> ...
+  AS <asn>, Flags <flags>, Seq <sequence>/<ack>
+```
+
+Neighbor-change messages use the established EIGRP reason wording when the
+corresponding transition exists, such as `holding time expired`,
+`peer restarted`, `new adjacency`, `K-value mismatch`, `Interface Goodbye
+received`, and `peer graceful-restart`.
+
+Host/framework-owned decoration is outside this rule. FRR/BIRD timestamps,
+logging prefixes, VTY wrappers, command parser conventions, and other host
+presentation that EIGRP does not own do not need to imitate IOS.
+
+Do not create protocol state or implement an incomplete capability solely to
+fill an IOS field. If SRTT, ACTIVE-state detail, event timestamps, queue detail,
+or another value is not maintained by the current backend, retain an honest
+unavailable/omitted representation until the owning capability is implemented.
+Similarly, detailed topology/vector-metric output is not synthesized from
+partial data merely to match an IOS example.
+
 ## 11. VTY/DEFPY object naming
 
 FRR command object/function names follow the command surface and FRR parser

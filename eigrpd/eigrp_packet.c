@@ -262,9 +262,10 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 				char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
 				if (eigrp->log_neighbor_changes)
-					zlog_info("Neighbor(%s) adjacency became full",
+					zlog_info("Neighbor %s (%s) is up: new adjacency",
 						  eigrp_packet_addr_text(eigrp, &nbr->src,
-								 address, sizeof(address)));
+								 address, sizeof(address)),
+						  nbr->ei->name);
 			}
 			nbr->init_sequence_number = 0;
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);

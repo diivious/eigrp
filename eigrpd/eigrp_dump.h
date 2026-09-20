@@ -282,10 +282,10 @@ extern void show_ip_eigrp_interface_sub(struct vty *, eigrp_instance_t *,
 				eigrp_interface_t *);
 extern void show_ip_eigrp_neighbor_sub(struct vty *, eigrp_neighbor_t *, int);
 extern void show_ip_eigrp_prefix_descriptor(struct vty *,
-					    eigrp_prefix_descriptor_t *);
+					    eigrp_prefix_descriptor_t *, bool);
 extern void show_ip_eigrp_route_descriptor(struct vty *vty, eigrp_instance_t *,
 					   eigrp_route_descriptor_t *,
-					   bool *first);
+					   bool *first, bool include_serial);
 
 extern void eigrp_debug_init(void);
 

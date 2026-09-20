@@ -122,11 +122,6 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	 */
 	if (eigrp_hello_k_same(eigrp, nbr)) {
 		if (eigrp_nbr_state_get(nbr) == EIGRP_NEIGHBOR_DOWN) {
-			if (eigrp->log_neighbor_changes)
-				zlog_info("Neighbor %s (%s) is pending: new adjacency",
-					  eigrp_print_addr(&nbr->src),
-					  nbr->ei->name);
-
 			/* Expedited hello sent */
 			eigrp_hello_send(nbr->ei, EIGRP_HELLO_NORMAL, &nbr->src);
 
@@ -140,7 +135,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			if ((param->K1 & param->K2 & param->K3 & param->K4 & param->K5) == 255) {
 				if (eigrp->log_neighbor_changes)
 					zlog_info(
-						"Neighbor %s (%s) is down: Interface PEER-TERMINATION received",
+						"Neighbor %s (%s) is down: Interface Goodbye received",
 						eigrp_print_addr(&nbr->src),
 						nbr->ei->name);
 				eigrp_nbr_delete(nbr);
@@ -148,7 +143,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			} else {
 				if (eigrp->log_neighbor_changes)
 					zlog_info(
-						"Neighbor %s (%s) going down: Kvalue mismatch",
+						"Neighbor %s (%s) is down: K-value mismatch",
 						eigrp_print_addr(&nbr->src),
 						nbr->ei->name);
 				eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
