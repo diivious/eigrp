@@ -2,89 +2,100 @@
 
 Copyright (C) 2026 Donnie V. Savage
 
-This file is a new project design document. New files created for this EIGRP work use Donnie V. Savage as the copyright owner unless stated otherwise.
-
-Existing source files must preserve all prior copyright notices, SPDX identifiers, and author history. Refactoring an existing file is not permission to remove earlier authorship.
+Existing source files must preserve prior copyright notices, SPDX identifiers,
+and author history.
 
 ## 1. Purpose
 
-This document owns the EIGRP CLI, VTY, show, clear, and debug command surface for the `eigrpd` project.
+This document defines the EIGRP CLI/VTY contract for configuration, show,
+clear, and debug operations. It owns command scope, mode placement, management
+flow, configuration retention, `no` behavior, and the boundary between FRR CLI
+objects and portable EIGRP feature targets.
 
-It extends `design-spec.md`; function/module naming follows `code-conventions.md`, while this file owns the CLI/VTY command surface, management flow, retention, and command-specific target requirements.
+Architecture is defined by `design-spec.md`; portable symbol naming is defined
+by `code-conventions.md`.
 
 ## 2. Authority
 
-CLI authority follows the project authority order defined in `design-spec.md`:
+CLI shape follows, in order:
 
-1. Donnie V. Savage.
-2. RFC 7868 for protocol behavior unless intentionally clarified or superseded by Donnie V. Savage.
-3. Cisco named-mode command references for user-facing CLI shape where they do not conflict with this project.
-4. FRR only for build compatibility, daemon integration, VTY plumbing, clippy generation, and library/API compatibility.
-5. Existing `eigrpd` code only where it does not conflict with this specification.
+1. Donnie V. Savage's explicit project decisions.
+2. RFC 7868 where the command controls protocol behavior.
+3. Cisco named-mode command references for user-facing syntax and placement
+   where they do not conflict with this project.
+4. FRR only for parser, VTY, YANG/northbound, and host integration mechanics.
 
-## 3. Classic and Named-Mode CLI Direction
+A Cisco example command is not automatically an EIGRP project command. Host
+VRF, route-map, key-chain, BFD, and similar platform configuration remains in
+the owning host subsystem unless EIGRP defines a protocol-specific attachment
+command.
 
-Both EIGRP router entry forms are valid and must remain installed concurrently:
+## 3. Classic and named entry forms
+
+Both router entry forms remain valid:
 
 ```text
 router eigrp <asn>
 router eigrp <name>
 ```
 
-`router eigrp <asn>` enters the classic/legacy numeric-AS configuration mode.
-`router eigrp <name>` enters named mode; the named process is a parent container and its protocol context is established by an address-family and autonomous-system configuration.
+`router eigrp <asn>` selects the existing classic numeric-AS surface.
+`router eigrp <name>` creates/selects a named parent whose protocol contexts are
+its address families.
 
-The CLI grammar must preserve type-based disambiguation: numeric values in the valid ASN range select the numeric-AS command, while non-numeric words select the named-mode command.
+The parser preserves type-based disambiguation: a valid numeric ASN selects the
+classic command; a non-numeric name selects named mode.
 
-The existing classic/legacy command surface is compatibility code and is frozen for this work:
+The existing classic surface is compatibility code:
 
-- preserve existing classic configuration commands
-- preserve existing classic show/clear commands
-- do not add new classic configuration commands
-- do not add new `show ip eigrp ...` commands
-- do not add new `clear ip eigrp ...` commands
-- do not remove or regress existing legacy behavior while adding named-mode commands
+- preserve existing classic configuration and operational commands;
+- do not add a second classic implementation of a feature added in named mode;
+- do not remove or regress classic behavior while implementing named mode;
+- converge classic and named behavior below the host boundary where the
+  protocol operation is the same.
 
-All new CLI implementation work is named-mode work.
+Named mode is the canonical surface for new EIGRP configuration work.
 
-## 4. Named-Mode Command Scope
+Named mode covers the complete applicable classic EIGRP protocol feature set
+unless a feature is explicitly excluded by this specification. Cisco named-mode
+documentation determines named placement and grammar where documented; a
+feature may move into address-family, `af-interface`, or `topology base` rather
+than reproduce classic syntax literally.
 
-The named-mode CLI should implement EIGRP commands that configure, control, observe, or debug EIGRP protocol behavior, including:
+## 4. Named-mode scope
 
-- address-family configuration
-- EIGRP interface behavior
-- topology and route management
-- route filtering and routing policy attachment
-- metrics and summarization
-- neighbors and timers
-- redistribution
-- protocol show commands
-- protocol clear commands
-- protocol debug commands
-- EIGRP technical-support output
+Named mode covers EIGRP-owned protocol configuration and operations, including:
 
-A command appearing in a Cisco guide is not automatically an EIGRP command. Commands shown only to prepare the host platform or an example environment must not be added to EIGRP CLI. For example, `ip vrf` is a platform routing command, not an EIGRP command. Commands owned by another host CLI mode, such as route-map, key-chain, or VRF configuration, remain owned by that host subsystem; EIGRP integrates with those objects through its northbound boundary rather than reinstalling their CLI under EIGRP.
+- IPv4 and IPv6 unicast address-family configuration;
+- interface EIGRP behavior;
+- topology and metric controls;
+- filtering and routing-policy attachment;
+- summarization;
+- neighbor policy and timers;
+- redistribution;
+- protocol show/clear/debug output;
+- EIGRP technical-support output.
 
-The following command classes are explicitly excluded from the named-mode CLI for this implementation:
+The following are not project EIGRP CLI requirements:
 
-- `eigrp stub`
-- `stub`
-- `eigrp upgrade-cli`
-- SAF / Service Advertisement Framework commands, including `ipv4-sf`, `service-family`, and their submodes
-- platform-dependent BFD commands
-- platform-dependent MTR commands
-- Cisco router-to-radio/VMI commands such as `dampening-change`, `dampening-interval`, and the platform-specific `eigrp interface` form
-- platform test commands
-- Cisco plugin management commands such as `show eigrp plugins`
-- NSF / graceful-restart configuration commands for this pass
+- EIGRP Stub routing (`eigrp stub` / `stub`) — explicitly out of scope;
+- `eigrp upgrade-cli` conversion tooling;
+- SAF/service-family commands such as `ipv4-sf` and `service-family`;
+- Cisco plugin-management commands such as `show eigrp plugins`;
+- Cisco router-to-radio/VMI and platform test commands;
+- host-owned commands whose behavior belongs to another subsystem.
 
-NSF/graceful-restart CLI exclusion does not mean the EIGRP protocol restart behavior is permanently excluded. Protocol restart support may be required later; the host restart/switchover trigger is a platform integration concern and the CLI can be added when that work is undertaken.
+Host-dependent integrations such as BFD or MTR are adapter capabilities, not a
+reason to put host-native objects into portable EIGRP APIs. A host may expose
+an EIGRP attachment command when that integration is implemented cleanly in the
+host adapter.
 
-`show eigrp tech-support` is considered useful EIGRP operational output and should remain available.
+`show eigrp tech-support` is an EIGRP operational command and remains part of
+the named operational surface.
 
-### 4.1 Named-Mode Configuration Hierarchy
+## 5. Named configuration hierarchy
 
-Named mode supports both IPv4 and IPv6 address families:
+Named mode is organized as:
 
 ```text
 router eigrp <name>
@@ -97,122 +108,138 @@ router eigrp <name>
 exit
 ```
 
-The IPv4 and IPv6 CLI should share grammar and implementation paths wherever the command semantics are address-family independent. The address family is data, not a reason to duplicate an otherwise identical command implementation.
+The named parent is local configuration ownership. The address family plus VRF
+and AS defines the protocol context. The local process name is not carried on
+the wire.
 
-A representative named-mode configuration hierarchy is:
+The normal command ownership hierarchy is:
 
 ```text
-router eigrp <name>
- address-family <ipv4|ipv6> unicast [vrf <name>] autonomous-system <asn>
-  network ...                         # IPv4 only where documented
-  eigrp router-id <address>
+address-family
+  network ...                         IPv4 only
+  eigrp router-id ...
   neighbor ...
   neighbor ... description ...
   neighbor ... maximum-prefix ...
   neighbor maximum-prefix ...
-  eigrp log-neighbor-changes | no eigrp log-neighbor-changes
-  eigrp log-neighbor-warnings ... | no eigrp log-neighbor-warnings
+  eigrp log-neighbor-changes ...
+  eigrp log-neighbor-warnings ...
   af-interface <default|interface>
-   bandwidth ...
-   bandwidth-percent ...
-   delay ...
-   hello-interval ...
-   hold-time ...
-   passive-interface
-   authentication ...
-   next-hop-self
-   split-horizon
-   summary-address ...
-   shutdown | no shutdown
+    bandwidth ...
+    bandwidth-percent ...
+    delay ...
+    hello-interval ...
+    hold-time ...
+    passive-interface
+    authentication ...
+    next-hop-self
+    split-horizon
+    summary-address ...
+    shutdown | no shutdown
   exit-af-interface
   topology base
-   auto-summary
-   default-information ...
-   default-metric ...
-   distance eigrp ...
-   maximum-prefix ...
-   maximum-paths ...
-   metric holddown
-   metric maximum-hops ...
-   metric ...
-   eigrp event-log-size ...
-   distribute-list ...
-   offset-list ...
-   redistribute ...
-   redistribute maximum-prefix ...
-   summary-metric ...
-   timers active-time ...
-   traffic-share balanced
-   variance ...
+    auto-summary                     IPv4 semantics only
+    default-information ...
+    default-metric ...
+    distance eigrp ...
+    maximum-prefix ...
+    maximum-paths ...
+    metric holddown ...
+    metric maximum-hops ...
+    metric weights ...
+    eigrp event-log-size ...
+    distribute-list ...
+    offset-list ...
+    redistribute ...
+    redistribute maximum-prefix ...
+    summary-metric ...
+    timers active-time ...
+    traffic-share balanced
+    variance ...
   exit-af-topology
   shutdown | no shutdown
- exit-address-family
-exit
+exit-address-family
 ```
 
-Named mode inherits the complete classic EIGRP configuration feature set unless a feature is explicitly excluded by this specification. Cisco named-mode documentation determines named CLI placement and grammar where documented, but omission from a named-mode command reference does not by itself exclude a classic EIGRP feature. Named mode may relocate a classic feature into address-family, `af-interface`, or topology configuration mode rather than reproduce the classic syntax literally.
+Command placement follows Cisco named-mode behavior where documented, but the
+portable target namespace follows the owning EIGRP module rather than the CLI
+nesting.
 
-Classic-mode completion is not a prerequisite for named-mode completion, but the existing FRR classic command surface is a compatibility requirement. The original FRR classic configuration and operational commands are retained even where runtime behavior is incomplete; named-mode development must not remove, hide, or repurpose those commands. This does not weaken the named-mode inheritance rule: a classic EIGRP feature still requires a named-mode implementation unless it is explicitly excluded above.
+IPv4 and IPv6 share parser/target paths when the semantics are genuinely the
+same. A command valid for IPv4 is not automatically valid for IPv6. IPv4
+`network` and classful auto-summary semantics are examples of AF-specific
+behavior.
 
-Every supported configuration feature must implement its applicable `no` form. The `no` form must remove the retained configuration or restore the documented default, invoke the same EIGRP-owned semantic target family as the positive form, and remain independently testable through running-config writeback and mutation.
+## 6. `no` forms and retained configuration
 
-The exact command grammar, legal argument ranges, defaults, address-family applicability, and documented forms should otherwise follow the Cisco command reference unless this project specification intentionally differs. A command valid for named IPv4 is not automatically valid for named IPv6 merely because the surrounding CLI hierarchy is shared.
+Every supported configuration feature implements its applicable `no` form.
 
-The initial implementation may map named-mode CLI onto current FRR/YANG storage where suitable storage already exists. That is an implementation bridge, not a protocol or UX dependency.
+The `no` form must:
 
-## 5. CLI-to-Core Boundary
+- remove explicit retained configuration or restore the defined default;
+- invoke the same EIGRP feature family as the positive form;
+- remain independently testable through mutation and running-config writeback;
+- not depend on a generic CLI reset dispatcher.
 
-`eigrp_cli_classic.[c|h]`, `eigrp_cli_named.[c|h]`, and `eigrp_vty.[c|h]` are the explicit FRR-facing user interaction contract for EIGRP. They are adapter/front-end code, not portable EIGRP core modules.
+Public target verbs follow `code-conventions.md`: configuration values normally
+use `set/reset`, collection relationships use `add/remove`, and owned objects
+use `create/delete`.
 
-`eigrp_cli_classic` preserves the original FRR classic configuration command surface. `eigrp_vty` preserves the original FRR classic operational `show ip eigrp ...` and `clear ip eigrp ...` command surface. `eigrp_cli_named` owns named-mode configuration syntax and named-mode operational `show eigrp ...` / `clear eigrp ...` commands. Debug command ownership remains with the existing debug module. FRR-native CLI/VTY/YANG types are legal within these front-end files.
+Valid configuration is retained even when a runtime capability is incomplete.
+The runtime target may return `EIGRP_RESULT_NOT_IMPLEMENTED`; that result does
+not erase a successfully committed configuration node.
 
-Where classic and named mode have identical grammar, a parser command object may be installed once and dispatch to mode-appropriate adapter helpers rather than duplicating the grammar. That sharing must stop at the adapter boundary: both modes should call the same EIGRP-owned target functions when the protocol semantics are the same, while retaining separate classic and named management paths where their YANG/configuration structure differs.
+This retention rule applies equally to IPv4 and IPv6 named configuration.
 
-For configuration that changes EIGRP protocol state, the committed management boundary is `eigrp_northbound.c`. The required path is:
+## 7. CLI-to-core boundary
+
+FRR-facing ownership is:
+
+```text
+frr/eigrp_cli_classic.[c|h]  classic configuration parser/front end
+frr/eigrp_cli_named.[c|h]    named configuration and named operational front end
+frr/eigrp_vty.[c|h]          classic operational VTY surface
+frr/eigrp_northbound.c       committed FRR/YANG config -> EIGRP adapter
+```
+
+Configuration flow is:
 
 ```text
 CLI parse
-  -> retain/commit configuration through FRR management/YANG
+  -> construct/submit FRR management change
+  -> FRR commits retained configuration
   -> eigrp_northbound callback
-  -> normalize host values into EIGRP-owned data
-  -> call the real EIGRP feature target function
-  -> receive an EIGRP-owned structured result
-  -> FRR front end renders/logs that result
+  -> normalize to EIGRP-owned values
+  -> call the real EIGRP feature target
+  -> receive eigrp_result_t
+  -> FRR renders/logs the result
 ```
 
-A CLI handler may normalize textual input to build the management transaction. It must not submit a northbound change and then independently mutate the same portable EIGRP runtime object. Runtime application of committed configuration belongs to the northbound callback and the real EIGRP target it invokes.
+The CLI must not submit a northbound change and then independently mutate the
+same portable EIGRP state.
 
-Operational VTY commands that do not represent retained configuration may call an appropriate EIGRP operational target after normalizing their arguments. They must still obey the same portable type and structured-result boundary.
+Operational commands that are not retained configuration may call an EIGRP
+operational target directly after normalizing host arguments, but portable APIs
+still receive EIGRP-owned values and return EIGRP-owned results.
 
-FRR management and runtime objects stop at the adapter boundary. Portable core APIs must not accept FRR-native objects such as:
+FRR objects such as `struct vty`, `struct interface`, `struct event`, libyang
+nodes, and Zebra objects do not cross into portable feature APIs.
 
-```c
-struct vty *;
-struct stream *;
-struct interface *;
-struct event *;
-struct lyd_node *;
+## 8. One real target per feature
+
+Every command reaching portable logic terminates at the real owning EIGRP
+feature target. Do not create or use generic targets such as:
+
+```text
+eigrp_cli_not_configured(...)
+eigrp_cli_stub_function(...)
+eigrp_not_implemented_command(...)
 ```
 
-Zebra/YANG callback objects and other host-specific structures are subject to the same rule even when not listed above.
+An incomplete runtime feature still has its real target and returns a structured
+result there. Shared private helpers below the public target are allowed.
 
-A temporary EIGRP wrapper around a host object is not the long-term data model merely because it has an `eigrp_` name. Common EIGRP objects must eventually contain the EIGRP data itself rather than depend on the layout of an FRR object. This is especially important for a future BSD build where FRR structures may not exist.
-
-Address-family-aware objects must carry their own AF/type and address data. For example, a route/configuration object used by both IPv4 and IPv6 must identify the address family and contain the corresponding normalized address/prefix representation.
-
-## 6. One Real Target Per Command/Feature
-
-Every named-mode command that reaches common EIGRP logic must terminate at the real EIGRP target for that command/feature. The target name follows the human-navigation module convention in `code-conventions.md`, not the CLI mode hierarchy.
-
-Do not create or use a generic CLI stub/dispatcher such as:
-
-```c
-eigrp_cli_not_configured(...);
-eigrp_cli_stub_function(...);
-eigrp_not_implemented_command(...);
-```
-
-A command whose runtime behavior is incomplete still gets its real target, for example:
+Examples of intended target shape:
 
 ```c
 eigrp_metric_variance_set(...);
@@ -222,27 +249,12 @@ eigrp_redistribute_remove(...);
 eigrp_neighbor_clear(...);
 ```
 
-The target may currently return `EIGRP_RESULT_NOT_IMPLEMENTED`, but it must remain the stable place where that feature is later implemented. Shared private helpers below command-specific targets are allowed.
+Classic and named front ends must not call one another as a substitute for
+sharing protocol behavior. Convergence belongs below the host boundary.
 
-A CLI `no` form that restores a configured default should normally map to a `*_reset()` target. Operational `clear` commands remain `*_clear()` operations. Keyed collection members may use `add/remove` when that better expresses ownership.
+## 9. Incomplete capability behavior
 
-When IPv4 and IPv6 operations have identical semantics, prefer one address-family-aware EIGRP target receiving normalized EIGRP data rather than duplicated AF-specific implementations.
-
-## 7. Incomplete Feature Behavior
-
-A valid named-mode command whose backend is incomplete must still be parsed, accepted, and retained in configuration unless the command is explicitly excluded by this specification.
-
-For configuration commands, the required flow is:
-
-```text
-CLI parse
-  -> retain normalized configuration
-  -> call the real EIGRP target function
-  -> target returns a structured EIGRP result
-  -> northbound renders the result for the host CLI/logging environment
-```
-
-The core must return more information than a boolean pass/fail result. Common EIGRP APIs should use an EIGRP-owned result/status type capable of distinguishing at least:
+Portable result semantics distinguish at least:
 
 ```text
 success
@@ -250,63 +262,56 @@ not implemented
 invalid argument/configuration
 not found
 conflict
-unsupported address family or capability
+unsupported address family/capability
 internal failure
 ```
 
-The exact type and enum names are implementation details, but they must be EIGRP-owned and usable outside FRR.
+The portable target never calls `vty_out()` merely to explain failure. FRR
+renders the structured result.
 
-For an unimplemented feature, the feature's target function returns the EIGRP `not implemented` result. The FRR northbound/VTY layer may render that as, for example:
+A configuration command may therefore succeed as retained configuration while
+its runtime application reports `NOT_IMPLEMENTED`. This is the required model
+for configuration that is architecturally valid but whose data-path operation
+is capability-gated.
 
-```text
-% EIGRP redistribute is not currently supported
-```
+A partially implemented show command displays all real data available from its
+backend. Missing fields do not justify replacing the entire command with an
+empty generic stub.
 
-The core must not call `vty_out()` or otherwise depend on FRR merely to report the result.
+## 10. Named operational commands
 
-Configuration is not discarded because the runtime feature is not implemented. It must remain available to running-config/config writeback so the command does not silently disappear.
-
-IPv6 named-mode configuration follows the same rule. The IPv6 CLI is required now even though the IPv6 data path is not yet implemented. IPv6 CLI input must populate the same EIGRP-owned configuration/route objects with the correct address-family and IPv6 address/prefix data so IPv6 runtime support can be added without replacing the CLI architecture.
-
-## 8. Named-Mode Show, Clear, and Debug Direction
-
-Named-mode operational commands are the active development surface. Existing classic operational commands are preserved but are not expanded.
-
-Named show/clear commands should follow the Cisco named-mode shape where applicable, including forms such as:
+Named operational commands use the Cisco address-family-oriented shape where
+applicable:
 
 ```text
-show eigrp address-family ipv4 [vrf <name>] [<asn>] neighbors ...
 show eigrp address-family ipv4 [vrf <name>] [<asn>] interfaces ...
+show eigrp address-family ipv4 [vrf <name>] [<asn>] neighbors ...
 show eigrp address-family ipv4 [vrf <name>] [<asn>] topology ...
 show eigrp address-family ipv4 [vrf <name>] [<asn>] traffic ...
 show eigrp address-family ipv4 [vrf <name>] [<asn>] timers ...
 show eigrp address-family ipv6 [vrf <name>] [<asn>] ...
 clear eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] neighbors ...
+show eigrp protocols
 show eigrp tech-support
 ```
 
 Do not install `show eigrp plugins`.
 
-### 8.1 `multicast` show selector
+### 10.1 Multicast address-family selector
 
-Retain the optional `multicast` selector in the named-mode address-family show
-grammar where the Cisco command surface documents it.  This token selects the
-EIGRP **Multicast Address Family (MAF)**; it is not a request to show ordinary
-IPv4 multicast transport state such as 224.0.0.10 membership or reliable
-first-send multicast behavior.  RFC 7868 assigns VRID `0x0000` to the Unicast
-Address Family and VRID `0x0001` to the Multicast Address Family.
+Where the Cisco named show grammar includes the `multicast` selector, that token
+means EIGRP's Multicast Address Family (MAF), using VRID `0x0001`. It does not mean
+ordinary IPv4 multicast packet transport or group membership.
 
-The current project models only the unicast address-family configuration/runtime
-path.  Therefore a parsed `multicast` show request is carried through the
-EIGRP-owned `eigrp_state_request_t` to the instance state target, which returns
-`EIGRP_RESULT_NOT_IMPLEMENTED`.  Do not remove the grammar token, reinterpret it
-as normal packet multicast state, or reject it in the FRR CLI adapter as an
-unsupported spelling.  If MAF is implemented later, the same request/target
-boundary becomes the implementation entry point.
+The project configuration/runtime model is unicast. A parsed MAF operational
+request must remain explicitly unsupported/not implemented through the
+EIGRP-owned state request/target boundary. Do not reinterpret the token as
+normal packet multicast state.
 
-A partially implemented show command must display all real information currently available. Missing backend data must not cause the entire command to be replaced by an empty generic stub.
+### 10.2 Debug surface
 
-Debug command coverage should include protocol debugging such as:
+Named debug coverage is address-family aware. Supported protocol debug forms
+include the installed EIGRP debug families, for example:
 
 ```text
 debug eigrp packet ...
@@ -314,27 +319,25 @@ debug eigrp transmit ...
 debug eigrp event [detail]
 debug eigrp timers
 debug eigrp fsm
-debug eigrp nsf
-debug eigrp frr
-debug eigrp neighbor [siatimer] [static]
-debug eigrp notifications <rib|interface>
-debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>]
-debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] neighbor [<address>]
-debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] notifications
-debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] summary
+debug eigrp neighbor ...
+debug eigrp notifications ...
+debug eigrp address-family <ipv4|ipv6> [vrf <name>] [<asn>] ...
 ```
 
-`debug eigrp packet` is for the supported EIGRP packet/debug categories.  Do
-not expose legacy IPX-SAP or stub as packet selectors; neither `ipxsap` nor
-`stub` is a valid `debug eigrp packet` option for this implementation.
+Address-family scoped forms own named route/neighbor/notification/summary
+debugging where the classic surface does not provide named context.
 
-Debug commands must use real target functions and structured EIGRP results under the same rules as configuration commands.
+Legacy IPX-SAP and EIGRP Stub selectors are not valid debug categories for this
+project.
 
-Classic EIGRP operational debug families that have no direct named-mode entry in the named-mode CLI reference still require an address-family-scoped named-mode form. In particular, the classic route/AS, neighbor, notifications, and summary debug families map to `debug eigrp address-family ...`; absence from the named-mode command reference is not permission to drop protocol debug coverage.
+Debug commands use real operational targets and EIGRP-owned results. FRR debug
+command objects may retain host naming conventions because they are adapter
+objects, not portable APIs.
 
-## 9. VTY Command Object Naming
+## 11. VTY/DEFPY object naming
 
-VTY command object/function names follow the command surface first because they are adapter objects rather than portable EIGRP core APIs. Examples:
+FRR command object/function names follow the command surface and FRR parser
+conventions, for example:
 
 ```text
 show_eigrp_neighbor_cmd
@@ -343,6 +346,24 @@ show_eigrp_topology_cmd
 clear_eigrp_neighbor_cmd
 ```
 
-Do not force portable core naming rules onto FRR command objects such as `DEFPY` command variables.
+Do not force portable core naming rules onto `DEFPY` command variables. The
+portable targets reached after argument normalization follow
+`code-conventions.md`.
 
-The functions called after CLI normalization are EIGRP core APIs and follow the EIGRP naming and portability rules in `design-spec.md`.
+## 12. Validation contract
+
+For every named configuration command, tests must cover the applicable subset
+of:
+
+- positive parse/commit;
+- running-config writeback;
+- value mutation;
+- documented `no` form;
+- parent/address-family/interface/topology mode placement;
+- IPv4/IPv6 applicability;
+- multiple AS contexts;
+- case-sensitive named parents;
+- runtime result when a capability is intentionally incomplete.
+
+Parser/configuration retention must be validated before a failure is attributed
+to runtime worker or packet processing code.

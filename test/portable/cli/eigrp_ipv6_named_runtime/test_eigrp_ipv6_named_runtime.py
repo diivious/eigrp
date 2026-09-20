@@ -22,7 +22,7 @@ TIMER = ROOT / "eigrpd" / "eigrp_timer.c"
 UUT = ROOT / "tools" / "frr-named-uut.sh"
 SERIES = ROOT / "frr" / "patch" / "series"
 IPV6_PATCH = ROOT / "frr" / "patch" / "eigrp-named-ipv6.patch"
-SPEC = ROOT / "specs" / "post-command-audit-item7.md"
+DESIGN = ROOT / "specs" / "design-spec.md"
 PROCESS = ROOT / "specs" / "process-spec.md"
 
 
@@ -134,10 +134,11 @@ def test_stage2_precedes_multi_as_and_mirrors_applicable_command_families():
 
 def test_managed_patch_and_design_spec_record_ipv6_control_runtime_contract():
     series = read(SERIES)
-    spec = read(SPEC)
+    design = read(DESIGN)
     process = read(PROCESS)
+    process_words = " ".join(process.split())
 
     assert series.rstrip().endswith("eigrp-named-ipv6.patch")
-    assert "data_path_ready == false" in spec
-    assert "EIGRP Stub remains out of scope" in spec
-    assert "data_path_ready == false" in process
+    assert "When `data_path_ready` is false" in process
+    assert "EIGRP Stub routing is explicitly outside project scope" in design
+    assert "IPv6 named configuration uses the same ownership model as IPv4" in process_words

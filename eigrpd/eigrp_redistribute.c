@@ -74,6 +74,18 @@ static bool eigrp_redistribute_runtime_result_committable(eigrp_result_t result)
 	       || result == EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Classic: `redistribute PROTOCOL [metric ...] [route-map NAME]` / `no redistribute PROTOCOL`
+ *   Named: same syntax under topology base
+ * Supported: Classic / Named (separate public endpoints)
+ * Placement:
+ *   Classic: router mode through FRR classic redistribution callback
+ *   Named: topology base mode through this EIGRP target
+ * Description:
+ * Creates, updates, or removes portable named-mode redistribution state and invokes the southbound subscription boundary.
+ * The current Zebra receive/topology/route-map path is incomplete, so a live named update can report NOT_IMPLEMENTED after establishing the correct subscription.
+ */
 eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
 					 const char *protocol,
 					 const eigrp_metric_values_t *metric,
@@ -152,6 +164,18 @@ eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
 	return result;
 }
 
+/*
+ * Syntax:
+ *   Classic: `redistribute PROTOCOL [metric ...] [route-map NAME]` / `no redistribute PROTOCOL`
+ *   Named: same syntax under topology base
+ * Supported: Classic / Named (separate public endpoints)
+ * Placement:
+ *   Classic: router mode through FRR classic redistribution callback
+ *   Named: topology base mode through this EIGRP target
+ * Description:
+ * Creates, updates, or removes portable named-mode redistribution state and invokes the southbound subscription boundary.
+ * The current Zebra receive/topology/route-map path is incomplete, so a live named update can report NOT_IMPLEMENTED after establishing the correct subscription.
+ */
 eigrp_result_t eigrp_redistribute_delete(eigrp_instance_context_t *context,
 					 const char *protocol)
 {
@@ -220,6 +244,16 @@ void eigrp_redistribute_config_delete_all(eigrp_address_family_config_t *af)
 }
 
 
+/*
+ * Syntax:
+ *   Named: `redistribute maximum-prefix LIMIT [...]` / `no redistribute maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or removes the redistribution prefix-limit policy.
+ * Retained configuration stays here while enforcement remains a structured NOT_IMPLEMENTED runtime path.
+ */
 eigrp_result_t eigrp_redistribute_maximum_prefix_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
@@ -241,6 +275,16 @@ eigrp_result_t eigrp_redistribute_maximum_prefix_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `redistribute maximum-prefix LIMIT [...]` / `no redistribute maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or removes the redistribution prefix-limit policy.
+ * Retained configuration stays here while enforcement remains a structured NOT_IMPLEMENTED runtime path.
+ */
 eigrp_result_t eigrp_redistribute_maximum_prefix_delete(
 	eigrp_instance_context_t *context)
 {

@@ -1,42 +1,187 @@
-## Application Process and Worker Model
+# EIGRP Process and Address-Family Runtime Model
 
-Named EIGRP is modeled as a parent process with one or more address-family protocol contexts/workers.
+Copyright (C) 2026 Donnie V. Savage
 
-`router eigrp <name>` creates the parent named process container. Removing that command destroys the parent process and all child address-family state.
+## 1. Purpose
 
-Each configured `address-family <afi> [vrf <vrf>] autonomous-system <as>` creates an EIGRP address-family protocol context. Every named address family binds a control runtime keyed by address family, VRF, and AS. When the packet data path for that address family is implemented and enabled, that runtime additionally owns packet receive/send processing, packetizer queues, interface packet queues, transport timers, and reliable-transport state.
+This document defines ownership and identity for named EIGRP parents,
+address-family configuration, protocol runtime instances, and receive-path
+demultiplexing.
 
-The address-family configuration object owns the binding to that runtime context. Creating an IPv4 named address family establishes the runtime binding through the EIGRP southbound lifecycle API after the host VRF has been resolved. Child configuration such as network, interface, topology, filter, and redistribution commands consumes this binding; those commands must not independently look up or create an EIGRP process. Removing the address family tears down the bound runtime before its retained configuration is freed. Removing the named parent first tears down every bound child runtime.
+It extends `design-spec.md` and uses the naming rules in
+`code-conventions.md`.
 
-Named-mode configuration supports both IPv4 and IPv6 address-family contexts even when one address-family data path is not yet implemented. IPv6 configuration must therefore be accepted and retained now rather than waiting for the IPv6 packet/runtime implementation.
+## 2. Named parent and address-family ownership
 
-Configuration and route objects passed into common EIGRP code must identify their address family explicitly and contain normalized address/prefix data for that family. IPv4 and IPv6 should share common target functions wherever their protocol behavior is otherwise identical; the AF/type carried by the EIGRP object selects the correct data representation and later runtime behavior.
+Named EIGRP is modeled as a local parent configuration object containing one or
+more address-family protocol contexts.
 
-Until the IPv6 data path is implemented, the IPv6 control runtime has `data_path_ready == false`. Common control targets operate on that runtime; packet-, adjacency-, interface-I/O-, and RIB-dependent targets return the EIGRP structured `not implemented` result while preserving configured IPv6 state.
+```text
+router eigrp <name>
+  address-family <afi> [vrf <vrf>] autonomous-system <asn>
+```
 
-The same retention rule applies when an IPv4 runtime exists but a particular runtime action is not implemented yet: configuration is committed first, and the target may then report structured `not implemented` for the missing runtime behavior. Merely having a live runtime must not turn a previously retainable named command into a failed configuration transaction.
+`router eigrp <name>` owns the named parent and all child retained
+configuration. Removing the parent removes every child address family and tears
+down each bound runtime before freeing retained state.
 
-Management and runtime ownership are separate from the address-family worker model. `eigrp_cli.[c|h]` and `eigrp_vty.[c|h]` are FRR-facing user/management front ends. Retained configuration is committed through FRR management/YANG and applied to EIGRP through `eigrp_northbound.c`, which normalizes host values and invokes the real EIGRP target function. The CLI must not submit a management change and then directly duplicate that runtime mutation.
+Each configured address family owns one protocol context identified locally by:
 
-Once inside portable EIGRP code, address-family contexts and workers use EIGRP-owned data and APIs. Host runtime services are reached through `eigrp_southbound.[c|h]`, while FRR Zebra/RIB integration remains in `eigrp_zebra.[c|h]`. FRR/YANG/VTY/Zebra native objects do not become fields or parameters of the portable address-family worker contract.
+```text
+{name, address-family, VRF, AS}
+```
 
-Inbound packets are received by the parent EIGRP receive path and demultiplexed to the correct enabled address-family worker using:
+The protocol context binds to an `eigrp_instance_t` runtime through the
+EIGRP-owned southbound lifecycle API. Child configuration consumes that binding;
+network, interface, topology, filter, redistribution, metric, neighbor, and
+summary targets must not independently create or discover another EIGRP process.
 
-- receiving VRF / socket context
-- packet address family, IPv4 or IPv6
-- receiving interface
-- EIGRP header AS number
+Removing an address family tears down its runtime binding before the child
+configuration is freed.
 
-The AS number is mandatory for protocol acceptance. A packet whose AS does not match a configured enabled address-family context is discarded.
+## 3. Runtime identity versus local name
 
-The local named process name is not carried on the wire. Therefore packet demux must not depend on the configured EIGRP name except as local ownership of the matching address-family context.
+The named parent name is local configuration ownership. It is not an on-wire
+identity.
 
-If multiple local named processes would create an ambiguous `{vrf, afi, as, interface}` receive context, configuration must reject it or the receive path must treat it as invalid.
+Wire acceptance is based on the protocol context, including:
 
-### Runtime instance navigation
+- receiving VRF/socket context;
+- packet address family;
+- receiving interface;
+- EIGRP AS number;
+- VRID/topology identity where applicable.
 
-The protocol runtime/process context is represented by `eigrp_instance_t`. As process/thread lifecycle code is refactored, its human-navigation namespace should converge on `eigrp_instance_*`, with a corresponding `eigrp_instance.c/.h` module where that produces a clearer ownership boundary. Existing lifecycle code should not be renamed merely for aesthetics while the named address-family runtime binding is still being established.
+The AS number is mandatory for protocol acceptance. A packet that cannot map to
+one enabled, unambiguous local protocol context is discarded.
 
-The named router parent is configuration ownership, not an on-wire or worker identity. A configured `{name, AF, VRF, AS}` address-family must bind to an unambiguous runtime EIGRP instance/worker context. The pre-production lifecycle consolidation is tracked in `refactor-work.md`.
+Configuration must not create an ambiguous receive identity for the same
+`{VRF, AF, AS, interface, VRID}` context. The host/northbound layer rejects the
+conflict or the receive path treats it as invalid; it must never select a named
+parent by arbitrary lookup order.
 
-The current binding deliberately reuses the existing FRR-backed runtime allocation/destruction machinery behind `eigrp_southbound.[c|h]`; it does not rename or broadly restructure the legacy low-level lifecycle functions. IPv4 creates a data-path-ready runtime. IPv6 creates the same AF/VRF/AS-scoped control runtime with `data_path_ready == false`; it must not open an EIGRP socket, start receive processing, create the self-neighbor, initialize packetization, send Hellos, join multicast, advertise topology, or install routes until the IPv6 data path is implemented.
+## 4. Address-family runtime capability
+
+A named address family always has a control/configuration context. Packet/RIB
+operation is capability-gated by the runtime.
+
+`eigrp_instance_t::data_path_ready` expresses whether that address family may
+perform packet, adjacency, interface-I/O, packetizer, and RIB operations.
+
+When `data_path_ready` is true, the runtime may own:
+
+- EIGRP socket receive/send processing;
+- self/neighbor runtime state;
+- participating interfaces;
+- packetizer work queue;
+- per-interface output queues;
+- reliable-transport/retransmit state;
+- route installation/removal state.
+
+When `data_path_ready` is false:
+
+- retained configuration still exists;
+- configuration-only targets operate normally;
+- runtime-dependent targets return an EIGRP structured capability/not-implemented
+  result;
+- no socket, receive loop, self-neighbor, packetizer, Hello transmission,
+  multicast membership, topology advertisement, or RIB installation is started
+  for that AF.
+
+This is a permanent architectural capability boundary, not a second
+configuration model. IPv6 named configuration uses the same ownership model as
+IPv4 even when the IPv6 packet data path is disabled in a given build.
+
+## 5. Configuration retention and runtime application
+
+Configuration and runtime ownership are separate.
+
+The FRR path is:
+
+```text
+CLI
+  -> FRR YANG/northbound retained configuration
+  -> frr/eigrp_northbound.c
+  -> normalized EIGRP-owned context/value
+  -> feature target
+  -> eigrp_result_t
+```
+
+A valid configuration transaction is not rolled back merely because the target
+reports a missing runtime capability unless the command itself is semantically
+invalid. This keeps running-config/writeback independent from data-path feature
+completeness.
+
+Portable configuration and route objects identify their address family
+explicitly and contain normalized EIGRP address/prefix data. Shared targets are
+preferred when IPv4 and IPv6 protocol semantics are identical.
+
+## 6. Host boundary
+
+Portable runtime/process code uses EIGRP-owned data and services.
+
+Host services are reached through `eigrp_southbound.[c|h]`. FRR Zebra/RIB
+implementation remains under `frr/eigrp_zebra.[c|h]` behind the southbound
+contract. FRR CLI, YANG, VTY, Zebra, event, interface, and equivalent BIRD
+objects must not become parameters or fields of the portable process/worker
+contract.
+
+The BIRD adapter implements the same lifecycle and runtime-service contract
+without changing the portable process model.
+
+## 7. Receive-path demultiplexing
+
+The host receive path provides enough normalized context to identify the target
+EIGRP instance. The portable receive path then validates the EIGRP header and
+selects the address-family runtime.
+
+Conceptually:
+
+```text
+host packet receive
+  -> normalize receiving VRF/interface/address-family
+  -> decode EIGRP fixed header
+  -> validate AS/VRID/version/opcode as required
+  -> lookup one matching enabled eigrp_instance_t
+  -> dispatch packet to that instance
+```
+
+The local named process string is never used as a wire demultiplexing key.
+
+## 8. Runtime instance navigation
+
+`eigrp_instance_t` is the portable protocol runtime context. Configuration
+ownership for named parents/address families also lives in the instance module,
+so new public lifecycle/configuration APIs use the `eigrp_instance_*` namespace.
+
+Legacy low-level runtime allocation functions that remain in `eigrpd.c` are
+implementation debt rather than a competing naming model. Their bounded
+pre-production consolidation is tracked in `refactor-work.md`; do not add new
+public lifecycle APIs under the legacy names.
+
+## 9. Lifecycle ordering
+
+Creation order:
+
+```text
+named parent
+  -> address-family retained state
+  -> resolve host VRF/context through adapter
+  -> create/bind eigrp_instance_t runtime
+  -> apply retained child configuration
+  -> start data path only when capability and shutdown state permit
+```
+
+Deletion order:
+
+```text
+stop address-family data path
+  -> detach interfaces/neighbors/timers/queues
+  -> remove host RIB/runtime state
+  -> unbind runtime from address-family config
+  -> free child retained state
+  -> free named parent when no longer configured
+```
+
+Teardown must not leave child objects referring to a destroyed runtime or host
+adapter object.

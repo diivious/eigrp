@@ -2,351 +2,231 @@
 
 Copyright (C) 2026 Donnie V. Savage
 
-This file is a new project design document. New files created for this
-EIGRP work use Donnie V. Savage as the copyright owner unless stated
-otherwise.
-
-Existing source files must preserve all prior copyright notices, SPDX
-identifiers, and author history. Refactoring an existing file is not
-permission to remove earlier authorship.
+Existing source files must preserve prior copyright notices, SPDX identifiers,
+and author history.
 
 ## 1. Purpose
 
-This document defines the first-pass packetizing model for the `eigrpd` project.
-
-It owns the handoff between DUAL/topology work and packet transmission:
+This document defines the EIGRP route-packet production pipeline from DUAL and
+topology work through interface transmission and reliable transport.
 
 ```text
 DUAL/FSM/topology event
   -> packetizer work queue
   -> packetizer
-  -> per-interface packet queue
-  -> interface transmit pacing
-  -> reliable transport / ACK handling
+  -> interface-specific built packet
+  -> per-interface output queue/pacing
+  -> reliable transport / ACK / retransmission
 ```
 
-This document extends `specs/design-spec.md`.
+It extends `design-spec.md` and does not redefine RFC 7868 wire behavior.
 
-## 2. Authority
+## 2. Authority and protocol invariants
 
-Packetizing authority follows the project authority order defined in `design-spec.md`:
+Packetizing follows the project authority in `design-spec.md`. Internal queues,
+work objects, and ownership mechanics are implementation details; emitted
+packets and reliable transport must follow RFC 7868.
 
-1. Donnie V. Savage.
-2. RFC 7868 for protocol behavior unless intentionally clarified or superseded by Donnie V. Savage.
-3. FRR only for build compatibility, daemon integration, library/API compatibility, and event-loop integration.
-4. Existing `eigrpd` code only where it does not conflict with this specification.
+Required protocol behavior includes:
 
-The Cisco internal term `threading` is not used as a new code module name because it conflicts with OS threads and FRR `struct event *thread` naming.
+- UPDATE, QUERY, REPLY, SIA-QUERY, and SIA-REPLY carry destination routing
+  information consumed by DUAL;
+- multiple destinations may be packed into one packet and split across packets
+  at packet boundaries;
+- reliable multicast may be used for first transmission when appropriate;
+- retransmission of a reliable multicast packet is unicast only to neighbors
+  that still owe an ACK;
+- ACK/retransmission state is per neighbor;
+- transmit pacing is interface-specific;
+- split horizon, poison reverse, pending-neighbor exclusion, and conditional
+  receive behavior are evaluated with interface/neighbor context;
+- one interface may need TLV1, TLV2, or both depending on established neighbor
+  capabilities.
 
-## 3. RFC Conflict Review
+Any implementation that intentionally differs from these protocol rules requires
+an explicit protocol-design decision; host-framework convenience is not enough.
 
-No protocol conflict is intended by this specification.
+## 3. Terminology
 
-This document describes implementation machinery that RFC 7868 does not specify directly:
+### 3.1 Packetizer work item
 
-- the DUAL work queue
-- NDB/RDB work beads
-- packetizer work queue scheduling
-- southbound host work queue adaptation
-- packet object ownership/refcounting
-- internal queue names
+An `eigrp_packetizer_work_t` is a request to inspect current EIGRP topology state
+and emit route information for an opcode/context.
 
-These are implementation details as long as the emitted packets and reliable transport behavior follow RFC 7868.
+It is not a packet and does not contain prebuilt route TLVs.
 
-RFC-sensitive rules captured here:
+A work item may identify:
 
-- UPDATE, QUERY, REPLY, SIA-QUERY, and SIA-REPLY carry per-destination routing information and are processed individually by DUAL.
-- Multiple destinations may be packed into one or more packets.
-- Reliable packets may be multicast on first send, but retransmission is unicast to neighbors that have not acknowledged.
-- Reliable transport ACK state is per neighbor.
-- Interface pacing limits EIGRP bandwidth use per interface.
-- Split horizon, poison reverse, pending-neighbor exclusion, and conditional receive behavior are interface/neighbor sensitive.
-- Classic TLV and multiprotocol/wide TLV support may require TLV1, TLV2, or both on the same interface depending on peer capability.
+- an opcode;
+- a destination/prefix descriptor;
+- a route/path descriptor;
+- an exception interface;
+- a target neighbor;
+- ownership/lifetime flags required by the queued operation.
 
-If any future implementation chooses behavior different from these rules, the difference must be documented as an intentional protocol clarification or reviewed as a possible design mistake.
+### 3.2 Destination-level work (NDB/DNDB concept)
 
-## 4. Terminology
+Destination-level work represents one topology destination whose final outbound
+interface set is determined when the packetizer runs.
 
-### 4.1 Packetizer Work Item
+The work item does not freeze TLV family, output interface, MTU, pacing state, or
+neighbor capability at enqueue time.
 
-A packetizer work item is an internal marker that tells the packetizer an EIGRP topology object needs to be advertised, queried, replied, withdrawn, poisoned, or otherwise emitted.
+### 3.3 Route-descriptor work (RDB/DRDB concept)
 
-A work item is not a packet.
+Route-descriptor work represents a path/neighbor-specific operation. The
+interface or neighbor context may be known when queued, but the packetizer
+revalidates that context before use.
 
-A work item must not contain prebuilt wire TLVs.
+### 3.4 Built packet
 
-Preferred code name:
+An `eigrp_packet_t` is a wire-image packet buffer plus transmission metadata.
+After final encoding/checksum/authentication, its wire image is immutable.
+
+A built packet is interface-specific. Do not share one mutable packet object
+across interfaces with different MTU, authentication, pacing, or target sets.
+
+### 3.5 Interface packet queue
+
+Each EIGRP interface owns a built-packet output queue. The queue contains packet
+objects/references, not topology state.
+
+## 4. Queue model
+
+The architecture has two scheduling layers:
 
 ```text
-eigrp_packetizer_work
+eigrp_instance_t::packetizer_queue
+  protocol work queue
+  holds native EIGRP work items
+  no final wire TLV/interface packet exists yet
+
+interface eigrp_packet_queue_t
+  built-packet transmit queue
+  packet is bound to one interface
+  subject to interface pacing/send scheduling
 ```
 
-### 4.2 NDB Work
+Reliable transport maintains per-neighbor outstanding-packet/sequence state.
+That state is not a third generic packetizer queue.
 
-An NDB work item represents destination-level work.
+## 5. Packetizer work ownership
 
-The interface is not known at enqueue time.
+DUAL, topology, and route-management code request route-packet work by queueing
+native EIGRP objects/context. They do not prebuild route TLVs for topology-change
+traffic.
 
-When the packetizer processes NDB work, it walks eligible EIGRP interfaces and builds interface-specific packets.
-
-### 4.3 RDB Work
-
-An RDB work item represents route-descriptor-level work.
-
-The interface or neighbor context is known from the route descriptor.
-
-When the packetizer processes RDB work, it builds only for the relevant interface/neighbor context unless the packetizing rule explicitly requires broader emission.
-
-### 4.4 Packet
-
-An `eigrp_packet` is a built wire packet buffer.
-
-Once built, the packet is immutable and locked to one interface.
-
-A built packet must not be modified after it is queued for transmission.
-
-### 4.5 Interface Packet Queue
-
-An interface packet queue is the per-interface transmit queue.
-
-It holds built packet references waiting for interface pacing and send.
-
-Preferred code name:
+The ownership rule is:
 
 ```text
-eigrp_packet_queue
+DUAL/topology selects semantic work
+  -> packetizer selects target interface/neighbor context
+  -> selected codec encodes the route TLV
+  -> packet layer queues/sends the immutable packet
 ```
 
-There is one `eigrp_packet_queue` per EIGRP interface.
+### 5.1 Work represents current state
 
-## 5. Queue Model
+Queued work is a request to inspect the owning object at packetization time; it
+is not a frozen serialized snapshot of an earlier topology state.
 
-The design uses two real queues.
+If the same object changes while work is queued, the implementation may coalesce
+or reprioritize an unconsumed item. If the earlier item is already being
+processed, queue a new item for the newer state when another transmission is
+required.
 
-```text
-eigrp_packetizer_queue
-  global DUAL work queue
-  holds NDB/RDB work items
-  no wire packet yet
-  no TLV1/TLV2 decision yet
-  no interface pacing yet
+Object lifetime must remain valid until queued work either consumes the object
+or explicitly owns a safe snapshot/deferred-free reference.
 
-eigrp_packet_queue
-  one per EIGRP interface
-  holds built packet refs
-  packet is already locked to that interface
-  enforces transmit pacing
-```
+### 5.2 Context validation
 
-Reliable ACK state is per neighbor, but it does not need to be a third general queue.
+Before building a packet, validate that referenced destination/path,
+interface, and neighbor objects are still valid for the requested operation.
+Stale work is discarded safely; it must not dereference detached runtime state.
 
-Neighbor ACK state may hold packet references until the neighbor ACKs, resets, times out, or otherwise releases the packet.
+## 6. Work queue scheduling boundary
 
-## 6. Packetizer Queue Rules
-
-### 6.1 Ownership
-
-DUAL, topology, and route-management code enqueue work into `eigrp_packetizer_queue`.
-
-Packet send functions should not independently build route TLVs for topology changes.
-
-Preferred model:
-
-```text
-DUAL/topology marks work.
-Packetizer chooses interface/neighbor destination. The selected encoder vector owns the route TLV wire format.
-```
-
-### 6.2 No Early Interface Decision for NDB
-
-NDB work must not decide TLV1/TLV2/both at enqueue time.
-
-The selected encoder is interface-sensitive and is maintained on the interface by neighbor bind/unbind events. The packetizer must use the selected vector instead of recalculating TLV format from the neighbor list.
-
-### 6.3 RDB Interface Context
-
-RDB work may carry known interface or neighbor context.
-
-The packetizer must still validate the context is current before building a packet.
-
-If the interface or neighbor no longer exists, the work item is discarded safely.
-
-### 6.4 Coalescing and Rethreading
-
-A topology object may change while an existing work item for that object is still queued.
-
-If the queued work item has not yet been pulled by the packetizer:
-
-```text
-update/coalesce the existing work item
-move it to the desired queue position if needed
-```
-
-If the packetizer has already pulled the work item:
-
-```text
-create a new work item for the newer object state
-enqueue it at the head/high-priority side when required
-```
-
-The object state at packetization time wins.
-
-Queued work should be treated as a request to inspect current object state, not as a frozen copy of old state.
-
-### 6.5 Southbound Work Queue Scheduling
-
-Adding work to the packetizer queue schedules the packetizer through an EIGRP-owned work queue abstraction.
-
-Core packetizer code must not call FRR `work_queue` APIs directly. It calls:
+Portable packetizer code schedules through the EIGRP-owned work-queue contract:
 
 ```c
-eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
+eigrp_work_queue_t *eigrp_work_queue_new(...);
+void eigrp_work_queue_free(...);
+void eigrp_work_queue_reset(...);
+void eigrp_work_queue_enqueue(...);
+eigrp_instance_t *eigrp_work_queue_eigrp(...);
 ```
 
-The FRR build implements that API in `eigrp_southbound.[c|h]` using FRR `work_queue`. A future BSD build replaces the southbound implementation without changing packetizer, DUAL, topology, or TLV code. `eigrp_southbound` is the runtime adapter; CLI/VTY/northbound management code must not reach around this boundary to call FRR work-queue/event APIs on behalf of portable packetizer logic.
+The FRR implementation lives in `frr/eigrp_southbound.c` and may use FRR
+`work_queue`/event facilities privately. The BIRD adapter provides the
+corresponding host implementation without changing packetizer, DUAL, topology,
+or TLV code.
 
-FRR Zebra/RIB integration remains in `eigrp_zebra.[c|h]` as a specialized southbound adapter. Packetizer and other portable core modules operate on EIGRP-owned route/interface/neighbor representations and do not accept Zebra-native objects.
+There is no portable packetizer API that exposes a host event/wakeup object.
+Queue insertion owns scheduling.
 
-There is no public packetizer `wakeup` API. Scheduling is an internal side effect of enqueueing work.
+## 7. Native data and codec dispatch
 
-## 7. Packetizer Processing Rules
+Packetizer work carries native EIGRP topology/address/metric data. TLV1/TLV2
+private wire structures do not leak into packetizer, topology, DUAL, CLI, or
+reliable-transport state.
 
-### 7.1 Runtime Encoder/Decoder Rule
+### 7.1 Selected codec is the runtime branch
 
-Packetizer and receive-path code must not branch on TLV version.
+Runtime route encoding/decoding uses bound function vectors rather than repeated
+packetizer-side TLV-version branching.
 
-The selected function vector is the branch.
+Conceptually:
 
 ```c
-ei->encoder(eigrp, ei, NULL, packet, route);
-nbr->encoder(eigrp, ei, nbr, packet, route);
-nbr->decoder(eigrp, nbr, packet, packet_len);
+ei->encoder(eigrp, ei, NULL, stream, route);
+nbr->encoder(eigrp, ei, nbr, stream, route);
+nbr->decoder(eigrp, nbr, stream, packet_len);
 ```
 
-Runtime paths:
+Use:
 
 ```text
-interface-wide / multicast route packet
-  -> ei->encoder(...)
-
-neighbor-targeted first-build unicast route packet
-  -> nbr->encoder(...)
-
-receive path
-  -> nbr->decoder(...)
+interface-wide / first-send multicast route packet -> interface encoder
+neighbor-targeted first-build unicast packet        -> neighbor encoder
+receive path                                         -> neighbor decoder
 ```
 
-A multicast packet that is later retransmitted as unicast must not be re-encoded with `nbr->encoder`. Retransmission resends the already-built immutable packet only to the neighbor(s) that have not acknowledged it.
+A packet already built for reliable multicast is not re-encoded for
+retransmission. The existing immutable wire image is sent unicast to each
+neighbor that still owes the sequence ACK.
 
-### 7.2 Native Data Boundary
+### 7.2 Codec ownership
 
-Packetizer work items carry native EIGRP data, not prebuilt TLVs.
+`eigrp_tlv1.[c|h]` owns classic route TLV encoding/decoding.
+`eigrp_tlv2.[c|h]` owns multiprotocol/wide route TLV encoding/decoding.
 
-The encoder receives native topology objects such as prefix/route descriptors and writes the correct wire TLV representation into the packet buffer.
-
-The decoder receives packet bytes and emits native EIGRP data, such as prefix/route descriptors.
-
-TLV1 and TLV2 wire structures must not leak into packetizer, topology, DUAL, CLI, or reliable transport code.
-
-### 7.3 NDB Processing
-
-For NDB work:
-
-```text
-for each EIGRP interface:
-  validate interface is active/eligible
-  apply split horizon / poison reverse / pending-neighbor rules
-  call ei->encoder(...)
-  queue packet only if encoder produced packet content
-```
-
-The packetizer does not decide `tlv1`, `tlv2`, `both`, or `none` with local `if/else` logic. That decision is represented by the interface encoder vector.
-
-One NDB work item may produce zero, one, or many interface-specific packets.
-
-### 7.4 RDB Processing
-
-For RDB work:
-
-```text
-validate route descriptor still exists
-validate interface/neighbor context still exists
-apply split horizon / poison reverse / pending-neighbor rules
-if neighbor-targeted:
-  call nbr->encoder(...)
-else:
-  call ei->encoder(...)
-queue packet only if encoder produced packet content
-```
-
-An RDB work item normally produces packet output for one interface or one neighbor.
-
-### 7.5 Encoder/Decoder Ownership
-
-Packet code owns safe and aggregate packet-level vectors:
-
-```c
-eigrp_packet_encoder_safe()
-eigrp_packet_decoder_safe()
-eigrp_packet_encoder_both()
-```
-
-`eigrp_packet_encoder_safe()` writes no route TLVs and returns safely.
-
-`eigrp_packet_decoder_safe()` emits no native route data and advances the packet cursor to a safe stop point so receive loops cannot spin on undecodable data.
-
-`eigrp_packet_encoder_both()` is used by mixed interfaces. It calls the instance TLV codec vectors for TLV1 and TLV2. It must not require TLV1/TLV2 private wire types to leak outside their modules.
-
-The EIGRP instance owns the local/self TLV codecs used for bind operations and mixed-interface encoding:
+The EIGRP instance owns local codec vectors used to bind neighbor/interface
+dispatch state:
 
 ```c
 typedef struct eigrp_tlv_codec {
-	eigrp_packet_encoder_t encoder;
-	eigrp_packet_decoder_t decoder;
+    eigrp_packet_encoder_t encoder;
+    eigrp_packet_decoder_t decoder;
 } eigrp_tlv_codec_t;
-
-struct eigrp {
-	eigrp_tlv_codec_t tlv1_codec;
-	eigrp_tlv_codec_t tlv2_codec;
-};
 ```
 
-Instance initialization installs the codec vectors once:
+TLV init functions install private codec functions into these vectors. Public
+bind functions copy the selected codec into runtime dispatch state; callers do
+not call private TLV codec internals directly.
 
-```c
-eigrp_tlv1_init(&eigrp->tlv1_codec);
-eigrp_tlv2_init(&eigrp->tlv2_codec);
-```
+### 7.3 Safe codec state
 
-`eigrp->tlv1_codec` and `eigrp->tlv2_codec` are not neighbor state. They are the local codec vectors used to bind neighbors/interfaces and to encode both TLV families for mixed interfaces.
+Before capability negotiation, a neighbor/interface uses safe codec functions.
+The safe encoder produces no route TLV. The safe decoder fails/stops decoding in
+a way that guarantees cursor progress or termination; it must not create an
+infinite receive loop on undecodable input.
 
-TLV1 code owns the real TLV1 wire implementation:
+## 8. Neighbor codec state
 
-```text
-eigrp_tlv1.c / eigrp_tlv1.h
-  private TLV1 encoder
-  private TLV1 decoder
-  public TLV1 init/bind APIs
-```
+Use `neighbor` in code and CLI terminology. A single neighbor negotiates one
+route TLV family and is never itself mixed.
 
-TLV2 code owns the real TLV2 wire implementation:
-
-```text
-eigrp_tlv2.c / eigrp_tlv2.h
-  private TLV2 encoder
-  private TLV2 decoder
-  public TLV2 init/bind APIs
-```
-
-The public TLV init APIs install private TLV encode/decode functions into `eigrp_tlv_codec_t`. The public bind APIs copy the selected codec vectors into neighbor/interface dispatch slots. Callers do not call private TLV encode/decode functions directly.
-
-### 7.6 Neighbor Codec State
-
-Code and CLI should use `neighbor`, not `peer`, to match the existing codebase.
-
-A neighbor has exactly one negotiated TLV version. A neighbor is never mixed.
-
-Required neighbor state:
+Neighbor state contains the negotiated TLV version plus bound encoder/decoder:
 
 ```c
 uint8_t tlv_version;
@@ -354,30 +234,33 @@ eigrp_packet_encoder_t encoder;
 eigrp_packet_decoder_t decoder;
 ```
 
-Neighbor lifecycle:
+Lifecycle:
 
 ```text
 neighbor create
-  tlv_version = EIGRP_TLV_VERSION_NONE
-  encoder = eigrp_packet_encoder_safe
-  decoder = eigrp_packet_decoder_safe
+  -> TLV version NONE
+  -> safe encoder/decoder
 
-neighbor up / TLV version detected
-  tlv_version = EIGRP_TLV_VERSION_1 or EIGRP_TLV_VERSION_2
-  bind neighbor encoder/decoder through eigrp_tlv1_* or eigrp_tlv2_* public API
+neighbor becomes fully up and capability is known
+  -> set TLV1 or TLV2 version
+  -> bind matching neighbor encoder/decoder
+  -> contribute that version to interface aggregate encoder state
 
-neighbor down/free
-  unbind the interface using nbr->tlv_version before clearing/freeing the neighbor
-  free/reset neighbor state
+neighbor teardown
+  -> remove interface aggregate contribution while tlv_version is still valid
+  -> clear/free neighbor state
 ```
 
-There is no separate `bound_interface_codec` field. The interface bind contributed by a neighbor always matches `nbr->tlv_version`. Teardown order must preserve `nbr->tlv_version` until after interface unbind completes.
+Teardown ordering must prevent interface TLV counters from drifting.
 
-### 7.7 Interface Aggregate Encoder State
+## 9. Interface aggregate encoder state
 
-An interface owns the aggregate outbound route encoder for all fully up neighbors on that interface.
+An interface owns the aggregate route encoder used for interface-wide route
+packets. It reflects only fully established neighbors eligible to receive route
+information.
 
-Required interface state:
+The interface tracks TLV1/TLV2 established-neighbor counts and one selected
+encoder:
 
 ```c
 uint16_t tlv1_peer_count;
@@ -385,217 +268,202 @@ uint16_t tlv2_peer_count;
 eigrp_packet_encoder_t encoder;
 ```
 
-The peer counts count only neighbors that are fully up and eligible for route packet encoding. Pending/discovery neighbors do not count.
+The field names may retain historical `peer_count` spelling; semantically these
+are established EIGRP neighbor counts.
 
-Interface lifecycle:
-
-```text
-interface up/create
-  tlv1_peer_count = 0
-  tlv2_peer_count = 0
-  encoder = eigrp_packet_encoder_safe
-
-neighbor up on interface
-  eigrp_interface_encoder_bind(ei, nbr->tlv_version)
-
-neighbor down on interface
-  eigrp_interface_encoder_unbind(ei, nbr->tlv_version)
-
-interface down/free
-  clear interface encoder state unconditionally
-```
-
-Interface bind/unbind primitives own count changes and aggregate encoder selection.
-
-Conceptual bind result:
+Aggregate selection is:
 
 ```text
-no counted neighbors
-  encoder = eigrp_packet_encoder_safe
-
-only TLV1 counted neighbors
-  encoder = TLV1 interface encoder
-
-only TLV2 counted neighbors
-  encoder = TLV2 interface encoder
-
-both TLV1 and TLV2 counted neighbors
-  encoder = eigrp_packet_encoder_both
+no eligible neighbors       -> safe encoder
+TLV1 neighbors only         -> TLV1 encoder
+TLV2 neighbors only         -> TLV2 encoder
+both TLV1 and TLV2 present  -> eigrp_packet_encoder_both
 ```
 
-The runtime packetizer path remains a single vector call:
+`eigrp_interface_encoder_bind()` and
+`eigrp_interface_encoder_unbind()` own counter changes and aggregate selection.
+Interface teardown clears the aggregate state unconditionally.
 
-```c
-ei->encoder(eigrp, ei, NULL, packet, route);
-```
+The packetizer uses the selected vector; it does not walk neighbors simply to
+recompute TLV-family choice for every destination.
 
-Do not replace this with encoder arrays, linked encoder lists, or packetizer-side TLV branching.
+Operational/debug output reads this owned state rather than recomputing it, so
+count/bind drift remains visible.
 
-### 7.8 CLI Debug State Rule
+## 10. Destination-level packetization
 
-CLI show commands read the owning structure. They must not recompute codec state on the fly.
+For destination-level work:
 
 ```text
-show interface
-  reads interface-owned TLV peer counts and aggregate encoder state
-
-show neighbor
-  reads neighbor-owned tlv_version, encoder, and decoder state
+for each eligible EIGRP interface:
+  skip excluded/down/nonparticipating interface
+  evaluate pending-neighbor eligibility
+  evaluate split horizon / poison reverse
+  select interface encoder
+  create interface-specific packet content
+  enqueue only when route content was produced
 ```
 
-This makes CLI output useful for catching bind/unbind count drift instead of hiding it by recomputing from neighbor walks.
+One destination work item may produce zero, one, or multiple interface packets.
 
-### 7.9 Packet Immutability
+The packetizer does not decide `tlv1`, `tlv2`, or `both` with local capability
+branches; `ei->encoder` represents that decision.
 
-After the packetizer builds an `eigrp_packet`, the packet is immutable.
+## 11. Route/neighbor-specific packetization
 
-The packet is locked to one interface.
-
-Do not queue the same built packet object to multiple interfaces unless the implementation explicitly proves the wire image, auth, pacing, MTU, and ACK target set are identical.
-
-Default rule:
+For route-descriptor or neighbor-targeted work:
 
 ```text
-one interface packet = one built packet object
+validate path descriptor
+validate interface/neighbor binding
+apply pending-neighbor and split-horizon/poison rules
+use neighbor encoder for neighbor-targeted first-build unicast
+otherwise use interface encoder
+queue only when route content was produced
 ```
 
-## 8. Interface Packet Queue Rules
+REPLY and SIA-REPLY are normally neighbor-specific because the inbound request
+identifies the required neighbor/interface response context.
 
-### 8.1 Per-Interface Queue
+SIA-QUERY is also neighbor/destination-specific. Standard QUERY normally starts
+as destination/interface-scoped work and may use reliable multicast first send.
 
-Each EIGRP interface owns one `eigrp_packet_queue` for outbound packets.
+## 12. Packet immutability and lifetime
 
-The queue holds packet references.
+After final route TLV encoding, authentication, checksum, and header completion,
+the packet wire image is immutable.
 
-The queue does not own topology state.
-
-### 8.2 Pacing
-
-Transmit pacing is an interface packet queue responsibility.
-
-The packetizer work queue must not perform global bandwidth gating.
-
-Reason:
-
-- RFC pacing is interface-sensitive.
-- NDB work may build packets for multiple interfaces with different bandwidth and pacing budgets.
-- RDB work may target a specific interface that has independent pacing state.
-
-### 8.3 Pacing Result
-
-If an interface is over its allowed transmit rate, the packet remains queued for that interface.
-
-Other interfaces may still transmit their own packets if their pacing budget allows.
-
-A blocked interface queue must reschedule transmission when budget is expected to be available.
-
-## 9. Reliable Transport Rules
-
-### 9.1 First Send
-
-A reliable packet may be sent multicast on first transmission when appropriate for the interface and packet type.
-
-The sender records the neighbor ACK set for all peers that must acknowledge the packet.
-
-### 9.2 ACK Tracking
-
-ACK tracking is per neighbor.
-
-When a neighbor ACKs the packet sequence number, that neighbor is removed from the packet's pending ACK set.
-
-When all required neighbors have ACKed or been removed due to reset/drop policy, the reliable hold on the packet is released.
-
-### 9.3 Retransmission
-
-A reliable multicast packet must not be multicast again for retransmission.
-
-Retransmission is unicast only to neighbors that have not ACKed.
-
-Reason:
-
-- peers that already processed the reliable packet must not be forced to process it again
-- duplicate QUERY/UPDATE delivery can cause unnecessary DUAL churn
-- RFC reliable transport describes multicast first send and unicast retransmission to missing peers
-
-### 9.4 Packet References
-
-A packet may be held by:
+Default ownership rule:
 
 ```text
-interface packet queue
-send-in-progress state
-neighbor ACK state
-retransmit timer/state
+one interface wire image -> one packet object or immutable backing buffer
 ```
 
-The packet is freed only after the last holder releases it.
+The implementation may duplicate packet objects for independent neighbor
+reliable queues or may share an immutable backing buffer with explicit
+reference ownership. Either representation must guarantee:
 
-A future implementation may use refcounting or an equivalent explicit ownership model.
+- no post-queue wire mutation;
+- no use-after-free across output/retransmit timers;
+- release only after the last queue/send/retransmit holder is done;
+- retransmission uses the original sequence/wire image;
+- interface/neighbor teardown releases outstanding ownership safely.
 
-## 10. Packet Type Behavior
+This is a lifetime contract, not a requirement for one specific refcount
+implementation.
 
-### 10.1 Hello and ACK
+## 13. Interface output queue and pacing
 
-Hello and ACK packet generation are not DUAL work items.
+Each EIGRP interface owns one built-packet output queue.
 
-They may continue to use packet send paths directly as long as packet safety, checksum/auth, and queue ownership rules are honored.
+Transmit pacing is an interface responsibility. The packetizer work queue does
+not impose one global bandwidth gate because different interfaces have
+different bandwidth, MTU, and pacing budgets.
 
-### 10.2 Update
+When an interface is temporarily pacing-blocked:
 
-UPDATE packet generation for topology changes should flow through the packetizer queue.
+- its packet remains queued;
+- other interfaces may transmit independently;
+- host scheduling resubmits the interface write when its budget permits.
 
-Startup full-table UPDATEs may use the same packetizer machinery or a dedicated startup walker, but the final packets must still be interface-specific and pacing-aware.
+## 14. Reliable transport
 
-### 10.3 Query
+### 14.1 First send
 
-QUERY packet generation should flow through the packetizer queue.
+A reliable route packet may be sent multicast on its first transmission when
+protocol/interface conditions permit. The sender records every established
+neighbor required to acknowledge the packet sequence.
 
-DUAL marks the destination as needing QUERY work.
+Neighbor-targeted reliable messages are sent unicast from the first send.
 
-The packetizer decides which interfaces and neighbors receive the QUERY and applies split horizon and pending-neighbor rules.
+### 14.2 ACK tracking
 
-### 10.4 Reply and SIA-Reply
+ACK state is per neighbor. An ACK for the expected sequence releases that
+neighbor's outstanding ownership/state for the packet.
 
-REPLY and SIA-REPLY use the same packetizer path. The work item carries the desired opcode.
+A packet is completely released when every required neighbor has acknowledged
+or has been removed by defined neighbor-reset/drop handling.
 
-The inbound QUERY/SIA-QUERY identifies the neighbor/interface context, so these are neighbor-specific route work items. The packetizer owns final TLV encoding and packet construction.
+### 14.3 Retransmission
 
-### 10.5 Query and SIA-Query
+A reliable packet first sent multicast is never retransmitted multicast.
+Retransmission is unicast only to the neighbor(s) that still owe the ACK.
 
-QUERY and SIA-QUERY use the same packetizer path where the packet body is concerned. The work item carries the desired opcode.
+Do not re-encode the packet for retransmission merely because the retransmit is
+unicast.
 
-Standard QUERY is normally destination/interface scoped and may multicast on first send. SIA-QUERY is neighbor/destination specific. The packetizer uses the opcode and neighbor/interface context to choose the final transmission behavior.
+### 14.4 Conditional receive
 
-## 11. Split Horizon, Poison Reverse, and Pending Neighbors
+Conditional Receive/Sequence TLV behavior is part of reliable transport, not a
+packetizer shortcut. Neighbor exception sets and multicast receive conditions
+must remain synchronized with the sequence being transmitted.
 
-Packetizer owns outbound suppression/poison decisions because they are interface/neighbor sensitive.
+## 15. Packet sizing
+
+Packet construction obeys the transmitting interface MTU/EIGRP packet limit.
 
 Rules:
 
-- do not send QUERY/UPDATE to pending neighbors that are not eligible for convergence
-- apply split horizon based on the inbound/successor interface context
-- use poison reverse where required instead of suppression
-- re-evaluate these rules at packetization time
+- never overrun the packet buffer or interface packet limit;
+- pack multiple destination TLVs while they fit;
+- start another EIGRP packet when the next complete TLV does not fit;
+- never split one TLV across EIGRP packets;
+- preserve sequence/reliable-transport semantics for every generated packet;
+- EIGRP packet segmentation is not IP fragmentation.
 
-## 12. Packet Sizing
+Encoders must report/validate encoded length before finalizing the packet.
 
-Packetizer owns packet size management.
+## 16. Packet-type ownership
 
-Rules:
+### 16.1 HELLO and ACK
 
-- do not exceed interface MTU
-- split multiple destinations across multiple packets when needed
-- do not split one TLV across packets
-- preserve reliable transport sequencing rules
-- packet fragments are EIGRP packets, not IP fragments
+HELLO and ACK generation is not DUAL topology work. The Hello/reliable-transport
+path may build these packets directly, while still obeying packet bounds,
+authentication, checksum, queue, and lifetime rules.
 
-## 13. Proposed Modules
+### 16.2 Topology-change UPDATE
 
-### 13.1 `eigrp_packetizer.[c|h]`
+DUAL/topology-triggered UPDATE work flows through the packetizer queue. The
+packetizer decides target interfaces and applies interface-sensitive suppression
+and codec selection.
 
-Owns packetizer work items and work-to-packet orchestration.
+### 16.3 Initialization/EOT/resync UPDATE
 
-Public API:
+Adjacency initialization, EOT, and graceful-resync table walks are owned by the
+UPDATE/neighbor startup path because they are tied to one adjacency's handshake
+and flags rather than a normal topology-change work bead.
+
+That path may walk the topology table directly, but it must use the same native
+EIGRP route data, neighbor codec, MTU/bounds, filtering/split-horizon,
+authentication, sequence, and reliable-send rules as packetizer-produced UPDATEs.
+It must not create a second TLV implementation.
+
+### 16.4 QUERY
+
+DUAL queues QUERY work when diffusing computation requires it. The packetizer
+selects eligible interfaces/neighbors and applies split horizon, poison reverse,
+and pending-neighbor rules.
+
+### 16.5 REPLY / SIA-REPLY
+
+These are neighbor-specific route work items. The packetizer owns final route
+TLV encoding and packet construction for the response opcode/context.
+
+### 16.6 SIA-QUERY
+
+SIA-QUERY is neighbor/destination-specific and uses the same packet body
+construction ownership as other route-bearing reliable messages while retaining
+its opcode/timer semantics.
+
+## 17. Module ownership
+
+### 17.1 `eigrp_packetizer.[c|h]`
+
+Owns packetizer work objects, queue insertion, topology-work lifetime handling,
+interface/neighbor selection, and work-to-packet orchestration.
+
+Public API includes the packetizer lifecycle/work operations required by other
+protocol modules, including:
 
 ```c
 void eigrp_packetizer_init(eigrp_instance_t *eigrp);
@@ -606,122 +474,61 @@ void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,
                               eigrp_packetizer_work_t *work);
 ```
 
-The packetizer work item is intentionally opcode-driven instead of subtype-function-driven:
+Opcode/context drives shared packetization behavior; do not create redundant
+public packetizer modules for every opcode when the construction path is the
+same.
 
-```c
-typedef struct eigrp_packetizer_work {
-    uint8_t opcode;
-    eigrp_prefix_descriptor_t *prefix;
-    eigrp_route_descriptor_t *route;
-    eigrp_interface_t *exception;
-    eigrp_neighbor_t *nbr;
-    void *owner;
-    uint32_t flags;
-} eigrp_packetizer_work_t;
-```
+### 17.2 `eigrp_packet.[c|h]`
 
-`QUERY` and `SIA-QUERY` share packetizing behavior and differ by opcode/context. `REPLY` and `SIA-REPLY` share packetizing behavior and differ by opcode/context.
+Owns:
 
-### 13.2 `eigrp_southbound.[c|h]`
+- packet object/buffer lifecycle;
+- fixed EIGRP header/checksum framing;
+- built packet queue primitives;
+- packet output scheduling;
+- reliable send/retransmit mechanics;
+- safe/aggregate packet-level codec helpers.
 
-Owns host runtime adaptation.
+The existing packet queue remains part of packet ownership; a separate queue
+module is not required merely for file symmetry.
 
-Initial FRR-backed work queue API:
+### 17.3 `eigrp_southbound.[c|h]`
 
-```c
-eigrp_work_queue_t *eigrp_work_queue_new(eigrp_instance_t *eigrp,
-                                         const char *name,
-                                         eigrp_work_queue_func_t workfunc,
-                                         eigrp_work_queue_delete_func_t deletefunc);
-void eigrp_work_queue_free(eigrp_work_queue_t *queue);
-void eigrp_work_queue_reset(eigrp_work_queue_t *queue);
-void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
-eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue);
-```
+Owns the portable host-runtime contract for work queue scheduling, events,
+timers, sockets, interfaces, and RIB services. Host-native queue/event objects
+remain in the adapter implementation.
 
-FRR-specific details such as `struct work_queue`, `work_queue_add()`, `work_queue_new()`, and event-loop scheduling live here only.
+### 17.4 `eigrp_tlv1.[c|h]` and `eigrp_tlv2.[c|h]`
 
-### 13.3 `eigrp_packet_queue.[c|h]`
+Own private route-TLV wire encoding/decoding and public codec initialization or
+bind operations. Private wire structs do not become packetizer public data.
 
-Owns built packet queues.
+### 17.5 `eigrp_update.c`
 
-The current built packet queue remains in `eigrp_packet.[c|h]` for this pass. It can be moved into `eigrp_packet_queue.[c|h]` later when that refactor can be done without mixing it into the packetizer work queue change.
+Owns UPDATE protocol semantics and adjacency initialization/EOT/resync walking.
+Normal topology-change emission enters the packetizer rather than maintaining a
+parallel route-TLV construction architecture.
 
-Candidate future API:
+## 18. Implementation constraints
 
-```c
-eigrp_packet_queue_t *eigrp_packet_queue_create(void);
-void eigrp_packet_queue_delete(eigrp_packet_queue_t *queue);
-void eigrp_packet_queue_enqueue(eigrp_packet_queue_t *queue, eigrp_packet_t *packet);
-eigrp_packet_t *eigrp_packet_queue_peek(eigrp_packet_queue_t *queue);
-eigrp_packet_t *eigrp_packet_queue_dequeue(eigrp_packet_queue_t *queue);
-bool eigrp_packet_queue_empty(eigrp_packet_queue_t *queue);
-```
+Correctness and inspectability take priority over packetizer micro-optimization.
+The design permits optimizations such as work coalescing, reduced wakeups, or
+shared immutable backing buffers only when they preserve:
 
-### 13.4 `eigrp_packet.[c|h]` Codec Vectors
+- object lifetime;
+- interface-specific MTU/auth/pacing;
+- exact reliable sequence behavior;
+- encoder dispatch rules;
+- split-horizon/poison/pending-neighbor decisions;
+- debug visibility.
 
-Owns packet-level safe and aggregate encoder/decoder helpers:
+Do not add legacy aliases or parallel old/new packetization paths to stage an
+optimization.
 
-```c
-int eigrp_packet_encoder_safe(...);
-int eigrp_packet_decoder_safe(...);
-int eigrp_packet_encoder_both(...);
-```
+## 19. Deferred naming decision
 
-`eigrp_packet_encoder_both()` is the mixed-interface aggregate encoder. It calls `eigrp->tlv1_codec.encoder` and `eigrp->tlv2_codec.encoder` against native route data and the same packet buffer.
-
-### 13.5 `eigrp_tlv1.[c|h]` and `eigrp_tlv2.[c|h]`
-
-Own the private TLV-specific wire encode/decode functions and expose public init/bind APIs.
-
-Required API shape is conceptual; exact signatures may be adjusted to existing type names:
-
-```c
-void eigrp_tlv1_init(eigrp_tlv_codec_t *codec);
-void eigrp_tlv1_neighbor_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec);
-void eigrp_tlv1_interface_bind(eigrp_interface_t *ei, eigrp_tlv_codec_t *codec);
-
-void eigrp_tlv2_init(eigrp_tlv_codec_t *codec);
-void eigrp_tlv2_neighbor_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec);
-void eigrp_tlv2_interface_bind(eigrp_interface_t *ei, eigrp_tlv_codec_t *codec);
-```
-
-TLV init installs private encode/decode functions into the instance codec table.
-
-Neighbor bind sets `nbr->tlv_version`, `nbr->encoder`, and `nbr->decoder` from the selected instance codec.
-
-Interface bind installs the TLV-specific encoder vector from the selected instance codec for the TLV1-only or TLV2-only aggregate interface state.
-
-## 14. Implementation Notes
-
-Initial implementation should favor correctness over optimization.
-
-Acceptable first pass:
-
-```text
-one work item processed at a time
-one built packet per interface
-FRR watched/work queue hidden behind `eigrp_southbound`
-clear debug dumps
-hard validation before queueing packet refs
-```
-
-Optimizations can come later:
-
-```text
-coalescing many NDBs into fewer packets
-interface encoder selection shortcuts if profiling proves a need
-shared immutable packet buffers where provably safe
-reduced wakeups
-packet packing by opcode/type/capability
-```
-
-Do not add legacy aliases or parallel old/new packet paths.
-
-## 15. Open Questions
-
-These should be answered before deep code work:
-
-1. Current code still uses `eigrp_prefix_descriptor_t` and `eigrp_route_descriptor_t` for topology prefix/route records. Their lifecycle APIs are owned by topology and named `eigrp_topology_prefix_create/free()` and `eigrp_topology_route_create/free()`. A later typedef rename to NDB/RDB terminology can be reviewed separately.
-2. Where should packet refcount ownership live: inside `eigrp_packet_t`, or in a small wrapper object owned by reliable transport?
-3. Should startup full-table UPDATEs use the same packetizer queue from day one, or be migrated after topology-change packetizing is stable?
+`eigrp_prefix_descriptor_t` and `eigrp_route_descriptor_t` remain the topology
+object names until the dedicated pre-production naming review in
+`refactor-work.md`. Packetizer code may use DNDB/RDB terminology in comments or
+debugging where useful, but this specification does not authorize rename-only
+churn.

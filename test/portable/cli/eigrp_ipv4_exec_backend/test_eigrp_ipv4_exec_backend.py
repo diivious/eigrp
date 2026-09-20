@@ -23,7 +23,6 @@ SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_southbound.h"
 FRR_SOUTHBOUND = ROOT / "frr" / "eigrp_southbound.c"
 VTY = ROOT / "frr" / "eigrp_cli_named.c"
 CLI_SPEC = ROOT / "specs" / "cli-spec.md"
-CLOSURE = ROOT / "specs" / "post-command-audit-item6.md"
 
 
 def read(path: Path) -> str:
@@ -158,7 +157,6 @@ def test_multicast_exec_selector_is_retained_as_maf_not_transport_multicast():
     instance = read(INSTANCE)
     vty = read(VTY)
     cli_spec = read(CLI_SPEC)
-    closure = read(CLOSURE)
 
     # Cisco named EXEC grammar keeps the selector on the operational views.
     assert vty.count("[multicast]") >= 8
@@ -180,4 +178,5 @@ def test_multicast_exec_selector_is_retained_as_maf_not_transport_multicast():
     assert "EIGRP_RESULT_UNSUPPORTED" not in show_region
     assert "Multicast Address Family (MAF)" in cli_spec
     assert "VRID `0x0001`" in cli_spec
-    assert "stays in the named EXEC grammar" in closure
+    assert "project configuration/runtime model is unicast" in cli_spec
+    assert "unsupported/not implemented" in cli_spec

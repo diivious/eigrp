@@ -170,6 +170,16 @@ static eigrp_metric_config_t *eigrp_metric_config_get(
 	return af->metric_config;
 }
 
+/*
+ * Syntax:
+ *   Named: `default-metric BW DELAY RELIABILITY LOAD MTU` / `no default-metric ...`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the default seed metric used by redistribution when a source-specific metric is not supplied.
+ * Runtime redistribution fallback remains owned by the metric/redistribution path.
+ */
 eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
 					   const eigrp_metric_values_t *metric)
 {
@@ -190,6 +200,16 @@ eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `default-metric BW DELAY RELIABILITY LOAD MTU` / `no default-metric ...`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the default seed metric used by redistribution when a source-specific metric is not supplied.
+ * Runtime redistribution fallback remains owned by the metric/redistribution path.
+ */
 eigrp_result_t eigrp_metric_default_delete(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
@@ -203,6 +223,18 @@ eigrp_result_t eigrp_metric_default_delete(eigrp_instance_context_t *context)
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `metric weights TOS K1 K2 K3 K4 K5` / `no metric weights ...`
+ *   Named: `metric weights TOS K1 K2 K3 K4 K5 [K6]` / `no metric weights ...`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: address-family mode
+ * Description:
+ * Sets or restores the EIGRP metric coefficients after validating the coefficient set.
+ * Named mode converges on the EIGRP-owned metric target used for protocol state instead of carrying metric behavior in the parser.
+ */
 eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
 					   const eigrp_metric_weights_t *weights)
 {
@@ -230,6 +262,18 @@ eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `metric weights TOS K1 K2 K3 K4 K5` / `no metric weights ...`
+ *   Named: `metric weights TOS K1 K2 K3 K4 K5 [K6]` / `no metric weights ...`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: address-family mode
+ * Description:
+ * Sets or restores the EIGRP metric coefficients after validating the coefficient set.
+ * Named mode converges on the EIGRP-owned metric target used for protocol state instead of carrying metric behavior in the parser.
+ */
 eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
@@ -250,6 +294,18 @@ eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `variance MULTIPLIER` / `no variance`
+ *   Named: `variance MULTIPLIER` / `no variance`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the unequal-cost load-sharing variance multiplier.
+ * DUAL feasibility remains authoritative; variance does not make an infeasible path a successor.
+ */
 eigrp_result_t eigrp_metric_variance_update(eigrp_instance_context_t *context,
 					    uint8_t variance)
 {
@@ -271,6 +327,18 @@ eigrp_result_t eigrp_metric_variance_update(eigrp_instance_context_t *context,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `variance MULTIPLIER` / `no variance`
+ *   Named: `variance MULTIPLIER` / `no variance`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the unequal-cost load-sharing variance multiplier.
+ * DUAL feasibility remains authoritative; variance does not make an infeasible path a successor.
+ */
 eigrp_result_t eigrp_metric_variance_delete(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
@@ -284,6 +352,16 @@ eigrp_result_t eigrp_metric_variance_delete(eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `traffic-share balanced` / `no traffic-share balanced`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Selects retained balanced traffic-sharing behavior.
+ * The target reports NOT_IMPLEMENTED until the forwarding/runtime application path exists.
+ */
 eigrp_result_t eigrp_metric_traffic_share_balanced_update(
 	eigrp_instance_context_t *context, bool enabled)
 {
@@ -301,6 +379,16 @@ eigrp_result_t eigrp_metric_traffic_share_balanced_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `metric maximum-hops HOPS` / `no metric maximum-hops`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the configured EIGRP maximum-hop metric constraint.
+ * The target retains the real feature endpoint even while live enforcement is incomplete.
+ */
 eigrp_result_t eigrp_metric_maximum_hops_update(
 	eigrp_instance_context_t *context, uint8_t maximum_hops)
 {
@@ -322,6 +410,16 @@ eigrp_result_t eigrp_metric_maximum_hops_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `metric maximum-hops HOPS` / `no metric maximum-hops`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the configured EIGRP maximum-hop metric constraint.
+ * The target retains the real feature endpoint even while live enforcement is incomplete.
+ */
 eigrp_result_t eigrp_metric_maximum_hops_delete(
 	eigrp_instance_context_t *context)
 {
@@ -336,6 +434,16 @@ eigrp_result_t eigrp_metric_maximum_hops_delete(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `metric holddown` / `no metric holddown`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets retained metric holddown configuration.
+ * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
+ */
 eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
 					    bool enabled)
 {
@@ -353,6 +461,16 @@ eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `metric holddown` / `no metric holddown`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets retained metric holddown configuration.
+ * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
+ */
 eigrp_result_t eigrp_metric_holddown_delete(eigrp_instance_context_t *context)
 {
 	return eigrp_metric_holddown_update(context, true);

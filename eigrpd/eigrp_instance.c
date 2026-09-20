@@ -104,6 +104,16 @@ eigrp_instance_parent_config_t *eigrp_instance_parent_read(const char *name)
 	return NULL;
 }
 
+/*
+ * Syntax:
+ *   Named: `router eigrp NAME` / `no router eigrp NAME`
+ * Supported: Named
+ * Placement:
+ *   Named: global configuration
+ * Description:
+ * Creates or removes the named EIGRP parent configuration object.
+ * The parent is a configuration container; address-family creation owns AS/family runtime creation.
+ */
 eigrp_result_t eigrp_instance_parent_create(const char *name)
 {
 	eigrp_instance_parent_config_t *parent;
@@ -145,6 +155,16 @@ eigrp_address_family_config_t *eigrp_instance_address_family_read(
 	return NULL;
 }
 
+/*
+ * Syntax:
+ *   Named: `address-family <ipv4|ipv6> [unicast] [vrf NAME] autonomous-system AS` / `no address-family ...`
+ * Supported: Named
+ * Placement:
+ *   Named: router EIGRP parent mode
+ * Description:
+ * Creates or removes one named EIGRP address-family and its EIGRP-owned runtime context.
+ * IPv4 and IPv6 retain separate AF state while sharing the named parent.
+ */
 eigrp_result_t eigrp_instance_address_family_create(
 	const char *name, eigrp_address_family_t afi, const char *vrf_name,
 	uint16_t asn)
@@ -234,6 +254,16 @@ static void eigrp_instance_address_family_free(eigrp_address_family_config_t *af
 	free(af);
 }
 
+/*
+ * Syntax:
+ *   Named: `address-family <ipv4|ipv6> [unicast] [vrf NAME] autonomous-system AS` / `no address-family ...`
+ * Supported: Named
+ * Placement:
+ *   Named: router EIGRP parent mode
+ * Description:
+ * Creates or removes one named EIGRP address-family and its EIGRP-owned runtime context.
+ * IPv4 and IPv6 retain separate AF state while sharing the named parent.
+ */
 eigrp_result_t eigrp_instance_address_family_delete(
 	const char *name, eigrp_address_family_t afi, const char *vrf_name,
 	uint16_t asn)
@@ -270,6 +300,16 @@ eigrp_result_t eigrp_instance_address_family_delete(
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
+/*
+ * Syntax:
+ *   EXEC: named address-family show commands and `show eigrp protocols`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Walks EIGRP-owned address-family state using an EIGRP request and callback.
+ * FRR VTY and YANG objects remain outside the common API.
+ */
 eigrp_result_t eigrp_instance_address_family_walk(
 	const eigrp_state_request_t *request,
 	eigrp_instance_address_family_walk_cb callback, void *arg)
@@ -317,6 +357,16 @@ eigrp_result_t eigrp_instance_address_family_walk(
 	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
 
+/*
+ * Syntax:
+ *   Named: `router eigrp NAME` / `no router eigrp NAME`
+ * Supported: Named
+ * Placement:
+ *   Named: global configuration
+ * Description:
+ * Creates or removes the named EIGRP parent configuration object.
+ * The parent is a configuration container; address-family creation owns AS/family runtime creation.
+ */
 eigrp_result_t eigrp_instance_parent_delete(const char *name)
 {
 	eigrp_instance_parent_config_t **cursor;
@@ -386,6 +436,18 @@ eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *r
 	return NULL;
 }
 
+/*
+ * Syntax:
+ *   Classic: `eigrp router-id A.B.C.D` / `no eigrp router-id [A.B.C.D]`
+ *   Named: `eigrp router-id A.B.C.D` / `no eigrp router-id [A.B.C.D]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: address-family mode
+ * Description:
+ * Sets or resets the 32-bit EIGRP router ID for the selected instance.
+ * Named mode reaches the same EIGRP-owned router-ID behavior instead of duplicating protocol state in the FRR CLI.
+ */
 eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
 					       uint32_t router_id)
 {
@@ -404,6 +466,18 @@ eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `eigrp router-id A.B.C.D` / `no eigrp router-id [A.B.C.D]`
+ *   Named: `eigrp router-id A.B.C.D` / `no eigrp router-id [A.B.C.D]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: address-family mode
+ * Description:
+ * Sets or resets the 32-bit EIGRP router ID for the selected instance.
+ * Named mode reaches the same EIGRP-owned router-ID behavior instead of duplicating protocol state in the FRR CLI.
+ */
 eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -419,6 +493,16 @@ eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `shutdown` / `no shutdown`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Changes the administrative state of one named address-family.
+ * The common target owns retained state and runtime start/stop behavior.
+ */
 eigrp_result_t eigrp_instance_address_family_shutdown_update(
 	eigrp_address_family_config_t *af, bool shutdown)
 {
@@ -445,6 +529,16 @@ eigrp_result_t eigrp_instance_address_family_shutdown_update(
 	return result;
 }
 
+/*
+ * Syntax:
+ *   Named: `shutdown` / `no shutdown`
+ * Supported: Named
+ * Placement:
+ *   Named: router EIGRP parent mode
+ * Description:
+ * Represents administrative shutdown of the named parent rather than one address-family.
+ * The real target remains in place and reports NOT_IMPLEMENTED until parent-wide runtime semantics are defined.
+ */
 eigrp_result_t eigrp_instance_parent_shutdown_update(
 	eigrp_instance_parent_config_t *parent, bool shutdown)
 {
@@ -454,6 +548,16 @@ eigrp_result_t eigrp_instance_parent_shutdown_update(
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Named: `distance eigrp INTERNAL EXTERNAL` / `no distance eigrp`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets internal and external EIGRP administrative distance.
+ * RIB-side application remains owned by this target and reports NOT_IMPLEMENTED while that runtime path is incomplete.
+ */
 eigrp_result_t eigrp_instance_distance_update(eigrp_address_family_config_t *af,
 					      uint8_t internal_distance,
 					      uint8_t external_distance)
@@ -465,6 +569,16 @@ eigrp_result_t eigrp_instance_distance_update(eigrp_address_family_config_t *af,
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Named: `distance eigrp INTERNAL EXTERNAL` / `no distance eigrp`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets internal and external EIGRP administrative distance.
+ * RIB-side application remains owned by this target and reports NOT_IMPLEMENTED while that runtime path is incomplete.
+ */
 eigrp_result_t eigrp_instance_distance_delete(eigrp_address_family_config_t *af)
 {
 	if (!af)

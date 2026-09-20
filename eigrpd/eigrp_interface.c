@@ -147,6 +147,16 @@ static eigrp_result_t eigrp_interface_state_emit(
 	return callback(&state, arg);
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... interfaces [IFNAME] [detail]`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Walks EIGRP interface state for operational output.
+ * The callback receives portable EIGRP state rather than FRR interface or VTY objects.
+ */
 eigrp_result_t eigrp_interface_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, eigrp_interface_state_walk_cb callback,
@@ -210,6 +220,16 @@ eigrp_interface_config_t *eigrp_interface_config_read(
 	return NULL;
 }
 
+/*
+ * Syntax:
+ *   Named: `af-interface <default|IFNAME>` / `no af-interface <default|IFNAME>`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Creates or removes named-mode interface configuration, including the default interface template.
+ * Runtime application stays behind the EIGRP interface abstraction.
+ */
 eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af,
 					     const char *interface_name)
 {
@@ -248,6 +268,16 @@ static void eigrp_interface_config_free(eigrp_interface_config_t *interface)
 	free(interface);
 }
 
+/*
+ * Syntax:
+ *   Named: `af-interface <default|IFNAME>` / `no af-interface <default|IFNAME>`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Creates or removes named-mode interface configuration, including the default interface template.
+ * Runtime application stays behind the EIGRP interface abstraction.
+ */
 eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af,
 					     const char *interface_name)
 {
@@ -322,6 +352,16 @@ static bool eigrp_interface_context_valid(const eigrp_interface_context_t *conte
 	return context && (context->config || context->runtime);
 }
 
+/*
+ * Syntax:
+ *   Named: `bandwidth-percent PERCENT` / `no bandwidth-percent`
+ * Supported: Named
+ * Placement:
+ *   Named: af-interface mode
+ * Description:
+ * Retains the configured EIGRP bandwidth percentage for interface pacing.
+ * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
+ */
 eigrp_result_t eigrp_interface_bandwidth_percent_update(
 	eigrp_interface_context_t *context, uint32_t percent)
 {
@@ -338,6 +378,16 @@ eigrp_result_t eigrp_interface_bandwidth_percent_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `bandwidth-percent PERCENT` / `no bandwidth-percent`
+ * Supported: Named
+ * Placement:
+ *   Named: af-interface mode
+ * Description:
+ * Retains the configured EIGRP bandwidth percentage for interface pacing.
+ * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
+ */
 eigrp_result_t eigrp_interface_bandwidth_percent_delete(
 	eigrp_interface_context_t *context)
 {
@@ -352,6 +402,18 @@ eigrp_result_t eigrp_interface_bandwidth_percent_delete(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `eigrp bandwidth KBPS` / `no eigrp bandwidth [KBPS]`
+ *   Named: `bandwidth KBPS` / `no bandwidth [KBPS]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Sets or restores the EIGRP interface bandwidth metric input.
+ * Named mode reuses the EIGRP runtime behavior represented by the classic interface command.
+ */
 eigrp_result_t eigrp_interface_bandwidth_set(
 	eigrp_interface_context_t *context, uint32_t bandwidth)
 {
@@ -371,6 +433,18 @@ eigrp_result_t eigrp_interface_bandwidth_set(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `eigrp bandwidth KBPS` / `no eigrp bandwidth [KBPS]`
+ *   Named: `bandwidth KBPS` / `no bandwidth [KBPS]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Sets or restores the EIGRP interface bandwidth metric input.
+ * Named mode reuses the EIGRP runtime behavior represented by the classic interface command.
+ */
 eigrp_result_t eigrp_interface_bandwidth_reset(
 	eigrp_interface_context_t *context)
 {
@@ -387,6 +461,18 @@ eigrp_result_t eigrp_interface_bandwidth_reset(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
+ *   Named: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Sets or restores the EIGRP interface delay metric input.
+ * The common interface target owns the runtime refresh required after the metric changes.
+ */
 eigrp_result_t eigrp_interface_delay_set(
 	eigrp_interface_context_t *context, uint32_t delay)
 {
@@ -406,6 +492,18 @@ eigrp_result_t eigrp_interface_delay_set(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
+ *   Named: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Sets or restores the EIGRP interface delay metric input.
+ * The common interface target owns the runtime refresh required after the metric changes.
+ */
 eigrp_result_t eigrp_interface_delay_reset(
 	eigrp_interface_context_t *context)
 {
@@ -422,6 +520,18 @@ eigrp_result_t eigrp_interface_delay_reset(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip hello-interval eigrp AS SECONDS` / `no ip hello-interval eigrp [SECONDS]`
+ *   Named: `hello-interval SECONDS` / `no hello-interval`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Changes the EIGRP hello transmission interval or restores the default.
+ * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
+ */
 eigrp_result_t eigrp_interface_hello_interval_update(
 	eigrp_interface_context_t *context, uint16_t seconds)
 {
@@ -438,6 +548,18 @@ eigrp_result_t eigrp_interface_hello_interval_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip hello-interval eigrp AS SECONDS` / `no ip hello-interval eigrp [SECONDS]`
+ *   Named: `hello-interval SECONDS` / `no hello-interval`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Changes the EIGRP hello transmission interval or restores the default.
+ * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
+ */
 eigrp_result_t eigrp_interface_hello_interval_delete(
 	eigrp_interface_context_t *context)
 {
@@ -452,6 +574,18 @@ eigrp_result_t eigrp_interface_hello_interval_delete(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip hold-time eigrp AS SECONDS` / `no ip hold-time eigrp [SECONDS]`
+ *   Named: `hold-time SECONDS` / `no hold-time`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Changes the advertised EIGRP neighbor hold time or restores the default.
+ * Named mode uses the common interface state instead of a named-only timer implementation.
+ */
 eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *context,
 					       uint16_t seconds)
 {
@@ -468,6 +602,18 @@ eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *conte
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip hold-time eigrp AS SECONDS` / `no ip hold-time eigrp [SECONDS]`
+ *   Named: `hold-time SECONDS` / `no hold-time`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Changes the advertised EIGRP neighbor hold time or restores the default.
+ * Named mode uses the common interface state instead of a named-only timer implementation.
+ */
 eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *context)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -481,6 +627,18 @@ eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *conte
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `passive-interface IFNAME` / `no passive-interface IFNAME`
+ *   Named: `passive-interface` / `no passive-interface`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: af-interface mode
+ * Description:
+ * Controls whether EIGRP forms adjacencies on the interface while retaining the connected prefix behavior required by the configuration.
+ * The CLI placement differs, but the named path terminates in EIGRP-owned interface state.
+ */
 eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context,
 					      bool passive)
 {
@@ -496,6 +654,16 @@ eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `next-hop-self` / `no next-hop-self`
+ * Supported: Named
+ * Placement:
+ *   Named: af-interface mode
+ * Description:
+ * Controls EIGRP next-hop-self behavior for the interface.
+ * The target owns retained/runtime state and reports NOT_IMPLEMENTED if the live packet path cannot apply the setting yet.
+ */
 eigrp_result_t eigrp_interface_next_hop_self_update(
 	eigrp_interface_context_t *context, bool enabled)
 {
@@ -508,6 +676,18 @@ eigrp_result_t eigrp_interface_next_hop_self_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip split-horizon eigrp AS` / `no ip split-horizon eigrp AS`
+ *   Named: `split-horizon` / `no split-horizon`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Controls EIGRP split-horizon state on the interface.
+ * The FRR reference carried only an unimplemented classic XPath marker, so named mode keeps a real EIGRP target without pretending a working classic runtime existed.
+ */
 eigrp_result_t eigrp_interface_split_horizon_update(
 	eigrp_interface_context_t *context, bool enabled)
 {
@@ -520,6 +700,16 @@ eigrp_result_t eigrp_interface_split_horizon_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `shutdown` / `no shutdown`
+ * Supported: Named
+ * Placement:
+ *   Named: af-interface mode
+ * Description:
+ * Administratively disables or enables EIGRP on the selected named af-interface.
+ * Interface runtime transitions remain owned by the common EIGRP interface layer.
+ */
 eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *context,
 					       bool shutdown)
 {

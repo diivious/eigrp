@@ -1,5 +1,7 @@
 # Configure EIGRP Named Mode
 
+> **Reference role:** This file summarizes Cisco named-mode documentation. It is not the project implementation specification or protocol authority. Project CLI requirements are defined by `cli-spec.md`; architecture is defined by `design-spec.md`. Cisco-only migration/platform features mentioned here do not automatically become project requirements.
+
 ## Introduction
 
 This document describes the named Enhanced Interior Gateway Routing Protocol (EIGRP) mode feature and differences between traditional and named mode.
@@ -145,9 +147,11 @@ EIGRP named configuration available from:
 - 12.2(33)XNE
 - Cisco IOS XE Release 2.5
 
-## Automatic Conversion to Named EIGRP
+## Automatic Conversion to Named EIGRP — Cisco reference only
 
-Use `eigrp upgrade-cli <name>` inside EIGRP process to convert without impacting peering.
+> `eigrp upgrade-cli` is outside this project's EIGRP CLI scope. The syntax below is retained only as Cisco reference material.
+
+Cisco documents `eigrp upgrade-cli <name>` inside an EIGRP process to convert without impacting peering.
 
 **Example Conversion**
 

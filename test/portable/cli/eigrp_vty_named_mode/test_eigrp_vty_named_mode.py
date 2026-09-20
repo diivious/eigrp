@@ -269,12 +269,13 @@ def test_cli_implementation_notes_are_in_cli_spec():
     design = read(ROOT / "specs" / "design-spec.md")
     cli = read(ROOT / "specs" / "cli-spec.md")
 
-    assert "CLI/VTY/debug command-surface rules are owned by `cli-spec.md`." in design
+    assert "CLI/VTY/debug" in design
+    assert "command-surface rules are owned by `cli-spec.md`." in design
     assert "## 3. Named-Mode CLI Direction" not in design
     assert "## 4. Named-Mode VTY and Debug CLI Direction" not in design
 
-    assert "## 3. Classic and Named-Mode CLI Direction" in cli
-    assert "## 8. Named-Mode Show, Clear, and Debug Direction" in cli
+    assert "## 3. Classic and named entry forms" in cli
+    assert "## 10. Named operational commands" in cli
     assert "debug eigrp packet" in cli
     assert "show_eigrp_neighbor_cmd" in cli
 

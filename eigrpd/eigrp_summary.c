@@ -93,6 +93,18 @@ static const eigrp_af_vectors_t *eigrp_summary_context_vectors(
 	return NULL;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip summary-address eigrp AS PREFIX` / `no ip summary-address eigrp AS PREFIX`
+ *   Named: `summary-address PREFIX [DISTANCE [leak-map NAME]]` / `no summary-address ...`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Creates or removes manual EIGRP interface summarization state.
+ * The FRR reference classic callback did not implement runtime summary behavior, so the common target preserves configuration and truthfully reports NOT_IMPLEMENTED where runtime support is absent.
+ */
 eigrp_result_t eigrp_summary_create(
 	eigrp_interface_context_t *context, const eigrp_prefix_t *prefix,
 	const eigrp_summary_options_t *options)
@@ -143,6 +155,18 @@ eigrp_result_t eigrp_summary_create(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip summary-address eigrp AS PREFIX` / `no ip summary-address eigrp AS PREFIX`
+ *   Named: `summary-address PREFIX [DISTANCE [leak-map NAME]]` / `no summary-address ...`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Creates or removes manual EIGRP interface summarization state.
+ * The FRR reference classic callback did not implement runtime summary behavior, so the common target preserves configuration and truthfully reports NOT_IMPLEMENTED where runtime support is absent.
+ */
 eigrp_result_t eigrp_summary_delete(
 	eigrp_interface_context_t *context, const eigrp_prefix_t *prefix)
 {
@@ -203,6 +227,16 @@ static eigrp_summary_state_t *eigrp_summary_state_get(
 	return af->summary_state;
 }
 
+/*
+ * Syntax:
+ *   Named: `auto-summary` / `no auto-summary`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Controls retained automatic summarization state for the named topology.
+ * This project keeps the command target separate even where modern deployment guidance treats auto-summary as retired.
+ */
 eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
 					 bool enabled)
 {
@@ -224,6 +258,16 @@ eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `summary-metric PREFIX <metric-vector|distance DISTANCE>` / `no summary-metric PREFIX`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Creates, updates, or removes an explicit summary metric override.
+ * The target retains the configuration and reports NOT_IMPLEMENTED until summary-metric runtime application is complete.
+ */
 eigrp_result_t eigrp_summary_metric_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_t *prefix,
 	const eigrp_summary_metric_config_t *config)
@@ -271,6 +315,16 @@ eigrp_result_t eigrp_summary_metric_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `summary-metric PREFIX <metric-vector|distance DISTANCE>` / `no summary-metric PREFIX`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Creates, updates, or removes an explicit summary metric override.
+ * The target retains the configuration and reports NOT_IMPLEMENTED until summary-metric runtime application is complete.
+ */
 eigrp_result_t eigrp_summary_metric_delete(eigrp_instance_context_t *context,
 					   const eigrp_prefix_t *prefix)
 {

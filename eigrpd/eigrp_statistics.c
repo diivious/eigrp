@@ -87,6 +87,16 @@ static uint32_t eigrp_statistics_neighbor_prefix_count(
 	return count;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... accounting`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Exports EIGRP accounting state for the selected address-family.
+ * FRR supplies rendering callbacks only.
+ */
 eigrp_result_t eigrp_statistics_accounting_show(
 	const eigrp_instance_context_t *context, uint32_t *total_prefix_count,
 	eigrp_statistics_accounting_cb callback, void *arg)
@@ -126,6 +136,16 @@ eigrp_result_t eigrp_statistics_accounting_show(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... traffic`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Exports EIGRP packet and protocol traffic counters.
+ * Counter ownership remains with the EIGRP runtime.
+ */
 eigrp_result_t eigrp_statistics_traffic_show(
 	const eigrp_instance_context_t *context,
 	eigrp_statistics_traffic_state_t *state)

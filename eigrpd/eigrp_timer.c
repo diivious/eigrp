@@ -36,6 +36,18 @@ static void eigrp_timer_neighbor_address(const eigrp_neighbor_t *nbr,
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
+/*
+ * Syntax:
+ *   Classic: `timers active-time <SECONDS|disabled>` / `no timers active-time`
+ *   Named: `timers active-time <SECONDS|disabled>` / `no timers active-time`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the ACTIVE/SIA timer configuration.
+ * The FRR reference callback did not implement live ACTIVE-time behavior, so this target retains configuration and returns NOT_IMPLEMENTED when runtime enforcement is requested.
+ */
 eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
 					      uint16_t seconds)
 {
@@ -55,6 +67,18 @@ eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `timers active-time <SECONDS|disabled>` / `no timers active-time`
+ *   Named: `timers active-time <SECONDS|disabled>` / `no timers active-time`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the ACTIVE/SIA timer configuration.
+ * The FRR reference callback did not implement live ACTIVE-time behavior, so this target retains configuration and returns NOT_IMPLEMENTED when runtime enforcement is requested.
+ */
 eigrp_result_t eigrp_timer_active_time_delete(eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -75,6 +99,16 @@ void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af)
 	af->timer_config = NULL;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... timers`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Exports active EIGRP timer state through portable callbacks.
+ * FRR only formats the returned state.
+ */
 eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 				eigrp_timer_state_cb callback, void *arg)
 {

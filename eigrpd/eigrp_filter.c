@@ -289,6 +289,16 @@ static eigrp_offset_config_t *eigrp_offset_config_find(
 	return NULL;
 }
 
+/*
+ * Syntax:
+ *   Named: `offset-list ACCESS-LIST <in|out> OFFSET [IFNAME]` / `no offset-list ...`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Creates, updates, or removes EIGRP offset-list configuration.
+ * The real filter target remains explicit and reports NOT_IMPLEMENTED until offset application is wired into metric processing.
+ */
 eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
 				   const char *access_list,
 				   eigrp_offset_direction_t direction,
@@ -345,6 +355,16 @@ eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `offset-list ACCESS-LIST <in|out> OFFSET [IFNAME]` / `no offset-list ...`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Creates, updates, or removes EIGRP offset-list configuration.
+ * The real filter target remains explicit and reports NOT_IMPLEMENTED until offset application is wired into metric processing.
+ */
 eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
 				   const char *access_list,
 				   eigrp_offset_direction_t direction,
@@ -511,6 +531,18 @@ static eigrp_result_t eigrp_filter_runtime_reference_update(
 	return eigrp_filter_runtime_replace(eigrp, interface_name, &snapshot);
 }
 
+/*
+ * Syntax:
+ *   Classic: `distribute-list <ACL|prefix PREFIX-LIST> <in|out> [IFNAME]` / `no distribute-list ...`
+ *   Named: same syntax under topology base
+ * Supported: Classic / Named (separate public endpoints)
+ * Placement:
+ *   Classic: router mode through FRR distribute framework
+ *   Named: topology base mode through this EIGRP target
+ * Description:
+ * Creates, updates, or removes portable distribute-list state for named mode.
+ * Classic and named configuration endpoints intentionally remain separate while both feed the portable runtime filter representation below the host boundary.
+ */
 eigrp_result_t eigrp_distribute_list_update(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
@@ -585,6 +617,18 @@ eigrp_result_t eigrp_distribute_list_update(
 	return result;
 }
 
+/*
+ * Syntax:
+ *   Classic: `distribute-list <ACL|prefix PREFIX-LIST> <in|out> [IFNAME]` / `no distribute-list ...`
+ *   Named: same syntax under topology base
+ * Supported: Classic / Named (separate public endpoints)
+ * Placement:
+ *   Classic: router mode through FRR distribute framework
+ *   Named: topology base mode through this EIGRP target
+ * Description:
+ * Creates, updates, or removes portable distribute-list state for named mode.
+ * Classic and named configuration endpoints intentionally remain separate while both feed the portable runtime filter representation below the host boundary.
+ */
 eigrp_result_t eigrp_distribute_list_delete(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,

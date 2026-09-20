@@ -76,6 +76,8 @@ def test_route_metric_updates_are_still_recorded_before_fsm_event_selection():
 
 def test_design_spec_documents_active_state_freeze_rule():
     spec = read(SPEC)
+    spec_words = " ".join(spec.split())
 
     assert "DUAL FSM Active-State Invariant" in spec
-    assert "must not update successor selection, Feasible Distance, Reported Distance" in spec
+    assert "successor selection, Feasible Distance, destination reported distance" in spec_words
+    assert "While Active" in spec

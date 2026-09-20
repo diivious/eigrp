@@ -373,6 +373,18 @@ static char *eigrp_auth_string_duplicate(const char *value)
 	return copy;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip authentication mode eigrp AS <md5|hmac-sha-256>` / `no ip authentication mode eigrp AS [...]`
+ *   Named: `authentication mode <md5|hmac-sha-256 ...>` / `no authentication mode`
+ * Supported: Classic / Named (non-converged classic endpoint)
+ * Placement:
+ *   Classic: interface mode through existing FRR callback
+ *   Named: af-interface mode through this EIGRP target
+ * Description:
+ * Selects or removes packet authentication for a named EIGRP interface.
+ * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
+ */
 eigrp_result_t eigrp_auth_mode_update(
 	eigrp_interface_context_t *context, eigrp_authentication_mode_t mode,
 	const eigrp_auth_hmac_config_t *hmac)
@@ -417,6 +429,18 @@ eigrp_result_t eigrp_auth_mode_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip authentication mode eigrp AS <md5|hmac-sha-256>` / `no ip authentication mode eigrp AS [...]`
+ *   Named: `authentication mode <md5|hmac-sha-256 ...>` / `no authentication mode`
+ * Supported: Classic / Named (non-converged classic endpoint)
+ * Placement:
+ *   Classic: interface mode through existing FRR callback
+ *   Named: af-interface mode through this EIGRP target
+ * Description:
+ * Selects or removes packet authentication for a named EIGRP interface.
+ * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
+ */
 eigrp_result_t eigrp_auth_mode_delete(eigrp_interface_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -433,6 +457,18 @@ eigrp_result_t eigrp_auth_mode_delete(eigrp_interface_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip authentication key-chain eigrp AS NAME` / `no ip authentication key-chain eigrp AS [NAME]`
+ *   Named: `authentication key-chain NAME` / `no authentication key-chain NAME`
+ * Supported: Classic / Named (non-converged classic endpoint)
+ * Placement:
+ *   Classic: interface mode through existing FRR callback
+ *   Named: af-interface mode through this EIGRP target
+ * Description:
+ * Selects or removes the EIGRP authentication key chain for named mode.
+ * The existing classic FRR callback remains a documented host-boundary exception rather than being called from named mode.
+ */
 eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
 					  const char *keychain)
 {
@@ -472,6 +508,18 @@ eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `ip authentication key-chain eigrp AS NAME` / `no ip authentication key-chain eigrp AS [NAME]`
+ *   Named: `authentication key-chain NAME` / `no authentication key-chain NAME`
+ * Supported: Classic / Named (non-converged classic endpoint)
+ * Placement:
+ *   Classic: interface mode through existing FRR callback
+ *   Named: af-interface mode through this EIGRP target
+ * Description:
+ * Selects or removes the EIGRP authentication key chain for named mode.
+ * The existing classic FRR callback remains a documented host-boundary exception rather than being called from named mode.
+ */
 eigrp_result_t eigrp_auth_keychain_delete(eigrp_interface_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))

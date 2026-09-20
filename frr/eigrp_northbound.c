@@ -141,6 +141,16 @@ static eigrp_interface_t *eigrp_interface_lookup_host(const struct interface *if
  * Named-mode configuration is retained in FRR YANG, then normalized here
  * before it reaches the portable EIGRP named configuration model.
  */
+/*
+ * XPath: /frr-eigrpd:eigrpd/named
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_parent_create()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_create(struct nb_cb_create_args *args)
 {
 	eigrp_result_t result;
@@ -160,6 +170,16 @@ static int eigrpd_named_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_parent_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_result_t result;
@@ -190,6 +210,16 @@ eigrpd_named_address_family_afi(const struct lyd_node *dnode)
 	return EIGRP_ADDRESS_FAMILY_IPV4;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_address_family_create()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int
 eigrpd_named_address_family_create(struct nb_cb_create_args *args)
 {
@@ -213,6 +243,16 @@ eigrpd_named_address_family_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_address_family_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int
 eigrpd_named_address_family_destroy(struct nb_cb_destroy_args *args)
 {
@@ -385,6 +425,16 @@ static bool eigrpd_named_prefix_parse(const char *text,
     return inet_pton(family, address, prefix->address.bytes) == 1;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/router-id
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_router_id_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
 {
 	const char *name;
@@ -414,6 +464,16 @@ static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/router-id
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_router_id_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_router_id_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name;
@@ -435,6 +495,16 @@ static int eigrpd_named_router_id_destroy(struct nb_cb_destroy_args *args)
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/network
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_network_create()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 {
 	const char *name;
@@ -458,6 +528,16 @@ static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/network
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_network_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name;
@@ -482,6 +562,16 @@ static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_static_create()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
 {
 	const char *name;
@@ -508,6 +598,16 @@ static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_static_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name;
@@ -536,6 +636,16 @@ static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/shutdown
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_address_family_shutdown_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 {
 	const char *name;
@@ -554,6 +664,16 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 	return eigrpd_named_config_result(result, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/shutdown
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_address_family_shutdown_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name;
@@ -601,6 +721,16 @@ static bool eigrpd_named_af_interface_context(
 	       && (*interface_name)[0] != '\0';
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_config_create()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
 {
 	const char *name;
@@ -622,6 +752,16 @@ static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
 	return result == EIGRP_RESULT_SUCCESS ? NB_OK : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_config_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name;
@@ -647,6 +787,16 @@ static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_bandwidth_percent_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_bandwidth_percent_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -667,6 +817,16 @@ static int eigrpd_named_af_interface_bandwidth_percent_modify(struct nb_cb_modif
 	return eigrpd_named_config_result(result, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_bandwidth_percent_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -687,6 +847,16 @@ static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_dest
 	return eigrpd_named_config_result(result, true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_bandwidth_set()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -708,6 +878,16 @@ static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *
 	return eigrpd_named_config_result(result, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_bandwidth_reset()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -728,6 +908,16 @@ static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args
 	return eigrpd_named_config_result(result, true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/delay
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_delay_set()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_delay_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -749,6 +939,16 @@ static int eigrpd_named_af_interface_delay_modify(struct nb_cb_modify_args *args
 	return eigrpd_named_config_result(result, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/delay
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_delay_reset()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_delay_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -769,6 +969,16 @@ static int eigrpd_named_af_interface_delay_destroy(struct nb_cb_destroy_args *ar
 	return eigrpd_named_config_result(result, true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hello-interval
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_hello_interval_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -791,6 +1001,16 @@ static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hello-interval
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_hello_interval_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_hello_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -813,6 +1033,16 @@ static int eigrpd_named_af_interface_hello_destroy(struct nb_cb_destroy_args *ar
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hold-time
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_hold_time_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_hold_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -835,6 +1065,16 @@ static int eigrpd_named_af_interface_hold_modify(struct nb_cb_modify_args *args)
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hold-time
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_hold_time_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_hold_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -857,6 +1097,16 @@ static int eigrpd_named_af_interface_hold_destroy(struct nb_cb_destroy_args *arg
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/passive-interface
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_passive_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_passive_create(struct nb_cb_create_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -879,6 +1129,16 @@ static int eigrpd_named_af_interface_passive_create(struct nb_cb_create_args *ar
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/passive-interface
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_passive_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_passive_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -938,6 +1198,16 @@ static int eigrpd_named_af_interface_authentication_apply(
         eigrp_auth_mode_update(&context, mode, hmac_ptr), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_af_interface_authentication_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_authentication_modify(
     struct nb_cb_modify_args *args)
 {
@@ -947,6 +1217,17 @@ static int eigrpd_named_af_interface_authentication_modify(
                : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-encryption-type
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-password
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_af_interface_authentication_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_authentication_detail_modify(
     struct nb_cb_modify_args *args)
 {
@@ -956,6 +1237,17 @@ static int eigrpd_named_af_interface_authentication_detail_modify(
                : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-encryption-type
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-password
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_authentication_detail_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -967,6 +1259,16 @@ static int eigrpd_named_af_interface_authentication_detail_destroy(
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_auth_mode_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_authentication_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -989,6 +1291,16 @@ static int eigrpd_named_af_interface_authentication_destroy(struct nb_cb_destroy
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_auth_keychain_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_keychain_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1011,6 +1323,16 @@ static int eigrpd_named_af_interface_keychain_modify(struct nb_cb_modify_args *a
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_auth_keychain_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_keychain_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1033,6 +1355,16 @@ static int eigrpd_named_af_interface_keychain_destroy(struct nb_cb_destroy_args 
 		       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/next-hop-self
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_next_hop_self_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_next_hop_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1054,6 +1386,16 @@ static int eigrpd_named_af_interface_next_hop_modify(struct nb_cb_modify_args *a
 }
 
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/split-horizon
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_split_horizon_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_split_horizon_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1107,6 +1449,16 @@ static int eigrpd_named_af_interface_summary_apply(const struct lyd_node *dnode)
 	return eigrpd_named_af_interface_summary_apply_options(dnode, false, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_af_interface_summary_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1114,6 +1466,17 @@ static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *ar
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address/administrative-distance
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address/leak-map
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_af_interface_summary_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_summary_modify(struct nb_cb_modify_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1121,6 +1484,17 @@ static int eigrpd_named_af_interface_summary_modify(struct nb_cb_modify_args *ar
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address/administrative-distance
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address/leak-map
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_af_interface_summary_apply_options()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_summary_detail_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -1139,6 +1513,16 @@ static int eigrpd_named_af_interface_summary_detail_destroy(
 		lyd_parent(args->dnode), omit_distance, omit_leak_map);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/summary-address
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_summary_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1162,6 +1546,16 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
 	return eigrpd_named_config_result(result, true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/shutdown
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_shutdown_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1182,6 +1576,16 @@ static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *a
 	return eigrpd_named_config_result(result, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/shutdown
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_interface_shutdown_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *interface_name;
@@ -1203,18 +1607,48 @@ static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args 
 }
 
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_policy_create(struct nb_cb_create_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_policy_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_description_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_description_modify(struct nb_cb_modify_args *args)
 {
     const struct lyd_node *policy = lyd_parent(args->dnode);
@@ -1233,6 +1667,16 @@ static int eigrpd_named_neighbor_description_modify(struct nb_cb_modify_args *ar
         &context, &address, yang_dnode_get_string(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_description_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_description_destroy(struct nb_cb_destroy_args *args)
 {
     const struct lyd_node *policy = lyd_parent(args->dnode);
@@ -1268,24 +1712,93 @@ static int eigrpd_named_neighbor_prefix_limit_apply(const struct lyd_node *dnode
         &context, &address, &limit), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_neighbor_prefix_limit_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_apply(args->dnode) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/maximum
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/threshold
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_neighbor_prefix_limit_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_apply(lyd_parent(args->dnode)) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/warning-only
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_empty_create(struct nb_cb_create_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix/warning-only
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_detail_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
+ * Target: eigrpd_named_neighbor_prefix_limit_apply() -> eigrp_neighbor_maximum_prefix_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `maximum prefix` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_neighbor_prefix_limit_apply() ->
+ * eigrp_neighbor_maximum_prefix_update()` rather than duplicating EIGRP behavior in the FRR
+ * northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_neighbor_prefix_limit_apply_finish(struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_neighbor_prefix_limit_apply(args->dnode);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_maximum_prefix_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_destroy(struct nb_cb_destroy_args *args)
 {
     const struct lyd_node *policy = lyd_parent(args->dnode);
@@ -1315,24 +1828,102 @@ static int eigrpd_named_neighbor_prefix_limit_all_apply(const struct lyd_node *d
     eigrpd_named_prefix_limit_get(dnode, &limit);
     return eigrpd_named_config_result(eigrp_neighbor_maximum_prefix_all_update(&context, &limit), false);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_neighbor_prefix_limit_all_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_all_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_all_apply(args->dnode) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/maximum
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/reset-time
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/restart
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/restart-count
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_neighbor_prefix_limit_all_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_all_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_all_apply(lyd_parent(args->dnode)) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/warning-only
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/dampened
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_all_empty_create(struct nb_cb_create_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/warning-only
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/dampened
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/reset-time
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/restart
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix/restart-count
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_all_detail_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
+ * Target: eigrpd_named_neighbor_prefix_limit_all_apply() -> eigrp_neighbor_maximum_prefix_all_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `neighbor maximum prefix`
+ * configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_neighbor_prefix_limit_all_apply() ->
+ * eigrp_neighbor_maximum_prefix_all_update()` rather than duplicating EIGRP behavior in the FRR
+ * northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_neighbor_prefix_limit_all_apply_finish(struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_neighbor_prefix_limit_all_apply(args->dnode);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_maximum_prefix_all_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_neighbor_prefix_limit_all_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
@@ -1342,6 +1933,16 @@ static int eigrpd_named_neighbor_prefix_limit_all_destroy(struct nb_cb_destroy_a
     return eigrpd_named_config_result(eigrp_neighbor_maximum_prefix_all_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_log_changes_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *args)
 {
     const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
@@ -1351,6 +1952,16 @@ static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *ar
     return eigrpd_named_config_result(eigrp_neighbor_log_changes_update(
         &context, yang_dnode_get_bool(args->dnode, NULL)), false);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_log_changes_reset()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_log_neighbor_changes_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
@@ -1370,19 +1981,78 @@ static int eigrpd_named_log_neighbor_warnings_apply(const struct lyd_node *dnode
     if (yang_dnode_exists(dnode, "interval")) seconds = yang_dnode_get_uint16(dnode, "interval");
     return eigrpd_named_config_result(eigrp_neighbor_log_warnings_update(&context, enabled, seconds), false);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_log_neighbor_warnings_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_log_neighbor_warnings_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_log_neighbor_warnings_apply(args->dnode) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings/enabled
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings/interval
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_log_neighbor_warnings_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_log_neighbor_warnings_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_log_neighbor_warnings_apply(lyd_parent(args->dnode)) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings/interval
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_log_neighbor_warnings_interval_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
+ * Target: eigrpd_named_log_neighbor_warnings_apply() -> eigrp_neighbor_log_warnings_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `log neighbor warnings` configuration
+ * node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_log_neighbor_warnings_apply() ->
+ * eigrp_neighbor_log_warnings_update()` rather than duplicating EIGRP behavior in the FRR
+ * northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_log_neighbor_warnings_apply_finish(struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_log_neighbor_warnings_apply(args->dnode);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_neighbor_log_warnings_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_log_neighbor_warnings_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
@@ -1471,6 +2141,16 @@ static bool eigrpd_named_summary_prefix_get(const struct lyd_node *dnode,
                                         prefix);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_topology_create()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_topology_create(struct nb_cb_create_args *args)
 {
 	const char *name, *vrf;
@@ -1487,6 +2167,16 @@ static int eigrpd_named_topology_create(struct nb_cb_create_args *args)
 	return eigrpd_named_config_result(eigrp_topology_create(&context), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_topology_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_topology_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -1503,6 +2193,16 @@ static int eigrpd_named_topology_destroy(struct nb_cb_destroy_args *args)
 	return eigrpd_named_config_result(eigrp_topology_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/auto-summary
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_summary_auto_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_auto_summary_create(struct nb_cb_create_args *args)
 {
 	const char *name, *vrf;
@@ -1519,6 +2219,16 @@ static int eigrpd_named_auto_summary_create(struct nb_cb_create_args *args)
 	return eigrpd_named_config_result(eigrp_summary_auto_update(&context, true), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/auto-summary
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_summary_auto_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_auto_summary_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -1559,6 +2269,16 @@ static int eigrpd_named_default_information_apply(const struct lyd_node *dnode,
 		!enabled);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-in
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_in_create(
 	struct nb_cb_create_args *args)
 {
@@ -1567,6 +2287,16 @@ static int eigrpd_named_default_information_in_create(
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-in
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_in_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -1575,6 +2305,16 @@ static int eigrpd_named_default_information_in_destroy(
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-out
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_out_create(
 	struct nb_cb_create_args *args)
 {
@@ -1583,6 +2323,16 @@ static int eigrpd_named_default_information_out_create(
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-out
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_out_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -1591,6 +2341,16 @@ static int eigrpd_named_default_information_out_destroy(
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-in/access-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_in_modify(struct nb_cb_modify_args *args)
 {
     return args->event == NB_EV_APPLY
@@ -1598,6 +2358,16 @@ static int eigrpd_named_default_information_in_modify(struct nb_cb_modify_args *
                : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-out/access-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_out_modify(struct nb_cb_modify_args *args)
 {
     return args->event == NB_EV_APPLY
@@ -1605,6 +2375,17 @@ static int eigrpd_named_default_information_out_modify(struct nb_cb_modify_args 
                : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-in/access-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-out/access-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_information_access_list_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -1612,12 +2393,48 @@ static int eigrpd_named_default_information_access_list_destroy(
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-in
+ * Target: eigrpd_named_default_information_apply() -> eigrp_topology_default_information_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `default information in` configuration
+ * node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_default_information_apply() ->
+ * eigrp_topology_default_information_update()` rather than duplicating EIGRP behavior in the
+ * FRR northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_default_information_in_apply_finish(
 	struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_default_information_apply(args->dnode, true, true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-out
+ * Target: eigrpd_named_default_information_apply() -> eigrp_topology_default_information_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `default information out`
+ * configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_default_information_apply() ->
+ * eigrp_topology_default_information_update()` rather than duplicating EIGRP behavior in the
+ * FRR northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_default_information_out_apply_finish(
 	struct nb_cb_apply_finish_args *args)
 {
@@ -1641,6 +2458,16 @@ static int eigrpd_named_default_metric_apply(const struct lyd_node *dnode)
 		eigrp_metric_default_update(&context, &metric), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_metric_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_metric_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1648,6 +2475,20 @@ static int eigrpd_named_default_metric_create(struct nb_cb_create_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric/bandwidth
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric/delay
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric/reliability
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric/load
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric/mtu
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_default_metric_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_metric_modify(struct nb_cb_modify_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1655,6 +2496,16 @@ static int eigrpd_named_default_metric_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_default_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_default_metric_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -1688,6 +2539,16 @@ static int eigrpd_named_distance_apply(const struct lyd_node *dnode)
 		false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_distance_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distance_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1695,6 +2556,17 @@ static int eigrpd_named_distance_create(struct nb_cb_create_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance/internal
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance/external
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_distance_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distance_modify(struct nb_cb_modify_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1702,6 +2574,16 @@ static int eigrpd_named_distance_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_instance_distance_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distance_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -1734,35 +2616,112 @@ static int eigrpd_named_maximum_prefix_apply(const struct lyd_node *dnode)
         eigrp_topology_maximum_prefix_update(&context, &limit), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_prefix_create(struct nb_cb_create_args *args)
 {
     return args->event == NB_EV_APPLY
                ? eigrpd_named_maximum_prefix_apply(args->dnode) : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/maximum
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/reset-time
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/restart
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/restart-count
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_prefix_modify(struct nb_cb_modify_args *args)
 {
     return args->event == NB_EV_APPLY
                ? eigrpd_named_maximum_prefix_apply(lyd_parent(args->dnode)) : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/warning-only
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/dampened
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_prefix_empty_create(struct nb_cb_create_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/warning-only
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/dampened
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/reset-time
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/restart
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix/restart-count
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_prefix_detail_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
+ * Target: eigrpd_named_maximum_prefix_apply() -> eigrp_topology_maximum_prefix_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `maximum prefix` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_maximum_prefix_apply() ->
+ * eigrp_topology_maximum_prefix_update()` rather than duplicating EIGRP behavior in the FRR
+ * northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_maximum_prefix_apply_finish(struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_maximum_prefix_apply(args->dnode);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_topology_maximum_prefix_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf;
@@ -1779,6 +2738,16 @@ static int eigrpd_named_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
         eigrp_topology_maximum_prefix_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_topology_maximum_paths_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_paths_modify(struct nb_cb_modify_args *args)
 {
     const char *name, *vrf;
@@ -1794,6 +2763,16 @@ static int eigrpd_named_maximum_paths_modify(struct nb_cb_modify_args *args)
         &context, yang_dnode_get_uint8(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_topology_maximum_paths_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_maximum_paths_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf;
@@ -1808,6 +2787,16 @@ static int eigrpd_named_maximum_paths_destroy(struct nb_cb_destroy_args *args)
     return eigrpd_named_config_result(eigrp_topology_maximum_paths_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_maximum_hops_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_maximum_hops_modify(struct nb_cb_modify_args *args)
 {
     const char *name, *vrf;
@@ -1823,6 +2812,16 @@ static int eigrpd_named_metric_maximum_hops_modify(struct nb_cb_modify_args *arg
         &context, yang_dnode_get_uint8(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_maximum_hops_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_maximum_hops_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf;
@@ -1837,6 +2836,16 @@ static int eigrpd_named_metric_maximum_hops_destroy(struct nb_cb_destroy_args *a
     return eigrpd_named_config_result(eigrp_metric_maximum_hops_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_holddown_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_holddown_create(struct nb_cb_create_args *args)
 {
     const char *name, *vrf;
@@ -1851,6 +2860,16 @@ static int eigrpd_named_metric_holddown_create(struct nb_cb_create_args *args)
     return eigrpd_named_config_result(eigrp_metric_holddown_update(&context, true), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_holddown_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_holddown_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf;
@@ -1865,6 +2884,16 @@ static int eigrpd_named_metric_holddown_destroy(struct nb_cb_destroy_args *args)
     return eigrpd_named_config_result(eigrp_metric_holddown_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_eventlog_size_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
 {
     const char *name, *vrf;
@@ -1880,6 +2909,16 @@ static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
         &context, yang_dnode_get_uint32(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_eventlog_size_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_event_log_size_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf;
@@ -1919,6 +2958,16 @@ static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
 		eigrp_metric_weights_update(&context, &weights), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_metric_weights_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_weights_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1926,6 +2975,22 @@ static int eigrpd_named_metric_weights_create(struct nb_cb_create_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/tos
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K1
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K2
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K3
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K4
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K5
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K6
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_metric_weights_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_weights_modify(struct nb_cb_modify_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -1933,6 +2998,16 @@ static int eigrpd_named_metric_weights_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights/K6
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_weights_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
 {
 	const struct lyd_node *parent;
@@ -1962,6 +3037,16 @@ static int eigrpd_named_metric_weights_K6_destroy(struct nb_cb_destroy_args *arg
 		eigrp_metric_weights_update(&context, &weights), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_weights_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_metric_weights_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -2004,6 +3089,16 @@ static int eigrpd_named_offset_list_apply(const struct lyd_node *dnode)
 		false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/offset-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_offset_list_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_offset_list_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -2011,6 +3106,16 @@ static int eigrpd_named_offset_list_create(struct nb_cb_create_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/offset-list/offset
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_offset_list_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_offset_list_modify(struct nb_cb_modify_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -2018,6 +3123,16 @@ static int eigrpd_named_offset_list_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/offset-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_offset_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_offset_list_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf, *direction, *interface_name, *access_list;
@@ -2084,6 +3199,16 @@ static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
 	return eigrpd_named_redistribute_apply_options(dnode, include_metrics, false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -2091,6 +3216,16 @@ static int eigrpd_named_redistribute_create(struct nb_cb_create_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_metrics_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -2098,6 +3233,20 @@ static int eigrpd_named_redistribute_metrics_create(struct nb_cb_create_args *ar
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/bandwidth
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/delay
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/reliability
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/load
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/mtu
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_metrics_modify(struct nb_cb_modify_args *args)
 {
 	const struct lyd_node *redistribute = lyd_parent(lyd_parent(args->dnode));
@@ -2107,6 +3256,16 @@ static int eigrpd_named_redistribute_metrics_modify(struct nb_cb_modify_args *ar
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_metrics_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -2115,6 +3274,16 @@ static int eigrpd_named_redistribute_metrics_destroy(
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/route-map
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_route_map_modify(struct nb_cb_modify_args *args)
 {
     return args->event == NB_EV_APPLY
@@ -2122,6 +3291,16 @@ static int eigrpd_named_redistribute_route_map_modify(struct nb_cb_modify_args *
                : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/route-map
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_apply_options()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_route_map_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -2131,12 +3310,39 @@ static int eigrpd_named_redistribute_route_map_destroy(
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
+ * Target: eigrpd_named_redistribute_apply() -> eigrpd_named_redistribute_apply_options() -> eigrp_redistribute_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `redistribute` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_redistribute_apply() ->
+ * eigrpd_named_redistribute_apply_options() -> eigrp_redistribute_update()` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_redistribute_apply_finish(
 	struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_redistribute_apply(args->dnode, true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_redistribute_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -2166,25 +3372,103 @@ static int eigrpd_named_redistribute_maximum_prefix_apply(const struct lyd_node 
     eigrpd_named_prefix_limit_get(dnode, &limit);
     return eigrpd_named_config_result(eigrp_redistribute_maximum_prefix_update(&context, &limit), false);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_maximum_prefix_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_redistribute_maximum_prefix_apply(args->dnode) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/maximum
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/reset-time
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/restart
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/restart-count
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_redistribute_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_maximum_prefix_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_redistribute_maximum_prefix_apply(lyd_parent(args->dnode)) : NB_OK; }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/warning-only
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/dampened
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_maximum_prefix_empty_create(struct nb_cb_create_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/threshold
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/warning-only
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/dampened
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/reset-time
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/restart
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix/restart-count
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_maximum_prefix_detail_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
+ * Target: eigrpd_named_redistribute_maximum_prefix_apply() -> eigrp_redistribute_maximum_prefix_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `redistribute maximum prefix`
+ * configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_redistribute_maximum_prefix_apply() ->
+ * eigrp_redistribute_maximum_prefix_update()` rather than duplicating EIGRP behavior in the FRR
+ * northbound layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_redistribute_maximum_prefix_apply_finish(
 	struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_redistribute_maximum_prefix_apply(args->dnode);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_redistribute_maximum_prefix_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_redistribute_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
 {
     const char *name, *vrf; eigrp_address_family_t afi; eigrp_instance_context_t context; uint16_t asn;
@@ -2194,18 +3478,51 @@ static int eigrpd_named_redistribute_maximum_prefix_destroy(struct nb_cb_destroy
     return eigrpd_named_config_result(eigrp_redistribute_maximum_prefix_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distribute_list_entry_create(struct nb_cb_create_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distribute_list_entry_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/in/access-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/in/prefix-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/out/access-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/out/prefix-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_distribute_list_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distribute_list_modify(struct nb_cb_modify_args *args)
 {
     const struct lyd_node *direction_node = lyd_parent(args->dnode);
@@ -2226,6 +3543,19 @@ static int eigrpd_named_distribute_list_modify(struct nb_cb_modify_args *args)
         &context, type, yang_dnode_get_string(args->dnode, NULL), dir,
         ifname && ifname[0] ? ifname : NULL), false);
 }
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/in/access-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/in/prefix-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/out/access-list
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distribute-list/out/prefix-list
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_distribute_list_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_distribute_list_destroy(struct nb_cb_destroy_args *args)
 {
     const struct lyd_node *direction_node = lyd_parent(args->dnode);
@@ -2272,6 +3602,16 @@ static int eigrpd_named_summary_metric_apply(const struct lyd_node *dnode)
         eigrp_summary_metric_update(&context, &prefix, &config), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_summary_metric_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_summary_metric_create(struct nb_cb_create_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -2279,6 +3619,21 @@ static int eigrpd_named_summary_metric_create(struct nb_cb_create_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/bandwidth
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/delay
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/reliability
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/load
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/mtu
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/distance
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback delegates to `eigrpd_named_summary_metric_apply()`, which reaches the EIGRP-owned target for the command.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_summary_metric_modify(struct nb_cb_modify_args *args)
 {
 	return args->event == NB_EV_APPLY
@@ -2286,6 +3641,21 @@ static int eigrpd_named_summary_metric_modify(struct nb_cb_modify_args *args)
 		       : NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/bandwidth
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/delay
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/reliability
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/load
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/mtu
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric/distance
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_summary_metric_detail_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -2293,12 +3663,39 @@ static int eigrpd_named_summary_metric_detail_destroy(
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
+ * Target: eigrpd_named_summary_metric_apply() -> eigrp_summary_metric_update()
+ * Description:
+ * This is the `apply_finish` northbound callback for the `summary metric` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
+ * one settled command state.
+ * The runtime path terminates at `eigrpd_named_summary_metric_apply() ->
+ * eigrp_summary_metric_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * This is named-mode configuration, so host and YANG objects stop at this boundary and the
+ * protocol work stays in EIGRP-owned code.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static void eigrpd_named_summary_metric_apply_finish(
 	struct nb_cb_apply_finish_args *args)
 {
 	(void)eigrpd_named_summary_metric_apply(args->dnode);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_summary_metric_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_summary_metric_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -2320,6 +3717,16 @@ static int eigrpd_named_summary_metric_destroy(struct nb_cb_destroy_args *args)
 		eigrp_summary_metric_delete(&context, &prefix), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_timer_active_time_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_active_time_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf;
@@ -2336,6 +3743,16 @@ static int eigrpd_named_active_time_modify(struct nb_cb_modify_args *args)
 	return eigrpd_named_config_result(eigrp_timer_active_time_update(&context, yang_dnode_get_uint16(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_timer_active_time_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_active_time_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -2352,6 +3769,16 @@ static int eigrpd_named_active_time_destroy(struct nb_cb_destroy_args *args)
 	return eigrpd_named_config_result(eigrp_timer_active_time_delete(&context), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_traffic_share_balanced_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_traffic_share_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf;
@@ -2368,6 +3795,16 @@ static int eigrpd_named_traffic_share_modify(struct nb_cb_modify_args *args)
 	return eigrpd_named_config_result(eigrp_metric_traffic_share_balanced_update(&context, yang_dnode_get_bool(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_traffic_share_balanced_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_traffic_share_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -2384,6 +3821,16 @@ static int eigrpd_named_traffic_share_destroy(struct nb_cb_destroy_args *args)
 	return eigrpd_named_config_result(eigrp_metric_traffic_share_balanced_update(&context, true), true);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/variance
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_variance_update()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_variance_modify(struct nb_cb_modify_args *args)
 {
 	const char *name, *vrf;
@@ -2400,6 +3847,16 @@ static int eigrpd_named_variance_modify(struct nb_cb_modify_args *args)
 	return eigrpd_named_config_result(eigrp_metric_variance_update(&context, yang_dnode_get_uint8(args->dnode, NULL)), false);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/variance
+ * Description:
+ * This is the FRR northbound edge for the named-mode node above.
+ * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
+ * It resolves the named address-family, topology, or interface context before changing EIGRP state.
+ * This callback calls `eigrp_metric_variance_delete()` instead of carrying protocol behavior in the FRR layer.
+ * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
+ * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ */
 static int eigrpd_named_variance_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
@@ -2418,6 +3875,19 @@ static int eigrpd_named_variance_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance
+ * Target: eigrp_get()
+ * Description:
+ * This is the `create` northbound callback for the `classic EIGRP instance` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_get()` rather than duplicating EIGRP behavior in the
+ * FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_create(struct nb_cb_create_args *args)
 {
@@ -2465,6 +3935,23 @@ static int eigrpd_instance_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance
+ * Target: eigrp_finish_final()
+ * Description:
+ * This is the `destroy` northbound callback for the `classic EIGRP instance` configuration
+ * node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_finish_final()` rather than duplicating EIGRP behavior
+ * in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
@@ -2486,6 +3973,19 @@ static int eigrpd_instance_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/router-id
+ * Target: eigrp_instance_router_id_update()
+ * Description:
+ * This is the `modify` northbound callback for the `router id` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_instance_router_id_update()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_router_id_modify(struct nb_cb_modify_args *args)
 {
@@ -2513,6 +4013,22 @@ static int eigrpd_instance_router_id_modify(struct nb_cb_modify_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/router-id
+ * Target: eigrp_instance_router_id_delete()
+ * Description:
+ * This is the `destroy` northbound callback for the `router id` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_instance_router_id_delete()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_router_id_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
@@ -2538,6 +4054,19 @@ static int eigrpd_instance_router_id_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/passive-interface
+ * Target: eigrp_interface_passive_update()
+ * Description:
+ * This is the `create` northbound callback for the `passive interface` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_interface_passive_update()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
@@ -2576,6 +4105,22 @@ eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/passive-interface
+ * Target: eigrp_interface_passive_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `passive interface` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_interface_passive_update()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_passive_interface_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2607,6 +4152,19 @@ eigrpd_instance_passive_interface_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/active-time
+ * Target: none; classic runtime unsupported
+ * Description:
+ * This is the `modify` northbound callback for the `active time` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `none; classic runtime unsupported` and the callback does not invent protocol
+ * behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_active_time_modify(struct nb_cb_modify_args *args)
 {
@@ -2621,6 +4179,19 @@ static int eigrpd_instance_active_time_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/variance
+ * Target: eigrp_metric_variance_update()
+ * Description:
+ * This is the `modify` northbound callback for the `variance` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_metric_variance_update()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_variance_modify(struct nb_cb_modify_args *args)
 {
@@ -2645,6 +4216,22 @@ static int eigrpd_instance_variance_modify(struct nb_cb_modify_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/variance
+ * Target: eigrp_metric_variance_delete()
+ * Description:
+ * This is the `destroy` northbound callback for the `variance` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_metric_variance_delete()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_variance_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
@@ -2668,6 +4255,19 @@ static int eigrpd_instance_variance_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/maximum-paths
+ * Target: eigrp_topology_maximum_paths_update()
+ * Description:
+ * This is the `modify` northbound callback for the `maximum paths` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_topology_maximum_paths_update()` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_maximum_paths_modify(struct nb_cb_modify_args *args)
 {
@@ -2686,6 +4286,22 @@ static int eigrpd_instance_maximum_paths_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/maximum-paths
+ * Target: eigrp_topology_maximum_paths_delete()
+ * Description:
+ * This is the `destroy` northbound callback for the `maximum paths` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_topology_maximum_paths_delete()` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_maximum_paths_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2705,6 +4321,19 @@ eigrpd_instance_maximum_paths_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/event-log-size
+ * Target: eigrp_eventlog_size_update()
+ * Description:
+ * This is the `modify` northbound callback for the `event log size` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_eventlog_size_update()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_event_log_size_modify(struct nb_cb_modify_args *args)
 {
@@ -2723,6 +4352,22 @@ static int eigrpd_instance_event_log_size_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/event-log-size
+ * Target: eigrp_eventlog_size_delete()
+ * Description:
+ * This is the `destroy` northbound callback for the `event log size` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_eventlog_size_delete()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_event_log_size_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -2781,6 +4426,20 @@ static eigrp_result_t eigrpd_instance_metric_weight_update(
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K1
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `modify` northbound callback for the `metric coefficient K1` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_metric_weights_K1_modify(struct nb_cb_modify_args *args)
@@ -2797,6 +4456,23 @@ eigrpd_instance_metric_weights_K1_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K1
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `metric coefficient K1` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_metric_weights_K1_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2813,6 +4489,20 @@ eigrpd_instance_metric_weights_K1_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K2
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `modify` northbound callback for the `metric coefficient K2` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_metric_weights_K2_modify(struct nb_cb_modify_args *args)
@@ -2829,6 +4519,23 @@ eigrpd_instance_metric_weights_K2_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K2
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `metric coefficient K2` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_metric_weights_K2_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2845,6 +4552,20 @@ eigrpd_instance_metric_weights_K2_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K3
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `modify` northbound callback for the `metric coefficient K3` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_metric_weights_K3_modify(struct nb_cb_modify_args *args)
@@ -2861,6 +4582,23 @@ eigrpd_instance_metric_weights_K3_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K3
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `metric coefficient K3` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_metric_weights_K3_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2877,6 +4615,20 @@ eigrpd_instance_metric_weights_K3_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K4
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `modify` northbound callback for the `metric coefficient K4` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_metric_weights_K4_modify(struct nb_cb_modify_args *args)
@@ -2893,6 +4645,23 @@ eigrpd_instance_metric_weights_K4_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K4
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `metric coefficient K4` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_metric_weights_K4_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2909,6 +4678,20 @@ eigrpd_instance_metric_weights_K4_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K5
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `modify` northbound callback for the `metric coefficient K5` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_metric_weights_K5_modify(struct nb_cb_modify_args *args)
@@ -2925,6 +4708,23 @@ eigrpd_instance_metric_weights_K5_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K5
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `metric coefficient K5` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_metric_weights_K5_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2941,6 +4741,20 @@ eigrpd_instance_metric_weights_K5_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K6
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `modify` northbound callback for the `metric coefficient K6` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_metric_weights_K6_modify(struct nb_cb_modify_args *args)
@@ -2957,6 +4771,23 @@ eigrpd_instance_metric_weights_K6_modify(struct nb_cb_modify_args *args)
 	       : NB_ERR_INCONSISTENCY;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K6
+ * Target: eigrpd_instance_metric_weight_update() -> eigrp_metric_weights_update()
+ * Description:
+ * This is the `destroy` northbound callback for the `metric coefficient K6` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_metric_weight_update() ->
+ * eigrp_metric_weights_update()` rather than duplicating EIGRP behavior in the FRR northbound
+ * layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2973,6 +4804,14 @@ eigrpd_instance_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/network
+ * Target: eigrp_network_create()
+ * Description:
+ * This callback creates one classic IPv4 EIGRP network entry.
+ * The YANG IPv4 prefix is converted to `eigrp_prefix_t` before it crosses into common EIGRP code.
+ * VALIDATE uses `eigrp_southbound_network_exists()` so a duplicate runtime entry is rejected before APPLY.
+ * APPLY resolves the owning instance and calls `eigrp_network_create()` with an EIGRP-owned instance context.
+ * Named IPv4 `network` reaches the same `eigrp_network_create()` target, so classic and named mode converge below northbound.
+ * Prefix conversion or common-target failures return `NB_ERR_INCONSISTENCY` instead of being hidden by the FRR adapter.
  */
 static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 {
@@ -3014,6 +4853,17 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/network
+ * Target: eigrp_network_delete()
+ * Description:
+ * This callback removes one classic IPv4 EIGRP network entry.
+ * The YANG IPv4 prefix is converted to `eigrp_prefix_t` before it crosses into common EIGRP code.
+ * VALIDATE uses `eigrp_southbound_network_exists()` so a missing runtime entry is detected before APPLY.
+ * APPLY resolves the owning instance and calls `eigrp_network_delete()` with an EIGRP-owned instance context.
+ * Named IPv4 `network` reaches the same `eigrp_network_delete()` target, so classic and named mode converge below northbound.
+ * A final `NOT_FOUND` is treated as already removed, while conversion and other target failures return `NB_ERR_INCONSISTENCY`.
+ */
 static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_context_t context = {0};
@@ -3057,6 +4907,19 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/neighbor
+ * Target: none; classic static-neighbor runtime unsupported
+ * Description:
+ * This is the `create` northbound callback for the `neighbor` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `none; classic static-neighbor runtime unsupported` and the callback does not
+ * invent protocol behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_neighbor_create(struct nb_cb_create_args *args)
 {
@@ -3069,6 +4932,22 @@ static int eigrpd_instance_neighbor_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/neighbor
+ * Target: stale configuration cleanup only
+ * Description:
+ * This is the `destroy` northbound callback for the `neighbor` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `stale configuration cleanup only` and the callback does not invent protocol
+ * behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_neighbor_destroy(struct nb_cb_destroy_args *args)
 {
 	(void)args;
@@ -3078,6 +4957,19 @@ static int eigrpd_instance_neighbor_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/distribute-list
+ * Target: eigrp_policy_distribute_context()
+ * Description:
+ * This is the `create` northbound callback for the `distribute list` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_policy_distribute_context()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrp_northbound_distribute_list_create(
 	struct nb_cb_create_args *args)
@@ -3098,6 +4990,19 @@ static int eigrp_northbound_distribute_list_create(
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute
+ * Target: eigrp_redistribute_set()
+ * Description:
+ * This is the `create` northbound callback for the `redistribute` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_redistribute_set()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_redistribute_create(struct nb_cb_create_args *args)
 {
@@ -3137,6 +5042,22 @@ static int eigrpd_instance_redistribute_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute
+ * Target: eigrp_redistribute_unset()
+ * Description:
+ * This is the `destroy` northbound callback for the `redistribute` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_redistribute_unset()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_redistribute_destroy(struct nb_cb_destroy_args *args)
 {
 	eigrp_instance_t *eigrp;
@@ -3160,6 +5081,19 @@ static int eigrpd_instance_redistribute_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/route-map
+ * Target: none; classic redistribute route-map runtime unsupported
+ * Description:
+ * This is the `modify` northbound callback for the `route map` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `none; classic redistribute route-map runtime unsupported` and the callback
+ * does not invent protocol behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_redistribute_route_map_modify(struct nb_cb_modify_args *args)
@@ -3173,6 +5107,22 @@ eigrpd_instance_redistribute_route_map_modify(struct nb_cb_modify_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute/route-map
+ * Target: stale configuration cleanup only
+ * Description:
+ * This is the `destroy` northbound callback for the `route map` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `stale configuration cleanup only` and the callback does not invent protocol
+ * behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 eigrpd_instance_redistribute_route_map_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3183,6 +5133,19 @@ eigrpd_instance_redistribute_route_map_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/bandwidth
+ * Target: eigrp_redistribute_set()
+ * Description:
+ * This is the `modify` northbound callback for the `bandwidth` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_redistribute_set()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_redistribute_metrics_bandwidth_modify(
 	struct nb_cb_modify_args *args)
@@ -3208,6 +5171,22 @@ static int eigrpd_instance_redistribute_metrics_bandwidth_modify(
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/bandwidth
+ * Target: eigrp_redistribute_set()
+ * Description:
+ * This is the `destroy` northbound callback for the `bandwidth` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_redistribute_set()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_redistribute_metrics_bandwidth_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -3234,6 +5213,19 @@ static int eigrpd_instance_redistribute_metrics_bandwidth_destroy(
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/delay
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_modify() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `modify` northbound callback for the `delay` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_modify() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_redistribute_metrics_delay_modify(
 	struct nb_cb_modify_args *args)
@@ -3241,6 +5233,22 @@ static int eigrpd_instance_redistribute_metrics_delay_modify(
 	return eigrpd_instance_redistribute_metrics_bandwidth_modify(args);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/delay
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_destroy() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `destroy` northbound callback for the `delay` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_destroy() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_redistribute_metrics_delay_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -3249,6 +5257,19 @@ static int eigrpd_instance_redistribute_metrics_delay_destroy(
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/reliability
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_modify() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `modify` northbound callback for the `reliability` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_modify() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int eigrpd_instance_redistribute_metrics_reliability_modify(
 	struct nb_cb_modify_args *args)
@@ -3256,6 +5277,22 @@ static int eigrpd_instance_redistribute_metrics_reliability_modify(
 	return eigrpd_instance_redistribute_metrics_bandwidth_modify(args);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/reliability
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_destroy() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `destroy` northbound callback for the `reliability` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_destroy() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_redistribute_metrics_reliability_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -3264,6 +5301,19 @@ static int eigrpd_instance_redistribute_metrics_reliability_destroy(
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/load
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_modify() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `modify` northbound callback for the `load` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_modify() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_redistribute_metrics_load_modify(struct nb_cb_modify_args *args)
@@ -3271,6 +5321,22 @@ eigrpd_instance_redistribute_metrics_load_modify(struct nb_cb_modify_args *args)
 	return eigrpd_instance_redistribute_metrics_bandwidth_modify(args);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/load
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_destroy() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `destroy` northbound callback for the `load` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_destroy() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_redistribute_metrics_load_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -3279,6 +5345,19 @@ static int eigrpd_instance_redistribute_metrics_load_destroy(
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/mtu
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_modify() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `modify` northbound callback for the `mtu` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_modify() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 eigrpd_instance_redistribute_metrics_mtu_modify(struct nb_cb_modify_args *args)
@@ -3286,6 +5365,22 @@ eigrpd_instance_redistribute_metrics_mtu_modify(struct nb_cb_modify_args *args)
 	return eigrpd_instance_redistribute_metrics_bandwidth_modify(args);
 }
 
+/*
+ * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/mtu
+ * Target: eigrpd_instance_redistribute_metrics_bandwidth_destroy() -> eigrp_redistribute_set()
+ * Description:
+ * This is the `destroy` northbound callback for the `mtu` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrpd_instance_redistribute_metrics_bandwidth_destroy() ->
+ * eigrp_redistribute_set()` rather than duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int eigrpd_instance_redistribute_metrics_mtu_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -3294,6 +5389,19 @@ static int eigrpd_instance_redistribute_metrics_mtu_destroy(
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/delay
+ * Target: eigrp_interface_runtime_reset()
+ * Description:
+ * This is the `modify` northbound callback for the `delay` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_interface_runtime_reset()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 {
@@ -3335,6 +5443,19 @@ static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/bandwidth
+ * Target: eigrp_interface_runtime_reset()
+ * Description:
+ * This is the `modify` northbound callback for the `bandwidth` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_interface_runtime_reset()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int lib_interface_eigrp_bandwidth_modify(struct nb_cb_modify_args *args)
 {
@@ -3376,6 +5497,19 @@ static int lib_interface_eigrp_bandwidth_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/hello-interval
+ * Target: eigrp_interface_hello_interval_update()
+ * Description:
+ * This is the `modify` northbound callback for the `hello interval` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_interface_hello_interval_update()` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 lib_interface_eigrp_hello_interval_modify(struct nb_cb_modify_args *args)
@@ -3414,6 +5548,19 @@ lib_interface_eigrp_hello_interval_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/hold-time
+ * Target: eigrp_interface_hold_time_update()
+ * Description:
+ * This is the `modify` northbound callback for the `hold time` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_interface_hold_time_update()` rather than duplicating
+ * EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int lib_interface_eigrp_hold_time_modify(struct nb_cb_modify_args *args)
 {
@@ -3451,6 +5598,19 @@ static int lib_interface_eigrp_hold_time_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/split-horizon
+ * Target: none; classic split-horizon runtime unsupported
+ * Description:
+ * This is the `modify` northbound callback for the `split horizon` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `none; classic split-horizon runtime unsupported` and the callback does not
+ * invent protocol behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 lib_interface_eigrp_split_horizon_modify(struct nb_cb_modify_args *args)
@@ -3466,6 +5626,19 @@ lib_interface_eigrp_split_horizon_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance
+ * Target: eigrp_get()
+ * Description:
+ * This is the `create` northbound callback for the `classic EIGRP instance` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `eigrp_get()` rather than duplicating EIGRP behavior in the
+ * FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int lib_interface_eigrp_instance_create(struct nb_cb_create_args *args)
 {
@@ -3509,6 +5682,23 @@ static int lib_interface_eigrp_instance_create(struct nb_cb_create_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance
+ * Target: nb_running_unset_entry()
+ * Description:
+ * This is the `destroy` northbound callback for the `classic EIGRP instance` configuration
+ * node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `nb_running_unset_entry()` rather than duplicating EIGRP
+ * behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int lib_interface_eigrp_instance_destroy(struct nb_cb_destroy_args *args)
 {
 	switch (args->event) {
@@ -3526,8 +5716,20 @@ static int lib_interface_eigrp_instance_destroy(struct nb_cb_destroy_args *args)
 }
 
 /*
- * XPath:
- * /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/summarize-addresses
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/summarize-addresses
+ * Target: none; classic summary runtime unsupported
+ * Description:
+ * This is the `create` northbound callback for the `summarize addresses` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `none; classic summary runtime unsupported` and the callback does not invent
+ * protocol behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int lib_interface_eigrp_instance_summarize_addresses_create(
 	struct nb_cb_create_args *args)
@@ -3541,6 +5743,22 @@ static int lib_interface_eigrp_instance_summarize_addresses_create(
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/summarize-addresses
+ * Target: stale configuration cleanup only
+ * Description:
+ * This is the `destroy` northbound callback for the `summarize addresses` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The target is `stale configuration cleanup only` and the callback does not invent protocol
+ * behavior that the classic runtime does not implement.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int lib_interface_eigrp_instance_summarize_addresses_destroy(
 	struct nb_cb_destroy_args *args)
 {
@@ -3551,6 +5769,19 @@ static int lib_interface_eigrp_instance_summarize_addresses_destroy(
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/authentication
+ * Target: classic EIGRP interface authentication state
+ * Description:
+ * This is the `modify` northbound callback for the `authentication` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `classic EIGRP interface authentication state` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int lib_interface_eigrp_instance_authentication_modify(
 	struct nb_cb_modify_args *args)
@@ -3574,6 +5805,19 @@ static int lib_interface_eigrp_instance_authentication_modify(
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/keychain
+ * Target: classic EIGRP interface key-chain state
+ * Description:
+ * This is the `modify` northbound callback for the `keychain` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `classic EIGRP interface key-chain state` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
  */
 static int
 lib_interface_eigrp_instance_keychain_modify(struct nb_cb_modify_args *args)
@@ -3610,6 +5854,22 @@ lib_interface_eigrp_instance_keychain_modify(struct nb_cb_modify_args *args)
 	return NB_OK;
 }
 
+/*
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/keychain
+ * Target: classic EIGRP interface key-chain state
+ * Description:
+ * This is the `destroy` northbound callback for the `keychain` configuration node.
+ * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
+ * state is touched.
+ * The callback follows northbound event ordering so validation and prepare do not perform
+ * protocol work that belongs in APPLY.
+ * The runtime path terminates at `classic EIGRP interface key-chain state` rather than
+ * duplicating EIGRP behavior in the FRR northbound layer.
+ * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
+ * boundary rather than calling this classic FRR callback.
+ * Failures are returned through northbound status so inconsistent, incomplete, or unsupported
+ * runtime state is not silently accepted.
+ */
 static int
 lib_interface_eigrp_instance_keychain_destroy(struct nb_cb_destroy_args *args)
 {

@@ -33,7 +33,7 @@ Current integration patches:
   references, next-hop-self, split horizon, IPv4 summary addresses, and
   interface shutdown state.
 - `eigrp-named-topology.patch` adds the retained named `topology base`
-  hierarchy and Step-1 topology configuration nodes.
+  hierarchy and named topology configuration nodes.
 - `eigrp-named-topology-callbacks.patch` tightens compound topology command
   leaves to mandatory values so FRR northbound callback validation matches the
   parent create/destroy plus child modify ownership model.

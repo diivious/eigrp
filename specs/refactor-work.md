@@ -4,15 +4,20 @@ Copyright (C) 2026 Donnie V. Savage
 
 ## Purpose
 
-This file is the parking lot for architectural and naming cleanup that should be revisited before production release but should not interrupt active RFC 7868/named-mode feature work unless it becomes a functional blocker.
+This file is the bounded parking lot for architectural cleanup that is
+intentionally deferred until a pre-production refactor review.
 
-Items here are design decisions or cleanup work, not permission to refactor unrelated code during a feature change.
+Items here are not development status notes and are not permission to refactor
+unrelated code during feature work. A feature change should touch a parked item
+only when the parked issue becomes a functional blocker or the user explicitly
+approves the refactor.
 
-## 1. DUAL Topology Descriptor Naming
+Completed audits and historical implementation steps do not belong here.
 
-### Current model
+## 1. DUAL topology descriptor naming
 
-The DUAL topology database has a destination-level descriptor and a set of path-level descriptors beneath it:
+The topology database has a destination-level descriptor with one or more
+neighbor/path descriptors:
 
 ```text
 prefix_descriptor
@@ -21,118 +26,137 @@ prefix_descriptor
     ...
 ```
 
-Cisco terminology historically maps these to DNDB/NDB and DRDB/RDB concepts.
+Cisco historical terminology maps these concepts to DNDB/NDB and DRDB/RDB.
 
-### Reason for review
-
-The words `prefix` and `route` are readable, but `route` is overloaded by the host platform, Zebra/RIB integration, kernel routing, and DUAL topology processing. Cisco's DNDB/DRDB abbreviations have several practical advantages:
-
-- they are established EIGRP terminology visible in real-world debugging;
-- they are concise and easy to type;
-- they are highly searchable;
-- they distinguish DUAL topology objects from platform routes;
-- they make the one-prefix-to-many-routes relationship explicit to experienced EIGRP developers/operators.
-
-The current `prefix_descriptor` / `route_descriptor` terminology also intentionally provides some separation from Cisco's historical implementation naming.
-
-### Decision to make before production
-
-Evaluate at least these alternatives against the completed code:
-
-```text
-A. eigrp_topology_prefix_* / eigrp_topology_route_*
-B. eigrp_topology_prefix_descriptor_* / eigrp_topology_route_descriptor_*
-C. eigrp_topology_dndb_* / eigrp_topology_drdb_*
-D. hybrid naming, with descriptive C types and DNDB/DRDB navigation/debug names
-```
-
-Review actual usage across:
+Before production, choose one final source/API navigation convention after
+reviewing real usage across:
 
 ```text
 eigrp_topology
-eigrp_fsm / DUAL processing
-query/update/reply processing
-packet/TLV encode-decode
+DUAL/FSM processing
+query/update/reply/SIA processing
+packetizer and TLV codecs
 show/debug/dump output
-southbound/Zebra route installation
+southbound RIB installation
 tests
 ```
 
-Do not decide this from naming aesthetics alone. The final convention should make it immediately clear whether an operation acts on a DUAL destination object, one DUAL path descriptor, or a host/RIB route.
-
-### Current rule
-
-Do not perform rename-only churn here during named-mode implementation. Preserve existing names unless a functional change requires touching them, and avoid adding new ambiguous bare `route` APIs.
-
-## 2. Instance / Process Lifecycle Navigation
-
-The runtime protocol context is already represented by `eigrp_instance_t`, but lifecycle functions are currently distributed across legacy files and names such as `eigrp_new()`, `eigrp_get()`, `eigrp_finish()`, and `eigrp_lookup()`.
-
-Before production, review whether runtime/process ownership should be consolidated so a developer debugging an EIGRP process/thread can predictably search:
+Candidate naming families include:
 
 ```text
-eigrp_instance.c
-eigrp_instance_*
+eigrp_topology_prefix_* / eigrp_topology_route_*
+eigrp_topology_prefix_descriptor_* / eigrp_topology_route_descriptor_*
+eigrp_topology_dndb_* / eigrp_topology_drdb_*
 ```
 
-This review should be coordinated with named-mode address-family runtime binding. A named parent is configuration ownership; each configured AF/VRF/AS protocol context must map cleanly to the runtime instance/worker model.
+The decision must optimize human navigation and make it immediately clear
+whether an operation acts on a DUAL destination, a DUAL path, or a host/RIB
+route.
 
-The functional named binding is now explicit: an address-family configuration owns its runtime pointer and reaches FRR lifecycle services through the EIGRP southbound API. The existing low-level runtime allocation/destruction names remain in place intentionally. This establishes ownership without turning the current feature work into a rename-only migration.
+Until the review:
 
-Do not perform a rename-only migration until the runtime ownership model is clear.
+- preserve `prefix_descriptor` / `route_descriptor` names;
+- do not perform rename-only churn;
+- do not introduce new ambiguous bare `route` APIs;
+- DNDB/DRDB terminology may appear in comments/debug output where it improves
+  EIGRP understanding.
 
-## 3. Portable `main()` / Platform Lifecycle Boundary
+## 2. Runtime lifecycle namespace consolidation
 
-`eigrp_main.c` should remain the portable executable/process entry point. FRR-specific daemon startup, privilege, event-loop, VTY/YANG registration, signal, and host lifecycle code should eventually move behind a narrow platform lifecycle contract.
+Named configuration ownership is already under `eigrp_instance_*`, while some
+low-level runtime allocation/destruction entry points remain under legacy names
+in `eigrpd.c`, including `eigrp_get()`, `eigrp_lookup()`, and `eigrp_finish()`.
 
-Potential direction:
+Before production, decide whether the remaining runtime lifecycle should be
+consolidated into a predictable `eigrp_instance.c/.h` ownership boundary and
+`eigrp_instance_*` namespace.
+
+The review must preserve:
+
+- named parent/address-family ownership;
+- classic compatibility behavior;
+- AF/VRF/AS runtime identity;
+- southbound lifecycle isolation;
+- teardown ordering;
+- no alias-wrapper compatibility layer after an approved rename.
+
+Do not perform a rename-only migration before that coordinated review.
+
+## 3. Portable `main()` / platform lifecycle boundary
+
+The end-state repository requires portable protocol code to be usable with FRR
+and BIRD. Review the remaining host bootstrap responsibilities in
+`eigrp_main.c`, `eigrpd.c`, `eigrp_vrf.[ch]`, and host adapter files.
+
+The desired boundary is a narrow platform lifecycle contract for process
+bootstrap/termination only. It must not become a generic adapter dumping ground.
+
+A possible shape is:
 
 ```text
-eigrpd/eigrp_main.c       portable main/process orchestration
-eigrpd/eigrp_platform.h   narrow lifecycle contract
+eigrpd/eigrp_main.c       portable process orchestration
+eigrpd/eigrp_platform.h   narrow process/platform lifecycle contract
 frr/eigrp_platform.c      FRR implementation
-bsd/eigrp_platform.c      future BSD implementation
+bird/eigrp_platform.c     BIRD implementation
 ```
 
-Do not allow `eigrp_platform.h` to become a generic dumping ground. Timers, work queues, sockets, route installation, CLI, and other services should stay behind their existing northbound/southbound/module-specific contracts where appropriate.
+Timers, work queues, sockets, route installation, CLI, policy, and packet I/O
+remain behind their existing module/southbound contracts rather than moving into
+one catch-all platform API.
 
-## 4. Core-to-Zebra Leakage Audit
+## 4. Generic container and packet-buffer dependencies
 
-The Step-5 direct Zebra/RIB call audit is complete. Portable topology, network,
-neighbor, and runtime code does not call `eigrp_zebra_*()` or construct Zebra
-RIB objects. Route install/remove and Zebra lifecycle calls terminate at the
-EIGRP-owned southbound interface; the FRR adapter converts EIGRP-owned prefix
-and next-hop snapshots into Zebra `zapi_route`/`zapi_nexthop` objects.
+Portable code still uses several FRR/lib-style utility representations in its
+internal implementation, notably `route_table`/`route_node`, `struct list`, and
+`struct stream`. These are not Zebra RIB objects, but they are still portability
+dependencies when their concrete host-library types appear in public portable
+interfaces or shared structure layouts.
 
-The boundary distinguishes clearly among:
+Before the BIRD build is considered native, establish EIGRP-owned container
+and packet-buffer contracts so portable module APIs do not require FRR utility
+object layouts. The review should decide whether to:
 
-```text
-DUAL prefix descriptor
-DUAL route descriptor/path
-EIGRP learned route as protocol information
-EIGRP southbound route-install snapshot
-host/Zebra RIB route
-kernel route
-```
+- retain an existing implementation behind an opaque EIGRP-owned contract;
+- replace it with project-owned prefix/list/packet-buffer implementations; or
+- use another host-independent implementation shared by both adapters.
 
-The existing FRR `route_table`/`route_node` use in common topology storage is a
-separate storage portability concern rather than a Zebra RIB representation.
-The deferred topology descriptor naming decision remains unchanged.
+In particular, `eigrp_stream_t` must not remain a typedef alias whose public
+contract is an FRR `struct stream`. Packet/TLV modules may keep efficient stream
+semantics, but the end-state portable API and owned runtime structures must use
+an EIGRP-owned representation.
 
-## 5. Portability Grooming
+Do not confuse this utility-storage cleanup with the already-established
+Zebra/RIB southbound boundary.
 
-`eigrp_snmp.[ch]` and `eigrp_vrf.[ch]` remain in the common tree for now. Revisit their ownership when the BSD/native portability work begins. Do not move them simply for directory symmetry while FRR named-mode functionality is still being completed.
+## 5. SNMP and VRF ownership
 
-## 6. Naming Consistency Audit
+`eigrp_snmp.[ch]` and `eigrp_vrf.[ch]` require a focused ownership review before
+production/BIRD integration.
 
-Before production, perform a focused navigation/naming audit using `code-conventions.md`:
+The review should determine which behavior is:
 
-- filename/module and `eigrp_<module>_` prefix normally align;
-- object/detail narrows after the module name;
-- action normally appears last;
-- configuration/object APIs use CRUD actions where they accurately describe lifecycle semantics;
+- portable EIGRP protocol state;
+- host-management integration;
+- FRR-specific lifecycle/presentation;
+- optional platform functionality.
+
+Move code only when the ownership boundary is clear; do not move files for
+directory symmetry.
+
+## 6. Naming consistency pass
+
+Before production, perform one bounded navigation/naming review against
+`code-conventions.md`:
+
+- module/file and public symbol prefixes normally align;
+- object/detail follows the module name;
+- action appears last;
+- configuration uses the intended `set/reset`, `add/remove`, or
+  `create/delete` semantics;
+- operational actions use `clear` only where appropriate;
 - generic CLI/not-implemented dispatchers do not exist;
-- grouped-module exceptions such as filter/distribute/offset remain intentional;
-- no alias wrappers remain after approved renames.
+- grouped-module exceptions remain intentional;
+- no obsolete alias wrappers remain after approved renames.
 
-This should be a bounded pre-production refactor, not a broad rewrite of otherwise stable code.
+This review should produce a finite rename set and be committed separately from
+protocol feature changes.

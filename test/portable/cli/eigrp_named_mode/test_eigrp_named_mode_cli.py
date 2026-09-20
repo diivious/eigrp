@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# Source-level guards for EIGRP named-mode CLI direction.
+# Source-level guards for the EIGRP named-mode CLI contract.
 
 from pathlib import Path
 
@@ -109,7 +109,7 @@ def test_named_mode_feature_commands_are_present():
 def test_cli_spec_documents_named_mode_cli_direction():
     spec = read(SPEC)
 
-    assert "Named-Mode CLI Direction" in spec
+    assert "## 3. Classic and named entry forms" in spec
     assert "router eigrp <name>" in spec
     assert "address-family ipv4 unicast" in spec
     assert "address-family ipv6 unicast" in spec
@@ -609,8 +609,8 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
     uut = read(ROOT / "tools" / "frr-named-uut.sh")
 
     assert "EIGRP_STEP1_CONFIG_COMPLETE" in patch
-    assert "Named mode inherits the complete classic EIGRP configuration feature set" in spec
-    assert "Every supported configuration feature must implement its applicable `no` form" in spec
+    assert "Named mode covers the complete applicable classic EIGRP protocol feature set" in spec
+    assert "Every supported configuration feature implements its applicable `no` form" in spec
 
     command_pairs = (
         ("eigrp event-log-size (0-4294967295)", "no eigrp event-log-size"),

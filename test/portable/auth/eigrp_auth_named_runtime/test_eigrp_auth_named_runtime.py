@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# Source-level guards for Step 7 increment 2 named authentication runtime.
+# Source-level guards for named authentication runtime.
 
 from pathlib import Path
 import re
@@ -134,11 +134,11 @@ def test_classic_authentication_remains_direct_frr_mutation_not_false_convergenc
     assert "eigrp_auth_keychain_delete" not in classic_keychain_destroy
 
 
-def test_authentication_non_convergence_exception_is_documented():
+def test_authentication_target_contract_is_documented():
     conventions = read(CONVENTIONS)
     auth_header = read(AUTH_H)
 
-    assert "### Authentication exception" in conventions
-    assert "must not be described or tested as true classic/named endpoint convergence" in conventions
+    assert "Classic and named configuration surfaces converge" in conventions
+    assert "EIGRP-owned" in conventions
     assert "eigrp_auth_keychain_update" in auth_header
     assert "eigrp_auth_keychain_delete" in auth_header

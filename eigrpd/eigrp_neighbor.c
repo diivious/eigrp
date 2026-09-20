@@ -95,6 +95,18 @@ static void eigrp_neighbor_static_debug(const char *action,
 		   interface_name ? interface_name : "-");
 }
 
+/*
+ * Syntax:
+ *   Classic: `neighbor ADDRESS INTERFACE` / `no neighbor ADDRESS INTERFACE`
+ *   Named: `neighbor ADDRESS INTERFACE` / `no neighbor ADDRESS INTERFACE`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: address-family mode
+ * Description:
+ * Creates or removes a static EIGRP neighbor definition.
+ * Named mode terminates at EIGRP-owned neighbor state instead of invoking the classic FRR command callback.
+ */
 eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name)
@@ -133,6 +145,18 @@ eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `neighbor ADDRESS INTERFACE` / `no neighbor ADDRESS INTERFACE`
+ *   Named: `neighbor ADDRESS INTERFACE` / `no neighbor ADDRESS INTERFACE`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: address-family mode
+ * Description:
+ * Creates or removes a static EIGRP neighbor definition.
+ * Named mode terminates at EIGRP-owned neighbor state instead of invoking the classic FRR command callback.
+ */
 eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name)
@@ -266,6 +290,16 @@ static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
 	return count;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... neighbors [static] [detail] [IFNAME]`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Walks EIGRP neighbor state for operational display.
+ * The common API exposes protocol state without FRR VTY objects.
+ */
 eigrp_result_t eigrp_neighbor_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,
@@ -742,6 +776,16 @@ static void eigrp_neighbor_clear_soft(eigrp_neighbor_t *nbr,
 	eigrp_update_send_GR(nbr, EIGRP_GR_MANUAL);
 }
 
+/*
+ * Syntax:
+ *   EXEC: `clear eigrp address-family <ipv4|ipv6> ... neighbors [IFNAME|ADDRESS] [soft]`
+ * Supported: EXEC
+ * Placement:
+ *   Privileged operational
+ * Description:
+ * Clears selected neighbor adjacency state without changing retained configuration.
+ * Selection is normalized before the portable neighbor target executes.
+ */
 eigrp_result_t eigrp_neighbor_clear(
 	eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request,
 	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count)
@@ -921,6 +965,16 @@ static eigrp_result_t eigrp_neighbor_policy_context_validate(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `neighbor ADDRESS description TEXT` / `no neighbor ADDRESS description [TEXT]`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes retained descriptive text for a configured neighbor.
+ * Description metadata does not own adjacency behavior.
+ */
 eigrp_result_t eigrp_neighbor_description_update(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const char *description)
@@ -951,6 +1005,16 @@ eigrp_result_t eigrp_neighbor_description_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `neighbor ADDRESS description TEXT` / `no neighbor ADDRESS description [TEXT]`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes retained descriptive text for a configured neighbor.
+ * Description metadata does not own adjacency behavior.
+ */
 eigrp_result_t eigrp_neighbor_description_delete(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
@@ -975,6 +1039,16 @@ eigrp_result_t eigrp_neighbor_description_delete(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `neighbor ADDRESS maximum-prefix LIMIT [...]` / `no neighbor ADDRESS maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes a per-neighbor maximum-prefix policy.
+ * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
+ */
 eigrp_result_t eigrp_neighbor_maximum_prefix_update(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const eigrp_prefix_limit_t *limit)
@@ -999,6 +1073,16 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `neighbor ADDRESS maximum-prefix LIMIT [...]` / `no neighbor ADDRESS maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes a per-neighbor maximum-prefix policy.
+ * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
+ */
 eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
@@ -1027,6 +1111,16 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
 				: EIGRP_RESULT_NOT_FOUND;
 }
 
+/*
+ * Syntax:
+ *   Named: `neighbor maximum-prefix LIMIT [...]` / `no neighbor maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes the address-family default maximum-prefix policy for neighbors.
+ * The target preserves configuration separately from future enforcement mechanics.
+ */
 eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
@@ -1047,6 +1141,16 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `neighbor maximum-prefix LIMIT [...]` / `no neighbor maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes the address-family default maximum-prefix policy for neighbors.
+ * The target preserves configuration separately from future enforcement mechanics.
+ */
 eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
 	eigrp_instance_context_t *context)
 {
@@ -1061,6 +1165,16 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `eigrp log-neighbor-changes` / `no eigrp log-neighbor-changes`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Enables or resets neighbor-change logging policy for the address-family.
+ * Logging policy is retained in EIGRP-owned state.
+ */
 eigrp_result_t eigrp_neighbor_log_changes_update(
 	eigrp_instance_context_t *context, bool enabled)
 {
@@ -1080,6 +1194,16 @@ eigrp_result_t eigrp_neighbor_log_changes_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `eigrp log-neighbor-changes` / `no eigrp log-neighbor-changes`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Enables or resets neighbor-change logging policy for the address-family.
+ * Logging policy is retained in EIGRP-owned state.
+ */
 eigrp_result_t eigrp_neighbor_log_changes_reset(eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -1093,6 +1217,16 @@ eigrp_result_t eigrp_neighbor_log_changes_reset(eigrp_instance_context_t *contex
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `eigrp log-neighbor-warnings [INTERVAL]` / `no eigrp log-neighbor-warnings`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes neighbor-warning logging configuration.
+ * The target keeps the real feature boundary and reports NOT_IMPLEMENTED if warning generation is not wired yet.
+ */
 eigrp_result_t eigrp_neighbor_log_warnings_update(
 	eigrp_instance_context_t *context, bool enabled, uint16_t seconds)
 {
@@ -1120,6 +1254,16 @@ eigrp_result_t eigrp_neighbor_log_warnings_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `eigrp log-neighbor-warnings [INTERVAL]` / `no eigrp log-neighbor-warnings`
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Sets or removes neighbor-warning logging configuration.
+ * The target keeps the real feature boundary and reports NOT_IMPLEMENTED if warning generation is not wired yet.
+ */
 eigrp_result_t eigrp_neighbor_log_warnings_delete(
 	eigrp_instance_context_t *context)
 {

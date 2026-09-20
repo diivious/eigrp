@@ -197,6 +197,16 @@ eigrp_result_t eigrp_eventlog_record(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `clear eigrp ... events` / `clear eigrp events`
+ * Supported: EXEC
+ * Placement:
+ *   Privileged operational
+ * Description:
+ * Clears EIGRP event history without changing retained configuration.
+ * The operation terminates in the event-log module.
+ */
 eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context)
 {
 	eigrp_eventlog_t *log;
@@ -213,6 +223,16 @@ eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `eigrp event-log-size SIZE` / `no eigrp event-log-size`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or restores the EIGRP event-log capacity.
+ * The target updates retained configuration and the live EIGRP event log when runtime exists.
+ */
 eigrp_result_t eigrp_eventlog_size_update(eigrp_instance_context_t *context,
 					  uint32_t size)
 {
@@ -233,6 +253,16 @@ eigrp_result_t eigrp_eventlog_size_update(eigrp_instance_context_t *context,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `eigrp event-log-size SIZE` / `no eigrp event-log-size`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or restores the EIGRP event-log capacity.
+ * The target updates retained configuration and the live EIGRP event log when runtime exists.
+ */
 eigrp_result_t eigrp_eventlog_size_delete(eigrp_instance_context_t *context)
 {
 	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
@@ -253,6 +283,16 @@ eigrp_result_t eigrp_eventlog_size_delete(eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... events`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Reads EIGRP event-log state and entries for operational output.
+ * FRR formats the portable event records but does not own their storage.
+ */
 eigrp_result_t eigrp_eventlog_state_read(
 	const eigrp_instance_context_t *context, eigrp_eventlog_state_t *state)
 {
@@ -270,6 +310,16 @@ eigrp_result_t eigrp_eventlog_state_read(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... events`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Reads EIGRP event-log state and entries for operational output.
+ * FRR formats the portable event records but does not own their storage.
+ */
 eigrp_result_t eigrp_eventlog_show(const eigrp_instance_context_t *context,
 				   eigrp_eventlog_show_cb callback,
 				   void *arg)

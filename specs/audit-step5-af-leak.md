@@ -1,198 +1,98 @@
-# Audit Step 5: Portable Address-Family / Host Boundary Sweep
+# Portable Address-Family / Host Boundary Audit Record
 
 Copyright (C) 2026 Donnie V. Savage
 
-## Purpose
+> **Non-normative audit record.** The durable architecture from this audit is
+> defined in `design-spec.md` and `refactor-work.md`. This file may be removed
+> once the audit history is no longer useful.
 
-This audit records the remaining address-family and host-framework coupling in
-`eigrpd/` after the packet, route-TLV, network/interface-participation, and
-summary/auto-summary boundary work.
+## Scope
 
-The portability rule for this sweep is deliberately narrow:
+This audit verified the boundary between portable `eigrpd/` protocol code and
+host-framework services after address-family, interface/runtime, policy/filter,
+and RIB cleanup.
 
-- standard system networking definitions that are common to the target hosts
-  are not considered leaks merely because they are not EIGRP-owned;
-- FRR- or BIRD-specific objects and services must not leak across the portable
-  EIGRP boundary;
-- EIGRP-owned types are introduced only where EIGRP has its own semantics or
-  where the host representations differ in a way that must be normalized.
-
-Accordingly, these are acceptable in common code when they are the natural
-representation for the operation:
+Standard POSIX/socket networking types are not host-framework leaks by themselves.
+Portable code may use natural system networking definitions such as:
 
 ```text
 AF_INET / AF_INET6
 struct in_addr / struct in6_addr
-struct sockaddr / struct sockaddr_in / struct sockaddr_in6
+struct sockaddr*
 inet_ntop / inet_pton
-INADDR_* / IPV6_*
 ```
 
-Their presence is still useful during an audit because a surrounding operation
-may be host-service coupling, but the definitions themselves are not a reason to
-invent an EIGRP replacement type.
+EIGRP-owned address/prefix types remain required where the object carries EIGRP
+configuration, topology, or wire semantics.
 
-`eigrp_addr_t` therefore continues to use `AF_INET` / `AF_INET6` as its runtime
-family identity and `struct in_addr` / `struct in6_addr` for the address payload.
-The EIGRP configuration/wire abstractions (`eigrp_address_t`, `eigrp_prefix_t`,
-and EIGRP TLV AFI values) remain separate where they carry EIGRP semantics.
+## Final findings
 
-## Cleanup completed by this sweep
+### Interface/runtime boundary
 
-The sweep found a concrete packet-runtime issue unrelated to type ownership:
-several IPv4 multicast/hello packet constructors populated `packet->dst.ip.v4`
-without setting `packet->dst.afi`.  `eigrp_ipv4_packet_send()` validates the
-runtime destination family before sending, so a zero-initialized family could
-cause an otherwise valid packet to be rejected.
+Portable interface/runtime state uses EIGRP-owned identifiers and objects.
+FRR interface discovery, VRF lookup, event scheduling, raw-socket/multicast
+operations, and host interface lifecycle live behind the FRR southbound adapter.
 
-The affected IPv4 packet constructors now set:
+Portable runtime state is not stored in FRR `struct interface` objects.
 
-```c
-packet->dst.afi = AF_INET;
-```
+### Prefix representation
 
-before storing the IPv4 destination.  No new address-family abstraction was
-introduced.
+DUAL/topology destination and path descriptors use `eigrp_prefix_t` for native
+prefix data. Update, Query/Reply/SIA, packetizer, TLV, connected-route, topology
+lookup, and route-install paths carry EIGRP-owned prefixes across portable
+boundaries.
 
-The topology-prefix migration is also complete.
-`eigrp_prefix_descriptor_t::destination` and
-`eigrp_route_descriptor_t::dest` now use `eigrp_prefix_t`; Update, Query,
-Reply/SIA, packetizer, interface-connected-route, TLV1/TLV2, topology lookup,
-and Zebra route-install call paths carry the native EIGRP prefix.  The temporary
-route-prefix AF codec wrappers and topology import/export bridges were removed,
-and protocol processing no longer allocates FRR prefixes with
-`prefix_ipv4_new()`.  The FRR `route_table` storage key remains a localized
-topology storage implementation detail and is outside this interface/runtime
-sweep.
-The deferred prefix/route descriptor naming decision is unchanged.
+The topology descriptor naming decision remains separately parked in
+`refactor-work.md`.
 
-## Boundary status and remaining findings
+### Policy/filter boundary
 
-### 1. Interface/runtime boundary — complete
+Portable filter state stores EIGRP-owned policy names/decisions rather than FRR
+access-list, prefix-list, route-map, or distribute-list objects.
 
-Portable interface/runtime APIs now use EIGRP-owned state and identifiers.
-`eigrp_interface_t` owns its interface name, ifindex, native `eigrp_prefix_t`
-address, operational state, bandwidth, and MTU rather than retaining an FRR
-`struct interface`.  Public runtime APIs use `eigrp_interface_runtime_state_t`,
-`eigrp_vrf_id_t`, `eigrp_ifindex_t`, and opaque `eigrp_event_t` objects.
-
-FRR interface/VRF discovery, interface hooks, raw-socket setup, multicast socket
-operations, send-buffer sizing, and FRR event objects are implemented by
-`frr/eigrp_southbound.c`.  Portable protocol code schedules events and requests
-interface/socket services through EIGRP-owned southbound contracts.  Runtime
-state is no longer stored in `ifp->info`.
-
-The FRR route-map/prefix-list/distribute-list objects are intentionally left for
-the policy/filter boundary below.  `eigrp_main.c` platform bootstrap and the
-private FRR callbacks in `eigrp_vrf.c` remain governed by the explicitly
-deferred platform-lifecycle/VRF work in `refactor-work.md`; neither is exposed
-through the portable protocol public APIs.
-
-### 2. Policy/filter boundary — complete
-
-`eigrp_filter.c` remains the portable feature owner.  Runtime process/interface
-filter state now stores EIGRP-owned policy names in
-`eigrp_filter_runtime_state_t`; `eigrp_instance_t` and `eigrp_interface_t` no
-longer contain FRR access-list, prefix-list, route-map, or distribute-context
-objects.
-
-Prefix decisions cross the EIGRP-owned southbound contract:
+Policy evaluation follows:
 
 ```text
 eigrp_filter_prefix_apply()
   -> eigrp_southbound_filter_evaluate()
-  -> FRR eigrp_policy_filter_evaluate()
-  -> FRR access-list/prefix-list object
+  -> FRR policy adapter
   -> eigrp_filter_decision_t
 ```
 
-Classic FRR distribute-list callbacks are private to `frr/eigrp_policy.c`.  The
-adapter converts the FRR distribute object into an
-`eigrp_filter_runtime_snapshot_t` and calls `eigrp_filter_runtime_replace()`.
-Named distribute-list configuration continues to terminate at the portable
-`eigrp_distribute_list_*()` targets and updates the same EIGRP-owned runtime
-name state.  FRR access-list/prefix-list change hooks notify the feature owner
-through `eigrp_filter_runtime_refresh_all()` so graceful filter refresh remains
-portable.
+Host policy lookup, evaluation, callbacks, and change notifications remain in
+FRR integration code.
 
-The obsolete, unbuilt common `eigrp_routemap.[c|h]` skeleton was removed.
-Route-map framework initialization remains FRR-owned in `frr/eigrp_policy.c`;
-named redistribution continues to retain only the route-map name while runtime
-route-map application remains explicitly unimplemented.
+### RIB boundary
 
-### 3. FRR platform lifecycle integration — deferred
+Portable topology/DUAL code does not construct Zebra RIB objects or call the
+Zebra adapter directly.
 
-Protocol event scheduling no longer exposes or calls FRR `struct event` APIs;
-those objects are private to the FRR southbound implementation.  The remaining
-`struct event_loop` use in `eigrp_main.c` belongs to daemon/platform bootstrap,
-which `refactor-work.md` explicitly defers to the later platform-lifecycle
-boundary.
-
-### 4. Route/RIB integration — complete
-
-Portable topology/DUAL code no longer calls `eigrp_zebra_*()` directly.  Route
-installation and removal now terminate at the EIGRP-owned southbound contract:
+Route installation/removal follows:
 
 ```text
-DUAL/topology successor selection
+DUAL/topology
   -> eigrp_southbound_route_install()/remove()
-  -> FRR eigrp_southbound.c
-  -> FRR eigrp_zebra_route_install()/remove()
-  -> Zebra zapi_route / zapi_nexthop
+  -> FRR southbound adapter
+  -> FRR Zebra adapter
+  -> Zebra RIB
 ```
 
-The portable handoff uses `eigrp_prefix_t` plus an ephemeral
-`eigrp_southbound_nexthop_t` snapshot containing only EIGRP-owned interface and
-address data.  Zebra `struct zapi_route`, `struct zapi_nexthop`, route-type
-constants, and `zclient_route_send()` remain private to the FRR adapter.  Host
-RIB objects are therefore constructed only after the route crosses the
-southbound boundary and never become topology/DUAL state.
+The handoff contains only EIGRP-owned prefix and next-hop snapshot data.
 
-Zebra process lifecycle is also reached from portable code through
-`eigrp_southbound_rib_init()/finish()`, and per-instance Zebra redistribution
-bookkeeping was moved out of `eigrp_instance_t` into FRR-private adapter state.
-This removes the remaining `ZEBRA_ROUTE_MAX`-sized metric array and Zebra route
-type ownership from portable runtime structures.
+### Remaining portability work
 
-The FRR `route_table`/`route_node` objects still used as topology and configured
-network storage are generic trie/storage implementation details, not Zebra RIB
-route objects.  Their broader storage portability can be revisited separately;
-this Step-5 RIB boundary does not change the deferred topology descriptor naming
-decision.
+The remaining portability concerns are architectural cleanup items rather than
+violations of the established runtime/RIB boundary. They are tracked in
+`refactor-work.md`, principally:
 
-### 5. Standard socket/address code
+- generic route-table/list storage and packet-buffer (`struct stream`) dependencies;
+- process/platform lifecycle bootstrap;
+- SNMP/VRF ownership;
+- final topology descriptor and lifecycle naming.
 
-POSIX/BSD socket and address definitions are not portability defects by
-construction.  Socket *service ownership* should only be moved when the actual
-lifecycle, event-loop, interface, or host-routing integration differs between
-FRR and BIRD.  Do not add wrapper types around `AF_INET`, `AF_INET6`, `in_addr`,
-`in6_addr`, or `sockaddr*` solely for naming symmetry.
+## Regression rule
 
-### 6. SNMP portability debt
-
-`eigrpd/eigrp_snmp.c` remains tied to the current host integration.  The existing
-pre-production portability plan already defers SNMP ownership.  This sweep does
-not move SNMP merely for directory symmetry.
-
-## Step-5 cleanup order
-
-The remaining work should be done in this order:
-
-1. **Topology prefix representation — complete** — DUAL/topology
-   destination/path prefixes now use `eigrp_prefix_t`; temporary route-prefix
-   bridges and protocol-side `prefix_ipv4_new()` call sites are removed.
-2. **Interface/runtime boundary — complete** — portable public/runtime APIs use
-   EIGRP-owned interface/event types; FRR interface discovery, event scheduling,
-   socket, and interface lifecycle services terminate at the southbound adapter.
-3. **Policy/filter boundary — complete** — portable runtime state carries only
-   EIGRP-owned policy names/decisions; FRR route-map, prefix-list, access-list,
-   distribute-list objects and callbacks remain inside FRR adapter/integration
-   code, with their lifecycle and evaluation owned by `frr/eigrp_policy.c`.
-4. **RIB/southbound residuals — complete** — portable topology/runtime code
-   no longer calls the FRR Zebra adapter directly; route install/remove and
-   Zebra lifecycle terminate at EIGRP-owned southbound contracts, and host RIB
-   objects remain FRR-private.
-5. **Deferred portability grooming** — SNMP and other explicitly deferred host
-   integration work.
-
-IPv6 runtime/data-path implementation is not part of this sweep.
+New portable APIs must not reintroduce FRR or BIRD management, event-loop,
+interface, policy, RIB, or route-table objects merely because one host already
+provides a convenient implementation type. Normalize at the adapter boundary
+and keep protocol state EIGRP-owned.

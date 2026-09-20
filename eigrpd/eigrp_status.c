@@ -66,12 +66,32 @@ static eigrp_result_t eigrp_status_walk(eigrp_status_protocol_cb callback,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp protocols`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Aggregates configured/running EIGRP protocol instances for display.
+ * The target walks common address-family state and leaves VTY formatting to FRR.
+ */
 eigrp_result_t eigrp_status_protocol_show(eigrp_status_protocol_cb callback,
 					  void *arg)
 {
 	return eigrp_status_walk(callback, arg);
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp tech-support`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Exports EIGRP protocol state used by the technical-support display.
+ * The portable target remains independent of FRR VTY formatting.
+ */
 eigrp_result_t eigrp_status_tech_support_show(eigrp_status_protocol_cb callback,
 					      void *arg)
 {

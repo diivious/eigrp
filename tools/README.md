@@ -4,7 +4,7 @@ These scripts support the split source layout where common EIGRP code lives in
 `eigrpd/`, FRR adapters live in `frr/`, and `frr-install.sh` assembles the two
 into the FRR checkout. FRR-specific
 development tooling uses the `frr-` prefix so a future host can provide its own
-parallel driver, such as `bsd.sh`.
+parallel driver, such as `bird.sh`.
 
 ## Scripts
 

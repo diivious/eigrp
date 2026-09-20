@@ -215,6 +215,18 @@ static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `network NETWORK [WILDCARD]` / `no network NETWORK [WILDCARD]`
+ *   Named: `network NETWORK [WILDCARD]` / `no network NETWORK [WILDCARD]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: IPv4 address-family mode
+ * Description:
+ * Enables or disables EIGRP on local IPv4 interfaces whose addresses match the network/wildcard.
+ * The target owns matching and interface activation behavior used by named mode rather than recreating the classic logic in FRR.
+ */
 eigrp_result_t eigrp_network_create(eigrp_instance_context_t *context,
 				    const eigrp_prefix_t *prefix)
 {
@@ -222,6 +234,18 @@ eigrp_result_t eigrp_network_create(eigrp_instance_context_t *context,
 				     EIGRP_NETWORK_OPERATION_CREATE, NULL);
 }
 
+/*
+ * Syntax:
+ *   Classic: `network NETWORK [WILDCARD]` / `no network NETWORK [WILDCARD]`
+ *   Named: `network NETWORK [WILDCARD]` / `no network NETWORK [WILDCARD]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: IPv4 address-family mode
+ * Description:
+ * Enables or disables EIGRP on local IPv4 interfaces whose addresses match the network/wildcard.
+ * The target owns matching and interface activation behavior used by named mode rather than recreating the classic logic in FRR.
+ */
 eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
 				    const eigrp_prefix_t *prefix)
 {

@@ -84,7 +84,10 @@ eigrp_cli_classic_parent_named(const struct lyd_node *dnode, const char *name)
 }
 
 /*
+ * Syntax: `router eigrp <1-65535> [vrf NAME]`
+ * Mode: Classic router configuration
  * XPath: /frr-eigrpd:eigrpd/instance
+ * Target: eigrpd_instance_create() -> eigrp_get()
  */
 DEFPY_YANG_NOSH(
 	router_eigrp,
@@ -110,6 +113,12 @@ DEFPY_YANG_NOSH(
 	return rv;
 }
 
+/*
+ * Syntax: `no router eigrp <1-65535> [vrf NAME]`
+ * Mode: Classic global configuration
+ * XPath: /frr-eigrpd:eigrpd/instance
+ * Target: eigrpd_instance_destroy() -> eigrp_finish_final()
+ */
 DEFPY_YANG(
 	no_router_eigrp,
 	no_router_eigrp_cmd,
@@ -151,6 +160,12 @@ void eigrp_cli_classic_show_end_header(struct vty *vty, const struct lyd_node *d
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/router-id
  */
+/*
+ * Syntax: `eigrp router-id A.B.C.D`
+ * Mode: Classic router / Named address-family
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/router-id; Named: /frr-eigrpd:eigrpd/named/address-family/router-id
+ * Target: eigrp_instance_router_id_update()
+ */
 DEFPY_YANG(
 	eigrp_router_id,
 	eigrp_router_id_cmd,
@@ -163,6 +178,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no eigrp router-id [A.B.C.D]`
+ * Mode: Classic router / Named address-family
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/router-id; Named: /frr-eigrpd:eigrpd/named/address-family/router-id
+ * Target: eigrp_instance_router_id_delete()
+ */
 DEFPY_YANG(
 	no_eigrp_router_id,
 	no_eigrp_router_id_cmd,
@@ -185,7 +206,10 @@ void eigrp_cli_classic_show_router_id(struct vty *vty, const struct lyd_node *dn
 }
 
 /*
+ * Syntax: `[no] passive-interface IFNAME`
+ * Mode: Classic router configuration
  * XPath: /frr-eigrpd:eigrpd/instance/passive-interface
+ * Target: eigrp_interface_passive_update()
  */
 DEFPY_YANG(
 	eigrp_passive_interface,
@@ -219,6 +243,12 @@ void eigrp_cli_classic_show_passive_interface(struct vty *vty,
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/active-time
  */
+/*
+ * Syntax: `timers active-time <seconds|disabled>`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/active-time; Named: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
+ * Target: Named -> eigrp_timer_active_time_update(); classic runtime remains unsupported
+ */
 DEFPY_YANG(
 	eigrp_timers_active,
 	eigrp_timers_active_cmd,
@@ -239,6 +269,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no timers active-time`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/active-time; Named: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
+ * Target: Named -> eigrp_timer_active_time_delete(); classic runtime remains unsupported
+ */
 DEFPY_YANG(
 	no_eigrp_timers_active,
 	no_eigrp_timers_active_cmd,
@@ -267,6 +303,12 @@ void eigrp_cli_classic_show_active_time(struct vty *vty, const struct lyd_node *
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/variance
  */
+/*
+ * Syntax: `variance multiplier`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/variance; Named: /frr-eigrpd:eigrpd/named/address-family/topology/variance
+ * Target: eigrp_metric_variance_update()
+ */
 DEFPY_YANG(
 	eigrp_variance,
 	eigrp_variance_cmd,
@@ -280,6 +322,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no variance`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/variance; Named: /frr-eigrpd:eigrpd/named/address-family/topology/variance
+ * Target: eigrp_metric_variance_delete()
+ */
 DEFPY_YANG(
 	no_eigrp_variance,
 	no_eigrp_variance_cmd,
@@ -304,6 +352,12 @@ void eigrp_cli_classic_show_variance(struct vty *vty, const struct lyd_node *dno
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/maximum-paths
  */
+/*
+ * Syntax: `maximum-paths paths`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/maximum-paths; Named: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
+ * Target: eigrp_topology_maximum_paths_update()
+ */
 DEFPY_YANG(
 	eigrp_maximum_paths,
 	eigrp_maximum_paths_cmd,
@@ -318,6 +372,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no maximum-paths [paths]`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/maximum-paths; Named: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
+ * Target: eigrp_topology_maximum_paths_delete()
+ */
 DEFPY_YANG(
 	no_eigrp_maximum_paths,
 	no_eigrp_maximum_paths_cmd,
@@ -357,6 +417,12 @@ void eigrp_cli_classic_show_event_log_size(struct vty *vty,
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K5
  * XPath: /frr-eigrpd:eigrpd/instance/metric-weights/K6
  */
+/*
+ * Syntax: `metric weights tos K1 K2 K3 K4 K5 [K6]`
+ * Mode: Classic router / Named address-family
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/metric-weights; Named: /frr-eigrpd:eigrpd/named/address-family/metric-weights
+ * Target: eigrp_metric_weights_update()
+ */
 DEFPY_YANG(
 	eigrp_metric_weights,
 	eigrp_metric_weights_cmd,
@@ -391,6 +457,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no metric weights [...]`
+ * Mode: Classic router / Named address-family
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/metric-weights; Named: /frr-eigrpd:eigrpd/named/address-family/metric-weights
+ * Target: eigrp_metric_weights_delete()
+ */
 DEFPY_YANG(
 	no_eigrp_metric_weights,
 	no_eigrp_metric_weights_cmd,
@@ -437,7 +509,10 @@ void eigrp_cli_classic_show_metrics(struct vty *vty, const struct lyd_node *dnod
 }
 
 /*
+ * Syntax: `[no] network A.B.C.D/M`
+ * Mode: Classic router configuration
  * XPath: /frr-eigrpd:eigrpd/instance/network
+ * Target: eigrp_network_create() / eigrp_network_delete()
  */
 DEFPY_YANG(
 	eigrp_network,
@@ -468,7 +543,10 @@ void eigrp_cli_classic_show_network(struct vty *vty, const struct lyd_node *dnod
 }
 
 /*
+ * Syntax: `[no] neighbor A.B.C.D`
+ * Mode: Classic router configuration
  * XPath: /frr-eigrpd:eigrpd/instance/neighbor
+ * Target: Classic runtime unsupported; named uses eigrp_neighbor_static_create() / eigrp_neighbor_static_delete()
  */
 DEFPY_YANG(
 	eigrp_neighbor,
@@ -504,6 +582,12 @@ void eigrp_cli_classic_show_neighbor(struct vty *vty, const struct lyd_node *dno
 /*
  * XPath: /frr-eigrpd:eigrpd/instance/distribute-list
  */
+/*
+ * Syntax: `distribute-list ACCESS-LIST <in|out> [IFNAME]`
+ * Mode: Classic router / Named topology
+ * XPath: Relative `./distribute-list`; resolves to classic or named topology by VTY context
+ * Target: Named -> eigrp_distribute_list_update()
+ */
 DEFPY_YANG (eigrp_distribute_list,
        eigrp_distribute_list_cmd,
        "distribute-list ACCESSLIST4_NAME$name <in|out>$dir [WORD$ifname]",
@@ -523,6 +607,12 @@ DEFPY_YANG (eigrp_distribute_list,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `distribute-list prefix PREFIX-LIST <in|out> [IFNAME]`
+ * Mode: Classic router / Named topology
+ * XPath: Relative `./distribute-list`; resolves to classic or named topology by VTY context
+ * Target: Named -> eigrp_distribute_list_update()
+ */
 DEFPY_YANG (eigrp_distribute_list_prefix,
        eigrp_distribute_list_prefix_cmd,
        "distribute-list prefix PREFIXLIST4_NAME$name <in|out>$dir [WORD$ifname]",
@@ -543,6 +633,12 @@ DEFPY_YANG (eigrp_distribute_list_prefix,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no distribute-list [ACCESS-LIST] <in|out> [IFNAME]`
+ * Mode: Classic router / Named topology
+ * XPath: Relative `./distribute-list`; resolves to classic or named topology by VTY context
+ * Target: Named -> eigrp_distribute_list_delete()
+ */
 DEFPY_YANG (eigrp_no_distribute_list,
        eigrp_no_distribute_list_cmd,
        "no distribute-list [ACCESSLIST4_NAME$name] <in|out>$dir [WORD$ifname]",
@@ -577,6 +673,12 @@ DEFPY_YANG (eigrp_no_distribute_list,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no distribute-list prefix [PREFIX-LIST] <in|out> [IFNAME]`
+ * Mode: Classic router / Named topology
+ * XPath: Relative `./distribute-list`; resolves to classic or named topology by VTY context
+ * Target: Named -> eigrp_distribute_list_delete()
+ */
 DEFPY_YANG (eigrp_no_distribute_list_prefix,
        eigrp_no_distribute_list_prefix_cmd,
        "no distribute-list prefix [PREFIXLIST4_NAME$name] <in|out>$dir [WORD$ifname]",
@@ -620,6 +722,12 @@ DEFPY_YANG (eigrp_no_distribute_list_prefix,
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/reliability
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/load
  * XPath: /frr-eigrpd:eigrpd/instance/redistribute/metrics/mtu
+ */
+/*
+ * Syntax: `[no] redistribute PROTOCOL [metric ...] [route-map NAME]`
+ * Mode: Classic router / Named topology
+ * XPath: Classic: /frr-eigrpd:eigrpd/instance/redistribute; Named: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
+ * Target: Named -> eigrp_redistribute_update() / eigrp_redistribute_delete()
  */
 DEFPY_YANG(
 	eigrp_redistribute_source_metric,
@@ -698,7 +806,10 @@ void eigrp_cli_classic_show_redistribute(struct vty *vty, const struct lyd_node 
 }
 
 /*
+ * Syntax: `delay <1-16777215>`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/delay
+ * Target: lib_interface_eigrp_delay_modify() -> eigrp_interface_runtime_reset()
  */
 DEFPY_YANG(
 	eigrp_if_delay,
@@ -712,6 +823,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no delay [<1-16777215>]`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/delay
+ * Target: lib_interface_eigrp_delay_modify() -> eigrp_interface_runtime_reset()
+ */
 DEFPY_YANG(
 	no_eigrp_if_delay,
 	no_eigrp_if_delay_cmd,
@@ -734,7 +851,10 @@ void eigrp_cli_classic_show_delay(struct vty *vty, const struct lyd_node *dnode,
 }
 
 /*
+ * Syntax: `eigrp bandwidth <1-10000000>`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/bandwidth
+ * Target: lib_interface_eigrp_bandwidth_modify() -> eigrp_interface_runtime_reset()
  */
 DEFPY_YANG(
 	eigrp_if_bandwidth,
@@ -749,6 +869,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no eigrp bandwidth [<1-10000000>]`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/bandwidth
+ * Target: lib_interface_eigrp_bandwidth_modify() -> eigrp_interface_runtime_reset()
+ */
 DEFPY_YANG(
 	no_eigrp_if_bandwidth,
 	no_eigrp_if_bandwidth_cmd,
@@ -772,7 +898,10 @@ void eigrp_cli_classic_show_bandwidth(struct vty *vty, const struct lyd_node *dn
 }
 
 /*
+ * Syntax: `ip hello-interval eigrp <1-65535>`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/hello-interval
+ * Target: eigrp_interface_hello_interval_update()
  */
 DEFPY_YANG(
 	eigrp_if_ip_hellointerval,
@@ -788,6 +917,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no ip hello-interval eigrp [<1-65535>]`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/hello-interval
+ * Target: eigrp_interface_hello_interval_update() with YANG default
+ */
 DEFPY_YANG(
 	no_eigrp_if_ip_hellointerval,
 	no_eigrp_if_ip_hellointerval_cmd,
@@ -814,7 +949,10 @@ void eigrp_cli_classic_show_hello_interval(struct vty *vty,
 }
 
 /*
+ * Syntax: `ip hold-time eigrp <1-65535>`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/hold-time
+ * Target: eigrp_interface_hold_time_update()
  */
 DEFPY_YANG(
 	eigrp_if_ip_holdinterval,
@@ -830,6 +968,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no ip hold-time eigrp [<1-65535>]`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/hold-time
+ * Target: eigrp_interface_hold_time_update() with YANG default
+ */
 DEFPY_YANG(
 	no_eigrp_if_ip_holdinterval,
 	no_eigrp_if_ip_holdinterval_cmd,
@@ -859,8 +1003,10 @@ void eigrp_cli_classic_show_hold_time(struct vty *vty, const struct lyd_node *dn
 /* NOT implemented. */
 
 /*
- * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance
+ * Syntax: `ip summary-address eigrp <1-65535> A.B.C.D/M`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/summarize-addresses
+ * Target: Classic runtime unsupported; named uses eigrp_summary_create()
  */
 DEFPY_YANG(
 	eigrp_ip_summary_address,
@@ -885,6 +1031,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no ip summary-address eigrp <1-65535> A.B.C.D/M`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/summarize-addresses
+ * Target: Classic cleanup only; named uses eigrp_summary_delete()
+ */
 DEFPY_YANG(
 	no_eigrp_ip_summary_address,
 	no_eigrp_ip_summary_address_cmd,
@@ -923,8 +1075,10 @@ void eigrp_cli_classic_show_summarize_address(struct vty *vty,
 }
 
 /*
- * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance
+ * Syntax: `ip authentication mode eigrp <1-65535> <md5|hmac-sha-256>`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/authentication
+ * Target: Classic FRR auth field; named uses eigrp_auth_mode_update()
  */
 DEFPY_YANG(
 	eigrp_authentication_mode,
@@ -950,6 +1104,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no ip authentication mode eigrp <1-65535> [md5|hmac-sha-256]`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/authentication
+ * Target: Classic FRR auth field; named uses eigrp_auth_mode_reset()
+ */
 DEFPY_YANG(
 	no_eigrp_authentication_mode,
 	no_eigrp_authentication_mode_cmd,
@@ -988,8 +1148,10 @@ void eigrp_cli_classic_show_authentication(struct vty *vty,
 }
 
 /*
- * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance
+ * Syntax: `ip authentication key-chain eigrp <1-65535> WORD`
+ * Mode: Classic interface configuration
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/keychain
+ * Target: Classic FRR keychain field; named uses eigrp_auth_keychain_update()
  */
 DEFPY_YANG(
 	eigrp_authentication_keychain,
@@ -1014,6 +1176,12 @@ DEFPY_YANG(
 	return nb_cli_apply_changes(vty, NULL);
 }
 
+/*
+ * Syntax: `no ip authentication key-chain eigrp <1-65535> [WORD]`
+ * Mode: Classic interface configuration
+ * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/keychain
+ * Target: Classic FRR keychain field; named uses eigrp_auth_keychain_reset()
+ */
 DEFPY_YANG(
 	no_eigrp_authentication_keychain,
 	no_eigrp_authentication_keychain_cmd,

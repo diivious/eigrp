@@ -972,6 +972,16 @@ static eigrp_result_t eigrp_topology_clear_all(eigrp_instance_t *eigrp,
 	return result;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `clear eigrp [AS] [vrf ...] <ipv4|ipv6> topology [PREFIX]`
+ * Supported: EXEC
+ * Placement:
+ *   Privileged operational
+ * Description:
+ * Clears selected EIGRP topology runtime state without changing retained configuration.
+ * The operation is owned by the topology module, not by FRR VTY code.
+ */
 eigrp_result_t eigrp_topology_clear(
 	eigrp_instance_context_t *context,
 	const eigrp_topology_clear_request_t *request, size_t *affected_count)
@@ -1095,6 +1105,16 @@ static eigrp_result_t eigrp_topology_state_emit_prefix(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   EXEC: `show eigrp address-family <ipv4|ipv6> ... topology [TARGET] [all-links]`
+ * Supported: EXEC
+ * Placement:
+ *   Operational/read-only
+ * Description:
+ * Walks EIGRP topology descriptors for show commands.
+ * Filtering and presentation are supplied by the caller while topology ownership remains in common EIGRP code.
+ */
 eigrp_result_t eigrp_topology_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const eigrp_prefix_t *destination, bool all_links,
@@ -1165,6 +1185,16 @@ eigrp_topology_context_validate(const eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `topology base` / removal with address-family cleanup
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Creates or removes the named-mode base-topology configuration object.
+ * Topology behavior remains in EIGRP-owned state rather than in the FRR parser.
+ */
 eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context)
 {
 	eigrp_result_t result;
@@ -1180,6 +1210,16 @@ eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context)
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Named: `topology base` / removal with address-family cleanup
+ * Supported: Named
+ * Placement:
+ *   Named: address-family mode
+ * Description:
+ * Creates or removes the named-mode base-topology configuration object.
+ * Topology behavior remains in EIGRP-owned state rather than in the FRR parser.
+ */
 eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context)
 {
 	eigrp_result_t result;
@@ -1190,6 +1230,16 @@ eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context)
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Named: `default-information <in|out> [POLICY]` / `no default-information <in|out> [POLICY]`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Controls retained default-information policy for the named topology.
+ * The command terminates at a real topology target and reports NOT_IMPLEMENTED until runtime policy handling is complete.
+ */
 eigrp_result_t eigrp_topology_default_information_update(
 	eigrp_instance_context_t *context,
 	eigrp_default_information_direction_t direction, bool enabled,
@@ -1206,6 +1256,16 @@ eigrp_result_t eigrp_topology_default_information_update(
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Named: `maximum-prefix LIMIT [...]` / `no maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or removes the topology prefix-limit policy.
+ * Configuration is retained even where runtime enforcement is still incomplete.
+ */
 eigrp_result_t eigrp_topology_maximum_prefix_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
@@ -1216,6 +1276,18 @@ eigrp_result_t eigrp_topology_maximum_prefix_update(
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+/*
+ * Syntax:
+ *   Classic: `maximum-paths PATHS` / `no maximum-paths [PATHS]`
+ *   Named: `maximum-paths PATHS` / `no maximum-paths`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the number of EIGRP successor paths eligible for installation.
+ * The named parser reaches the same EIGRP-owned topology limit instead of a separate named implementation.
+ */
 eigrp_result_t eigrp_topology_maximum_paths_update(
 	eigrp_instance_context_t *context, uint8_t maximum_paths)
 {
@@ -1228,6 +1300,18 @@ eigrp_result_t eigrp_topology_maximum_paths_update(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Classic: `maximum-paths PATHS` / `no maximum-paths [PATHS]`
+ *   Named: `maximum-paths PATHS` / `no maximum-paths`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: router mode
+ *   Named: topology base mode
+ * Description:
+ * Sets or resets the number of EIGRP successor paths eligible for installation.
+ * The named parser reaches the same EIGRP-owned topology limit instead of a separate named implementation.
+ */
 eigrp_result_t eigrp_topology_maximum_paths_delete(
 	eigrp_instance_context_t *context)
 {
@@ -1238,6 +1322,16 @@ eigrp_result_t eigrp_topology_maximum_paths_delete(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+/*
+ * Syntax:
+ *   Named: `maximum-prefix LIMIT [...]` / `no maximum-prefix`
+ * Supported: Named
+ * Placement:
+ *   Named: topology base mode
+ * Description:
+ * Sets or removes the topology prefix-limit policy.
+ * Configuration is retained even where runtime enforcement is still incomplete.
+ */
 eigrp_result_t eigrp_topology_maximum_prefix_delete(
 	eigrp_instance_context_t *context)
 {

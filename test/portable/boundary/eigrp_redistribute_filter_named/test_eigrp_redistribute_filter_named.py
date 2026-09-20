@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# Source-level guards for Step 7 increment 3 redistribution/filter boundaries.
+# Source-level guards for redistribution/filter boundaries.
 
 from pathlib import Path
 import re
@@ -195,10 +195,9 @@ def test_runtime_redistribution_incompleteness_is_explicit_after_zebra_subscript
     assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in update[unsupported:]
 
 
-def test_non_convergence_exception_is_documented():
+def test_redistribution_filter_target_contract_is_documented():
     conventions = read(CONVENTIONS)
 
-    assert "### Redistribution and distribute-list exception" in conventions
-    assert "eigrp_southbound_redistribute_*()" in conventions
-    assert "eigrp_southbound_filter_evaluate()" in conventions
-    assert "public classic/named configuration endpoints remain intentionally separate" in conventions
+    assert "Classic and named configuration surfaces converge" in conventions
+    assert "Reuse the EIGRP behavior below the host boundary" in conventions
+    assert "real EIGRP target" in conventions
