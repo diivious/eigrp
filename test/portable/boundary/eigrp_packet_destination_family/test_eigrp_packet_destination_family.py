@@ -38,10 +38,12 @@ def test_ipv4_packet_destinations_set_family_before_send():
     hello = read("eigrpd/eigrp_hello.c")
     update = read("eigrpd/eigrp_update.c")
     packetizer = read("eigrpd/eigrp_packetizer.c")
+    packet = read("eigrpd/eigrp_packet.c")
 
     assert "packet->dst.afi = AF_INET;" in hello
-    assert update.count("packet->dst.afi = AF_INET;") >= 2
-    assert "packet->dst.afi = AF_INET;" in packetizer
+    assert "eigrp_addr_copy(&packet->dst, &nbr->src);" in update
+    assert "eigrp_packet_multicast_reliable_enqueue" in packetizer
+    assert "packet->dst.afi = AF_INET;" in packet
 
 
 def test_no_custom_runtime_family_conversion_was_introduced():

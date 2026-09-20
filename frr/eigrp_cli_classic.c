@@ -83,6 +83,14 @@ eigrp_cli_classic_parent_named(const struct lyd_node *dnode, const char *name)
 	return NULL;
 }
 
+static void eigrp_cli_classic_config_rewind(struct vty *vty)
+{
+	if (!vty)
+		return;
+	vty->xpath_index = 0;
+	vty->node = CONFIG_NODE;
+}
+
 /*
  * Syntax: `router eigrp <1-65535> [vrf NAME]`
  * Mode: Classic router configuration
@@ -101,6 +109,7 @@ DEFPY_YANG_NOSH(
 	char xpath[XPATH_MAXLEN];
 	int rv;
 
+	eigrp_cli_classic_config_rewind(vty);
 	snprintf(xpath, sizeof(xpath),
 		 "/frr-eigrpd:eigrpd/instance[asn='%s'][vrf='%s']",
 		 as_str, vrf ? vrf : VRF_DEFAULT_NAME);
@@ -131,6 +140,7 @@ DEFPY_YANG(
 {
 	char xpath[XPATH_MAXLEN];
 
+	eigrp_cli_classic_config_rewind(vty);
 	snprintf(xpath, sizeof(xpath),
 		 "/frr-eigrpd:eigrpd/instance[asn='%s'][vrf='%s']",
 		 as_str, vrf ? vrf : VRF_DEFAULT_NAME);
@@ -1250,6 +1260,11 @@ eigrp_cli_classic_init(void)
 	install_element(CONFIG_NODE, &no_router_eigrp_cmd);
 
 	install_node(&eigrp_node);
+	/* `router eigrp ...` is a top-level configuration command.  Accept it
+	 * while already in EIGRP mode so the callback can rewind to CONFIG_NODE
+	 * before selecting the requested process.
+	 */
+	install_element(EIGRP_NODE, &router_eigrp_cmd);
 	install_default(EIGRP_NODE);
 
 	install_element(EIGRP_NODE, &eigrp_router_id_cmd);

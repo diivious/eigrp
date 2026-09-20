@@ -79,27 +79,24 @@ uint32_t eigrp_query_send_all(eigrp_instance_t *eigrp)
 {
 	eigrp_packetizer_work_t *work;
 	eigrp_prefix_descriptor_t *prefix;
-	struct listnode *node, *nnode;
+	struct listnode *node;
 	uint32_t counter = 0;
 
 	if (!eigrp)
 		return 0;
 
-	for (ALL_LIST_ELEMENTS(eigrp->topology_changes, node, nnode, prefix)) {
+	for (ALL_LIST_ELEMENTS_RO(eigrp->topology_changes, node, prefix)) {
 		if (!(prefix->req_action & EIGRP_FSM_NEED_QUERY))
 			continue;
-
-		work = eigrp_packetizer_work_new(EIGRP_OPC_QUERY);
-		work->prefix = prefix;
-		work->owner = prefix;
-		eigrp_packetizer_enqueue(eigrp, work);
-
-		prefix->req_action &= ~EIGRP_FSM_NEED_QUERY;
-		if (!prefix->req_action)
-			listnode_delete(eigrp->topology_changes, prefix);
-
 		counter++;
 	}
+	if (!counter)
+		return 0;
+
+	/* One work bead lets the packetizer batch all currently pending QUERY
+	 * destinations per interface and split only at complete TLV boundaries. */
+	work = eigrp_packetizer_work_new(EIGRP_OPC_QUERY);
+	eigrp_packetizer_enqueue(eigrp, work);
 
 	return counter;
 }

@@ -226,7 +226,8 @@ def test_debug_eigrp_packet_runtime_hooks_cover_send_receive_retry_and_ack():
 
     assert "eigrp_debug_packet_send(ei, packet, ret);" in packet
     assert "eigrp_debug_packet_receive(ei, &src, &dst, eigrph, length);" in packet
-    assert packet.count("eigrp_debug_packet_retry(nbr, packet") == 2
+    assert packet.count("eigrp_debug_packet_retry(nbr, packet") == 1
+    assert "multicast_queue" not in packet
 
     classifier = dump[
         dump.index("eigrp_debug_packet_category_get("):

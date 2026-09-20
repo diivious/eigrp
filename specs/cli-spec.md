@@ -170,6 +170,27 @@ same. A command valid for IPv4 is not automatically valid for IPv6. IPv4
 `network` and classful auto-summary semantics are examples of AF-specific
 behavior.
 
+### 5.1 Mode-changing command navigation
+
+Mode-changing commands resolve from the current EIGRP hierarchy before the
+command is applied. They may move back to an existing parent, but they do not
+create missing parent context.
+
+- `router eigrp ...` is a top-level configuration command. If it is entered
+  from an EIGRP submode, return to top-level configuration first and then select
+  the requested classic or named process.
+- `address-family ...` requires an existing named `router eigrp <name>` parent.
+  If it is entered from another address-family, `af-interface`, or topology
+  submode under that named process, return to the named parent first and then
+  select the requested address-family. It is not valid from top-level
+  configuration or from a classic numeric-AS process.
+- `af-interface ...` and `topology base` require an existing named
+  address-family. If either is entered from another submode under that same
+  address-family, return to the address-family first and then enter the
+  requested submode.
+- `exit-address-family`, `exit-af-interface`, and `exit-af-topology` return to
+  the real parent context represented by the EIGRP XPath hierarchy.
+
 ## 6. `no` forms and retained configuration
 
 Every supported configuration feature implements its applicable `no` form.

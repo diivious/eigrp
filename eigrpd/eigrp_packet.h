@@ -60,11 +60,13 @@ extern void eigrp_packet_queue_reset(eigrp_packet_queue_t *);
 
 extern void eigrp_packet_output_enqueue(eigrp_instance_t *, eigrp_interface_t *,
 				       eigrp_packet_t *);
+extern bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *,
+						     eigrp_interface_t *,
+						     eigrp_packet_t *);
 extern void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *);
 extern void eigrp_packet_send_reliably(eigrp_instance_t *, eigrp_neighbor_t *);
 
 extern void eigrp_packet_unack_retrans(void *arg);
-extern void eigrp_packet_unack_multicast_retrans(void *arg);
 
 extern eigrp_route_descriptor_t *eigrp_packet_decoder_safe(
 	eigrp_instance_t *, eigrp_neighbor_t *, eigrp_stream_t *, uint16_t);
@@ -76,6 +78,10 @@ extern uint16_t eigrp_packet_encoder_both(eigrp_instance_t *,
 					 eigrp_interface_t *, eigrp_neighbor_t *,
 					 eigrp_stream_t *,
 					 eigrp_route_descriptor_t *);
+extern int eigrp_packet_route_encode_append(eigrp_instance_t *,
+					 eigrp_interface_t *, eigrp_neighbor_t *,
+					 eigrp_packet_encoder_t, eigrp_stream_t *,
+					 eigrp_route_descriptor_t *, uint16_t);
 
 /*
  * untill there is reason to have their own header, these externs are found in
@@ -85,6 +91,7 @@ extern void eigrp_sw_version_init(void);
 extern void eigrp_hello_send(eigrp_interface_t *, uint8_t, eigrp_addr_t *);
 extern void eigrp_hello_send_unicast(eigrp_interface_t *, const eigrp_addr_t *);
 extern void eigrp_hello_send_ack(eigrp_neighbor_t *);
+extern void eigrp_hello_send_sequence(eigrp_interface_t *, uint32_t);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
 			 eigrp_addr_t *, eigrp_interface_t *,
 			 struct stream *, int);
@@ -93,13 +100,10 @@ extern void eigrp_hello_timer(void *arg);
 /*
  * These externs are found in eigrp_update.c
  */
-extern void eigrp_update_send(eigrp_instance_t *, eigrp_neighbor_t *,
-			      eigrp_interface_t *);
 extern void eigrp_update_receive(eigrp_instance_t *, eigrp_neighbor_t *,
 				 eigrp_header_t *, struct stream *,
 				 eigrp_interface_t *, int);
 extern void eigrp_update_send_all(eigrp_instance_t *, eigrp_interface_t *);
-extern void eigrp_update_packetize_all(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_neighbor_t *);
 extern void eigrp_update_send_EOT(eigrp_neighbor_t *);
 extern void eigrp_update_send_GR_event(void *arg);

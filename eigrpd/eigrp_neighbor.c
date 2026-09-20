@@ -667,7 +667,10 @@ void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 
 	/* Cancel neighbor-owned host runtime events before releasing queues/state. */
 	eigrp_southbound_event_cancel(&nbr->t_nbr_send_gr);
-	eigrp_packet_queue_free(nbr->multicast_queue);
+	if (nbr->nbr_gr_prefixes)
+		list_delete(&nbr->nbr_gr_prefixes);
+	if (nbr->nbr_gr_prefixes_send)
+		list_delete(&nbr->nbr_gr_prefixes_send);
 	eigrp_packet_queue_free(nbr->retrans_queue);
 	eigrp_southbound_event_cancel(&nbr->t_holddown);
 
@@ -729,6 +732,8 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 		nbr->recv_sequence_number = 0;
 		nbr->init_sequence_number = 0;
 		nbr->retrans_counter = 0;
+		nbr->cr_mode = false;
+		nbr->cr_sequence = 0;
 		eigrp_neighbor_rtt_reset(nbr);
 
 		// Kvalues
@@ -744,14 +749,11 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 		eigrp_southbound_event_cancel(&nbr->t_holddown);
 
 		/* out with the old */
-		if (nbr->multicast_queue)
-			eigrp_packet_queue_free(nbr->multicast_queue);
 		if (nbr->retrans_queue)
 			eigrp_packet_queue_free(nbr->retrans_queue);
 
 		/* in with the new */
 		nbr->retrans_queue = eigrp_packet_queue_new();
-		nbr->multicast_queue = eigrp_packet_queue_new();
 
 		nbr->crypt_seqnum = 0;
 	}

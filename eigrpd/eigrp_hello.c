@@ -275,6 +275,9 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 	uint16_t type;
 	uint16_t length;
 	bool new_nbr = FALSE;
+	bool sequence_seen = false;
+	bool sequence_listed = false;
+	uint32_t next_multicast_sequence = 0;
 
 	/* check for mall formed packet, if so abort now */
 	size -= EIGRP_HEADER_LEN;
@@ -301,8 +304,10 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 	do {
 		type = ntohs(tlv_header->type);
 		length = ntohs(tlv_header->length);
+		if (length < EIGRP_TLV_HDR_SIZE || length > size)
+			return;
 
-		if ((length > 0) && (length <= size)) {
+		if (length <= size) {
 			// determine what General TLV is being processed
 			switch (type) {
 			case EIGRP_TLV_PARAMETER:
@@ -318,12 +323,42 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 				 */
 				break;
 			case EIGRP_TLV_SEQ:
+				sequence_seen = true;
+				sequence_listed = false;
+				if (ei->address.address.afi == EIGRP_ADDRESS_FAMILY_IPV4
+				    && length >= EIGRP_TLV_SEQ_BASE_LEN) {
+					const uint8_t *value = (const uint8_t *)tlv_header;
+					uint16_t offset = EIGRP_TLV_HDR_SIZE;
+
+					while (offset < length) {
+						uint8_t address_length = value[offset++];
+
+						if (address_length == 0
+						    || offset + address_length > length)
+							break;
+						if (address_length == IPV4_MAX_BYTELEN
+						    && memcmp(value + offset,
+							      ei->address.address.bytes,
+							      IPV4_MAX_BYTELEN) == 0)
+							sequence_listed = true;
+						offset += address_length;
+					}
+				}
 				break;
 			case EIGRP_TLV_SW_VERSION:
 				eigrp_sw_version_decode(nbr, ei, tlv_header,
 							new_nbr);
 				break;
 			case EIGRP_TLV_NEXT_MCAST_SEQ:
+				if (length == EIGRP_NEXT_SEQUENCE_TLV_SIZE) {
+					uint32_t wire_sequence;
+
+					memcpy(&wire_sequence,
+					       ((const uint8_t *)tlv_header)
+						       + EIGRP_TLV_HDR_SIZE,
+					       sizeof(wire_sequence));
+					next_multicast_sequence = ntohl(wire_sequence);
+				}
 				break;
 			case EIGRP_TLV_PEER_TERMINATION:
 				eigrp_peer_termination_decode(eigrp, nbr,
@@ -342,6 +377,11 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 							   + length);
 		size -= length;
 	} while (size > 0);
+
+	if (sequence_seen) {
+		nbr->cr_mode = !sequence_listed && next_multicast_sequence != 0;
+		nbr->cr_sequence = nbr->cr_mode ? next_multicast_sequence : 0;
+	}
 
 	/*If received packet is hello with Parameter TLV*/
 	if (ntohl(eigrph->ack) == 0) {
@@ -429,11 +469,10 @@ static uint16_t eigrp_tidlist_encode(struct stream *s)
  * Part of conditional receive process
  *
  */
-static uint16_t eigrp_sequence_encode(eigrp_instance_t *eigrp, struct stream *s)
+static uint16_t eigrp_sequence_encode(eigrp_interface_t *ei, struct stream *s)
 {
-	uint16_t length = EIGRP_TLV_SEQ_BASE_LEN;
-	eigrp_interface_t *ei;
-	struct listnode *node, *node2, *nnode2;
+	uint16_t length = EIGRP_TLV_HDR_SIZE;
+	struct listnode *node, *nnode;
 	eigrp_neighbor_t *nbr;
 	size_t backup_end, size_end;
 	int found;
@@ -443,17 +482,17 @@ static uint16_t eigrp_sequence_encode(eigrp_instance_t *eigrp, struct stream *s)
 	stream_putw(s, EIGRP_TLV_SEQ);
 	size_end = s->endp;
 	stream_putw(s, 0x0000);
-	stream_putc(s, IPV4_MAX_BYTELEN);
 
 	found = 0;
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
-			if (nbr->multicast_queue->count > 0) {
-				length += (uint16_t)stream_put_ipv4(
-					s, nbr->src.ip.v4.s_addr);
-				found = 1;
-			}
-		}
+	for (ALL_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
+		if (nbr->state != EIGRP_NEIGHBOR_UP || !nbr->retrans_queue
+		    || nbr->retrans_queue->count == 0 || nbr->src.afi != AF_INET)
+			continue;
+
+		stream_putc(s, IPV4_MAX_BYTELEN);
+		length++;
+		length += (uint16_t)stream_put_ipv4(s, nbr->src.ip.v4.s_addr);
+		found = 1;
 	}
 
 	if (found == 0) {
@@ -480,15 +519,14 @@ static uint16_t eigrp_sequence_encode(eigrp_instance_t *eigrp, struct stream *s)
  * Part of conditional receive process
  *
  */
-static uint16_t eigrp_next_sequence_encode(eigrp_instance_t *eigrp,
-					   struct stream *s)
+static uint16_t eigrp_next_sequence_encode(uint32_t sequence, struct stream *s)
 {
 	uint16_t length = EIGRP_NEXT_SEQUENCE_TLV_SIZE;
 
 	// add in the parameters TLV
 	stream_putw(s, EIGRP_TLV_NEXT_MCAST_SEQ);
 	stream_putw(s, EIGRP_NEXT_SEQUENCE_TLV_SIZE);
-	stream_putl(s, eigrp->sequence_number + 1);
+	stream_putl(s, sequence);
 
 	return length;
 }
@@ -558,7 +596,8 @@ static uint16_t eigrp_hello_parameter_encode(eigrp_interface_t *ei,
  */
 static eigrp_packet_t *eigrp_hello_encode(eigrp_interface_t *ei, in_addr_t addr,
 					  uint32_t ack, uint8_t flags,
-					  eigrp_addr_t *nbr_addr)
+					  eigrp_addr_t *nbr_addr,
+					  uint32_t multicast_sequence)
 {
 	eigrp_packet_t *packet;
 	uint16_t length = EIGRP_HEADER_LEN;
@@ -592,8 +631,9 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_interface_t *ei, in_addr_t addr,
 		length += eigrp_sw_version_encode(packet->s);
 
 		if (flags & EIGRP_HELLO_ADD_SEQUENCE) {
-			length += eigrp_sequence_encode(ei->eigrp, packet->s);
-			length += eigrp_next_sequence_encode(ei->eigrp, packet->s);
+			length += eigrp_sequence_encode(ei, packet->s);
+			length += eigrp_next_sequence_encode(multicast_sequence,
+							     packet->s);
 		}
 
 		// add in the TID list if doing multi-topology
@@ -649,7 +689,7 @@ void eigrp_hello_send_ack(eigrp_neighbor_t *nbr)
 	/* if packet succesfully created, add it to the interface queue */
 	packet = eigrp_hello_encode(nbr->ei, nbr->src.ip.v4.s_addr,
 				nbr->recv_sequence_number, EIGRP_HELLO_NORMAL,
-				&nbr->src);
+				&nbr->src, 0);
 
 	if (packet) {
 		/* Add packet to the top of the interface output queue*/
@@ -686,7 +726,7 @@ void eigrp_hello_send_unicast(eigrp_interface_t *ei, const eigrp_addr_t *dst)
 	if (!ei || !dst || dst->afi != AF_INET)
 		return;
 	packet = eigrp_hello_encode(ei, dst->ip.v4.s_addr, 0,
-				    EIGRP_HELLO_NORMAL, NULL);
+				    EIGRP_HELLO_NORMAL, NULL, 0);
 	if (!packet)
 		return;
 	eigrp_packet_enqueue(ei->obuf, packet);
@@ -711,7 +751,8 @@ void eigrp_hello_send(eigrp_interface_t *ei, uint8_t flags,
 
 	/* if packet was succesfully created, then add it to the interface queue
 	 */
-	packet = eigrp_hello_encode(ei, htonl(EIGRP_MULTICAST_ADDRESS), 0, flags, nbr_addr);
+	packet = eigrp_hello_encode(ei, htonl(EIGRP_MULTICAST_ADDRESS), 0,
+				    flags, nbr_addr, 0);
 
 	if (packet) {
 		// Add packet to the top of the interface output queue
@@ -731,4 +772,19 @@ void eigrp_hello_send(eigrp_interface_t *ei, uint8_t flags,
 			}
 		}
 	}
+}
+
+void eigrp_hello_send_sequence(eigrp_interface_t *ei, uint32_t sequence)
+{
+	eigrp_packet_t *packet;
+
+	if (!ei || sequence == 0)
+		return;
+
+	packet = eigrp_hello_encode(ei, htonl(EIGRP_MULTICAST_ADDRESS), 0,
+				    EIGRP_HELLO_ADD_SEQUENCE, NULL, sequence);
+	if (!packet)
+		return;
+
+	eigrp_packet_output_enqueue(ei->eigrp, ei, packet);
 }

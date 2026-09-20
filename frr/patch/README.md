@@ -20,10 +20,14 @@ Patches must not be applied with fuzz or silently rewritten by the installer.
 Current integration patches:
 
 - `vtysh-named-eigrp.patch` lets FRR `vtysh` enter `EIGRP_NODE` for both the
-  numeric and named `router eigrp` forms.
+  numeric and named `router eigrp` forms, including re-entering `router eigrp`
+  directly from an EIGRP submode.
+- `eigrp-multi-instance.patch` removes FRR's legacy one-EIGRP-instance-per-VRF
+  YANG restriction. Classic instances are keyed by AS and VRF, so separate AS
+  numbers may coexist in the same VRF.
 - `eigrp-named-yang.patch` adds the named-process parent and IPv4/IPv6
   address-family keys to the authoritative FRR EIGRP YANG model. The legacy
-  numeric-AS model remains unchanged.
+  numeric-AS schema remains separate from named mode.
 - `eigrp-named-af-config.patch` extends that named address-family schema with
   retained address-family configuration for router ID, IPv4 networks, static
   IPv4/IPv6 neighbors, and address-family shutdown state.

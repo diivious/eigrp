@@ -1061,7 +1061,8 @@ static bool eigrp_cli_named_af_context(struct vty *vty, char *name,
 				       size_t vrf_len, char *asn,
 				       size_t asn_len)
 {
-	return strstr(VTY_CURR_XPATH, "/named[") != NULL
+	return vty && vty->xpath_index > 0
+	       && strstr(VTY_CURR_XPATH, "/named[") != NULL
 	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "name", name, name_len)
 	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "afi", afi, afi_len)
 	       && eigrp_cli_xpath_get(VTY_CURR_XPATH, "vrf", vrf_name, vrf_len)
@@ -1070,10 +1071,73 @@ static bool eigrp_cli_named_af_context(struct vty *vty, char *name,
 
 static bool eigrp_cli_named_af_mode(struct vty *vty)
 {
-	return strstr(VTY_CURR_XPATH, "/named[") != NULL
+	return vty && vty->xpath_index > 0
+	       && strstr(VTY_CURR_XPATH, "/named[") != NULL
 	       && strstr(VTY_CURR_XPATH, "/address-family[") != NULL
 	       && strstr(VTY_CURR_XPATH, "/af-interface[") == NULL
 	       && strstr(VTY_CURR_XPATH, "/topology") == NULL;
+}
+
+/*
+ * Named-mode submodes share FRR's EIGRP_NODE.  The XPath stack therefore
+ * carries the real router/address-family/af-interface/topology hierarchy.
+ * Mode-entry commands must rewind to an existing parent before entering a
+ * sibling.  They may never manufacture a parent that is not already active.
+ */
+static bool eigrp_cli_named_xpath_rewind(struct vty *vty, const char *xpath)
+{
+	int index;
+
+	if (!vty || !xpath || !xpath[0])
+		return false;
+
+	for (index = vty->xpath_index - 1; index >= 0; index--) {
+		if (strcmp(vty->xpath[index], xpath) != 0)
+			continue;
+		vty->xpath_index = index + 1;
+		vty->node = EIGRP_NODE;
+		return true;
+	}
+
+	return false;
+}
+
+static void eigrp_cli_config_rewind(struct vty *vty)
+{
+	if (!vty)
+		return;
+	vty->xpath_index = 0;
+	vty->node = CONFIG_NODE;
+}
+
+static bool eigrp_cli_named_root_rewind(struct vty *vty, char *name,
+				       size_t name_len)
+{
+	char xpath[XPATH_MAXLEN];
+
+	if (!vty || vty->xpath_index <= 0
+	    || strstr(VTY_CURR_XPATH, "/named[") == NULL
+	    || !eigrp_cli_xpath_get(VTY_CURR_XPATH, "name", name, name_len))
+		return false;
+
+	eigrp_cli_named_xpath(xpath, sizeof(xpath), name);
+	return eigrp_cli_named_xpath_rewind(vty, xpath);
+}
+
+static bool eigrp_cli_named_af_rewind(struct vty *vty, char *name,
+				     size_t name_len, char *afi,
+				     size_t afi_len, char *vrf_name,
+				     size_t vrf_len, char *asn,
+				     size_t asn_len)
+{
+	char xpath[XPATH_MAXLEN];
+
+	if (!eigrp_cli_named_af_context(vty, name, name_len, afi, afi_len,
+					vrf_name, vrf_len, asn, asn_len))
+		return false;
+
+	eigrp_cli_named_af_xpath(xpath, sizeof(xpath), name, afi, vrf_name, asn);
+	return eigrp_cli_named_xpath_rewind(vty, xpath);
 }
 
 static int eigrp_cli_named_af_required(struct vty *vty)
@@ -1099,6 +1163,11 @@ DEFUN_NOSH(router_eigrp_named,
 {
 	const char *name = eigrp_cli_token_last(argc, argv);
 
+	/* `router` is a global configuration command even when entered from an
+	 * EIGRP submode.  FRR only pops one EIGRP_NODE level while the named
+	 * hierarchy can have several XPath levels, so normalize it explicitly.
+	 */
+	eigrp_cli_config_rewind(vty);
 	return eigrp_cli_push_named_root(vty, name);
 }
 
@@ -1119,6 +1188,7 @@ DEFUN(no_router_eigrp_named,
 	const char *name = eigrp_cli_token_last(argc, argv);
 	char xpath[XPATH_MAXLEN];
 
+	eigrp_cli_config_rewind(vty);
 	eigrp_cli_named_xpath(xpath, sizeof(xpath), name);
 	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes_clear_pending(vty, NULL);
@@ -1144,7 +1214,10 @@ DEFUN(eigrp_address_family_ipv4,
 	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
 	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
 
-	eigrp_cli_current_name(vty, name, sizeof(name));
+	if (!eigrp_cli_named_root_rewind(vty, name, sizeof(name))) {
+		vty_out(vty, "%% Enter named EIGRP router mode first\n");
+		return CMD_WARNING;
+	}
 	return eigrp_cli_named_address_family_set(vty, name, "ipv4", asn,
 						    eigrp_cli_vrf_name(vrf_name));
 }
@@ -1170,7 +1243,10 @@ DEFUN(no_eigrp_address_family_ipv4,
 	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
 	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
 
-	eigrp_cli_current_name(vty, name, sizeof(name));
+	if (!eigrp_cli_named_root_rewind(vty, name, sizeof(name))) {
+		vty_out(vty, "%% Enter named EIGRP router mode first\n");
+		return CMD_WARNING;
+	}
 	return eigrp_cli_named_address_family_unset(vty, name, "ipv4", asn,
 						      eigrp_cli_vrf_name(vrf_name));
 }
@@ -1195,7 +1271,10 @@ DEFUN(eigrp_address_family_ipv6,
 	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
 	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
 
-	eigrp_cli_current_name(vty, name, sizeof(name));
+	if (!eigrp_cli_named_root_rewind(vty, name, sizeof(name))) {
+		vty_out(vty, "%% Enter named EIGRP router mode first\n");
+		return CMD_WARNING;
+	}
 	return eigrp_cli_named_address_family_set(vty, name, "ipv6", asn,
 						    eigrp_cli_vrf_name(vrf_name));
 }
@@ -1221,7 +1300,10 @@ DEFUN(no_eigrp_address_family_ipv6,
 	const char *asn = eigrp_cli_token_after(argc, argv, "autonomous-system");
 	const char *vrf_name = eigrp_cli_token_after(argc, argv, "vrf");
 
-	eigrp_cli_current_name(vty, name, sizeof(name));
+	if (!eigrp_cli_named_root_rewind(vty, name, sizeof(name))) {
+		vty_out(vty, "%% Enter named EIGRP router mode first\n");
+		return CMD_WARNING;
+	}
 	return eigrp_cli_named_address_family_unset(vty, name, "ipv6", asn,
 						      eigrp_cli_vrf_name(vrf_name));
 }
@@ -1237,10 +1319,15 @@ DEFUN(eigrp_exit_address_family,
       "exit-address-family",
       "Exit address-family configuration mode\n")
 {
-	if (vty->xpath_index > 1
-	    && strstr(VTY_CURR_XPATH, "/address-family[") != NULL)
-		vty->xpath_index--;
-	vty->node = EIGRP_NODE;
+	char name[128];
+
+	if (!vty || vty->xpath_index <= 0
+	    || strstr(VTY_CURR_XPATH, "/address-family[") == NULL
+	    || !eigrp_cli_named_root_rewind(vty, name, sizeof(name))) {
+		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
+		return CMD_WARNING;
+	}
+
 	return CMD_SUCCESS;
 }
 
@@ -1771,9 +1858,9 @@ DEFUN(eigrp_af_interface,
 	char xpath[XPATH_MAXLEN];
 	int rv;
 
-	if (!eigrp_cli_named_af_context(vty, name, sizeof(name), afi,
-					 sizeof(afi), vrf_name, sizeof(vrf_name),
-					 asn, sizeof(asn))) {
+	if (!eigrp_cli_named_af_rewind(vty, name, sizeof(name), afi,
+				      sizeof(afi), vrf_name, sizeof(vrf_name),
+				      asn, sizeof(asn))) {
 		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
 		return CMD_WARNING;
 	}
@@ -1808,9 +1895,9 @@ DEFUN(no_eigrp_af_interface,
 	char vrf_name[VRF_NAMSIZ];
 	char xpath[XPATH_MAXLEN];
 
-	if (!eigrp_cli_named_af_context(vty, name, sizeof(name), afi,
-					 sizeof(afi), vrf_name, sizeof(vrf_name),
-					 asn, sizeof(asn))) {
+	if (!eigrp_cli_named_af_rewind(vty, name, sizeof(name), afi,
+				      sizeof(afi), vrf_name, sizeof(vrf_name),
+				      asn, sizeof(asn))) {
 		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
 		return CMD_WARNING;
 	}
@@ -1832,10 +1919,20 @@ DEFUN(eigrp_exit_af_interface,
       "exit-af-interface",
       "Exit address-family interface configuration mode\n")
 {
-	if (vty->xpath_index > 1
-	    && strstr(VTY_CURR_XPATH, "/af-interface[") != NULL)
-		vty->xpath_index--;
-	vty->node = EIGRP_NODE;
+	char name[128];
+	char afi[8];
+	char asn[16];
+	char vrf_name[VRF_NAMSIZ];
+
+	if (!vty || vty->xpath_index <= 0
+	    || strstr(VTY_CURR_XPATH, "/af-interface[") == NULL
+	    || !eigrp_cli_named_af_rewind(vty, name, sizeof(name), afi,
+				      sizeof(afi), vrf_name, sizeof(vrf_name),
+				      asn, sizeof(asn))) {
+		vty_out(vty, "%% Enter named EIGRP af-interface mode first\n");
+		return CMD_WARNING;
+	}
+
 	return CMD_SUCCESS;
 }
 
@@ -2559,10 +2656,9 @@ DEFUN(eigrp_topology_base,
 	char xpath[XPATH_MAXLEN];
 	int rv;
 
-	if (!eigrp_cli_named_af_context(vty, name, sizeof(name), afi,
-					 sizeof(afi), vrf_name, sizeof(vrf_name),
-					 asn, sizeof(asn))
-	    || strstr(VTY_CURR_XPATH, "/af-interface[") != NULL) {
+	if (!eigrp_cli_named_af_rewind(vty, name, sizeof(name), afi,
+				      sizeof(afi), vrf_name, sizeof(vrf_name),
+				      asn, sizeof(asn))) {
 		vty_out(vty, "%% Enter named EIGRP address-family mode first\n");
 		return CMD_WARNING;
 	}
@@ -2587,10 +2683,20 @@ DEFUN(eigrp_exit_af_topology,
       "exit-af-topology",
       "Exit address-family topology mode\n")
 {
-	if (vty->xpath_index > 1
-	    && strstr(VTY_CURR_XPATH, "/topology") != NULL)
-		vty->xpath_index--;
-	vty->node = EIGRP_NODE;
+	char name[128];
+	char afi[8];
+	char asn[16];
+	char vrf_name[VRF_NAMSIZ];
+
+	if (!vty || vty->xpath_index <= 0
+	    || strstr(VTY_CURR_XPATH, "/topology") == NULL
+	    || !eigrp_cli_named_af_rewind(vty, name, sizeof(name), afi,
+				      sizeof(afi), vrf_name, sizeof(vrf_name),
+				      asn, sizeof(asn))) {
+		vty_out(vty, "%% Enter named EIGRP topology base mode first\n");
+		return CMD_WARNING;
+	}
+
 	return CMD_SUCCESS;
 }
 
@@ -5216,6 +5322,7 @@ void eigrp_cli_named_init(void)
     /* The classic CLI module owns EIGRP_NODE and shared command grammars. */
     install_element(CONFIG_NODE, &router_eigrp_named_cmd);
     install_element(CONFIG_NODE, &no_router_eigrp_named_cmd);
+    install_element(EIGRP_NODE, &router_eigrp_named_cmd);
 
     install_element(ENABLE_NODE, &clear_eigrp_events_cmd);
     install_element(ENABLE_NODE, &clear_eigrp_address_family_events_cmd);

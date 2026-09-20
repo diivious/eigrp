@@ -24,7 +24,10 @@ The layout intentionally mirrors a single FRR protocol test directory such as
 ## Live named-mode configuration gate
 
 Before FRR-native pytest payloads, `tools/frr-uut.sh --all` and `--frr` run
-`tools/frr-named-uut.sh`.  That gate drives the real daemon with
+`tools/frr-cli-navigation-uut.sh` followed by `tools/frr-named-uut.sh`.  The
+navigation gate verifies top-level `router eigrp` re-entry, sibling named-mode
+transitions, parent-context enforcement, and multiple classic AS instances in
+one VRF.  The named-mode gate then drives the real daemon with
 `sudo vtysh -d eigrpd -c ...` and validates named-mode configuration
 acceptance, running-config writeback, mutation, documented removal paths,
 IPv4/IPv6 AS 4453/6473 address-family lifecycle, and case-sensitive process

@@ -231,6 +231,40 @@ uint16_t eigrp_packet_encoder_both(eigrp_instance_t *eigrp,
 	return len1 + len2;
 }
 
+int eigrp_packet_route_encode_append(eigrp_instance_t *eigrp,
+				     eigrp_interface_t *ei,
+				     eigrp_neighbor_t *nbr,
+				     eigrp_packet_encoder_t encoder,
+				     eigrp_stream_t *pkt,
+				     eigrp_route_descriptor_t *route,
+				     uint16_t packet_limit)
+{
+	eigrp_stream_t *scratch;
+	uint16_t encoded;
+
+	if (!eigrp || !encoder || !pkt || !route || packet_limit == 0)
+		return 0;
+
+	/* Encode the complete route TLV set away from the destination packet.
+	 * A TLV is appended only when the complete encoding fits the interface
+	 * packet limit, so packet splitting can never cut through a TLV. */
+	scratch = stream_new(packet_limit);
+	encoded = encoder(eigrp, ei, nbr, scratch, route);
+	if (!encoded) {
+		stream_free(scratch);
+		return 0;
+	}
+
+	if (stream_get_endp(pkt) + encoded > packet_limit) {
+		stream_free(scratch);
+		return -1;
+	}
+
+	stream_put(pkt, STREAM_DATA(scratch), encoded);
+	stream_free(scratch);
+	return encoded;
+}
+
 static void eigrp_packet_retransmit_limit_exceeded(eigrp_neighbor_t *nbr)
 {
 	char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
@@ -253,20 +287,26 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 			     eigrp_neighbor_t *nbr)
 {
 	struct eigrp_packet *packet = NULL;
+	uint32_t ack;
+
+	if (!eigrp || !eigrph || !nbr || !nbr->retrans_queue)
+		return;
+
+	ack = ntohl(eigrph->ack);
 
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
-	if ((packet) && (ntohl(eigrph->ack) == packet->sequence_number)) {
+	if (packet && ack == packet->sequence_number) {
 		eigrp_neighbor_srtt_update(nbr, packet);
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
-				   "ACK %u matched reliable sequence", ntohl(eigrph->ack));
+				   "ACK %u matched reliable sequence", ack);
 		packet = eigrp_packet_dequeue(nbr->retrans_queue);
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
 				   "unlinked ACKed seq %u from reliable queue (depth %lu)",
-				   ntohl(eigrph->ack), nbr->retrans_queue->count);
+				   ack, nbr->retrans_queue->count);
 		eigrp_packet_free(packet);
 
 		if ((nbr->state == EIGRP_NEIGHBOR_PENDING)
-		    && (ntohl(eigrph->ack) == nbr->init_sequence_number)) {
+		    && ack == nbr->init_sequence_number) {
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_UP);
 			{
 				char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
@@ -283,23 +323,6 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 		} else
 			eigrp_packet_send_reliably(eigrp, nbr);
 	}
-
-	packet = eigrp_packet_queue_next(nbr->multicast_queue);
-	if (packet) {
-		if (ntohl(eigrph->ack) == packet->sequence_number) {
-			eigrp_neighbor_srtt_update(nbr, packet);
-			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
-					   "ACK %u matched multicast sequence", ntohl(eigrph->ack));
-			packet = eigrp_packet_dequeue(nbr->multicast_queue);
-			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
-					   "unlinked ACKed seq %u from multicast queue (depth %lu)",
-					   ntohl(eigrph->ack), nbr->multicast_queue->count);
-			eigrp_packet_free(packet);
-			if (nbr->multicast_queue->count > 0) {
-				eigrp_packet_send_reliably(eigrp, nbr);
-			}
-		}
-	}
 }
 
 static void eigrp_packet_reliable_neighbor_send_record(eigrp_neighbor_t *nbr,
@@ -312,9 +335,6 @@ static void eigrp_packet_reliable_neighbor_send_record(eigrp_neighbor_t *nbr,
 		return;
 
 	queued = eigrp_packet_queue_next(nbr->retrans_queue);
-	if ((!queued || queued->sequence_number != sequence)
-	    && nbr->multicast_queue)
-		queued = eigrp_packet_queue_next(nbr->multicast_queue);
 	if (!queued || queued->sequence_number != sequence || queued->sent_msec != 0)
 		return;
 
@@ -345,6 +365,30 @@ static void eigrp_packet_reliable_send_record(eigrp_interface_t *ei,
 	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr))
 		eigrp_packet_reliable_neighbor_send_record(nbr, packet->sequence_number,
 						 now_msec);
+}
+
+static void eigrp_packet_reliable_send_failure_record(eigrp_interface_t *ei,
+					      eigrp_packet_t *packet)
+{
+	eigrp_neighbor_t *nbr;
+	eigrp_packet_t *queued;
+	struct listnode *node;
+
+	if (!ei || !packet || packet->sequence_number == 0 || packet->retransmission)
+		return;
+
+	if (packet->nbr) {
+		queued = eigrp_packet_queue_next(packet->nbr->retrans_queue);
+		if (queued && queued->sequence_number == packet->sequence_number)
+			eigrp_packet_retransmit_timer_start(packet->nbr);
+		return;
+	}
+
+	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+		queued = eigrp_packet_queue_next(nbr->retrans_queue);
+		if (queued && queued->sequence_number == packet->sequence_number)
+			eigrp_packet_retransmit_timer_start(nbr);
+	}
 }
 
 void eigrp_packet_write_schedule(eigrp_instance_t *eigrp)
@@ -386,20 +430,9 @@ void eigrp_packet_write(void *arg)
 		goto out;
 	}
 
-	/*
-	 * We build and schedule packets to go out in the future.  In the mean
-	 * time we may process some update packets from the neighbor, thus making
-	 * it necessary to update the ACK used by this outgoing packet.
-	 */
 	eigrph = (struct eigrp_header *)STREAM_DATA(packet->s);
 	seqno = ntohl(eigrph->sequence);
 	ack = ntohl(eigrph->ack);
-	if (packet->nbr && ack != packet->nbr->recv_sequence_number) {
-		eigrph->ack = htonl(packet->nbr->recv_sequence_number);
-		ack = packet->nbr->recv_sequence_number;
-		eigrph->checksum = 0;
-		eigrp_packet_checksum(ei, packet->s, packet->length);
-	}
 
 	if (!eigrp->af_vectors.packet_send) {
 		zlog_warn("%s: no address-family packet sender is bound", __func__);
@@ -412,7 +445,8 @@ void eigrp_packet_write(void *arg)
 	if (ret >= 0) {
 		eigrp_packet_send_stats_record(ei, packet, eigrph);
 		eigrp_packet_reliable_send_record(ei, packet);
-	}
+	} else
+		eigrp_packet_reliable_send_failure_record(ei, packet);
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		char destination[EIGRP_PACKET_ADDR_TEXT_SIZE];
@@ -545,6 +579,14 @@ void eigrp_packet_read(void *arg)
 			return;
 
 		eigrp_packet_receive_stats_record(ei, eigrph);
+		if (ntohl(eigrph->ack)) {
+			/* An EIGRP ACK is a Hello opcode with sequence zero and a
+			 * nonzero ACK field.  Consume it in RTP before Hello TLV
+			 * processing; an ACK must never create a new adjacency. */
+			if (nbr)
+				eigrp_packet_ack(eigrp, eigrph, nbr);
+			return;
+		}
 		eigrp_hello_receive(eigrp, eigrph, &src, ei, ibuf, length);
 		return;
 	}
@@ -555,6 +597,30 @@ void eigrp_packet_read(void *arg)
 
 	if (eigrp_packet_auth_digest_validate(ei, nbr, eigrph, length) < 0)
 		return;
+
+	if (!meta.destination_multicast && nbr->cr_mode
+	    && nbr->cr_sequence == ntohl(eigrph->sequence)) {
+		/* A CR multicast that was missed or intentionally ignored is
+		 * recovered by the normal unicast reliable send.  Consuming that
+		 * sequence also consumes the conditional-receive state. */
+		nbr->cr_mode = false;
+		nbr->cr_sequence = 0;
+	}
+
+	if (meta.destination_multicast && (ntohl(eigrph->flags) & EIGRP_CR_FLAG)) {
+		uint32_t sequence = ntohl(eigrph->sequence);
+
+		if (!nbr->cr_mode
+		    || (nbr->cr_sequence != 0 && nbr->cr_sequence != sequence)) {
+			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, ei, nbr,
+					   "discard CR sequence %u while not eligible",
+					   sequence);
+			return;
+		}
+
+		nbr->cr_mode = false;
+		nbr->cr_sequence = 0;
+	}
 
 	eigrp_packet_receive_stats_record(ei, eigrph);
 	if (ntohl(eigrph->ack))
@@ -601,6 +667,9 @@ void eigrp_packet_queue_free(eigrp_packet_queue_t *queue)
 	eigrp_packet_t *packet;
 	eigrp_packet_t *next;
 
+	if (!queue)
+		return;
+
 	for (packet = queue->head; packet; packet = next) {
 		next = packet->next;
 		eigrp_packet_free(packet);
@@ -616,6 +685,9 @@ void eigrp_packet_queue_reset(eigrp_packet_queue_t *queue)
 {
 	eigrp_packet_t *packet;
 	eigrp_packet_t *next;
+
+	if (!queue)
+		return;
 
 	for (packet = queue->head; packet; packet = next) {
 		next = packet->next;
@@ -650,6 +722,83 @@ void eigrp_packet_output_enqueue(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 		ei->on_write_q = 1;
 	}
 	eigrp_packet_write_schedule(eigrp);
+}
+
+bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *eigrp,
+					      eigrp_interface_t *ei,
+					      eigrp_packet_t *packet)
+{
+	eigrp_neighbor_t *nbr;
+	struct eigrp_header *header;
+	struct listnode *node;
+	unsigned int receivers = 0;
+	unsigned int ready = 0;
+	unsigned int busy = 0;
+
+	if (!eigrp || !ei || !packet || packet->sequence_number == 0)
+		return false;
+
+	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+		if (nbr->state != EIGRP_NEIGHBOR_UP || !nbr->retrans_queue)
+			continue;
+		receivers++;
+		if (nbr->retrans_queue->count == 0)
+			ready++;
+		else
+			busy++;
+	}
+
+	if (!receivers) {
+		eigrp_packet_free(packet);
+		return false;
+	}
+
+	/* When only some peers can accept the multicast, advertise the peers
+	 * that must ignore it and finalize CR in the packet image before any
+	 * neighbor queue receives a copy. */
+	if (ready && busy) {
+		header = (struct eigrp_header *)STREAM_DATA(packet->s);
+		header->flags = htonl(ntohl(header->flags) | EIGRP_CR_FLAG);
+		header->checksum = 0;
+		if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
+		    && ei->params.auth_keychain != NULL)
+			eigrp_make_md5_digest(ei, packet->s,
+					      EIGRP_AUTH_UPDATE_FLAG);
+		header->checksum = 0;
+		eigrp_packet_checksum(ei, packet->s, packet->length);
+
+		/* This Hello must be queued before the reliable multicast.  At this
+		 * point only the pre-existing busy queues are visible to the Sequence
+		 * TLV encoder. */
+		eigrp_hello_send_sequence(ei, packet->sequence_number);
+	}
+
+	packet->dst.afi = AF_INET;
+	packet->dst.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
+	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+		eigrp_packet_t *duplicate;
+
+		if (nbr->state != EIGRP_NEIGHBOR_UP || !nbr->retrans_queue)
+			continue;
+
+		duplicate = eigrp_packet_duplicate(packet, nbr);
+		eigrp_packet_enqueue(nbr->retrans_queue, duplicate);
+		eigrp_debug_transmit_event(
+			EIGRP_DEBUG_TRANSMIT_LINK, eigrp, ei, nbr,
+			"linked multicast seq %u to reliable queue (depth %lu)",
+			packet->sequence_number, nbr->retrans_queue->count);
+	}
+
+	/* If every peer already had an outstanding reliable packet, there is no
+	 * useful multicast receiver.  Each queued copy will advance as an
+	 * ordinary reliable unicast when that neighbor ACKs its current head. */
+	if (!ready) {
+		eigrp_packet_free(packet);
+		return true;
+	}
+
+	eigrp_packet_output_enqueue(eigrp, ei, packet);
+	return true;
 }
 
 void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
@@ -689,15 +838,10 @@ void eigrp_packet_send_reliably(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr)
 				   "send reliable queue head seq %u (depth %lu)",
 				   packet->sequence_number, nbr->retrans_queue->count);
 		duplicate = eigrp_packet_duplicate(packet, nbr);
+		if (eigrp_packet_destination_is_ipv4_multicast(packet))
+			duplicate->multicast_exception = true;
+		eigrp_addr_copy(&duplicate->dst, &nbr->src);
 		eigrp_packet_output_enqueue(eigrp, nbr->ei, duplicate);
-		eigrp_packet_retransmit_timer_start(nbr);
-
-		if (!packet->sequence_reserved) {
-			nbr->ei->eigrp->sequence_number++;
-			if (nbr->ei->eigrp->sequence_number == 0)
-				nbr->ei->eigrp->sequence_number = 1;
-			packet->sequence_reserved = true;
-		}
 	}
 }
 
@@ -1076,49 +1220,14 @@ void eigrp_packet_unack_retrans(void *arg)
 	eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
 	duplicate = eigrp_packet_duplicate(packet, nbr);
 	duplicate->retransmission = true;
+	if (eigrp_packet_destination_is_ipv4_multicast(packet))
+		duplicate->multicast_exception = true;
 	eigrp_addr_copy(&duplicate->dst, &nbr->src);
 	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
 
 	packet->retrans_counter++;
 	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
 				 eigrp_packet_unack_retrans, nbr,
-				 eigrp_neighbor_rto_get(nbr));
-}
-
-void eigrp_packet_unack_multicast_retrans(void *arg)
-{
-	eigrp_neighbor_t *nbr = arg;
-	eigrp_packet_t *packet;
-	eigrp_packet_t *duplicate;
-
-	packet = eigrp_packet_queue_next(nbr->multicast_queue);
-	if (!packet)
-		return;
-
-	if (packet->retrans_counter >= EIGRP_TRANSPORT_RETRANS_MAX) {
-		eigrp_packet_retransmit_limit_exceeded(nbr);
-		return;
-	}
-
-	eigrp_neighbor_rto_backoff(nbr);
-	if (IS_DEBUG_EIGRP(0, TIMERS)) {
-		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
-
-		zlog_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
-			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
-						  sizeof(address)),
-			   packet->sequence_number, packet->retrans_counter + 1);
-	}
-	eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
-	duplicate = eigrp_packet_duplicate(packet, nbr);
-	duplicate->retransmission = true;
-	duplicate->multicast_exception = true;
-	eigrp_addr_copy(&duplicate->dst, &nbr->src);
-	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
-
-	packet->retrans_counter++;
-	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
-				 eigrp_packet_unack_multicast_retrans, nbr,
 				 eigrp_neighbor_rto_get(nbr));
 }
 
@@ -1148,12 +1257,14 @@ eigrp_packet_t *eigrp_packet_duplicate(eigrp_packet_t *old,
 {
 	eigrp_packet_t *new;
 
-	new = eigrp_packet_new(EIGRP_PACKET_MTU(nbr->ei->curr_mtu), nbr);
+	if (!old || !old->s)
+		return NULL;
+
+	new = eigrp_packet_new(old->length, nbr);
 	new->length = old->length;
 	new->retrans_counter = old->retrans_counter;
 	new->dst = old->dst;
 	new->sequence_number = old->sequence_number;
-	new->sequence_reserved = old->sequence_reserved;
 	new->retransmission = false;
 	new->multicast_exception = false;
 	stream_copy(new->s, old->s);

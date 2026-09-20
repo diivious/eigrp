@@ -130,15 +130,17 @@ static const char *eigrp_zebra_prefix_string(const struct prefix *prefix)
 static int eigrp_zebra_router_id_update(ZAPI_CALLBACK_ARGS)
 {
 	eigrp_instance_t *eigrp;
+	struct listnode *node;
 	struct prefix router_id;
 	zebra_router_id_update_read(zclient->ibuf, &router_id);
 
 	router_id_zebra = router_id.u.prefix4;
 
-	eigrp = eigrp_lookup(vrf_id);
-
-	if (eigrp != NULL)
+	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (eigrp->vrf_id != vrf_id)
+			continue;
 		eigrp_router_id_update(eigrp);
+	}
 
 	return 0;
 }

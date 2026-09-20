@@ -494,7 +494,13 @@ run_frr_tests() {
 	# installed daemon.  Activate the build and restart FRR before vtysh.
 	activate_local_uut
 
-	# First prove the built daemon accepts, retains, changes, and removes the
+	# Prove mode-changing commands resolve their real parent context before the
+	# larger named-mode configuration matrix.  This also validates multiple
+	# classic AS instances in one VRF.
+	"$script_dir/frr-cli-navigation-uut.sh"
+	assert_eigrpd_uut_alive
+
+	# Then prove the built daemon accepts, retains, changes, and removes the
 	# complete Step-1 named-mode configuration surface through the real VTY.
 	# This intentionally uses sudo vtysh -d eigrpd rather than a parser-only
 	# harness.

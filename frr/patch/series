@@ -1,5 +1,6 @@
 # Ordered FRR integration patches. One patch filename per line.
 vtysh-named-eigrp.patch
+eigrp-multi-instance.patch
 eigrp-named-yang.patch
 eigrp-named-af-config.patch
 eigrp-named-af-interface.patch

@@ -51,11 +51,12 @@ def test_interface_owns_aggregate_encoder_and_peer_counts():
 
 def test_runtime_path_uses_single_interface_encoder_vector():
     source = all_production_source()
+    packetizer = read("eigrp_packetizer.c")
 
     assert "ei->encoder[" not in source
     assert "encoder->next" not in source
-    assert "ei->encoder(eigrp, ei, NULL" in source
-    assert "nbr->encoder(eigrp, ei, nbr" in source
+    assert "builder->encoder = nbr ? nbr->encoder : ei->encoder;" in packetizer
+    assert "eigrp_packet_route_encode_append(" in packetizer
 
 
 def test_packet_owns_safe_and_both_vectors():

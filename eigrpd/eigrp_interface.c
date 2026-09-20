@@ -934,8 +934,6 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 	eigrp_metrics_t metric;
-	eigrp_interface_t *ei2;
-	struct listnode *node, *nnode;
 
 	eigrp_southbound_socket_send_buffer_ensure(eigrp, ei->curr_mtu);
 	eigrp_intf_stream_set(ei);
@@ -993,12 +991,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 		route->prefix = prefix;
 		eigrp_route_descriptor_add(eigrp, prefix, route);
 
-		for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei2)) {
-			eigrp_update_send(eigrp, eigrp->neighbor_self, ei2);
-		}
-
-		prefix->req_action &= ~EIGRP_FSM_NEED_UPDATE;
-		listnode_delete(eigrp->topology_changes, prefix);
+		eigrp_update_send_all(eigrp, NULL);
 
 	} else {
 		eigrp_fsm_action_message_t msg;

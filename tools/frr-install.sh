@@ -188,6 +188,9 @@ eigrp_grammar_schema_current() {
 	grep -Fq 'description "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6";' "$yang" || return 1
 	grep -Fq 'description "IPv4 or IPv6 summary prefix";' "$yang" || return 1
 	grep -Fq 'description "Fixed metric for an IPv4 or IPv6 summary aggregate";' "$yang" || return 1
+	if grep -Fq 'must "count(../instance[vrf =current()/vrf]) = 1";' "$yang"; then
+		return 1
+	fi
 
 	neighbor_policy="$(sed -n '/^[[:space:]]*list neighbor-policy {/,/^[[:space:]]*container neighbor-maximum-prefix {/p' "$yang")"
 	[[ -n "$neighbor_policy" ]] || return 1
@@ -211,7 +214,12 @@ patch_semantically_applied() {
 	case "$patch_name" in
 		vtysh-named-eigrp.patch)
 			grep -Fq 'router eigrp <(1-65535)|WORD> [vrf NAME]' \
+				"$frr_root/vtysh/vtysh.c" &&
+			grep -Fq 'install_element(EIGRP_NODE, &router_eigrp_cmd);' \
 				"$frr_root/vtysh/vtysh.c"
+			;;
+		eigrp-multi-instance.patch)
+			! grep -Fq 'must "count(../instance[vrf =current()/vrf]) = 1";' "$yang"
 			;;
 		eigrp-named-yang.patch)
 			grep -Fq 'EIGRP named-mode configuration.' "$yang" &&

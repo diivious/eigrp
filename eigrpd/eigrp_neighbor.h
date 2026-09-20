@@ -76,7 +76,10 @@ typedef struct eigrp_neighbor {
 					 chunks */
 
 	eigrp_packet_queue_t *retrans_queue;
-	eigrp_packet_queue_t *multicast_queue;
+
+	/* Reliable multicast conditional-receive state. */
+	bool cr_mode;
+	uint32_t cr_sequence;
 
 	uint32_t crypt_seqnum; /* Cryptographic Sequence Number. */
 

@@ -89,8 +89,9 @@ def test_retry_limit_allows_sixteen_retransmissions_then_drops_neighbor():
 
     unicast = packet[
         packet.index("void eigrp_packet_unack_retrans(void *arg)") :
-        packet.index("void eigrp_packet_unack_multicast_retrans(void *arg)")
+        packet.index("eigrp_packet_t *eigrp_packet_dequeue", packet.index("void eigrp_packet_unack_retrans(void *arg)"))
     ]
     assert unicast.index("packet->retrans_counter >= EIGRP_TRANSPORT_RETRANS_MAX") < unicast.index(
         "duplicate = eigrp_packet_duplicate(packet, nbr);"
     )
+    assert "eigrp_packet_unack_multicast_retrans" not in packet

@@ -258,7 +258,6 @@ typedef struct eigrp_packet {
 	/*neighbor details for sendng packet*/
 	eigrp_neighbor_t *nbr;
 	uint32_t sequence_number;
-	bool sequence_reserved;
 	bool retransmission;
 	bool multicast_exception;
 	uint64_t sent_msec; /* first successful wire send; RTT sampling only */

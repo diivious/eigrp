@@ -1,5 +1,5 @@
 diff --git a/vtysh/vtysh.c b/vtysh/vtysh.c
-index 28bbe33f39..4f0721fc19 100644
+index 28bbe33f39..93d908a1ad 100644
 --- a/vtysh/vtysh.c
 +++ b/vtysh/vtysh.c
 @@ -2148,10 +2148,12 @@ DEFUNSH(VTYSH_OSPFD, router_ospf, router_ospf_cmd,
@@ -16,3 +16,14 @@ index 28bbe33f39..4f0721fc19 100644
  	VRF_CMD_HELP_STR)
  {
  	vty->node = EIGRP_NODE;
+@@ -5632,6 +5634,10 @@ void vtysh_init_vty(void)
+ 	/* eigrpd */
+ #ifdef HAVE_EIGRPD
+ 	install_element(CONFIG_NODE, &router_eigrp_cmd);
++	/* Allow `router eigrp ...` to re-enter global router mode directly from
++	 * any EIGRP submode.  The daemon owns the XPath/context rewind.
++	 */
++	install_element(EIGRP_NODE, &router_eigrp_cmd);
+ 	install_element(EIGRP_NODE, &vtysh_exit_eigrpd_cmd);
+ 	install_element(EIGRP_NODE, &vtysh_quit_eigrpd_cmd);
+ 	install_element(EIGRP_NODE, &vtysh_end_all_cmd);
