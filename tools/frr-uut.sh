@@ -26,6 +26,7 @@ remote_root_set=0
 frr_root=""
 jobs=""
 pytest_args=()
+eigrpd_uut_owned=0
 
 usage() {
 	cat <<USAGE
@@ -333,6 +334,105 @@ cleanup_stale_eigrpd_uut() {
 	ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,args= 2>/dev/null || true
 }
 
+eigrpd_uut_live_pids() {
+	local pid state
+
+	while read -r pid; do
+		[[ -n "$pid" ]] || continue
+		state="$(ps -o stat= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+		[[ -n "$state" ]] || continue
+		case "$state" in
+			Z*) ;;
+			*) printf '%s\n' "$pid" ;;
+		esac
+	done < <(pgrep -x eigrpd 2>/dev/null || true)
+}
+
+assert_eigrpd_uut_alive() {
+	local live
+
+	if sudo vtysh -d eigrpd -c 'show version' >/dev/null 2>&1; then
+		live="$(eigrpd_uut_live_pids)"
+		if [[ -n "$live" ]]; then
+			echo "lifecycle: eigrpd remains alive after UUT configuration cleanup (PID(s): ${live//$'\n'/ })"
+			return 0
+		fi
+	fi
+
+	echo "error: UUT-owned eigrpd exited before harness shutdown" >&2
+	echo "diagnostic: eigrpd process" >&2
+	ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,args= >&2 2>/dev/null || true
+	echo "diagnostic: recent FRR journal" >&2
+	sudo journalctl -u frr -n 80 --no-pager >&2 2>/dev/null || true
+	return 1
+}
+
+stop_eigrpd_uut() {
+	local frrcommon="/usr/lib/frr/frrcommon.sh"
+	local live i
+
+	[[ "$eigrpd_uut_owned" -eq 1 ]] || return 0
+	echo "stop: UUT-owned eigrpd"
+
+	if [[ -r "$frrcommon" ]]; then
+		sudo bash -s -- "$frrcommon" <<'EOS'
+frrcommon="$1"
+log_success_msg() { echo "$@"; }
+log_warning_msg() { echo "$@" >&2; }
+log_failure_msg() { echo "$@" >&2; }
+. "$frrcommon"
+
+if daemon_status eigrpd >/dev/null 2>&1; then
+	daemon_stop eigrpd --quiet || true
+fi
+EOS
+	else
+		live="$(eigrpd_uut_live_pids)"
+		if [[ -n "$live" ]]; then
+			# pgrep returns one numeric PID per line; word splitting is intentional here.
+			# shellcheck disable=SC2086
+			sudo kill -TERM $live 2>/dev/null || true
+		fi
+	fi
+
+	for i in $(seq 1 10); do
+		live="$(eigrpd_uut_live_pids)"
+		if [[ -z "$live" ]]; then
+			eigrpd_uut_owned=0
+			echo "stop: eigrpd shutdown complete"
+			return 0
+		fi
+		sleep 1
+	done
+
+	echo "stop: force-kill surviving UUT eigrpd PID(s): ${live//$'\n'/ }" >&2
+	# pgrep returns one numeric PID per line; word splitting is intentional here.
+	# shellcheck disable=SC2086
+	sudo kill -KILL $live 2>/dev/null || true
+	sleep 1
+	live="$(eigrpd_uut_live_pids)"
+	if [[ -n "$live" ]]; then
+		echo "error: UUT-owned eigrpd survived harness shutdown: ${live//$'\n'/ }" >&2
+		ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,args= >&2 2>/dev/null || true
+		return 1
+	fi
+
+	eigrpd_uut_owned=0
+	echo "stop: eigrpd shutdown complete after SIGKILL"
+}
+
+uut_eigrpd_exit_cleanup() {
+	local rc=$?
+
+	trap - EXIT
+	if [[ "$eigrpd_uut_owned" -eq 1 ]]; then
+		if ! stop_eigrpd_uut; then
+			[[ "$rc" -ne 0 ]] || rc=1
+		fi
+	fi
+	exit "$rc"
+}
+
 start_eigrpd_uut() {
 	local frrcommon="/usr/lib/frr/frrcommon.sh"
 	local i
@@ -356,6 +456,9 @@ if daemon_status eigrpd >/dev/null 2>&1; then
 fi
 daemon_start eigrpd
 EOS
+
+	eigrpd_uut_owned=1
+	trap uut_eigrpd_exit_cleanup EXIT
 
 	for i in $(seq 1 30); do
 		if sudo vtysh -d eigrpd -c 'show version' >/dev/null 2>&1; then
@@ -396,10 +499,14 @@ run_frr_tests() {
 	# This intentionally uses sudo vtysh -d eigrpd rather than a parser-only
 	# harness.
 	"$script_dir/frr-named-uut.sh"
+	assert_eigrpd_uut_alive
 
 	[[ -d "$frr_test_dir" ]] || fail "FRR EIGRP test directory not found: $frr_test_dir"
 	if ! has_frr_tests "$frr_test_dir"; then
 		echo "warning: no FRR-native EIGRP tests are installed yet at $frr_test_dir" >&2
+		assert_eigrpd_uut_alive
+		stop_eigrpd_uut
+		trap - EXIT
 		return 0
 	fi
 
@@ -408,6 +515,9 @@ run_frr_tests() {
 		cd "$frr_root"
 		python3 tests/runtests.py -v tests/eigrpd "${pytest_args[@]}"
 	)
+	assert_eigrpd_uut_alive
+	stop_eigrpd_uut
+	trap - EXIT
 }
 
 while [[ "$#" -gt 0 ]]; do

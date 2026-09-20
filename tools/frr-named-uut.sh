@@ -138,6 +138,23 @@ show_run() {
 	vty_capture "show running-config"
 }
 
+assert_eigrpd_alive() {
+	local output rc
+
+	# Let deferred cleanup/event callbacks run before declaring the daemon
+	# healthy after the final no-router operation.
+	sleep 1
+
+	set +e
+	output="$(vty_capture "show version")"
+	rc=$?
+	set -e
+	[[ "$rc" -eq 0 ]] || fail "eigrpd exited during final router cleanup"
+	[[ -n "$output" ]] || fail "eigrpd returned no version output after final router cleanup"
+	echo "eigrpd remains VTY-responsive after final router cleanup"
+	assertions=$((assertions + 1))
+}
+
 extract_af_block() {
 	local config="$1"
 	local name="$2"
@@ -997,6 +1014,9 @@ if [[ "$keep_config" -eq 0 ]]; then
 else
 	echo "leaving final savage/SAVAGE configuration in running-config (--keep-config)"
 fi
+
+phase "daemon lifecycle"
+assert_eigrpd_alive
 
 phase "PASS"
 echo "named-mode live UUT passed: $assertions running-config assertions"
