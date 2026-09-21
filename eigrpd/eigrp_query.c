@@ -79,13 +79,13 @@ uint32_t eigrp_query_send_all(eigrp_instance_t *eigrp)
 {
 	eigrp_packetizer_work_t *work;
 	eigrp_prefix_descriptor_t *prefix;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 	uint32_t counter = 0;
 
 	if (!eigrp)
 		return 0;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->topology_changes, node, prefix)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->topology_changes, node, prefix)) {
 		if (!(prefix->req_action & EIGRP_FSM_NEED_QUERY))
 			continue;
 		counter++;
@@ -103,7 +103,7 @@ uint32_t eigrp_query_send_all(eigrp_instance_t *eigrp)
 
 /*EIGRP QUERY read function*/
 void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
-			 struct eigrp_header *eigrph, struct stream *pkt,
+			 struct eigrp_header *eigrph, eigrp_stream_t *pkt,
 			 eigrp_interface_t *ei, int length)
 {
 	eigrp_fsm_action_message_t msg;
@@ -129,7 +129,7 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &route->dest);
-			zlog_debug("EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
+			eigrp_log_debug("EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
 				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_query_unknown_reply_send(eigrp, nbr, route);
 			eigrp_topology_route_free(route);

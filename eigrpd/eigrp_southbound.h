@@ -65,6 +65,7 @@ void eigrp_southbound_write_add(eigrp_event_t **event, int fd,
                                 eigrp_event_callback_t callback, void *arg);
 uint32_t eigrp_southbound_timer_remaining_seconds(const eigrp_event_t *event);
 uint64_t eigrp_southbound_monotime_msec(void);
+void eigrp_southbound_software_version(uint8_t *major, uint8_t *minor);
 
 /* Host socket/interface services used by the portable runtime. */
 eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp);
@@ -73,13 +74,29 @@ void eigrp_southbound_socket_send_buffer_ensure(eigrp_instance_t *eigrp,
                                                 uint32_t minimum);
 bool eigrp_southbound_router_id_get(eigrp_instance_t *eigrp,
                                     struct in_addr *router_id);
-void eigrp_southbound_interfaces_refresh(eigrp_instance_t *eigrp);
+eigrp_result_t eigrp_southbound_vrf_resolve(const char *vrf_name,
+                                             eigrp_vrf_id_t *vrf_id);
+typedef void (*eigrp_southbound_interface_walk_cb)(
+	const eigrp_interface_runtime_state_t *state, void *arg);
+eigrp_result_t eigrp_southbound_interface_walk(
+	eigrp_instance_t *eigrp, eigrp_southbound_interface_walk_cb callback,
+	void *arg);
 int eigrp_southbound_multicast_interface_set(eigrp_instance_t *eigrp,
                                              eigrp_interface_t *ei);
 int eigrp_southbound_multicast_join(eigrp_instance_t *eigrp,
                                     eigrp_interface_t *ei);
 int eigrp_southbound_multicast_leave(eigrp_instance_t *eigrp,
                                      eigrp_interface_t *ei);
+int eigrp_southbound_ipv4_packet_send(eigrp_instance_t *eigrp,
+                                        eigrp_interface_t *ei,
+                                        const eigrp_addr_t *destination,
+                                        const uint8_t *payload, size_t length);
+bool eigrp_southbound_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
+                                           eigrp_stream_t *stream,
+                                           eigrp_ifindex_t *ifindex,
+                                           eigrp_addr_t *source,
+                                           eigrp_addr_t *destination,
+                                           eigrp_packet_rx_meta_t *meta);
 
 eigrp_work_queue_t *eigrp_work_queue_new(eigrp_instance_t *eigrp,
 						 const char *name,
@@ -89,24 +106,6 @@ void eigrp_work_queue_free(eigrp_work_queue_t *queue);
 void eigrp_work_queue_reset(eigrp_work_queue_t *queue);
 void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
 eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue);
-
-/* Host runtime lifecycle for a named address-family context. */
-eigrp_result_t eigrp_southbound_instance_create(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
-	uint16_t asn, eigrp_instance_t **runtime);
-eigrp_result_t eigrp_southbound_instance_delete(
-	const char *name, eigrp_instance_t *runtime);
-void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime);
-eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime);
-eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime);
-
-/* Host runtime adaptation for IPv4 network statements. */
-eigrp_result_t eigrp_southbound_network_exists(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *exists);
-eigrp_result_t eigrp_southbound_network_create(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed);
-eigrp_result_t eigrp_southbound_network_delete(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed);
 
 /* Host runtime adaptation for route redistribution. */
 eigrp_result_t eigrp_southbound_redistribute_update(
@@ -124,5 +123,10 @@ eigrp_result_t eigrp_southbound_filter_evaluate(
 	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
 	const char *name, const eigrp_prefix_t *prefix,
 	eigrp_filter_decision_t *decision);
+
+/* Host key-chain lookup. Key material is copied into caller-owned storage. */
+bool eigrp_southbound_auth_key_lookup(const char *keychain_name,
+                                       uint32_t *key_id, char *key_string,
+                                       size_t key_string_size);
 
 #endif /* _ZEBRA_EIGRP_SOUTHBOUND_H_ */

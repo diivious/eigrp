@@ -97,17 +97,6 @@ typedef struct eigrp_interface_state {
 typedef eigrp_result_t (*eigrp_interface_state_walk_cb)(
 	const eigrp_interface_state_t *state, void *arg);
 
-/* Host-independent runtime interface state supplied by a southbound adapter. */
-typedef struct eigrp_interface_runtime_state {
-	const char *interface_name;
-	eigrp_ifindex_t ifindex;
-	eigrp_prefix_t address;
-	uint8_t type;
-	bool operative;
-	uint32_t bandwidth;
-	uint32_t mtu;
-} eigrp_interface_runtime_state_t;
-
 /* Prototypes */
 extern bool eigrp_intf_is_passive(eigrp_interface_t *ei);
 extern void eigrp_del_intf_params(eigrp_intf_params_t *);
@@ -115,10 +104,23 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state);
 void eigrp_interface_runtime_update(eigrp_interface_t *ei,
 				    const eigrp_interface_runtime_state_t *state);
-void eigrp_interface_runtime_delete(eigrp_interface_t *ei, int source);
+eigrp_result_t eigrp_interface_runtime_refresh(
+	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state);
+void eigrp_interface_runtime_delete(
+	eigrp_interface_t *ei, eigrp_interface_remove_reason_t reason);
+void eigrp_interface_runtime_link_down(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex, const char *interface_name,
+	uint8_t type, uint32_t bandwidth, uint32_t mtu);
+void eigrp_interface_runtime_link_remove(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
+	eigrp_interface_remove_reason_t reason);
+void eigrp_interface_runtime_address_remove(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
+	const eigrp_prefix_t *address, eigrp_interface_remove_reason_t reason);
 extern int eigrp_intf_up(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_intf_set_multicast(eigrp_interface_t *);
-extern void eigrp_intf_free(eigrp_instance_t *, eigrp_interface_t *, int);
+extern void eigrp_intf_free(eigrp_instance_t *, eigrp_interface_t *,
+			    eigrp_interface_remove_reason_t);
 extern int eigrp_intf_down(eigrp_interface_t *);
 extern const char *eigrp_intf_name_string(eigrp_interface_t *);
 extern void eigrp_interface_encoder_bind(eigrp_interface_t *, uint8_t);
@@ -129,6 +131,8 @@ eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *,
 					    const eigrp_addr_t *address);
 eigrp_interface_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *,
 					 eigrp_ifindex_t ifindex);
+eigrp_interface_t *eigrp_intf_lookup_by_vrf_ifindex(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex);
 eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *,
 				      const char *);
 

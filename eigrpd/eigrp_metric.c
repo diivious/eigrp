@@ -5,6 +5,7 @@
  *   Donnie Savage
  */
 #include <stdlib.h>
+#include <string.h>
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
@@ -22,6 +23,24 @@ struct eigrp_metric_config {
 	uint8_t maximum_hops;
 	bool holddown_enabled;
 };
+
+
+void eigrp_metric_values_convert(const eigrp_metric_values_t *values,
+				eigrp_metrics_t *metric)
+{
+	if (!metric)
+		return;
+	memset(metric, 0, sizeof(*metric));
+	if (!values)
+		return;
+
+	metric->bandwidth = values->bandwidth;
+	metric->delay = values->delay;
+	metric->reliability = values->reliability;
+	metric->load = values->load;
+	metric->mtu[0] = values->mtu & 0xff;
+	metric->mtu[1] = (values->mtu >> 8) & 0xff;
+}
 
 eigrp_scaled_t eigrp_bandwidth_to_scaled(eigrp_bandwidth_t bandwidth)
 {

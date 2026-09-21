@@ -13,7 +13,7 @@ LOGS := logs
 COMMON_CFLAGS := \
 	-std=gnu11 \
 	-fsyntax-only \
-	-Wall -Wextra \
+	-Wall -Wextra -Werror \
 	-Wno-unused-parameter \
 	-Wno-unused-function \
 	-Wno-missing-field-initializers \
@@ -34,7 +34,7 @@ COMMON_CFLAGS := \
 ALL_SOURCES = $(filter-out $(STAGE)/%_clippy.c,$(sort $(wildcard $(STAGE)/*.c)))
 SMOKE_SOURCES = $(ALL_SOURCES)
 
-all: all-sources
+all: all-sources link-guard
 
 stage:
 	@rm -rf $(STAGE)
@@ -48,6 +48,27 @@ smoke: stage $(LOGS)
 	  echo "CC $$src"; \
 	  $(CC) $(COMMON_CFLAGS) $$src >$(LOGS)/$$(basename $$src).log 2>&1 || { cat $(LOGS)/$$(basename $$src).log; exit 1; }; \
 	done
+
+
+# Compile the staged projection to real objects and perform a relocatable link.
+# Unlike -fsyntax-only, this catches duplicate global symbols created when a
+# portable implementation and an FRR adapter accidentally export the same API.
+LINK_BUILD := $(BUILD)/link
+LINK_GUARD := $(BUILD)/eigrpd-link-guard.o
+OBJECT_CFLAGS := $(filter-out -fsyntax-only,$(COMMON_CFLAGS)) -Wno-error -Wno-unused-variable -c
+
+link-guard: stage $(LOGS)
+	@rm -rf $(LINK_BUILD) $(LINK_GUARD)
+	@mkdir -p $(LINK_BUILD)
+	@set -e; objs=""; \
+	for src in $(ALL_SOURCES); do \
+	  obj="$(LINK_BUILD)/$$(basename "$${src%.c}").o"; \
+	  echo "OBJ $$src"; \
+	  $(CC) $(OBJECT_CFLAGS) $$src -o $$obj >$(LOGS)/link-$$(basename $$src).log 2>&1 || { cat $(LOGS)/link-$$(basename $$src).log; exit 1; }; \
+	  objs="$$objs $$obj"; \
+	done; \
+	echo "LD -r $(LINK_GUARD)"; \
+	$(CC) -r -o $(LINK_GUARD) $$objs >$(LOGS)/link-guard.log 2>&1 || { cat $(LOGS)/link-guard.log; exit 1; }
 
 all-sources: stage $(LOGS)
 	@set -e; \
@@ -67,4 +88,4 @@ $(LOGS):
 clean:
 	rm -rf $(LOGS) $(BUILD)
 
-.PHONY: all stage smoke all-sources cli list clean
+.PHONY: all stage smoke all-sources link-guard cli list clean

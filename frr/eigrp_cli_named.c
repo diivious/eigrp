@@ -746,7 +746,7 @@ static eigrp_instance_t *eigrp_cli_instance_lookup_by_as_vrf(const char *asn,
 {
 	struct vrf *vrf;
 	eigrp_instance_t *eigrp;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 	uint32_t as;
 
 	if (!asn || !vrf_name)
@@ -757,7 +757,7 @@ static eigrp_instance_t *eigrp_cli_instance_lookup_by_as_vrf(const char *asn,
 		return NULL;
 
 	as = strtoul(asn, NULL, 10);
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->AS == as && eigrp->vrf_id == vrf->vrf_id)
 			return eigrp;
 	}
@@ -3672,7 +3672,7 @@ static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 {
 	struct vrf *vrf;
 	eigrp_instance_t *eigrp;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 	int count = 0;
 
 	if (!eigrp_vty_afi_supported(vty, afi, command))
@@ -3696,7 +3696,7 @@ static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 		return CMD_SUCCESS;
 	}
 
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->vrf_id != vrf->vrf_id)
 			continue;
 
@@ -5304,10 +5304,10 @@ DEFUN(clear_eigrp_events,
       CLEAR_STR EIGRP_STR "Clear EIGRP event log\n")
 {
 	eigrp_instance_t *eigrp;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 	eigrp_instance_context_t context;
 
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
 		memset(&context, 0, sizeof(context));
 		context.runtime = eigrp;
 		context.topology_id = EIGRP_TOPOLOGY_ID_BASE;

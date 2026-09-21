@@ -4,26 +4,26 @@
  * Authors:
  *   Donnie Savage
  */
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <string.h>
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_auth.h"
-
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_AUTH_TLV,        "EIGRP AUTH TLV");
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_AUTH_SHA256_TLV, "EIGRP SHA TLV");
-
+#include "eigrpd/eigrp_southbound.h"
 static unsigned char zeropad[16] = {0};
 
-int eigrp_make_md5_digest(eigrp_interface_t *ei, struct stream *s,
+int eigrp_make_md5_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 			  uint8_t flags)
 {
-	struct key *key = NULL;
-	struct keychain *keychain;
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	uint32_t key_id = 0;
 
 	unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN];
-	MD5_CTX ctx;
+	eigrp_md5_ctx_t ctx;
 	uint8_t *ibuf;
 	size_t backup_get, backup_end;
 	struct TLV_MD5_Authentication_Type *auth_TLV;
@@ -34,36 +34,34 @@ int eigrp_make_md5_digest(eigrp_interface_t *ei, struct stream *s,
 
 	auth_TLV = eigrp_authTLV_MD5_new();
 
-	stream_set_getp(s, EIGRP_HEADER_LEN);
-	stream_get(auth_TLV, s, EIGRP_AUTH_MD5_TLV_SIZE);
-	stream_set_getp(s, backup_get);
+	eigrp_stream_set_getp(s, EIGRP_HEADER_LEN);
+	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_MD5_TLV_SIZE);
+	eigrp_stream_set_getp(s, backup_get);
 
-	keychain = keychain_lookup(ei->params.auth_keychain);
-	if (keychain)
-		key = key_lookup_for_send(keychain);
-	else {
+	if (!eigrp_southbound_auth_key_lookup(ei->params.auth_keychain, &key_id,
+	                                       key_string, sizeof(key_string))) {
 		eigrp_authTLV_MD5_free(auth_TLV);
 		return EIGRP_AUTH_TYPE_NONE;
 	}
 
 	memset(&ctx, 0, sizeof(ctx));
-	MD5Init(&ctx);
+	eigrp_md5_init(&ctx);
 
 	/* Generate a digest. Each situation needs different handling */
 	if (flags & EIGRP_AUTH_BASIC_HELLO_FLAG) {
-		MD5Update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		MD5Update(&ctx, key->string, strlen(key->string));
-		if (strlen(key->string) < 16)
-			MD5Update(&ctx, zeropad, 16 - strlen(key->string));
+		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
+		eigrp_md5_update(&ctx, key_string, strlen(key_string));
+		if (strlen(key_string) < 16)
+			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
 	} else if (flags & EIGRP_AUTH_UPDATE_INIT_FLAG) {
-		MD5Update(&ctx, ibuf, EIGRP_MD5_UPDATE_INIT_COMPUTE);
+		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_UPDATE_INIT_COMPUTE);
 	} else if (flags & EIGRP_AUTH_UPDATE_FLAG) {
-		MD5Update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		MD5Update(&ctx, key->string, strlen(key->string));
-		if (strlen(key->string) < 16)
-			MD5Update(&ctx, zeropad, 16 - strlen(key->string));
+		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
+		eigrp_md5_update(&ctx, key_string, strlen(key_string));
+		if (strlen(key_string) < 16)
+			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
 		if (backup_end > (EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE)) {
-			MD5Update(&ctx,
+			eigrp_md5_update(&ctx,
 				  ibuf
 					  + (EIGRP_HEADER_LEN
 					     + EIGRP_AUTH_MD5_TLV_SIZE),
@@ -73,28 +71,28 @@ int eigrp_make_md5_digest(eigrp_interface_t *ei, struct stream *s,
 		}
 	}
 
-	MD5Final(digest, &ctx);
+	eigrp_md5_final(digest, &ctx);
 
 	/* Append md5 digest to the end of the stream. */
 	memcpy(auth_TLV->digest, digest, EIGRP_AUTH_TYPE_MD5_LEN);
 
-	stream_set_endp(s, EIGRP_HEADER_LEN);
-	stream_put(s, auth_TLV, EIGRP_AUTH_MD5_TLV_SIZE);
-	stream_set_endp(s, backup_end);
+	eigrp_stream_set_endp(s, EIGRP_HEADER_LEN);
+	eigrp_stream_put(s, auth_TLV, EIGRP_AUTH_MD5_TLV_SIZE);
+	eigrp_stream_set_endp(s, backup_end);
 
 	eigrp_authTLV_MD5_free(auth_TLV);
 	return EIGRP_AUTH_TYPE_MD5_LEN;
 }
 
-int eigrp_check_md5_digest(struct stream *s,
+int eigrp_check_md5_digest(eigrp_stream_t *s,
 			   struct TLV_MD5_Authentication_Type *authTLV,
 			   eigrp_neighbor_t *nbr, uint8_t flags)
 {
-	MD5_CTX ctx;
+	eigrp_md5_ctx_t ctx;
 	unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN];
 	unsigned char orig[EIGRP_AUTH_TYPE_MD5_LEN];
-	struct key *key = NULL;
-	struct keychain *keychain;
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	uint32_t key_id = 0;
 	uint8_t *ibuf;
 	size_t backup_end;
 	struct TLV_MD5_Authentication_Type *auth_TLV;
@@ -102,9 +100,9 @@ int eigrp_check_md5_digest(struct stream *s,
 	uint16_t saved_checksum;
 
 	if (ntohl(nbr->crypt_seqnum) > ntohl(authTLV->key_sequence)) {
-		zlog_warn(
+		eigrp_log_warn(
 			"interface %s: eigrp_check_md5 bad sequence %d (expect %d)",
-			EIGRP_INTF_NAME(nbr->ei), ntohl(authTLV->key_sequence),
+			eigrp_intf_name_string(nbr->ei), ntohl(authTLV->key_sequence),
 			ntohl(nbr->crypt_seqnum));
 		return 0;
 	}
@@ -122,12 +120,9 @@ int eigrp_check_md5_digest(struct stream *s,
 	ibuf = s->data;
 	backup_end = s->endp;
 
-	keychain = keychain_lookup(nbr->ei->params.auth_keychain);
-	if (keychain)
-		key = key_lookup_for_send(keychain);
-
-	if (!key) {
-		zlog_warn(
+	if (!eigrp_southbound_auth_key_lookup(nbr->ei->params.auth_keychain, &key_id,
+	                                       key_string, sizeof(key_string))) {
+		eigrp_log_warn(
 			"Interface %s: Expected key value not found in config",
 			nbr->ei->name);
 		memcpy(auth_TLV->digest, orig, EIGRP_AUTH_TYPE_MD5_LEN);
@@ -136,23 +131,23 @@ int eigrp_check_md5_digest(struct stream *s,
 	}
 
 	memset(&ctx, 0, sizeof(ctx));
-	MD5Init(&ctx);
+	eigrp_md5_init(&ctx);
 
 	/* Generate a digest. Each situation needs different handling */
 	if (flags & EIGRP_AUTH_BASIC_HELLO_FLAG) {
-		MD5Update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		MD5Update(&ctx, key->string, strlen(key->string));
-		if (strlen(key->string) < 16)
-			MD5Update(&ctx, zeropad, 16 - strlen(key->string));
+		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
+		eigrp_md5_update(&ctx, key_string, strlen(key_string));
+		if (strlen(key_string) < 16)
+			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
 	} else if (flags & EIGRP_AUTH_UPDATE_INIT_FLAG) {
-		MD5Update(&ctx, ibuf, EIGRP_MD5_UPDATE_INIT_COMPUTE);
+		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_UPDATE_INIT_COMPUTE);
 	} else if (flags & EIGRP_AUTH_UPDATE_FLAG) {
-		MD5Update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		MD5Update(&ctx, key->string, strlen(key->string));
-		if (strlen(key->string) < 16)
-			MD5Update(&ctx, zeropad, 16 - strlen(key->string));
+		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
+		eigrp_md5_update(&ctx, key_string, strlen(key_string));
+		if (strlen(key_string) < 16)
+			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
 		if (backup_end > (EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE)) {
-			MD5Update(&ctx,
+			eigrp_md5_update(&ctx,
 				  ibuf
 					  + (EIGRP_HEADER_LEN
 					     + EIGRP_AUTH_MD5_TLV_SIZE),
@@ -162,15 +157,15 @@ int eigrp_check_md5_digest(struct stream *s,
 		}
 	}
 
-	MD5Final(digest, &ctx);
+	eigrp_md5_final(digest, &ctx);
 
 	/* compare the two */
 	memcpy(auth_TLV->digest, orig, EIGRP_AUTH_TYPE_MD5_LEN);
 	eigrph->checksum = saved_checksum;
 
 	if (memcmp(orig, digest, EIGRP_AUTH_TYPE_MD5_LEN) != 0) {
-		zlog_warn("interface %s: eigrp_check_md5 checksum mismatch",
-			  EIGRP_INTF_NAME(nbr->ei));
+		eigrp_log_warn("interface %s: eigrp_check_md5 checksum mismatch",
+			  eigrp_intf_name_string(nbr->ei));
 		return 0;
 	}
 
@@ -180,17 +175,17 @@ int eigrp_check_md5_digest(struct stream *s,
 	return 1;
 }
 
-int eigrp_make_sha256_digest(eigrp_interface_t *ei, struct stream *s,
+int eigrp_make_sha256_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 			     uint8_t flags)
 {
-	struct key *key = NULL;
-	struct keychain *keychain;
-	char source_ip[PREFIX_STRLEN];
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	uint32_t key_id = 0;
+	char source_ip[INET_ADDRSTRLEN];
 
 	unsigned char digest[EIGRP_AUTH_TYPE_SHA256_LEN];
 	unsigned char buffer[1 + PLAINTEXT_LENGTH + 45 + 1] = {0};
 
-	HMAC_SHA256_CTX ctx;
+	eigrp_hmac_sha256_ctx_t ctx;
 	void *ibuf;
 	size_t backup_get, backup_end;
 	struct TLV_SHA256_Authentication_Type *auth_TLV;
@@ -201,57 +196,54 @@ int eigrp_make_sha256_digest(eigrp_interface_t *ei, struct stream *s,
 
 	auth_TLV = eigrp_authTLV_SHA256_new();
 
-	stream_set_getp(s, EIGRP_HEADER_LEN);
-	stream_get(auth_TLV, s, EIGRP_AUTH_SHA256_TLV_SIZE);
-	stream_set_getp(s, backup_get);
+	eigrp_stream_set_getp(s, EIGRP_HEADER_LEN);
+	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_SHA256_TLV_SIZE);
+	eigrp_stream_set_getp(s, backup_get);
 
-	keychain = keychain_lookup(ei->params.auth_keychain);
-	if (keychain)
-		key = key_lookup_for_send(keychain);
-
-	if (!key) {
-		zlog_warn(
+	if (!eigrp_southbound_auth_key_lookup(ei->params.auth_keychain, &key_id,
+	                                       key_string, sizeof(key_string))) {
+		eigrp_log_warn(
 			"Interface %s: Expected key value not found in config",
 			ei->name);
 		eigrp_authTLV_SHA256_free(auth_TLV);
 		return 0;
 	}
 
-	inet_ntop(AF_INET, ei->address.address.bytes, source_ip, PREFIX_STRLEN);
+	inet_ntop(AF_INET, ei->address.address.bytes, source_ip, sizeof(source_ip));
 
 	memset(&ctx, 0, sizeof(ctx));
 	buffer[0] = '\n';
-	memcpy(buffer + 1, key, strlen(key->string));
-	memcpy(buffer + 1 + strlen(key->string), source_ip, strlen(source_ip));
-	HMAC__SHA256_Init(&ctx, buffer,
-			  1 + strlen(key->string) + strlen(source_ip));
-	HMAC__SHA256_Update(&ctx, ibuf, strlen(ibuf));
-	HMAC__SHA256_Final(digest, &ctx);
+	memcpy(buffer + 1, key_string, strlen(key_string));
+	memcpy(buffer + 1 + strlen(key_string), source_ip, strlen(source_ip));
+	eigrp_hmac_sha256_init(&ctx, buffer,
+			  1 + strlen(key_string) + strlen(source_ip));
+	eigrp_hmac_sha256_update(&ctx, ibuf, strlen(ibuf));
+	eigrp_hmac_sha256_final(digest, &ctx);
 
 
 	/* Put hmac-sha256 digest to it's place */
 	memcpy(auth_TLV->digest, digest, EIGRP_AUTH_TYPE_SHA256_LEN);
 
-	stream_set_endp(s, EIGRP_HEADER_LEN);
-	stream_put(s, auth_TLV, EIGRP_AUTH_SHA256_TLV_SIZE);
-	stream_set_endp(s, backup_end);
+	eigrp_stream_set_endp(s, EIGRP_HEADER_LEN);
+	eigrp_stream_put(s, auth_TLV, EIGRP_AUTH_SHA256_TLV_SIZE);
+	eigrp_stream_set_endp(s, backup_end);
 
 	eigrp_authTLV_SHA256_free(auth_TLV);
 
 	return EIGRP_AUTH_TYPE_SHA256_LEN;
 }
 
-int eigrp_check_sha256_digest(struct stream *s,
+int eigrp_check_sha256_digest(eigrp_stream_t *s,
 			      struct TLV_SHA256_Authentication_Type *authTLV,
 			      eigrp_neighbor_t *nbr, uint8_t flags)
 {
 	return 1;
 }
 
-uint16_t eigrp_add_authTLV_MD5_encode(struct stream *s, eigrp_interface_t *ei)
+uint16_t eigrp_add_authTLV_MD5_encode(eigrp_stream_t *s, eigrp_interface_t *ei)
 {
-	struct key *key;
-	struct keychain *keychain;
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	uint32_t key_id = 0;
 	struct TLV_MD5_Authentication_Type *authTLV;
 
 	authTLV = eigrp_authTLV_MD5_new();
@@ -263,20 +255,11 @@ uint16_t eigrp_add_authTLV_MD5_encode(struct stream *s, eigrp_interface_t *ei)
 	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
-	keychain = keychain_lookup(ei->params.auth_keychain);
-	if (keychain)
-		key = key_lookup_for_send(keychain);
-	else {
-		free(ei->params.auth_keychain);
-		ei->params.auth_keychain = NULL;
-		eigrp_authTLV_MD5_free(authTLV);
-		return 0;
-	}
-
-	if (key) {
-		authTLV->key_id = htonl(key->index);
+	if (eigrp_southbound_auth_key_lookup(ei->params.auth_keychain, &key_id,
+	                                      key_string, sizeof(key_string))) {
+		authTLV->key_id = htonl(key_id);
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
-		stream_put(s, authTLV,
+		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_MD5_Authentication_Type));
 		eigrp_authTLV_MD5_free(authTLV);
 		return EIGRP_AUTH_MD5_TLV_SIZE;
@@ -287,11 +270,11 @@ uint16_t eigrp_add_authTLV_MD5_encode(struct stream *s, eigrp_interface_t *ei)
 	return 0;
 }
 
-uint16_t eigrp_add_authTLV_SHA256_encode(struct stream *s,
+uint16_t eigrp_add_authTLV_SHA256_encode(eigrp_stream_t *s,
 					 eigrp_interface_t *ei)
 {
-	struct key *key;
-	struct keychain *keychain;
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	uint32_t key_id = 0;
 	struct TLV_SHA256_Authentication_Type *authTLV;
 
 	authTLV = eigrp_authTLV_SHA256_new();
@@ -303,20 +286,11 @@ uint16_t eigrp_add_authTLV_SHA256_encode(struct stream *s,
 	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
-	keychain = keychain_lookup(ei->params.auth_keychain);
-	if (keychain)
-		key = key_lookup_for_send(keychain);
-	else {
-		free(ei->params.auth_keychain);
-		ei->params.auth_keychain = NULL;
-		eigrp_authTLV_SHA256_free(authTLV);
-		return 0;
-	}
-
-	if (key) {
+	if (eigrp_southbound_auth_key_lookup(ei->params.auth_keychain, &key_id,
+	                                      key_string, sizeof(key_string))) {
 		authTLV->key_id = 0;
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
-		stream_put(s, authTLV,
+		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_SHA256_Authentication_Type));
 		eigrp_authTLV_SHA256_free(authTLV);
 		return EIGRP_AUTH_SHA256_TLV_SIZE;
@@ -331,30 +305,28 @@ struct TLV_MD5_Authentication_Type *eigrp_authTLV_MD5_new(void)
 {
 	struct TLV_MD5_Authentication_Type *new;
 
-	new = XCALLOC(MTYPE_EIGRP_AUTH_TLV,
-		      sizeof(struct TLV_MD5_Authentication_Type));
+	new = calloc(1, sizeof(struct TLV_MD5_Authentication_Type));
 
 	return new;
 }
 
 void eigrp_authTLV_MD5_free(struct TLV_MD5_Authentication_Type *authTLV)
 {
-	XFREE(MTYPE_EIGRP_AUTH_TLV, authTLV);
+	free(authTLV);
 }
 
 struct TLV_SHA256_Authentication_Type *eigrp_authTLV_SHA256_new(void)
 {
 	struct TLV_SHA256_Authentication_Type *new;
 
-	new = XCALLOC(MTYPE_EIGRP_AUTH_SHA256_TLV,
-		      sizeof(struct TLV_SHA256_Authentication_Type));
+	new = calloc(1, sizeof(struct TLV_SHA256_Authentication_Type));
 
 	return new;
 }
 
 void eigrp_authTLV_SHA256_free(struct TLV_SHA256_Authentication_Type *authTLV)
 {
-	XFREE(MTYPE_EIGRP_AUTH_SHA256_TLV, authTLV);
+	free(authTLV);
 }
 
 
@@ -377,10 +349,10 @@ static char *eigrp_auth_string_duplicate(const char *value)
  * Syntax:
  *   Classic: `ip authentication mode eigrp AS <md5|hmac-sha-256>` / `no ip authentication mode eigrp AS [...]`
  *   Named: `authentication mode <md5|hmac-sha-256 ...>` / `no authentication mode`
- * Supported: Classic / Named (non-converged classic endpoint)
+ * Supported: Classic / Named
  * Placement:
- *   Classic: interface mode through existing FRR callback
- *   Named: af-interface mode through this EIGRP target
+ *   Classic: interface mode through the FRR northbound adapter
+ *   Named: af-interface mode through the same EIGRP target
  * Description:
  * Selects or removes packet authentication for a named EIGRP interface.
  * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
@@ -397,9 +369,15 @@ eigrp_result_t eigrp_auth_mode_update(
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256) {
-		if (!hmac || (hmac->encryption_type != 0 && hmac->encryption_type != 7)
-		    || !hmac->password || !hmac->password[0]
-		    || strlen(hmac->password) > 32)
+		/* Named mode carries direct HMAC password details in EIGRP-owned
+		 * retained state.  Classic runtime-only configuration uses the host
+		 * key-chain attachment and therefore has no direct-password object.
+		 */
+		if (context->config
+		    && (!hmac
+			|| (hmac->encryption_type != 0 && hmac->encryption_type != 7)
+			|| !hmac->password || !hmac->password[0]
+			|| strlen(hmac->password) > 32))
 			return EIGRP_RESULT_INVALID_ARGUMENT;
 		if (context->config) {
 			password = eigrp_auth_string_duplicate(hmac->password);
@@ -421,10 +399,15 @@ eigrp_result_t eigrp_auth_mode_update(
 				: 0;
 	}
 	if (context->runtime) {
-		/* Direct-password HMAC still needs runtime key material integration. */
-		if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256)
+		/* Named direct-password HMAC still needs runtime key-material
+		 * integration.  Classic HMAC uses the existing key-chain runtime.
+		 */
+		if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config)
 			return EIGRP_RESULT_NOT_IMPLEMENTED;
-		context->runtime->params.auth_type = EIGRP_AUTH_TYPE_MD5;
+		context->runtime->params.auth_type =
+			mode == EIGRP_AUTHENTICATION_HMAC_SHA256
+				? EIGRP_AUTH_TYPE_SHA256
+				: EIGRP_AUTH_TYPE_MD5;
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -433,10 +416,10 @@ eigrp_result_t eigrp_auth_mode_update(
  * Syntax:
  *   Classic: `ip authentication mode eigrp AS <md5|hmac-sha-256>` / `no ip authentication mode eigrp AS [...]`
  *   Named: `authentication mode <md5|hmac-sha-256 ...>` / `no authentication mode`
- * Supported: Classic / Named (non-converged classic endpoint)
+ * Supported: Classic / Named
  * Placement:
- *   Classic: interface mode through existing FRR callback
- *   Named: af-interface mode through this EIGRP target
+ *   Classic: interface mode through the FRR northbound adapter
+ *   Named: af-interface mode through the same EIGRP target
  * Description:
  * Selects or removes packet authentication for a named EIGRP interface.
  * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
@@ -461,13 +444,13 @@ eigrp_result_t eigrp_auth_mode_delete(eigrp_interface_context_t *context)
  * Syntax:
  *   Classic: `ip authentication key-chain eigrp AS NAME` / `no ip authentication key-chain eigrp AS [NAME]`
  *   Named: `authentication key-chain NAME` / `no authentication key-chain NAME`
- * Supported: Classic / Named (non-converged classic endpoint)
+ * Supported: Classic / Named
  * Placement:
- *   Classic: interface mode through existing FRR callback
- *   Named: af-interface mode through this EIGRP target
+ *   Classic: interface mode through the FRR northbound adapter
+ *   Named: af-interface mode through the same EIGRP target
  * Description:
- * Selects or removes the EIGRP authentication key chain for named mode.
- * The existing classic FRR callback remains a documented host-boundary exception rather than being called from named mode.
+ * Selects or removes the EIGRP authentication key chain.
+ * Classic and named adapters converge on this EIGRP-owned target.
  */
 eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
 					  const char *keychain)
@@ -512,13 +495,13 @@ eigrp_result_t eigrp_auth_keychain_update(eigrp_interface_context_t *context,
  * Syntax:
  *   Classic: `ip authentication key-chain eigrp AS NAME` / `no ip authentication key-chain eigrp AS [NAME]`
  *   Named: `authentication key-chain NAME` / `no authentication key-chain NAME`
- * Supported: Classic / Named (non-converged classic endpoint)
+ * Supported: Classic / Named
  * Placement:
- *   Classic: interface mode through existing FRR callback
- *   Named: af-interface mode through this EIGRP target
+ *   Classic: interface mode through the FRR northbound adapter
+ *   Named: af-interface mode through the same EIGRP target
  * Description:
- * Selects or removes the EIGRP authentication key chain for named mode.
- * The existing classic FRR callback remains a documented host-boundary exception rather than being called from named mode.
+ * Selects or removes the EIGRP authentication key chain.
+ * Classic and named adapters converge on this EIGRP-owned target.
  */
 eigrp_result_t eigrp_auth_keychain_delete(eigrp_interface_context_t *context)
 {

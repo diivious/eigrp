@@ -42,6 +42,8 @@
 #define EIGRP_TRANSPORT_RTO_MAX_MSEC 5000U
 #define EIGRP_TRANSPORT_RTO_SRTT_MULTIPLIER 6U
 #define EIGRP_TRANSPORT_RETRANS_MAX 16U
+#define EIGRP_IPV4_MAX_BITLEN 32U
+#define EIGRP_IPV4_MAX_BYTELEN 4U
 #define PLAINTEXT_LENGTH 81
 
 /*Metric variance multiplier*/
@@ -95,10 +97,6 @@ enum metric_change { METRIC_DECREASE, METRIC_SAME, METRIC_INCREASE };
 #define EIGRP_DELAY_DEFAULT 10
 #define EIGRP_RELIABILITY_DEFAULT 255
 #define EIGRP_LOAD_DEFAULT 1
-
-#define INTERFACE_DOWN_BY_ZEBRA 1
-#define INTERFACE_DOWN_BY_VTY 2
-#define INTERFACE_DOWN_BY_FINAL 3
 
 /* EIGRP Network Type. */
 #define EIGRP_IFTYPE_NONE 0
@@ -202,6 +200,7 @@ enum eigrp_fsm_events {
 /*
  * EIGRP Fixed header
  */
+#define EIGRP_IPV4_HEADER_LEN 20U
 #define EIGRP_HEADER_LEN 20U
 #define EIGRP_PACKET_MAX_LEN 65535U /* includes IP Header size. */
 

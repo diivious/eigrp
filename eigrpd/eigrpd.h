@@ -14,17 +14,15 @@
 #ifndef _ZEBRA_EIGRPD_H
 #define _ZEBRA_EIGRPD_H
 
-#include <zebra.h>
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <time.h>
 
-#include "log.h"
-#include "memory.h"
-
-DECLARE_MGROUP(EIGRPD);
-
+#include "eigrpd/eigrp_log.h"
 // everyone needs these - include then here once and for all
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_types.h"
-#include "eigrpd/eigrp_macros.h"
 
 /* Set EIGRP version is "classic" - wide metrics comes next */
 #define EIGRP_MAJOR_VERSION 1
@@ -38,7 +36,7 @@ DECLARE_MGROUP(EIGRPD);
 /* EIGRPD system wide configuration and variables. */
 typedef struct eigrpd {
 	/* EIGRP instance. */
-	struct list *eigrp;
+	eigrp_list_t *eigrp;
 
 	/* EIGRP start time. */
 	time_t start_time;
@@ -51,7 +49,6 @@ typedef struct eigrpd {
 
 /* Extern variables. */
 extern struct eigrpd *eigrp_om;
-extern struct zebra_privs_t eigrpd_privs;
 
 /* Prototypes */
 extern void eigrp_init(void);

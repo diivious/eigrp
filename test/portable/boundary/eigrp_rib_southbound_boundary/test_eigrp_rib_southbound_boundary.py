@@ -94,7 +94,7 @@ def test_host_redistribution_bookkeeping_is_not_core_instance_state():
 
 
 def test_zebra_lifecycle_is_reached_through_southbound_from_portable_code():
-    main = read("eigrpd/eigrp_main.c")
+    main = read("frr/eigrp_main.c")
     daemon = read("eigrpd/eigrpd.c")
     header = read("eigrpd/eigrp_southbound.h")
 
@@ -116,7 +116,7 @@ def test_obsolete_host_route_type_refresh_api_is_removed():
 
 
 def test_frr_daemon_bootstrap_declares_vrf_yang_dependency_explicitly():
-    main = read("eigrpd/eigrp_main.c")
+    main = read("frr/eigrp_main.c")
     zebra_stub = read("test/build/include/zebra.h")
     vrf_stub = read("test/build/include/vrf.h")
 

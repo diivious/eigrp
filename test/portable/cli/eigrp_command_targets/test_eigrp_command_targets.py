@@ -99,7 +99,7 @@ def test_interface_controls_retain_configuration_and_apply_available_runtime_beh
     assert "context->config->shutdown = shutdown;" in shutdown
     assert "eigrp_hello_send" in shutdown
     assert "eigrp_intf_down(context->runtime);" in shutdown
-    assert "eigrp_southbound_address_family_start" in shutdown
+    assert "eigrp_instance_address_family_start" in shutdown
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in shutdown
 
 
@@ -111,7 +111,8 @@ def test_authentication_keeps_md5_runtime_and_truthful_hmac_boundary():
     assert "context->config->authentication_mode = (uint8_t)mode;" in mode
     assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256" in mode
     assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in mode
-    assert "context->runtime->params.auth_type = EIGRP_AUTH_TYPE_MD5;" in mode
+    assert "context->runtime->params.auth_type =" in mode
+    assert "EIGRP_AUTH_TYPE_MD5" in mode
     assert "context->config->keychain" in keychain
     assert "context->runtime->params.auth_keychain" in keychain
 

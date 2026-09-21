@@ -3,6 +3,8 @@
  * EIGRP packetizer work queue.
  * Copyright (C) 2026 Donnie V. Savage
  */
+#include <stdlib.h>
+#include <string.h>
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_packetizer.h"
@@ -11,13 +13,9 @@
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_neighbor.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_filter.h"
-
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_PACKETIZER_WORK,
-		    "EIGRP packetizer work");
-
 typedef struct eigrp_packetizer_builder {
 	eigrp_instance_t *eigrp;
 	eigrp_interface_t *ei;
@@ -47,12 +45,12 @@ static bool eigrp_packetizer_opcode_valid(uint8_t opcode)
 static bool eigrp_packetizer_interface_has_up_neighbors(eigrp_interface_t *ei)
 {
 	eigrp_neighbor_t *nbr;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (!ei || !ei->nbrs)
 		return false;
 
-	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+	for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
 		if (nbr->state == EIGRP_NEIGHBOR_UP)
 			return true;
 	}
@@ -88,7 +86,7 @@ static eigrp_route_descriptor_t *eigrp_packetizer_route_select(
 	uint8_t opcode, bool *owned)
 {
 	eigrp_route_descriptor_t *route = route_hint;
-	struct list *successors = NULL;
+	eigrp_list_t *successors = NULL;
 
 	*owned = false;
 	if (route)
@@ -97,11 +95,11 @@ static eigrp_route_descriptor_t *eigrp_packetizer_route_select(
 	if (opcode == EIGRP_OPC_QUERY) {
 		successors = eigrp_topology_get_successor(prefix);
 		if (successors)
-			route = listnode_head(successors);
+			route = eigrp_list_node_data(eigrp_list_head(successors));
 		if (successors)
-			list_delete(&successors);
+			eigrp_list_delete(&successors);
 	} else if (prefix && prefix->entries) {
-		route = listnode_head(prefix->entries);
+		route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
 	}
 
 	if (!route) {
@@ -149,7 +147,7 @@ static void eigrp_packetizer_builder_flush(eigrp_packetizer_builder_t *builder)
 		return;
 	}
 
-	length = (uint16_t)stream_get_endp(packet->s);
+	length = (uint16_t)eigrp_stream_get_endp(packet->s);
 	if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
 	    && builder->ei->params.auth_keychain != NULL)
 		eigrp_make_md5_digest(builder->ei, packet->s,
@@ -212,7 +210,7 @@ static int eigrp_packetizer_builder_route_add(
 	if (encoded > 0)
 		builder->route_count++;
 	else if (encoded < 0)
-		zlog_warn("interface %s: EIGRP route TLV exceeds packet limit %u",
+		eigrp_log_warn("interface %s: EIGRP route TLV exceeds packet limit %u",
 			  builder->ei->name, builder->packet_limit);
 	return encoded > 0 ? encoded : 0;
 }
@@ -229,7 +227,7 @@ static void eigrp_packetizer_builder_init(eigrp_packetizer_builder_t *builder,
 	builder->nbr = nbr;
 	builder->opcode = opcode;
 	builder->flags = flags;
-	builder->packet_limit = EIGRP_PACKET_MTU(ei->curr_mtu);
+	builder->packet_limit = eigrp_packet_payload_limit(ei->curr_mtu);
 	builder->encoder = nbr ? nbr->encoder : ei->encoder;
 }
 
@@ -257,16 +255,16 @@ static void eigrp_packetizer_query_rij_add(eigrp_prefix_descriptor_t *prefix,
 					    eigrp_interface_t *ei)
 {
 	eigrp_neighbor_t *nbr;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (!prefix || !prefix->rij || !ei)
 		return;
 
-	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+	for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
 		if (nbr->state != EIGRP_NEIGHBOR_UP)
 			continue;
-		if (!listnode_lookup(prefix->rij, nbr))
-			listnode_add(prefix->rij, nbr);
+		if (!eigrp_list_lookup(prefix->rij, nbr))
+			eigrp_list_add(prefix->rij, nbr);
 	}
 }
 
@@ -335,9 +333,9 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 {
 	eigrp_interface_t *ei;
 	eigrp_prefix_descriptor_t *prefix;
-	struct listnode *inode, *pnode, *pnnode;
+	eigrp_list_node_t *inode, *pnode, *pnnode;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, inode, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, inode, ei)) {
 		eigrp_packetizer_builder_t builder;
 
 		if (work->exception == ei
@@ -346,7 +344,7 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 
 		eigrp_packetizer_builder_init(&builder, eigrp, ei, NULL,
 					      work->opcode, 0);
-		for (ALL_LIST_ELEMENTS_RO(eigrp->topology_changes, pnode, prefix)) {
+		for (EIGRP_LIST_ELEMENTS_RO(eigrp->topology_changes, pnode, prefix)) {
 			eigrp_route_descriptor_t *route;
 			bool owned;
 
@@ -372,12 +370,12 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 
 	/* The work bead represents the complete current topology-change set.  Do
 	 * not clear actions until every eligible interface has inspected it. */
-	for (ALL_LIST_ELEMENTS(eigrp->topology_changes, pnode, pnnode, prefix)) {
+	for (EIGRP_LIST_ELEMENTS(eigrp->topology_changes, pnode, pnnode, prefix)) {
 		if (!(prefix->req_action & action))
 			continue;
 		prefix->req_action &= ~action;
 		if (!prefix->req_action)
-			listnode_delete(eigrp->topology_changes, prefix);
+			eigrp_list_delete_data(eigrp->topology_changes, prefix);
 	}
 }
 
@@ -385,7 +383,7 @@ static void eigrp_packetizer_query_send(eigrp_instance_t *eigrp,
 					 eigrp_packetizer_work_t *work)
 {
 	eigrp_interface_t *ei;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (work->nbr) {
 		eigrp_packetizer_neighbor_route_send(eigrp, work);
@@ -397,7 +395,7 @@ static void eigrp_packetizer_query_send(eigrp_instance_t *eigrp,
 		return;
 	}
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
 		eigrp_packetizer_interface_prefix_send(eigrp, ei, work);
 }
 
@@ -478,7 +476,7 @@ eigrp_packetizer_work_t *eigrp_packetizer_work_new(uint8_t opcode)
 {
 	eigrp_packetizer_work_t *work;
 
-	work = XCALLOC(MTYPE_EIGRP_PACKETIZER_WORK, sizeof(*work));
+	work = calloc(1, sizeof(*work));
 	work->opcode = opcode;
 	return work;
 }
@@ -494,7 +492,7 @@ void eigrp_packetizer_work_free(eigrp_packetizer_work_t *work)
 	if ((work->flags & EIGRP_PACKETIZER_WORK_F_OWN_PREFIX) && work->prefix)
 		eigrp_topology_prefix_free(work->prefix);
 
-	XFREE(MTYPE_EIGRP_PACKETIZER_WORK, work);
+	free(work);
 }
 
 void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,

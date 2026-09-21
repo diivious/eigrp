@@ -9,9 +9,10 @@
  *   Peter Orsag
  *   Peter Paluch
  */
+#include <stdlib.h>
+#include <string.h>
 #include "eigrpd/eigrpd.h"
 
-#include "table.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
@@ -20,7 +21,6 @@
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_filter.h"
-#include "eigrpd/eigrp_errors.h"
 #include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_packetizer.h"
 #include "eigrpd/eigrp_southbound.h"
@@ -28,12 +28,20 @@
 #include "eigrpd/eigrp_tlv2.h"
 
 /* Current runtime creation is IPv4-only; AF modules expose only init binds. */
-
-DEFINE_MGROUP(EIGRPD, "eigrpd");
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_TOP, "EIGRP structure");
-
 static struct eigrpd eigrpd;
 struct eigrpd *eigrp_om;
+
+const char *eigrp_message_lookup(const eigrp_message_t *messages, int value,
+                                 const char *fallback)
+{
+	const eigrp_message_t *message;
+	if (!messages)
+		return fallback;
+	for (message = messages; message->name; message++)
+		if (message->value == value)
+			return message->name;
+	return fallback;
+}
 
 
 /*
@@ -78,27 +86,29 @@ void eigrp_router_id_update(eigrp_instance_t *eigrp)
 
 	eigrp->router_id = router_id;
 	if (router_id_old.s_addr != router_id.s_addr)
-		eigrp_southbound_interfaces_refresh(eigrp);
+		eigrp_network_interfaces_refresh(eigrp);
 }
 
 void eigrp_init(void)
 {
-	struct timeval tv;
+	struct timespec ts;
 
 	memset(&eigrpd, 0, sizeof(struct eigrpd));
 
 	eigrp_om = &eigrpd;
-	eigrp_om->eigrp = list_new();
+	eigrp_om->eigrp = eigrp_list_new();
 
-	monotime(&tv);
-	eigrp_om->start_time = tv.tv_sec;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+		eigrp_om->start_time = ts.tv_sec;
+	else
+		eigrp_om->start_time = 0;
 }
 
 /* Allocate a protocol runtime/control context. */
 static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
 {
-	eigrp_instance_t *eigrp = XCALLOC(MTYPE_EIGRP_TOP, sizeof(struct eigrp_instance));
+	eigrp_instance_t *eigrp = calloc(1, sizeof(struct eigrp_instance));
 	eigrp_addr_t src = {0};
 
 	/* Initialize address-family-independent control state first. */
@@ -112,7 +122,7 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 		eigrp_ipv6_init(&eigrp->af_vectors);
 		break;
 	default:
-		XFREE(MTYPE_EIGRP_TOP, eigrp);
+		free(eigrp);
 		return NULL;
 	}
 	eigrp->vrid = 0;
@@ -134,10 +144,10 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp_tlv2_init(&eigrp->tlv2_codec);
 
 	/* Control/runtime state exists for both IPv4 and IPv6 named AFs. */
-	eigrp->eiflist = list_new();
+	eigrp->eiflist = eigrp_list_new();
 	eigrp->passive_interface_default = EIGRP_INTF_ACTIVE;
-	eigrp->networks = route_table_init();
-	eigrp->oi_write_q = list_new();
+	eigrp->networks = NULL;
+	eigrp->oi_write_q = eigrp_list_new();
 	eigrp->topology_table = eigrp_topology_table_create();
 	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
 	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
@@ -145,7 +155,7 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp->log_neighbor_changes = true;
 	eigrp->log_neighbor_warnings = true;
 	eigrp->log_neighbor_warning_interval = 10;
-	eigrp->topology_changes = list_new();
+	eigrp->topology_changes = eigrp_list_new();
 
 	/* Diagnostic/control state is valid before a packet data path exists. */
 	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
@@ -155,13 +165,12 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 		return eigrp;
 
 	if (eigrp_southbound_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
-		flog_err_sys(
-			EC_LIB_SOCKET,
+		eigrp_log_error(
 			"eigrp_new: fatal error: host runtime was unable to open an EIGRP socket");
 		exit(1);
 	}
 
-	eigrp->ibuf = stream_new(EIGRP_PACKET_MAX_LEN + 1);
+	eigrp->ibuf = eigrp_stream_new(EIGRP_PACKET_MAX_LEN + 1);
 	eigrp_southbound_read_add(&eigrp->t_read, eigrp->fd,
 				   eigrp_packet_read, eigrp);
 
@@ -179,9 +188,9 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->af_vectors.afi == EIGRP_ADDRESS_FAMILY_IPV4
 		    && eigrp->vrf_id == vrf_id)
 			return eigrp;
@@ -194,9 +203,9 @@ eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_address_family_t afi,
 					     eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->af_vectors.afi == afi && eigrp->AS == as
 		    && eigrp->vrf_id == vrf_id)
 			return eigrp;
@@ -219,7 +228,7 @@ eigrp_instance_t *eigrp_get_by_af(eigrp_address_family_t afi, uint16_t as,
 		eigrp = eigrp_new(afi, as, vrf_id, data_path_ready);
 		if (!eigrp)
 			return NULL;
-		listnode_add(eigrp_om->eigrp, eigrp);
+		eigrp_list_add(eigrp_om->eigrp, eigrp);
 	}
 	return eigrp;
 }
@@ -238,9 +247,9 @@ void eigrp_name_set(eigrp_instance_t *eigrp, const char *name)
 		return;
 
 	if (eigrp->name)
-		XFREE(MTYPE_EIGRP_TOP, eigrp->name);
+		free(eigrp->name);
 
-	eigrp->name = XSTRDUP(MTYPE_EIGRP_TOP, name);
+	eigrp->name = strdup(name);
 }
 
 /* Shut down the entire process */
@@ -249,13 +258,13 @@ void eigrp_terminate(void)
 	eigrp_instance_t *eigrp;
 
 	/* shutdown already in progress */
-	if (CHECK_FLAG(eigrp_om->options, EIGRPD_SHUTDOWN))
+	if ((eigrp_om->options & EIGRPD_SHUTDOWN) != 0)
 		return;
 
-	SET_FLAG(eigrp_om->options, EIGRPD_SHUTDOWN);
+	eigrp_om->options |= EIGRPD_SHUTDOWN;
 
-	while (listcount(eigrp_om->eigrp)) {
-		eigrp = listnode_head(eigrp_om->eigrp);
+	while (eigrp_om->eigrp && eigrp_om->eigrp->count) {
+		eigrp = eigrp_list_node_data(eigrp_list_head(eigrp_om->eigrp));
 		eigrp_finish(eigrp);
 	}
 
@@ -269,8 +278,8 @@ void eigrp_finish(eigrp_instance_t *eigrp)
 	eigrp_finish_final(eigrp);
 
 	/* eigrp being shut-down? If so, was this the last eigrp instance? */
-	if (CHECK_FLAG(eigrp_om->options, EIGRPD_SHUTDOWN)
-	    && (listcount(eigrp_om->eigrp) == 0))
+	if ((eigrp_om->options & EIGRPD_SHUTDOWN) != 0
+	    && (eigrp_om->eigrp == NULL || eigrp_om->eigrp->count == 0))
 		return;
 
 	return;
@@ -281,7 +290,7 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 {
 	eigrp_interface_t *ei;
 	eigrp_neighbor_t *nbr;
-	struct listnode *node, *nnode, *node2, *nnode2;
+	eigrp_list_node_t *node, *nnode, *node2, *nnode2;
 
 	/* Named address-family configuration owns its runtime binding.  Clear
 	 * that binding before any runtime storage is released so later config
@@ -289,35 +298,36 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	 */
 	eigrp_instance_runtime_unbind(eigrp);
 
-	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
-		for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr))
+	for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
+		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr))
 			eigrp_nbr_delete(nbr);
-		eigrp_intf_free(eigrp, ei, INTERFACE_DOWN_BY_FINAL);
+		eigrp_intf_free(eigrp, ei, EIGRP_INTERFACE_REMOVE_FINAL);
 	}
 
+	eigrp_network_runtime_delete_all(eigrp);
 	eigrp_southbound_event_cancel(&eigrp->t_write);
 	eigrp_southbound_event_cancel(&eigrp->t_read);
 	eigrp_packetizer_finish(eigrp);
 	eigrp_eventlog_finish(eigrp);
 	eigrp_southbound_socket_close(eigrp);
 
-	list_delete(&eigrp->eiflist);
-	list_delete(&eigrp->oi_write_q);
+	eigrp_list_delete(&eigrp->eiflist);
+	eigrp_list_delete(&eigrp->oi_write_q);
 
 	eigrp_topology_table_delete(eigrp, eigrp->topology_table);
 	if (eigrp->neighbor_self)
 		eigrp_nbr_delete(eigrp->neighbor_self);
 
-	list_delete(&eigrp->topology_changes);
-	listnode_delete(eigrp_om->eigrp, eigrp);
+	eigrp_list_delete(&eigrp->topology_changes);
+	eigrp_list_delete_data(eigrp_om->eigrp, eigrp);
 
 	if (eigrp->name)
-		XFREE(MTYPE_EIGRP_TOP, eigrp->name);
+		free(eigrp->name);
 
 	if (eigrp->ibuf)
-		stream_free(eigrp->ibuf);
+		eigrp_stream_free(eigrp->ibuf);
 	eigrp_southbound_policy_instance_delete(eigrp);
 	eigrp_southbound_rib_instance_delete(eigrp);
 	eigrp_filter_runtime_state_clear(&eigrp->filter);
-	XFREE(MTYPE_EIGRP_TOP, eigrp);
+	free(eigrp);
 }

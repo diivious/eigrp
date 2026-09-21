@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-DUMP = ROOT / "eigrpd" / "eigrp_dump.c"
+DUMP = ROOT / "frr" / "eigrp_dump.c"
+DEBUG = ROOT / "eigrpd" / "eigrp_debug.c"
 HELLO = ROOT / "eigrpd" / "eigrp_hello.c"
 UPDATE = ROOT / "eigrpd" / "eigrp_update.c"
 PACKET = ROOT / "eigrpd" / "eigrp_packet.c"
@@ -59,7 +60,7 @@ def test_topology_uses_inaccessible_and_all_links_serial_number_formatting():
 
 
 def test_packet_debug_summary_uses_cisco_eigrp_wording_without_invented_queue_state():
-    dump = read(DUMP)
+    dump = read(DEBUG)
 
     assert '"EIGRP: Sending %s on %s nbr %s, retry %u, RTO %u"' in dump
     assert '"EIGRP: Received %s on %s nbr %s"' in dump

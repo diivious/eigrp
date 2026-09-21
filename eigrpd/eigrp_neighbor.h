@@ -84,9 +84,9 @@ typedef struct eigrp_neighbor {
 	uint32_t crypt_seqnum; /* Cryptographic Sequence Number. */
 
 	/* prefixes not received from neighbor during Graceful restart */
-	struct list *nbr_gr_prefixes;
+	eigrp_list_t *nbr_gr_prefixes;
 	/* prefixes not yet send to neighbor during Graceful restart */
-	struct list *nbr_gr_prefixes_send;
+	eigrp_list_t *nbr_gr_prefixes_send;
 	/* if packet is first or last during Graceful restart */
 	enum Packet_part_type nbr_gr_packet_type;
 

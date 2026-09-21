@@ -18,9 +18,6 @@
 #ifndef _ZEBRA_EIGRP_PACKET_H
 #define _ZEBRA_EIGRP_PACKET_H
 
-#include "lib/stream.h"
-#include "lib/sockunion.h"
-#include "lib/sockopt.h"
 
 /**
  * every TLV has a header - might as well define it here
@@ -35,6 +32,13 @@ typedef struct eigrp_tlv_header {
 	uint16_t length;
 } eigrp_tlv_header_t;
 
+static inline size_t eigrp_packet_payload_limit(size_t interface_mtu)
+{
+	if (interface_mtu <= EIGRP_IPV4_HEADER_LEN)
+		return 0;
+	return interface_mtu - EIGRP_IPV4_HEADER_LEN;
+}
+
 /*Prototypes*/
 extern void eigrp_packet_read(void *arg);
 extern void eigrp_packet_write(void *arg);
@@ -46,9 +50,9 @@ extern eigrp_packet_t *eigrp_packet_duplicate(eigrp_packet_t *,
 extern void eigrp_packet_free(eigrp_packet_t *);
 extern void eigrp_packet_delete(eigrp_interface_t *);
 extern uint32_t eigrp_packet_sequence_reserve(eigrp_instance_t *);
-extern void eigrp_packet_header_init(int, eigrp_instance_t *, struct stream *,
+extern void eigrp_packet_header_init(int, eigrp_instance_t *, eigrp_stream_t *,
 				     uint32_t, uint32_t, uint32_t);
-extern void eigrp_packet_checksum(eigrp_interface_t *, struct stream *,
+extern void eigrp_packet_checksum(eigrp_interface_t *, eigrp_stream_t *,
 				  uint16_t);
 
 extern eigrp_packet_queue_t *eigrp_packet_queue_new(void);
@@ -94,14 +98,14 @@ extern void eigrp_hello_send_ack(eigrp_neighbor_t *);
 extern void eigrp_hello_send_sequence(eigrp_interface_t *, uint32_t);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
 			 eigrp_addr_t *, eigrp_interface_t *,
-			 struct stream *, int);
+			 eigrp_stream_t *, int);
 extern void eigrp_hello_timer(void *arg);
 
 /*
  * These externs are found in eigrp_update.c
  */
 extern void eigrp_update_receive(eigrp_instance_t *, eigrp_neighbor_t *,
-				 eigrp_header_t *, struct stream *,
+				 eigrp_header_t *, eigrp_stream_t *,
 				 eigrp_interface_t *, int);
 extern void eigrp_update_send_all(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_neighbor_t *);
@@ -115,7 +119,7 @@ extern void eigrp_update_send_process_GR(eigrp_instance_t *, enum GR_type);
  * These externs are found in eigrp_query.c
  */
 extern void eigrp_query_receive(eigrp_instance_t *, eigrp_neighbor_t *,
-				eigrp_header_t *, struct stream *,
+				eigrp_header_t *, eigrp_stream_t *,
 				eigrp_interface_t *, int);
 extern uint32_t eigrp_query_send_all(eigrp_instance_t *);
 extern void eigrp_query_send_route(eigrp_instance_t *,
@@ -131,7 +135,7 @@ extern void eigrp_reply_send_route(eigrp_instance_t *, eigrp_neighbor_t *,
 				   eigrp_prefix_descriptor_t *,
 				   eigrp_route_descriptor_t *, uint32_t);
 extern void eigrp_reply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
-				eigrp_header_t *, struct stream *,
+				eigrp_header_t *, eigrp_stream_t *,
 				eigrp_interface_t *, int);
 
 /*
@@ -140,7 +144,7 @@ extern void eigrp_reply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
 extern void eigrp_siaquery_send(eigrp_instance_t *, eigrp_neighbor_t *,
 				eigrp_prefix_descriptor_t *);
 extern void eigrp_siaquery_receive(eigrp_instance_t *, eigrp_neighbor_t *,
-				   eigrp_header_t *, struct stream *,
+				   eigrp_header_t *, eigrp_stream_t *,
 				   eigrp_interface_t *, int);
 
 /*
@@ -149,7 +153,7 @@ extern void eigrp_siaquery_receive(eigrp_instance_t *, eigrp_neighbor_t *,
 extern void eigrp_siareply_send(eigrp_instance_t *, eigrp_neighbor_t *,
 				eigrp_prefix_descriptor_t *);
 extern void eigrp_siareply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
-				   eigrp_header_t *, struct stream *,
+				   eigrp_header_t *, eigrp_stream_t *,
 				   eigrp_interface_t *, int);
 
 /*
@@ -157,7 +161,7 @@ extern void eigrp_siareply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
  */
 extern struct TLV_Sequence_Type *eigrp_SequenceTLV_new(void);
 
-extern const struct message eigrp_packet_type_str[];
+extern const eigrp_message_t eigrp_packet_type_str[];
 extern const size_t eigrp_packet_type_str_max;
 
 #endif /* _ZEBRA_EIGRP_PACKET_H */

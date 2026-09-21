@@ -12,8 +12,9 @@
 #include <stdint.h>
 
 #include "eigrpd/eigrp_const.h"
-#include "eigrpd/eigrp_macros.h"
 #include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_list.h"
+#include "eigrpd/eigrp_stream.h"
 
 typedef enum eigrp_address_family {
 	EIGRP_ADDRESS_FAMILY_IPV4 = 4,
@@ -84,10 +85,27 @@ typedef struct eigrp_prefix {
 	uint8_t prefix_length;
 } eigrp_prefix_t;
 
+/* Host-independent runtime interface state supplied by a host adapter. */
+typedef struct eigrp_interface_runtime_state {
+	const char *interface_name;
+	eigrp_ifindex_t ifindex;
+	eigrp_prefix_t address;
+	uint8_t type;
+	bool secondary;
+	bool operative;
+	uint32_t bandwidth;
+	uint32_t mtu;
+} eigrp_interface_runtime_state_t;
+
+typedef enum eigrp_interface_remove_reason {
+	EIGRP_INTERFACE_REMOVE_HOST = 1,
+	EIGRP_INTERFACE_REMOVE_CONFIG,
+	EIGRP_INTERFACE_REMOVE_FINAL,
+} eigrp_interface_remove_reason_t;
+
 /**
  * Nice type modifers to make code more readable (and maybe portable)
  */
-typedef struct stream eigrp_stream_t;
 
 typedef uint64_t eigrp_bandwidth_t;
 typedef uint64_t eigrp_delay_t;
@@ -116,6 +134,8 @@ typedef struct eigrp_fsm_action_message eigrp_fsm_action_message_t;
 typedef struct eigrp_work_queue eigrp_work_queue_t;
 typedef struct eigrp_event eigrp_event_t;
 typedef struct eigrp_eventlog eigrp_eventlog_t;
+typedef struct eigrp_table eigrp_table_t;
+typedef struct eigrp_table_node eigrp_table_node_t;
 
 /* Portable configuration objects used by classic/named management adapters. */
 typedef struct eigrp_instance_parent_config eigrp_instance_parent_config_t;
@@ -153,6 +173,14 @@ typedef eigrp_route_descriptor_t *(*eigrp_packet_decoder_t)(
 typedef uint16_t (*eigrp_packet_encoder_t)(
 	eigrp_instance_t *eigrp, eigrp_interface_t *ei, eigrp_neighbor_t *nbr,
 	eigrp_stream_t *pkt, eigrp_route_descriptor_t *route);
+
+typedef struct eigrp_message {
+	int value;
+	const char *name;
+} eigrp_message_t;
+
+const char *eigrp_message_lookup(const eigrp_message_t *messages, int value,
+                                 const char *fallback);
 
 typedef struct eigrp_tlv_codec {
 	eigrp_packet_encoder_t encoder;

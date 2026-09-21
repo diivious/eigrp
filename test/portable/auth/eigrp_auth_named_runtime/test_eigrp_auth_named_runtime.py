@@ -65,7 +65,8 @@ def test_common_md5_authentication_target_updates_active_runtime_mode():
     update = function_body(auth, "eigrp_auth_mode_update")
     delete = function_body(auth, "eigrp_auth_mode_delete")
 
-    assert "context->runtime->params.auth_type = EIGRP_AUTH_TYPE_MD5;" in update
+    assert "context->runtime->params.auth_type =" in update
+    assert "EIGRP_AUTH_TYPE_MD5" in update
     assert "context->runtime->params.auth_type = EIGRP_AUTH_TYPE_NONE;" in delete
 
 
@@ -104,16 +105,16 @@ def test_keychain_replacement_is_atomic_across_retained_and_runtime_state():
     assert "free(config_copy);" in update
 
 
-def test_hmac_direct_password_remains_explicitly_not_implemented_at_runtime():
+def test_named_hmac_direct_password_remains_explicitly_not_implemented_at_runtime():
     auth = read(AUTH_C)
     update = function_body(auth, "eigrp_auth_mode_update")
 
-    assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256" in update
+    assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config" in update
     assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in update
-    assert "context->runtime->params.auth_type = EIGRP_AUTH_TYPE_SHA256;" not in update
+    assert "EIGRP_AUTH_TYPE_SHA256" in update
 
 
-def test_classic_authentication_remains_direct_frr_mutation_not_false_convergence():
+def test_classic_authentication_converges_on_common_eigrp_targets():
     northbound = read(NORTHBOUND)
 
     classic_mode = function_body(
@@ -126,12 +127,12 @@ def test_classic_authentication_remains_direct_frr_mutation_not_false_convergenc
         northbound, "lib_interface_eigrp_instance_keychain_destroy"
     )
 
-    assert "intf->params.auth_type = yang_dnode_get_enum" in classic_mode
-    assert "eigrp_auth_mode_update" not in classic_mode
-    assert "intf->params.auth_keychain = args->resource->ptr;" in classic_keychain
-    assert "eigrp_auth_keychain_update" not in classic_keychain
-    assert "intf->params.auth_keychain = NULL;" in classic_keychain_destroy
-    assert "eigrp_auth_keychain_delete" not in classic_keychain_destroy
+    assert "eigrp_auth_mode_update(&context, mode, NULL)" in classic_mode
+    assert "eigrp_auth_mode_delete(&context)" in classic_mode
+    assert "intf->params.auth_type =" not in classic_mode
+    assert "eigrp_auth_keychain_update(" in classic_keychain
+    assert "intf->params.auth_keychain =" not in classic_keychain
+    assert "eigrp_auth_keychain_delete(&context)" in classic_keychain_destroy
 
 
 def test_authentication_target_contract_is_documented():

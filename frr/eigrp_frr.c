@@ -48,7 +48,7 @@ eigrp_result_t eigrp_frr_prefix_import(const struct prefix *host,
 
 	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
 		address_bytes = sizeof(host->u.prefix4);
-		max_prefix_length = IPV4_MAX_BITLEN;
+		max_prefix_length = EIGRP_IPV4_MAX_BITLEN;
 	} else {
 		address_bytes = sizeof(host->u.prefix6);
 		max_prefix_length = 128;
@@ -83,7 +83,7 @@ eigrp_result_t eigrp_frr_prefix_export(const eigrp_prefix_t *prefix,
 
 	if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4) {
 		address_bytes = sizeof(host->u.prefix4);
-		max_prefix_length = IPV4_MAX_BITLEN;
+		max_prefix_length = EIGRP_IPV4_MAX_BITLEN;
 	} else {
 		address_bytes = sizeof(host->u.prefix6);
 		max_prefix_length = 128;
@@ -99,5 +99,39 @@ eigrp_result_t eigrp_frr_prefix_export(const eigrp_prefix_t *prefix,
 	else
 		memcpy(&host->u.prefix6, prefix->address.bytes, address_bytes);
 
+	return EIGRP_RESULT_SUCCESS;
+}
+
+uint8_t eigrp_frr_interface_type(const struct interface *ifp)
+{
+	if (!ifp)
+		return EIGRP_IFTYPE_BROADCAST;
+	if (if_is_pointopoint(ifp))
+		return EIGRP_IFTYPE_POINTOPOINT;
+	if (if_is_loopback(ifp))
+		return EIGRP_IFTYPE_LOOPBACK;
+	return EIGRP_IFTYPE_BROADCAST;
+}
+
+eigrp_result_t eigrp_frr_interface_state_import(
+	const struct interface *ifp, const struct prefix *address, bool secondary,
+	eigrp_interface_runtime_state_t *state)
+{
+	eigrp_result_t result;
+
+	if (!ifp || !address || !state)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	memset(state, 0, sizeof(*state));
+	result = eigrp_frr_prefix_import(address, &state->address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	state->interface_name = ifp->name;
+	state->ifindex = ifp->ifindex;
+	state->type = eigrp_frr_interface_type(ifp);
+	state->secondary = secondary;
+	state->operative = if_is_operative(ifp);
+	state->bandwidth = ifp->bandwidth;
+	state->mtu = ifp->mtu;
 	return EIGRP_RESULT_SUCCESS;
 }

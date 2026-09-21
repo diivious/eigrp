@@ -32,13 +32,16 @@ def read(path: Path) -> str:
 
 def test_named_ipv6_creates_a_real_control_runtime():
     instance = read(INSTANCE)
-    southbound = read(SOUTHBOUND)
+    runtime_create = instance[
+        instance.index("static eigrp_result_t eigrp_instance_address_family_runtime_create"):
+        instance.index("static eigrp_result_t eigrp_instance_address_family_runtime_delete")
+    ]
 
-    assert "eigrp_southbound_instance_create" in instance
-    assert "afi != EIGRP_ADDRESS_FAMILY_IPV4" in southbound
-    assert "&& afi != EIGRP_ADDRESS_FAMILY_IPV6" in southbound
-    assert "eigrp_get_by_af(afi, asn, vrf->vrf_id" in southbound
-    assert "afi == EIGRP_ADDRESS_FAMILY_IPV4" in southbound
+    assert "eigrp_southbound_vrf_resolve" in runtime_create
+    assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
+    assert "eigrp_get_by_af(" in runtime_create
+    assert "af->afi == EIGRP_ADDRESS_FAMILY_IPV4" in runtime_create
+    assert "af->runtime = runtime;" in runtime_create
 
 
 def test_runtime_identity_is_af_vrf_as_and_legacy_lookup_stays_ipv4():
@@ -66,11 +69,12 @@ def test_ipv6_control_runtime_has_an_explicit_datapath_gate():
 
 
 def test_ipv6_datapath_actions_return_structured_not_implemented():
-    southbound = read(SOUTHBOUND)
+    instance = read(INSTANCE)
+    redistribute = read(ROOT / "eigrpd" / "eigrp_redistribute.c")
 
-    assert southbound.count("if (!runtime->data_path_ready)\n\t\treturn EIGRP_RESULT_NOT_IMPLEMENTED;") >= 2
-    assert "if (!eigrp || !eigrp->data_path_ready)" in southbound
-    assert "return eigrp ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_NOT_FOUND;" in southbound
+    assert instance.count("if (!runtime->data_path_ready)\n\t\treturn EIGRP_RESULT_NOT_IMPLEMENTED;") >= 2
+    assert "!eigrp_instance_data_path_ready(context->runtime)" in redistribute
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in redistribute
 
 
 def test_ipv6_operational_walks_are_blocked_at_real_targets():
@@ -81,12 +85,11 @@ def test_ipv6_operational_walks_are_blocked_at_real_targets():
 
 
 def test_ipv6_router_id_is_control_state_without_host_interface_refresh():
-    southbound = read(SOUTHBOUND)
+    instance = read(INSTANCE)
 
-    block = southbound[
-        southbound.index("void eigrp_southbound_router_id_refresh"):
-        southbound.index("eigrp_result_t eigrp_southbound_address_family_stop")
-    ]
+    start = instance.index("static void eigrp_instance_router_id_refresh")
+    end = instance.index("bool eigrp_instance_data_path_ready", start)
+    block = instance[start:end]
     assert "if (!runtime->data_path_ready)" in block
     assert "runtime->router_id = runtime->router_id_static;" in block
     assert "eigrp_router_id_update(runtime);" in block

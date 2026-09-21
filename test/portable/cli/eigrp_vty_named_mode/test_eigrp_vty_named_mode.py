@@ -10,7 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 VTY = ROOT / "frr" / "eigrp_cli_named.c"
 CLASSIC_VTY = ROOT / "frr" / "eigrp_vty.c"
-DUMP = ROOT / "eigrpd" / "eigrp_dump.c"
+DUMP = ROOT / "frr" / "eigrp_dump.c"
+DEBUG = ROOT / "eigrpd" / "eigrp_debug.c"
+DEBUG_H = ROOT / "eigrpd" / "eigrp_debug.h"
 CLIPPY = ROOT / "frr" / "eigrp_cli_named_clippy.c"
 NEIGHBOR_C = ROOT / "eigrpd" / "eigrp_neighbor.c"
 NEIGHBOR_H = ROOT / "eigrpd" / "eigrp_neighbor.h"
@@ -191,7 +193,7 @@ def test_debug_eigrp_packet_is_singular_and_registered():
 
 def test_debug_eigrp_packet_uses_portable_targets_and_retry_category():
     dump = read(DUMP)
-    header = read(ROOT / "eigrpd" / "eigrp_dump.h")
+    header = read(DEBUG_H)
 
     debug_region = dump[
         dump.index("DEFUN(debug_eigrp_packet,"):
@@ -207,7 +209,7 @@ def test_debug_eigrp_packet_uses_portable_targets_and_retry_category():
 
     target_region = header[
         header.index("/* Packet-debug targets and runtime hooks. */"):
-        header.index("/* Prototypes. */")
+        header.index("#endif /* _EIGRP_DEBUG_H_ */")
     ]
     assert "eigrp_result_t eigrp_debug_packet_set(" in target_region
     assert "eigrp_result_t eigrp_debug_packet_reset(" in target_region
@@ -215,13 +217,13 @@ def test_debug_eigrp_packet_uses_portable_targets_and_retry_category():
 
 
 def test_debug_eigrp_common_code_does_not_depend_on_frr_vrf_default_macro():
-    dump = read(DUMP)
+    debug = read(DEBUG)
 
-    assert "VRF_DEFAULT" not in dump
+    assert "VRF_DEFAULT" not in debug
 
 
 def test_debug_eigrp_packet_runtime_hooks_cover_send_receive_retry_and_ack():
-    dump = read(DUMP)
+    dump = read(DEBUG)
     packet = read(ROOT / "eigrpd" / "eigrp_packet.c")
 
     assert "eigrp_debug_packet_send(ei, packet, ret);" in packet
@@ -240,7 +242,7 @@ def test_debug_eigrp_packet_runtime_hooks_cover_send_receive_retry_and_ack():
 
 
 def test_debug_eigrp_packet_detail_walks_tlvs_without_exposing_auth_digest():
-    dump = read(DUMP)
+    dump = read(DEBUG)
 
     detail = dump[
         dump.index("static void eigrp_debug_packet_detail_dump"):
@@ -413,7 +415,7 @@ def test_topology_show_uses_common_runtime_instance_walk():
     header = read(ROOT / "eigrpd" / "eigrp_topology.h")
 
     assert "eigrp_topology_instance_walk(" in header
-    assert "for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp" in topology
+    assert "for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp" in topology
     assert "runtime->af_vectors.afi != afi" in topology
     assert "runtime->vrf_id != vrf_id" in topology
     assert "if (asn && runtime->AS != asn)" in topology
@@ -466,7 +468,7 @@ def test_protocol_and_tech_support_walk_all_named_vrfs():
 
 def test_complete_eigrp_debug_command_family_is_registered_and_targeted():
     dump = read(DUMP)
-    header = read(ROOT / "eigrpd" / "eigrp_dump.h")
+    header = read(DEBUG_H)
     init = function_body(dump, "eigrp_debug_init")
 
     command_fragments = (

@@ -113,6 +113,20 @@ The BIRD adapter implements equivalent host services under `bird/` without
 changing portable DUAL, topology, metric, packetizer, TLV, neighbor, network,
 or reliable-transport APIs.
 
+The host shim has a deliberately narrow purpose:
+
+1. convert host/system objects, values, and events to or from EIGRP-owned types;
+2. abstract host/system calls and services required by portable EIGRP code;
+3. prevent EIGRP behavior from being reimplemented separately for FRR, BIRD,
+   macOS, or another host.
+
+A host callback may report normalized state or an event. It does not decide the
+EIGRP consequence of that state. If FRR, BIRD, macOS, and another host should
+make the same decision, that decision belongs in `eigrpd/`. Examples include
+network-to-interface participation, interface start/stop/reset behavior,
+address-family start/stop behavior, runtime identity/conflict handling, and
+other protocol/runtime lifecycle decisions.
+
 ### 4.1 Northbound responsibilities
 
 The host northbound adapter:
@@ -132,18 +146,20 @@ portable runtime state.
 The EIGRP southbound contract owns requests from portable protocol code to host
 runtime services, including:
 
-- runtime instance lifecycle;
+- host resources required by an EIGRP runtime instance;
 - event/read/write scheduling and timers;
 - work queues;
 - socket creation and multicast operations;
-- interface discovery/state refresh;
+- interface enumeration and normalized host-state reporting;
 - policy/filter evaluation;
 - redistribution subscriptions;
 - route installation/removal;
 - host RIB lifecycle.
 
 Portable modules must not directly call FRR `work_queue`, `struct event`,
-Zebra, VTY, libyang, interface, or equivalent BIRD APIs.
+Zebra, VTY, libyang, interface, or equivalent BIRD APIs. Conversely, the host
+southbound implementation must not own EIGRP decisions merely because it is the
+source of an interface, routing, timer, or lifecycle event.
 
 `frr/eigrp_zebra.[c|h]` is an FRR-private RIB adapter behind the southbound
 boundary. Portable code does not call `eigrp_zebra_*()` directly and does not

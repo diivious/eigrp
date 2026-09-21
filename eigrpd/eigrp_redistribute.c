@@ -131,7 +131,9 @@ eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
 	}
 
 	result = EIGRP_RESULT_SUCCESS;
-	if (context->runtime)
+	if (context->runtime && !eigrp_instance_data_path_ready(context->runtime))
+		result = EIGRP_RESULT_NOT_IMPLEMENTED;
+	else if (context->runtime)
 		result = eigrp_southbound_redistribute_update(
 			context->runtime, protocol, metric, route_map);
 	if (!eigrp_redistribute_runtime_result_committable(result)) {
@@ -205,8 +207,10 @@ eigrp_result_t eigrp_redistribute_delete(eigrp_instance_context_t *context,
 	}
 
 	if (context->runtime) {
-		result = eigrp_southbound_redistribute_delete(context->runtime,
-								      protocol);
+		result = !eigrp_instance_data_path_ready(context->runtime)
+			 ? EIGRP_RESULT_NOT_IMPLEMENTED
+			 : eigrp_southbound_redistribute_delete(context->runtime,
+							       protocol);
 		if (result != EIGRP_RESULT_SUCCESS
 		    && result != EIGRP_RESULT_NOT_FOUND
 		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)

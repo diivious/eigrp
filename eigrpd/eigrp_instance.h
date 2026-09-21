@@ -60,6 +60,14 @@ typedef struct eigrp_instance_context {
 typedef eigrp_result_t (*eigrp_instance_address_family_walk_cb)(
 	const char *instance_name, eigrp_address_family_config_t *af, void *arg);
 
+eigrp_result_t eigrp_instance_classic_validate(
+	uint16_t asn, eigrp_vrf_id_t vrf_id, const char **owner_name);
+eigrp_result_t eigrp_instance_classic_create(
+	uint16_t asn, eigrp_vrf_id_t vrf_id, eigrp_instance_t **runtime);
+eigrp_instance_t *eigrp_instance_classic_read(uint16_t asn,
+					eigrp_vrf_id_t vrf_id);
+eigrp_result_t eigrp_instance_classic_delete(eigrp_instance_t *runtime);
+
 eigrp_result_t eigrp_instance_parent_create(const char *name);
 eigrp_instance_parent_config_t *eigrp_instance_parent_read(const char *name);
 eigrp_result_t eigrp_instance_parent_delete(const char *name);
@@ -86,6 +94,10 @@ eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context
 eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context);
 eigrp_result_t eigrp_instance_address_family_shutdown_update(
 	eigrp_address_family_config_t *af, bool shutdown);
+eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime);
+eigrp_result_t eigrp_instance_address_family_stop(eigrp_instance_t *runtime);
+void eigrp_instance_router_id_refresh_vrf(eigrp_vrf_id_t vrf_id);
+bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
 
 eigrp_result_t eigrp_instance_parent_shutdown_update(
 	eigrp_instance_parent_config_t *parent, bool shutdown);

@@ -30,7 +30,7 @@ def test_topology_descriptors_use_native_eigrp_prefixes():
 def test_topology_lookup_api_is_address_family_neutral():
     topology_h = read("eigrpd/eigrp_topology.h")
 
-    assert "eigrp_topology_table_lookup(struct route_table *table," in topology_h
+    assert "eigrp_topology_table_lookup(eigrp_table_t *table," in topology_h
     assert "const eigrp_prefix_t *prefix" in topology_h
     assert "eigrp_topology_table_lookup_ipv4" not in topology_h
 

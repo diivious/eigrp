@@ -53,7 +53,9 @@ def test_address_family_configuration_owns_runtime_binding():
 
     assert "eigrp_instance_t *runtime;" in header
     assert "eigrp_instance_address_family_runtime_create(name, af)" in create
-    assert "eigrp_southbound_instance_create(" in runtime_create
+    assert "eigrp_southbound_vrf_resolve(" in runtime_create
+    assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
+    assert "eigrp_get_by_af(" in runtime_create
     assert "af->runtime = runtime;" in runtime_create
     assert "EIGRP_ADDRESS_FAMILY_IPV6" not in runtime_create
     assert "af->runtime = runtime;" in runtime_create
@@ -78,7 +80,7 @@ def test_address_family_delete_stops_runtime_before_freeing_configuration():
         instance, "eigrp_instance_address_family_runtime_delete"
     )
 
-    assert "eigrp_southbound_instance_delete(name, af->runtime)" in runtime_delete
+    assert "eigrp_finish_final(af->runtime);" in runtime_delete
     assert "eigrp_instance_address_family_runtime_delete(" in delete
     assert delete.index("eigrp_instance_address_family_runtime_delete(") < delete.index(
         "eigrp_instance_address_family_free(af)"
@@ -103,36 +105,34 @@ def test_runtime_teardown_unbinds_named_configuration_before_storage_is_freed():
     )
 
 
-def test_frr_southbound_owns_named_vrf_resolution_and_runtime_creation():
+def test_frr_southbound_only_resolves_host_vrf_for_common_runtime_creation():
     header = read(SOUTHBOUND_H)
     southbound = read(SOUTHBOUND_C)
-    create = function_body(southbound, "eigrp_southbound_instance_create")
-    delete = function_body(southbound, "eigrp_southbound_instance_delete")
+    instance = read(INSTANCE_C)
+    resolve = function_body(southbound, "eigrp_southbound_vrf_resolve")
+    create = function_body(instance, "eigrp_instance_address_family_runtime_create")
 
-    assert "eigrp_southbound_instance_create(" in header
-    assert "eigrp_southbound_instance_delete(" in header
-    assert "vrf_lookup_by_name(vrf_name)" in create
-    assert "eigrp_lookup_by_af_as_vrf(afi, asn, vrf->vrf_id)" in create
-    assert "return EIGRP_RESULT_CONFLICT;" in create
-    assert "eigrp_get_by_af(afi, asn, vrf->vrf_id" in create
-    assert "afi == EIGRP_ADDRESS_FAMILY_IPV4" in create
-    assert "eigrp_name_set(eigrp, name);" in create
-    assert "eigrp_finish_final(runtime);" in delete
+    assert "eigrp_southbound_vrf_resolve(" in header
+    assert "vrf_lookup_by_name(vrf_name)" in resolve
+    assert "eigrp_lookup_by_af_as_vrf" not in resolve
+    assert "eigrp_get_by_af" not in resolve
+    assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in create
+    assert "eigrp_get_by_af(" in create
+    assert "eigrp_name_set(runtime, name);" in create
 
 
-def test_router_id_runtime_refresh_stays_behind_southbound_boundary():
+def test_router_id_runtime_refresh_is_owned_by_common_instance_code():
     header = read(SOUTHBOUND_H)
     instance = read(INSTANCE_C)
-    southbound = read(SOUTHBOUND_C)
     update = function_body(instance, "eigrp_instance_router_id_update")
     delete = function_body(instance, "eigrp_instance_router_id_delete")
-    refresh = function_body(southbound, "eigrp_southbound_router_id_refresh")
+    refresh = function_body(instance, "eigrp_instance_router_id_refresh")
 
-    assert "eigrp_southbound_router_id_refresh(" in header
+    assert "eigrp_southbound_router_id_refresh(" not in header
     assert "context->runtime->router_id_static.s_addr = htonl(router_id);" in update
-    assert "eigrp_southbound_router_id_refresh(context->runtime);" in update
+    assert "eigrp_instance_router_id_refresh(context->runtime);" in update
     assert "context->runtime->router_id_static.s_addr = INADDR_ANY;" in delete
-    assert "eigrp_southbound_router_id_refresh(context->runtime);" in delete
+    assert "eigrp_instance_router_id_refresh(context->runtime);" in delete
     assert "eigrp_router_id_update(runtime);" in refresh
 
 
@@ -140,9 +140,14 @@ def test_classic_process_creation_rejects_a_runtime_owned_by_named_mode():
     northbound = read(NORTHBOUND)
     create = function_body(northbound, "eigrpd_instance_create")
 
-    assert "eigrp_lookup_by_as_vrf(asn, vrfid)" in create
-    assert "if (eigrp && eigrp->name)" in create
+    assert "eigrp_instance_classic_validate(asn, vrf_id, &owner_name)" in create
+    assert "result == EIGRP_RESULT_CONFLICT" in create
     assert "return NB_ERR_VALIDATION;" in create
+
+    instance = read(INSTANCE_C)
+    validate = function_body(instance, "eigrp_instance_classic_validate")
+    assert "eigrp_lookup_by_as_vrf(asn, vrf_id)" in validate
+    assert "runtime->name" in validate
 
 
 def test_named_configuration_commands_consume_lifecycle_binding_not_relookup_process():

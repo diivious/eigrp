@@ -27,7 +27,7 @@
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_metric.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 
 /* Classic metric section. */
 #define EIGRP_TLV1_METRIC_SIZE 16
@@ -77,13 +77,13 @@ static uint16_t eigrp_tlv1_min_length(const eigrp_instance_t *eigrp,
 
 static void eigrp_tlv1_decode_abort(eigrp_stream_t *pkt)
 {
-	stream_set_getp(pkt, stream_get_endp(pkt));
+	eigrp_stream_set_getp(pkt, eigrp_stream_get_endp(pkt));
 }
 
 static void eigrp_tlv1_decode_skip(eigrp_stream_t *pkt, size_t tlv_end)
 {
-	if (tlv_end <= stream_get_endp(pkt))
-		stream_set_getp(pkt, tlv_end);
+	if (tlv_end <= eigrp_stream_get_endp(pkt))
+		eigrp_stream_set_getp(pkt, tlv_end);
 	else
 		eigrp_tlv1_decode_abort(pkt);
 }
@@ -98,13 +98,13 @@ static uint16_t eigrp_tlv1_external_decode(eigrp_stream_t *pkt,
 	if (!eigrp_tlv1_stream_has(pkt, EIGRP_TLV1_EXTDATA_SIZE))
 		return 0;
 
-	extdata->orig = stream_getl(pkt);
-	extdata->as = stream_getl(pkt);
-	extdata->tag = stream_getl(pkt);
-	extdata->metric = stream_getl(pkt);
-	extdata->reserved = stream_getw(pkt);
-	extdata->protocol = stream_getc(pkt);
-	extdata->flags = stream_getc(pkt);
+	extdata->orig = eigrp_stream_getl(pkt);
+	extdata->as = eigrp_stream_getl(pkt);
+	extdata->tag = eigrp_stream_getl(pkt);
+	extdata->metric = eigrp_stream_getl(pkt);
+	extdata->reserved = eigrp_stream_getw(pkt);
+	extdata->protocol = eigrp_stream_getc(pkt);
+	extdata->flags = eigrp_stream_getc(pkt);
 
 	return EIGRP_TLV1_EXTDATA_SIZE;
 }
@@ -112,13 +112,13 @@ static uint16_t eigrp_tlv1_external_decode(eigrp_stream_t *pkt,
 static uint16_t eigrp_tlv1_external_encode(eigrp_stream_t *pkt,
 					   eigrp_extdata_t *extdata)
 {
-	stream_putl(pkt, extdata->orig);
-	stream_putl(pkt, extdata->as);
-	stream_putl(pkt, extdata->tag);
-	stream_putl(pkt, extdata->metric);
-	stream_putw(pkt, extdata->reserved);
-	stream_putc(pkt, extdata->protocol);
-	stream_putc(pkt, extdata->flags);
+	eigrp_stream_putl(pkt, extdata->orig);
+	eigrp_stream_putl(pkt, extdata->as);
+	eigrp_stream_putl(pkt, extdata->tag);
+	eigrp_stream_putl(pkt, extdata->metric);
+	eigrp_stream_putw(pkt, extdata->reserved);
+	eigrp_stream_putc(pkt, extdata->protocol);
+	eigrp_stream_putc(pkt, extdata->flags);
 
 	return EIGRP_TLV1_EXTDATA_SIZE;
 }
@@ -133,16 +133,16 @@ static uint16_t eigrp_tlv1_metric_decode(eigrp_stream_t *pkt,
 		return 0;
 
 	/* TLV1.2 provides metric in 32bit form, need to scale */
-	metric->delay = eigrp_scaled_to_delay(stream_getl(pkt));
-	metric->bandwidth = stream_getl(pkt);
-	metric->mtu[2] = stream_getc(pkt);
-	metric->mtu[1] = stream_getc(pkt);
-	metric->mtu[0] = stream_getc(pkt);
-	metric->hop_count = stream_getc(pkt);
-	metric->reliability = stream_getc(pkt);
-	metric->load = stream_getc(pkt);
-	metric->tag = stream_getc(pkt);
-	metric->flags = stream_getc(pkt);
+	metric->delay = eigrp_scaled_to_delay(eigrp_stream_getl(pkt));
+	metric->bandwidth = eigrp_stream_getl(pkt);
+	metric->mtu[2] = eigrp_stream_getc(pkt);
+	metric->mtu[1] = eigrp_stream_getc(pkt);
+	metric->mtu[0] = eigrp_stream_getc(pkt);
+	metric->hop_count = eigrp_stream_getc(pkt);
+	metric->reliability = eigrp_stream_getc(pkt);
+	metric->load = eigrp_stream_getc(pkt);
+	metric->tag = eigrp_stream_getc(pkt);
+	metric->flags = eigrp_stream_getc(pkt);
 
 	return EIGRP_TLV1_METRIC_SIZE;
 }
@@ -153,17 +153,17 @@ static uint16_t eigrp_tlv1_metric_encode(eigrp_stream_t *pkt,
 	/*
 	 * TLV1.2 supports classic metrics, need to scale it down to 32 bits.
 	 */
-	stream_putl(pkt, eigrp_delay_to_scaled(metric->delay));
+	eigrp_stream_putl(pkt, eigrp_delay_to_scaled(metric->delay));
 
-	stream_putl(pkt, metric->bandwidth);
-	stream_putc(pkt, metric->mtu[2]);
-	stream_putc(pkt, metric->mtu[1]);
-	stream_putc(pkt, metric->mtu[0]);
-	stream_putc(pkt, metric->hop_count);
-	stream_putc(pkt, metric->reliability);
-	stream_putc(pkt, metric->load);
-	stream_putc(pkt, metric->tag);
-	stream_putc(pkt, metric->flags);
+	eigrp_stream_putl(pkt, metric->bandwidth);
+	eigrp_stream_putc(pkt, metric->mtu[2]);
+	eigrp_stream_putc(pkt, metric->mtu[1]);
+	eigrp_stream_putc(pkt, metric->mtu[0]);
+	eigrp_stream_putc(pkt, metric->hop_count);
+	eigrp_stream_putc(pkt, metric->reliability);
+	eigrp_stream_putc(pkt, metric->load);
+	eigrp_stream_putc(pkt, metric->tag);
+	eigrp_stream_putc(pkt, metric->flags);
 
 	return EIGRP_TLV1_METRIC_SIZE;
 }
@@ -209,15 +209,15 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	if (!eigrp_tlv1_af_ready(eigrp) || !nbr || !pkt)
 		return NULL;
 
-	tlv_start = stream_get_getp(pkt);
+	tlv_start = eigrp_stream_get_getp(pkt);
 	remaining = eigrp_tlv1_stream_remaining(pkt);
 	if (remaining < EIGRP_TLV_HDR_SIZE) {
 		eigrp_tlv1_decode_abort(pkt);
 		return NULL;
 	}
 
-	type = stream_getw(pkt);
-	length = stream_getw(pkt);
+	type = eigrp_stream_getw(pkt);
+	length = eigrp_stream_getw(pkt);
 
 	if (type == eigrp->af_vectors.classic_internal_tlv_type)
 		external = false;
@@ -230,7 +230,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 			eigrp_tlv1_decode_abort(pkt);
 
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
-			zlog_debug(
+			eigrp_log_debug(
 				"EIGRP TLV: Neighbor(%s): invalid TLV_type(%u)",
 				eigrp_print_addr(&nbr->src), type);
 		}
@@ -240,7 +240,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	min_length = eigrp_tlv1_min_length(eigrp, external);
 	if (length < min_length || length > remaining) {
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
-			zlog_debug(
+			eigrp_log_debug(
 				"EIGRP TLV: Neighbor(%s) corrupt packet type=%u length=%u remaining=%zu",
 				eigrp_print_addr(&nbr->src), type, length, remaining);
 		}
@@ -249,12 +249,12 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	}
 
 	tlv_end = tlv_start + length;
-	packet_end = stream_get_endp(pkt);
-	stream_set_endp(pkt, tlv_end);
+	packet_end = eigrp_stream_get_endp(pkt);
+	eigrp_stream_set_endp(pkt, tlv_end);
 
 	route = eigrp_topology_route_create(nbr->ei);
 	if (!route) {
-		stream_set_endp(pkt, packet_end);
+		eigrp_stream_set_endp(pkt, packet_end);
 		eigrp_tlv1_decode_skip(pkt, tlv_end);
 		return NULL;
 	}
@@ -292,18 +292,18 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	if (bytes > length || bytes == EIGRP_TLV_HDR_SIZE)
 		goto malformed;
 
-	stream_set_endp(pkt, packet_end);
+	eigrp_stream_set_endp(pkt, packet_end);
 	eigrp_tlv1_decode_skip(pkt, tlv_end);
 	return route;
 
 malformed:
 	if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
-		zlog_debug(
+		eigrp_log_debug(
 			"EIGRP TLV: Neighbor(%s) malformed TLV type=%u length=%u decoded=%u",
 			eigrp_print_addr(&nbr->src), type, length, bytes);
 	}
 	eigrp_topology_route_free(route);
-	stream_set_endp(pkt, packet_end);
+	eigrp_stream_set_endp(pkt, packet_end);
 	eigrp_tlv1_decode_abort(pkt);
 	return NULL;
 }
@@ -331,23 +331,23 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 	if (ei && filter_prefix
 	    && eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
 					filter_prefix)) {
-		zlog_info("Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
+		eigrp_log_info("Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
 		route->metric.delay = EIGRP_MAX_METRIC;
 	}
 
 	type = eigrp_tlv1_route_tlv_type(eigrp, route);
 	if (!type) {
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_SEND)) {
-			zlog_debug("Neighbor(%s): invalid TLV_type(%u)",
+			eigrp_log_debug("Neighbor(%s): invalid TLV_type(%u)",
 				   nbr ? eigrp_print_addr(&nbr->src) : "multicast",
 				   route->type);
 		}
 		return 0;
 	}
 
-	tlv_start = stream_get_endp(pkt);
-	stream_putw(pkt, type);
-	stream_putw(pkt, 0);
+	tlv_start = eigrp_stream_get_endp(pkt);
+	eigrp_stream_putw(pkt, type);
+	eigrp_stream_putw(pkt, 0);
 
 	encoded = eigrp->af_vectors.packet_address_encode(pkt, &route->nexthop);
 	if (encoded != eigrp->af_vectors.packet_address_bytes)
@@ -363,17 +363,17 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 	if (!encoded)
 		goto encode_failed;
 
-	tlv_end = stream_get_endp(pkt);
+	tlv_end = eigrp_stream_get_endp(pkt);
 	length = tlv_end - tlv_start;
 
-	stream_set_endp(pkt, tlv_start + 2);
-	stream_putw(pkt, length);
-	stream_set_endp(pkt, tlv_end);
+	eigrp_stream_set_endp(pkt, tlv_start + 2);
+	eigrp_stream_putw(pkt, length);
+	eigrp_stream_set_endp(pkt, tlv_end);
 
 	return length;
 
 encode_failed:
-	stream_set_endp(pkt, tlv_start);
+	eigrp_stream_set_endp(pkt, tlv_start);
 	return 0;
 }
 

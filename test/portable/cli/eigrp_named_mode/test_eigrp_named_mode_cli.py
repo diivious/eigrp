@@ -499,7 +499,8 @@ def test_named_topology_uses_generic_portable_lifecycle_api():
     # create/delete API for the EIGRP topology object/configuration target.
     assert "eigrp_topology_table_create()" in eigrpd_c
     assert "eigrp_topology_table_delete(eigrp, eigrp->topology_table)" in eigrpd_c
-    assert "eigrp->networks = route_table_init();" in eigrpd_c
+    assert "eigrp->networks = NULL;" in eigrpd_c
+    assert "eigrp_network_runtime_delete_all(eigrp);" in eigrpd_c
 
 
 def test_frr_patch_series_orders_topology_after_named_af_interface():
@@ -916,11 +917,12 @@ def test_named_bandwidth_delay_share_eigrp_runtime_processor_with_classic():
     assert interface_c.count("eigrp_interface_runtime_reset(context->runtime);") >= 4
     assert "void eigrp_interface_runtime_reset(eigrp_interface_t *ei);" in interface_h
 
-    # Classic FRR callbacks now resolve the host interface to an EIGRP-owned
-    # runtime interface and invoke the same portable reset processor directly.
-    assert "ei->params.delay = yang_dnode_get_uint32(args->dnode, NULL);" in nb
-    assert "ei->params.bandwidth = yang_dnode_get_uint32(args->dnode, NULL);" in nb
+    # Classic FRR callbacks normalize the host interface and invoke the same
+    # EIGRP-owned targets.  They do not mutate runtime metric state directly.
+    assert "eigrp_interface_delay_set(" in nb
+    assert "eigrp_interface_bandwidth_set(" in nb
     assert "ei = eigrp_interface_lookup_host(ifp);" in nb
-    assert "eigrp_interface_runtime_reset(ei);" in nb
+    assert "ei->params.delay =" not in nb
+    assert "ei->params.bandwidth =" not in nb
     assert "eigrp_intf_reset(ifp);" not in nb
     assert "ifp->info" not in interface_c

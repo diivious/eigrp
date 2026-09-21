@@ -32,9 +32,12 @@ Each configured address family owns one protocol context identified locally by:
 ```
 
 The protocol context binds to an `eigrp_instance_t` runtime through the
-EIGRP-owned southbound lifecycle API. Child configuration consumes that binding;
-network, interface, topology, filter, redistribution, metric, neighbor, and
-summary targets must not independently create or discover another EIGRP process.
+portable instance lifecycle. The common instance module owns runtime identity,
+conflict handling, creation, binding, and teardown; it uses southbound services
+only where host resources or host values are required. Child configuration
+consumes that binding; network, interface, topology, filter, redistribution,
+metric, neighbor, and summary targets must not independently create or discover
+another EIGRP process.
 
 Removing an address family tears down its runtime binding before the child
 configuration is freed.

@@ -41,7 +41,8 @@ def test_runtime_interface_state_is_eigrp_owned():
     assert "struct interface *ifp" not in structs
     assert "struct list *iflist;" not in read("eigrpd/eigrpd.h")
 
-    assert "typedef struct eigrp_interface_runtime_state" in interface_h
+    assert "typedef struct eigrp_interface_runtime_state" in types
+    assert "bool secondary;" in types
     assert "eigrp_interface_runtime_create(" in interface_h
     assert "eigrp_interface_runtime_update(" in interface_h
     assert "eigrp_interface_runtime_delete(" in interface_h
@@ -57,7 +58,7 @@ def test_protocol_runtime_uses_eigrp_southbound_event_contracts():
         "eigrpd/eigrp_neighbor.c",
         "eigrpd/eigrp_update.c",
         "eigrpd/eigrp_filter.c",
-        "eigrpd/eigrp_dump.c",
+        "eigrpd/eigrp_debug.c",
     ]
 
     assert "eigrp_southbound_event_add" in southbound_h
@@ -124,7 +125,8 @@ def test_frr_management_and_zebra_no_longer_store_runtime_in_ifp_info():
     assert "ifp->info" not in zebra
     assert "->ifp" not in vty
     assert "eigrp_interface_lookup_host(ifp)" in northbound
-    assert "eigrp_southbound_interfaces_refresh(eigrp)" in zebra
+    assert "eigrp_network_interface_refresh((eigrp_vrf_id_t)vrf_id, &state)" in zebra
+    assert "ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp" not in zebra
 
 
 def test_frr_southbound_has_explicit_host_header_dependencies():

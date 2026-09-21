@@ -13,9 +13,11 @@
  *   Martin Kontsek
  *   Lukas Koribsky
  */
-#include "lib/table.h"
 
+#include <stdlib.h>
+#include <string.h>
 #include "eigrpd/eigrpd.h"
+#include "eigrpd/eigrp_table.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_instance.h"
@@ -24,7 +26,7 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 
 #define EIGRP_NEIGHBOR_SRTT_ALPHA_SHIFT 3U /* alpha = 1/8 */
 #define EIGRP_NEIGHBOR_RTTVAR_BETA_SHIFT 2U /* beta = 1/4 */
@@ -192,8 +194,8 @@ static void eigrp_neighbor_static_debug(const char *action,
 		return;
 	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
 	if (!inet_ntop(family, address->bytes, address_text, sizeof(address_text)))
-		strlcpy(address_text, "<invalid>", sizeof(address_text));
-	zlog_debug("EIGRP: %s static neighbor %s AS %u interface %s", action,
+		memcpy(address_text, "<invalid>", sizeof("<invalid>"));
+	eigrp_log_debug("EIGRP: %s static neighbor %s AS %u interface %s", action,
 		   address_text, af ? af->asn : 0,
 		   interface_name ? interface_name : "-");
 }
@@ -372,18 +374,18 @@ static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
 {
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
-	struct route_node *route_node;
-	struct listnode *list_node;
+	eigrp_table_node_t *route_node;
+	eigrp_list_node_t *list_node;
 	uint32_t count = 0;
 
 	if (!runtime || !runtime->topology_table || !neighbor)
 		return 0;
-	for (route_node = route_top(runtime->topology_table); route_node;
-	     route_node = route_next(route_node)) {
+	for (route_node = eigrp_table_first(runtime->topology_table); route_node;
+	     route_node = eigrp_table_next(route_node)) {
 		prefix = route_node->info;
 		if (!prefix)
 			continue;
-		for (ALL_LIST_ELEMENTS_RO(prefix->entries, list_node, route)) {
+		for (EIGRP_LIST_ELEMENTS_RO(prefix->entries, list_node, route)) {
 			if (route->adv_router == neighbor) {
 				count++;
 				break;
@@ -411,8 +413,8 @@ eigrp_result_t eigrp_neighbor_state_walk(
 	eigrp_neighbor_config_t *configured;
 	eigrp_interface_t *ei;
 	eigrp_neighbor_t *nbr;
-	struct listnode *if_node;
-	struct listnode *nbr_node;
+	eigrp_list_node_t *if_node;
+	eigrp_list_node_t *nbr_node;
 	eigrp_neighbor_state_t state;
 	eigrp_result_t result;
 	bool matched = false;
@@ -449,12 +451,12 @@ eigrp_result_t eigrp_neighbor_state_walk(
 	if (!runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
-	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
 		const char *name = eigrp_intf_name_string(ei);
 
 		if (interface_name && strcmp(name, interface_name) != 0)
 			continue;
-		for (ALL_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+		for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
 			/* Normal neighbor output contains established adjacencies only. */
 			if (nbr->state != EIGRP_NEIGHBOR_UP)
 				continue;
@@ -496,10 +498,6 @@ eigrp_result_t eigrp_neighbor_state_walk(
 
 	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
-
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_NEIGHBOR, "EIGRP neighbor");
-
-
 void eigrp_neighbor_encoder_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
 {
 	if (!nbr || !codec || !codec->encoder)
@@ -538,8 +536,7 @@ static void eigrp_nbr_init(eigrp_neighbor_t *nbr, eigrp_addr_t *src)
 	nbr->encoder = eigrp_packet_encoder_safe;
 
 	//  if (IS_DEBUG_EIGRP_EVENT)
-	//    zlog_debug("NSM[%s:%s]: start", EIGRP_INTF_NAME (nbr->oi),
-	//               eigrp_print_routerid(nbr->router_id));
+		//               eigrp_print_routerid(nbr->router_id));
 }
 
 /**
@@ -550,7 +547,7 @@ eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *ei, eigrp_addr_t *src)
 	eigrp_neighbor_t *nbr;
 
 	/* Allcate new neighbor. */
-	nbr = XCALLOC(MTYPE_EIGRP_NEIGHBOR, sizeof(eigrp_neighbor_t));
+	nbr = calloc(1, sizeof(eigrp_neighbor_t));
 
 	/* Relate neighbor to the interface. */
 	nbr->ei = ei;
@@ -561,14 +558,14 @@ eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *ei, eigrp_addr_t *src)
 
 	// If this is the 'self' neighbor, then you dont have an interface
 	if (ei) {
-		listnode_add(ei->nbrs, nbr);
+		eigrp_list_add(ei->nbrs, nbr);
 	}
 	if (IS_DEBUG_EIGRP_EVENT) {
-		zlog_debug("EIGRP event: neighbor %s created%s%s",
+		eigrp_log_debug("EIGRP event: neighbor %s created%s%s",
 			   eigrp_print_addr(&nbr->src),
-			   ei ? " on " : "", ei ? EIGRP_INTF_NAME(ei) : "");
+			   ei ? " on " : "", ei ? eigrp_intf_name_string(ei) : "");
 		if (IS_DEBUG_EIGRP(0, DETAIL) && ei && ei->eigrp)
-			zlog_debug("EIGRP event detail: AS %u hold %u state %u",
+			eigrp_log_debug("EIGRP event detail: AS %u hold %u state %u",
 				   ei->eigrp->AS, nbr->v_holddown, nbr->state);
 	}
 	return nbr;
@@ -578,9 +575,9 @@ eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *ei, eigrp_header_t *eigrph
 				   eigrp_addr_t *src)
 {
 	eigrp_neighbor_t *nbr;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 
-	for (ALL_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
+	for (EIGRP_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
 	    if (eigrp_addr_same(src, &nbr->src)) {
 		    return nbr;
 		}
@@ -605,9 +602,9 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr(eigrp_interface_t *ei,
 					   struct in_addr *addr)
 {
 	eigrp_neighbor_t *nbr;
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 
-	for (ALL_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
+	for (EIGRP_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
 		if (addr->s_addr == nbr->src.ip.v4.s_addr) {
 			return nbr;
 		}
@@ -632,13 +629,13 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 						   struct in_addr nbr_addr)
 {
 	eigrp_interface_t *ei;
-	struct listnode *node, *node2, *nnode2;
+	eigrp_list_node_t *node, *node2, *nnode2;
 	eigrp_neighbor_t *nbr;
 
 	/* iterate over all eigrp interfaces */
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
 		/* iterate over all neighbors on eigrp interface */
-		for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
 			/* compare if neighbor address is same as arg address */
 			if (nbr->src.ip.v4.s_addr == nbr_addr.s_addr) {
 				return nbr;
@@ -654,11 +651,11 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 {
 	if (nbr && IS_DEBUG_EIGRP_EVENT) {
-		zlog_debug("EIGRP event: neighbor %s delete%s%s",
+		eigrp_log_debug("EIGRP event: neighbor %s delete%s%s",
 			   eigrp_print_addr(&nbr->src), nbr->ei ? " on " : "",
-			   nbr->ei ? EIGRP_INTF_NAME(nbr->ei) : "");
+			   nbr->ei ? eigrp_intf_name_string(nbr->ei) : "");
 		if (IS_DEBUG_EIGRP(0, DETAIL) && nbr->ei && nbr->ei->eigrp)
-			zlog_debug("EIGRP event detail: AS %u state %u retrans %u",
+			eigrp_log_debug("EIGRP event detail: AS %u state %u retrans %u",
 				   nbr->ei->eigrp->AS, nbr->state, nbr->retrans_counter);
 	}
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
@@ -668,25 +665,25 @@ void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 	/* Cancel neighbor-owned host runtime events before releasing queues/state. */
 	eigrp_southbound_event_cancel(&nbr->t_nbr_send_gr);
 	if (nbr->nbr_gr_prefixes)
-		list_delete(&nbr->nbr_gr_prefixes);
+		eigrp_list_delete(&nbr->nbr_gr_prefixes);
 	if (nbr->nbr_gr_prefixes_send)
-		list_delete(&nbr->nbr_gr_prefixes_send);
+		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
 	eigrp_packet_queue_free(nbr->retrans_queue);
 	eigrp_southbound_event_cancel(&nbr->t_holddown);
 
 	if (nbr->ei)
-		listnode_delete(nbr->ei->nbrs, nbr);
-	XFREE(MTYPE_EIGRP_NEIGHBOR, nbr);
+		eigrp_list_delete_data(nbr->ei->nbrs, nbr);
+	free(nbr);
 }
 
 void eigrp_neighbor_holddown_expired(void *arg)
 {
 	eigrp_neighbor_t *nbr = arg;
 	if (IS_DEBUG_EIGRP(0, TIMERS))
-		zlog_debug("EIGRP: hold timer expired for neighbor %s",
+		eigrp_log_debug("EIGRP: hold timer expired for neighbor %s",
 			   eigrp_print_addr(&nbr->src));
 	if (nbr->ei->eigrp->log_neighbor_changes)
-		zlog_info("Neighbor %s (%s) is down: holding time expired",
+		eigrp_log_info("Neighbor %s (%s) is down: holding time expired",
 			  eigrp_print_addr(&nbr->src),
 			  nbr->ei->name);
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
@@ -808,13 +805,13 @@ void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 int eigrp_nbr_count_get(eigrp_instance_t *eigrp)
 {
 	eigrp_interface_t *iface;
-	struct listnode *node, *node2, *nnode2;
+	eigrp_list_node_t *node, *node2, *nnode2;
 	eigrp_neighbor_t *nbr;
 	uint32_t counter;
 
 	counter = 0;
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, iface)) {
-		for (ALL_LIST_ELEMENTS(iface->nbrs, node2, nnode2, nbr)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, iface)) {
+		for (EIGRP_LIST_ELEMENTS(iface->nbrs, node2, nnode2, nbr)) {
 			if (nbr->state == EIGRP_NEIGHBOR_UP) {
 				counter++;
 			}
@@ -864,7 +861,7 @@ static void eigrp_neighbor_clear_hard(eigrp_neighbor_t *nbr,
 {
 	const char *interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : "?";
 
-	zlog_debug("Neighbor %s (%s) is down: manually cleared",
+	eigrp_log_debug("Neighbor %s (%s) is down: manually cleared",
 		   eigrp_print_addr(&nbr->src), interface_name);
 	eigrp_neighbor_clear_report(nbr, false, callback, arg);
 
@@ -899,9 +896,9 @@ eigrp_result_t eigrp_neighbor_clear(
 {
 	eigrp_interface_t *ei;
 	eigrp_neighbor_t *nbr;
-	struct listnode *if_node;
-	struct listnode *nbr_node;
-	struct listnode *next_node;
+	eigrp_list_node_t *if_node;
+	eigrp_list_node_t *nbr_node;
+	eigrp_list_node_t *next_node;
 	size_t affected = 0;
 
 	if (affected_count)
@@ -917,8 +914,8 @@ eigrp_result_t eigrp_neighbor_clear(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	if (request->address) {
-		for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
-			for (ALL_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+		for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+			for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
 				if (!eigrp_neighbor_clear_address_match(nbr,
 								request->address))
 					continue;
@@ -944,7 +941,7 @@ eigrp_result_t eigrp_neighbor_clear(
 		if (!request->soft)
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
-		for (ALL_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
+		for (EIGRP_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
 			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
 				continue;
 			if (request->soft)
@@ -959,11 +956,11 @@ eigrp_result_t eigrp_neighbor_clear(
 		return EIGRP_RESULT_SUCCESS;
 	}
 
-	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
 		if (!request->soft)
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
-		for (ALL_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
+		for (EIGRP_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
 			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
 				continue;
 			if (request->soft)

@@ -19,11 +19,11 @@
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_packetizer.h"
 #include "eigrpd/eigrp_prefix.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 
 /* EIGRP SIA-REPLY read function */
 void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
-			    struct eigrp_header *eigrph, struct stream *pkt,
+			    struct eigrp_header *eigrph, eigrp_stream_t *pkt,
 			    eigrp_interface_t *ei, int length)
 {
 	eigrp_debug_neighbor_sia(nbr, "SIA-REPLY received");
@@ -47,7 +47,7 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &route->dest);
-			zlog_debug("EIGRP SIA-REPLY: Neighbor(%s) sent unknown prefix %s",
+			eigrp_log_debug("EIGRP SIA-REPLY: Neighbor(%s) sent unknown prefix %s",
 				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_topology_route_free(route);
 			continue;

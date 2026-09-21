@@ -5,6 +5,7 @@
  * Copyright (C) 2026 Donnie V. Savage
  */
 
+#include <arpa/inet.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -14,31 +15,13 @@
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_packet.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_types.h"
 #include "eigrpd/eigrp_southbound.h"
 
 #define EIGRP_IPV4_ADDRESS_BYTES 4U
 #define EIGRP_IPV4_PREFIX_LENGTH_BYTES 1U
 #define EIGRP_IPV4_PACKET_WRITE_IPHL_SHIFT 2
-
-static void eigrp_ipv4_packet_header_dump(const struct ip *iph)
-{
-	if (!iph)
-		return;
-
-	zlog_debug("ip_v %u", iph->ip_v);
-	zlog_debug("ip_hl %u", iph->ip_hl);
-	zlog_debug("ip_tos %u", iph->ip_tos);
-	zlog_debug("ip_len %u", iph->ip_len);
-	zlog_debug("ip_id %u", (uint32_t)iph->ip_id);
-	zlog_debug("ip_off %u", (uint32_t)iph->ip_off);
-	zlog_debug("ip_ttl %u", iph->ip_ttl);
-	zlog_debug("ip_p %u", iph->ip_p);
-	zlog_debug("ip_sum 0x%x", (uint32_t)iph->ip_sum);
-	zlog_debug("ip_src %pI4", &iph->ip_src);
-	zlog_debug("ip_dst %pI4", &iph->ip_dst);
-}
 
 static bool eigrp_ipv4_stream_has(eigrp_stream_t *stream, size_t needed)
 {
@@ -57,231 +40,74 @@ static uint16_t eigrp_ipv4_prefix_bytes(uint8_t prefix_length)
 }
 
 static bool eigrp_ipv4_packet_source_on_link(eigrp_interface_t *ei,
-					     const eigrp_addr_t *source)
+                                             const eigrp_addr_t *source)
 {
-	struct in_addr mask;
-	struct in_addr local;
-	struct in_addr remote;
+	uint32_t local, remote, mask;
 
 	if (!ei || !source || source->afi != AF_INET)
 		return false;
-
 	if (ei->type == EIGRP_IFTYPE_POINTOPOINT)
 		return true;
-
-	if (ei->address.address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (ei->address.address.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || ei->address.prefix_length > 32)
 		return false;
 
-	masklen2ip(ei->address.prefix_length, &mask);
 	memcpy(&local, ei->address.address.bytes, sizeof(local));
-	local.s_addr &= mask.s_addr;
-	remote.s_addr = source->ip.v4.s_addr & mask.s_addr;
-
-	return IPV4_ADDR_SAME(&local, &remote);
+	remote = source->ip.v4.s_addr;
+	local = ntohl(local);
+	remote = ntohl(remote);
+	mask = ei->address.prefix_length == 0 ? 0
+	       : 0xffffffffU << (32U - ei->address.prefix_length);
+	return (local & mask) == (remote & mask);
 }
 
 static int eigrp_ipv4_packet_send(eigrp_instance_t *eigrp,
-				  eigrp_interface_t *ei,
-				  eigrp_packet_t *packet)
+                                  eigrp_interface_t *ei,
+                                  eigrp_packet_t *packet)
 {
-	struct sockaddr_in sa_dst;
-	struct ip iph;
-	struct msghdr msg;
-	struct iovec iov[2];
-	int flags = 0;
-	int ret;
-
 	if (!eigrp || !ei || !packet || !packet->s || packet->dst.afi != AF_INET)
 		return -1;
 
-	if (packet->dst.ip.v4.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
-		(void)eigrp_southbound_multicast_interface_set(eigrp, ei);
-
-	memset(&iph, 0, sizeof(iph));
-	memset(&sa_dst, 0, sizeof(sa_dst));
-	memset(&msg, 0, sizeof(msg));
-
-	sa_dst.sin_family = AF_INET;
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-	sa_dst.sin_len = sizeof(sa_dst);
-#endif
-	sa_dst.sin_addr = packet->dst.ip.v4;
-	sa_dst.sin_port = htons(0);
-
-	if (!IN_MULTICAST(htonl(packet->dst.ip.v4.s_addr)))
-		flags = MSG_DONTROUTE;
-
-	iph.ip_hl = sizeof(struct ip) >> EIGRP_IPV4_PACKET_WRITE_IPHL_SHIFT;
-	if (sizeof(struct ip)
-	    > (unsigned int)(iph.ip_hl << EIGRP_IPV4_PACKET_WRITE_IPHL_SHIFT))
-		iph.ip_hl++;
-
-	iph.ip_v = IPVERSION;
-	iph.ip_tos = IPTOS_PREC_INTERNETCONTROL;
-	iph.ip_len = (iph.ip_hl << EIGRP_IPV4_PACKET_WRITE_IPHL_SHIFT)
-		     + packet->length;
-
-#if defined(__DragonFly__)
-	iph.ip_len = htons(iph.ip_len);
-#endif
-
-	iph.ip_off = 0;
-	iph.ip_ttl = EIGRP_IP_TTL;
-	iph.ip_p = IPPROTO_EIGRPIGP;
-	iph.ip_sum = 0;
-	memcpy(&iph.ip_src, ei->address.address.bytes, sizeof(iph.ip_src));
-	iph.ip_dst.s_addr = packet->dst.ip.v4.s_addr;
-
-	msg.msg_name = (caddr_t)&sa_dst;
-	msg.msg_namelen = sizeof(sa_dst);
-	msg.msg_iov = iov;
-	msg.msg_iovlen = 2;
-
-	iov[0].iov_base = (char *)&iph;
-	iov[0].iov_len = iph.ip_hl << EIGRP_IPV4_PACKET_WRITE_IPHL_SHIFT;
-	iov[1].iov_base = stream_pnt(packet->s);
-	iov[1].iov_len = packet->length;
-
-	sockopt_iphdrincl_swab_htosys(&iph);
-	ret = sendmsg(eigrp->fd, &msg, flags);
-	sockopt_iphdrincl_swab_systoh(&iph);
-
-	if (ret < 0)
-		zlog_warn("*** sendmsg in eigrp_ipv4_packet_send failed to %pI4, "
-			  "id %d, off %d, len %d, interface %s, mtu %u: %s",
-			  &iph.ip_dst, iph.ip_id, iph.ip_off, iph.ip_len,
-			  ei->name, ei->curr_mtu, safe_strerror(errno));
-
-	return ret;
+	return eigrp_southbound_ipv4_packet_send(
+		eigrp, ei, &packet->dst, eigrp_stream_data(packet->s),
+		packet->length);
 }
 
 static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
-				      eigrp_stream_t *stream,
-				      eigrp_interface_t **ei,
-				      eigrp_addr_t *source,
-				      eigrp_addr_t *destination,
-				      eigrp_packet_rx_meta_t *meta)
+                                      eigrp_stream_t *stream,
+                                      eigrp_interface_t **ei,
+                                      eigrp_addr_t *source,
+                                      eigrp_addr_t *destination,
+                                      eigrp_packet_rx_meta_t *meta)
 {
-	struct ip *iph;
-	struct iovec iov;
-	struct msghdr msgh;
-	unsigned int ifindex = 0;
-	uint16_t ip_header_length;
-	uint16_t ip_length;
-	int ret;
-	char control[CMSG_SPACE(SOPT_SIZE_CMSG_IFINDEX_IPV4())];
+	eigrp_ifindex_t ifindex = 0;
 
 	if (!eigrp || !stream || !ei || !source || !destination || !meta)
 		return false;
-
 	*ei = NULL;
-	memset(source, 0, sizeof(*source));
-	memset(destination, 0, sizeof(*destination));
-	memset(meta, 0, sizeof(*meta));
-	memset(&msgh, 0, sizeof(msgh));
-
-	msgh.msg_iov = &iov;
-	msgh.msg_iovlen = 1;
-	msgh.msg_control = (caddr_t)control;
-	msgh.msg_controllen = sizeof(control);
-
-	ret = stream_recvmsg(stream, fd, &msgh, 0, EIGRP_PACKET_MAX_LEN + 1);
-	if (ret < 0) {
-		zlog_warn("stream_recvmsg failed: %s", safe_strerror(errno));
+	if (!eigrp_southbound_ipv4_packet_receive(eigrp, fd, stream, &ifindex,
+	                                           source, destination, meta))
 		return false;
-	}
 
-	if ((unsigned int)ret < sizeof(*iph)) {
-		zlog_warn("eigrp_ipv4_packet_receive: discarding runt packet of length %d "
-			  "(IPv4 header size is %u)",
-			  ret, (unsigned int)sizeof(*iph));
-		return false;
-	}
-
-	iph = (struct ip *)STREAM_DATA(stream);
-	sockopt_iphdrincl_swab_systoh(iph);
-
-	if (iph->ip_v != 4) {
-		zlog_warn("eigrp_ipv4_packet_receive: discarding non-IPv4 packet version %u",
-			  iph->ip_v);
-		return false;
-	}
-
-	ip_header_length = iph->ip_hl * 4U;
-	if (iph->ip_hl < 5 || ip_header_length > (uint16_t)ret) {
-		zlog_warn("eigrp_ipv4_packet_receive: discarding packet with invalid IPv4 header length %u",
-			  (uint8_t)ip_header_length);
-		return false;
-	}
-
-	ip_length = iph->ip_len;
-
-#if defined(__FreeBSD__) && (__FreeBSD_version < 1000000)
-	ip_length = ip_length + ip_header_length;
-#endif
-
-#if defined(__DragonFly__)
-	ip_length = ntohs(iph->ip_len) + ip_header_length;
-#endif
-
-	if (ret != ip_length) {
-		zlog_warn("eigrp_ipv4_packet_receive read length mismatch: ip_len is %u, "
-			  "but recvmsg returned %d",
-			  ip_length, ret);
-		return false;
-	}
-
-	if (ip_length < ip_header_length + EIGRP_HEADER_LEN) {
-		zlog_warn("eigrp_ipv4_packet_receive: discarding runt EIGRP packet from %pI4 length %u",
-			  &iph->ip_src, ip_length);
-		return false;
-	}
-
-	source->afi = AF_INET;
-	source->ip.v4 = iph->ip_src;
-	destination->afi = AF_INET;
-	destination->ip.v4 = iph->ip_dst;
-
-	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL))
-		eigrp_ipv4_packet_header_dump(iph);
-
-	ifindex = getsockopt_ifindex(AF_INET, &msgh);
 	*ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
 	if (!*ei) {
 		eigrp_interface_t *candidate;
-		struct listnode *node;
-
-		for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, candidate)) {
+		eigrp_list_node_t *node;
+		for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, candidate)) {
 			if (!eigrp_ipv4_packet_source_on_link(candidate, source))
 				continue;
 			*ei = candidate;
 			break;
 		}
 	}
-	if (!*ei)
-		return false;
-
-	if (!eigrp_ipv4_packet_source_on_link(*ei, source)) {
-		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
-			zlog_warn("Packet from [%pI4] received on wrong link %s",
-				  &iph->ip_src, (*ei)->name);
+	if (!*ei || !eigrp_ipv4_packet_source_on_link(*ei, source)) {
 		*ei = NULL;
 		return false;
 	}
-
 	if (eigrp_intf_lookup_by_local_addr(eigrp, source)) {
-		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE))
-			zlog_debug("eigrp_ipv4_packet_receive[%pI4]: Dropping self-originated packet",
-				   &iph->ip_src);
 		*ei = NULL;
 		return false;
 	}
-
-	meta->network_header_length = ip_header_length;
-	meta->eigrp_length = ip_length - ip_header_length;
-	meta->destination_multicast =
-		iph->ip_dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS);
-
 	return true;
 }
 
@@ -294,7 +120,7 @@ static uint16_t eigrp_ipv4_packet_address_decode(eigrp_stream_t *stream,
 
 	memset(address, 0, sizeof(*address));
 	address->afi = AF_INET;
-	stream_get(&address->ip.v4, stream, EIGRP_IPV4_ADDRESS_BYTES);
+	eigrp_stream_get(&address->ip.v4, stream, EIGRP_IPV4_ADDRESS_BYTES);
 	return EIGRP_IPV4_ADDRESS_BYTES;
 }
 
@@ -304,7 +130,7 @@ static uint16_t eigrp_ipv4_packet_address_encode(eigrp_stream_t *stream,
 	if (!stream || !address || (address->afi != 0 && address->afi != AF_INET))
 		return 0;
 
-	stream_put(stream, &address->ip.v4, EIGRP_IPV4_ADDRESS_BYTES);
+	eigrp_stream_put(stream, &address->ip.v4, EIGRP_IPV4_ADDRESS_BYTES);
 	return EIGRP_IPV4_ADDRESS_BYTES;
 }
 
@@ -319,16 +145,16 @@ static uint16_t eigrp_ipv4_packet_prefix_decode(eigrp_stream_t *stream,
 	    || !eigrp_ipv4_stream_has(stream, EIGRP_IPV4_PREFIX_LENGTH_BYTES))
 		return 0;
 
-	start = stream_get_getp(stream);
-	prefix_length = stream_getc(stream);
-	if (prefix_length > IPV4_MAX_BITLEN) {
-		stream_set_getp(stream, start);
+	start = eigrp_stream_get_getp(stream);
+	prefix_length = eigrp_stream_getc(stream);
+	if (prefix_length > EIGRP_IPV4_MAX_BITLEN) {
+		eigrp_stream_set_getp(stream, start);
 		return 0;
 	}
 
 	address_length = eigrp_ipv4_prefix_bytes(prefix_length);
 	if (!eigrp_ipv4_stream_has(stream, address_length)) {
-		stream_set_getp(stream, start);
+		eigrp_stream_set_getp(stream, start);
 		return 0;
 	}
 
@@ -336,7 +162,7 @@ static uint16_t eigrp_ipv4_packet_prefix_decode(eigrp_stream_t *stream,
 	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
 	prefix->prefix_length = prefix_length;
 	if (address_length)
-		stream_get(prefix->address.bytes, stream, address_length);
+		eigrp_stream_get(prefix->address.bytes, stream, address_length);
 
 	return EIGRP_IPV4_PREFIX_LENGTH_BYTES + address_length;
 }
@@ -348,13 +174,13 @@ static uint16_t eigrp_ipv4_packet_prefix_encode(eigrp_stream_t *stream,
 
 	if (!stream || !prefix
 	    || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || prefix->prefix_length > IPV4_MAX_BITLEN)
+	    || prefix->prefix_length > EIGRP_IPV4_MAX_BITLEN)
 		return 0;
 
 	address_length = eigrp_ipv4_prefix_bytes(prefix->prefix_length);
-	stream_putc(stream, prefix->prefix_length);
+	eigrp_stream_putc(stream, prefix->prefix_length);
 	if (address_length)
-		stream_put(stream, prefix->address.bytes, address_length);
+		eigrp_stream_put(stream, prefix->address.bytes, address_length);
 
 	return EIGRP_IPV4_PREFIX_LENGTH_BYTES + address_length;
 }
@@ -381,7 +207,7 @@ static int eigrp_ipv4_prefix_snprintf(char *buf, size_t len,
 
 	if (!buf || !len || !prefix
 	    || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || prefix->prefix_length > IPV4_MAX_BITLEN)
+	    || prefix->prefix_length > EIGRP_IPV4_MAX_BITLEN)
 		return -1;
 
 	if (!inet_ntop(AF_INET, prefix->address.bytes, address, sizeof(address))) {
@@ -410,7 +236,7 @@ static eigrp_result_t eigrp_ipv4_address_validate(
 static eigrp_result_t eigrp_ipv4_prefix_validate(const eigrp_prefix_t *prefix)
 {
 	if (!prefix || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || prefix->prefix_length > IPV4_MAX_BITLEN)
+	    || prefix->prefix_length > EIGRP_IPV4_MAX_BITLEN)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	return EIGRP_RESULT_SUCCESS;

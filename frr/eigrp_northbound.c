@@ -98,43 +98,15 @@ static void redistribute_get_metrics(const struct lyd_node *dnode,
 		em->reliability = yang_dnode_get_uint32(dnode, "./reliability");
 }
 
-static eigrp_interface_t *eigrp_interface_lookup(const eigrp_instance_t *eigrp,
-						      const char *ifname)
-{
-	eigrp_interface_t *intf;
-	struct listnode *ln;
-
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, ln, intf)) {
-		if (strcmp(ifname, intf->name))
-			continue;
-
-		return intf;
-	}
-
-	return NULL;
-}
-
 static eigrp_interface_t *eigrp_interface_lookup_host(const struct interface *ifp)
 {
-	eigrp_instance_t *eigrp;
-	eigrp_interface_t *intf;
-	struct listnode *node;
+	eigrp_vrf_id_t vrf_id;
 
 	if (!ifp)
 		return NULL;
-
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (ifp->vrf) {
-			if (eigrp->vrf_id != ifp->vrf->vrf_id)
-				continue;
-		} else if (eigrp->vrf_id != EIGRP_VRF_DEFAULT) {
-			continue;
-		}
-		intf = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
-		if (intf)
-			return intf;
-	}
-	return NULL;
+	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
+			     : EIGRP_VRF_DEFAULT;
+	return eigrp_intf_lookup_by_vrf_ifindex(vrf_id, ifp->ifindex);
 }
 
 /*
@@ -3875,14 +3847,14 @@ static int eigrpd_named_variance_destroy(struct nb_cb_destroy_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance
- * Target: eigrp_get()
+ * Target: eigrp_instance_classic_create()
  * Description:
  * This is the `create` northbound callback for the `classic EIGRP instance` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `eigrp_get()` rather than duplicating EIGRP behavior in the
+ * The runtime path terminates at `eigrp_instance_classic_create()` rather than duplicating EIGRP behavior in the
  * FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -3891,41 +3863,41 @@ static int eigrpd_named_variance_destroy(struct nb_cb_destroy_args *args)
  */
 static int eigrpd_instance_create(struct nb_cb_create_args *args)
 {
-	eigrp_instance_t *eigrp;
+	eigrp_instance_t *eigrp = NULL;
+	eigrp_vrf_id_t vrf_id = EIGRP_VRF_DEFAULT;
+	eigrp_result_t result;
+	const char *owner_name = NULL;
 	const char *vrf;
-	struct vrf *pVrf;
-	vrf_id_t vrfid;
+	struct vrf *host_vrf;
 	uint16_t asn;
+
+	vrf = yang_dnode_get_string(args->dnode, "./vrf");
+	host_vrf = vrf_lookup_by_name(vrf);
+	if (host_vrf)
+		vrf_id = (eigrp_vrf_id_t)host_vrf->vrf_id;
+	asn = yang_dnode_get_uint16(args->dnode, "./asn");
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
-		vrf = yang_dnode_get_string(args->dnode, "./vrf");
-		pVrf = vrf_lookup_by_name(vrf);
-		vrfid = pVrf ? pVrf->vrf_id : VRF_DEFAULT;
-		asn = yang_dnode_get_uint16(args->dnode, "./asn");
-		eigrp = eigrp_lookup_by_as_vrf(asn, vrfid);
-		if (eigrp && eigrp->name) {
+		result = eigrp_instance_classic_validate(asn, vrf_id, &owner_name);
+		if (result == EIGRP_RESULT_CONFLICT) {
 			snprintf(args->errmsg, args->errmsg_len,
 				 "EIGRP AS %u in VRF %s is owned by named process %s",
-				 asn, vrf, eigrp->name);
+				 asn, vrf, owner_name ? owner_name : "<unknown>");
 			return NB_ERR_VALIDATION;
 		}
+		if (result != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	case NB_EV_PREPARE:
-		vrf = yang_dnode_get_string(args->dnode, "./vrf");
-
-		pVrf = vrf_lookup_by_name(vrf);
-		if (pVrf)
-			vrfid = pVrf->vrf_id;
-		else
-			vrfid = VRF_DEFAULT;
-
-		eigrp = eigrp_get(yang_dnode_get_uint16(args->dnode, "./asn"),
-				  vrfid);
+		result = eigrp_instance_classic_create(asn, vrf_id, &eigrp);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_RESOURCE;
 		args->resource->ptr = eigrp;
 		break;
 	case NB_EV_ABORT:
-		eigrp_finish_final(args->resource->ptr);
+		(void)eigrp_instance_classic_delete(args->resource->ptr);
+		args->resource->ptr = NULL;
 		break;
 	case NB_EV_APPLY:
 		nb_running_set_entry(args->dnode, args->resource->ptr);
@@ -3937,7 +3909,7 @@ static int eigrpd_instance_create(struct nb_cb_create_args *args)
 
 /*
  * XPath: /frr-eigrpd:eigrpd/instance
- * Target: eigrp_finish_final()
+ * Target: eigrp_instance_classic_delete()
  * Description:
  * This is the `destroy` northbound callback for the `classic EIGRP instance` configuration
  * node.
@@ -3945,7 +3917,7 @@ static int eigrpd_instance_create(struct nb_cb_create_args *args)
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `eigrp_finish_final()` rather than duplicating EIGRP behavior
+ * The runtime path terminates at `eigrp_instance_classic_delete()` rather than duplicating EIGRP behavior
  * in the FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -3964,7 +3936,8 @@ static int eigrpd_instance_destroy(struct nb_cb_destroy_args *args)
 		break;
 	case NB_EV_APPLY:
 		eigrp = nb_running_unset_entry(args->dnode);
-		eigrp_finish_final(eigrp);
+		if (eigrp_instance_classic_delete(eigrp) != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -4082,7 +4055,7 @@ eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
 		if (eigrp == NULL)
 			break;
 		ifname = yang_dnode_get_string(args->dnode, NULL);
-		intf = eigrp_interface_lookup(eigrp, ifname);
+		intf = eigrp_intf_lookup_by_name(eigrp, ifname);
 		if (intf == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -4092,7 +4065,7 @@ eigrpd_instance_passive_interface_create(struct nb_cb_create_args *args)
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
 		ifname = yang_dnode_get_string(args->dnode, NULL);
-		intf = eigrp_interface_lookup(eigrp, ifname);
+		intf = eigrp_intf_lookup_by_name(eigrp, ifname);
 		if (intf == NULL)
 			return NB_ERR_INCONSISTENCY;
 		context.runtime = intf;
@@ -4137,7 +4110,7 @@ eigrpd_instance_passive_interface_destroy(struct nb_cb_destroy_args *args)
 	case NB_EV_APPLY:
 		eigrp = nb_running_get_entry(args->dnode, NULL, true);
 		ifname = yang_dnode_get_string(args->dnode, NULL);
-		intf = eigrp_interface_lookup(eigrp, ifname);
+		intf = eigrp_intf_lookup_by_name(eigrp, ifname);
 		if (intf == NULL)
 			break;
 		context.runtime = intf;
@@ -4808,7 +4781,7 @@ eigrpd_instance_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
  * Description:
  * This callback creates one classic IPv4 EIGRP network entry.
  * The YANG IPv4 prefix is converted to `eigrp_prefix_t` before it crosses into common EIGRP code.
- * VALIDATE uses `eigrp_southbound_network_exists()` so a duplicate runtime entry is rejected before APPLY.
+ * VALIDATE uses `eigrp_network_runtime_exists()` so a duplicate runtime entry is rejected before APPLY.
  * APPLY resolves the owning instance and calls `eigrp_network_create()` with an EIGRP-owned instance context.
  * Named IPv4 `network` reaches the same `eigrp_network_create()` target, so classic and named mode converge below northbound.
  * Prefix conversion or common-target failures return `NB_ERR_INCONSISTENCY` instead of being hidden by the FRR adapter.
@@ -4833,7 +4806,7 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
 		if (eigrp == NULL)
 			break;
 
-		result = eigrp_southbound_network_exists(eigrp, &network, &exists);
+		result = eigrp_network_runtime_exists(eigrp, &network, &exists);
 		if (result != EIGRP_RESULT_SUCCESS || exists)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -4859,7 +4832,7 @@ static int eigrpd_instance_network_create(struct nb_cb_create_args *args)
  * Description:
  * This callback removes one classic IPv4 EIGRP network entry.
  * The YANG IPv4 prefix is converted to `eigrp_prefix_t` before it crosses into common EIGRP code.
- * VALIDATE uses `eigrp_southbound_network_exists()` so a missing runtime entry is detected before APPLY.
+ * VALIDATE uses `eigrp_network_runtime_exists()` so a missing runtime entry is detected before APPLY.
  * APPLY resolves the owning instance and calls `eigrp_network_delete()` with an EIGRP-owned instance context.
  * Named IPv4 `network` reaches the same `eigrp_network_delete()` target, so classic and named mode converge below northbound.
  * A final `NOT_FOUND` is treated as already removed, while conversion and other target failures return `NB_ERR_INCONSISTENCY`.
@@ -4884,7 +4857,7 @@ static int eigrpd_instance_network_destroy(struct nb_cb_destroy_args *args)
 		if (eigrp == NULL)
 			break;
 
-		result = eigrp_southbound_network_exists(eigrp, &network, &exists);
+		result = eigrp_network_runtime_exists(eigrp, &network, &exists);
 		if (result != EIGRP_RESULT_SUCCESS || !exists)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -5389,14 +5362,14 @@ static int eigrpd_instance_redistribute_metrics_mtu_destroy(
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/delay
- * Target: eigrp_interface_runtime_reset()
+ * Target: eigrp_interface_delay_set()
  * Description:
  * This is the `modify` northbound callback for the `delay` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `eigrp_interface_runtime_reset()` rather than duplicating
+ * The runtime path terminates at `eigrp_interface_delay_set()` rather than duplicating
  * EIGRP behavior in the FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -5405,6 +5378,7 @@ static int eigrpd_instance_redistribute_metrics_mtu_destroy(
  */
 static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 {
+	eigrp_interface_context_t context = {0};
 	eigrp_interface_t *ei;
 	struct interface *ifp;
 
@@ -5433,8 +5407,11 @@ static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 
-		ei->params.delay = yang_dnode_get_uint32(args->dnode, NULL);
-		eigrp_interface_runtime_reset(ei);
+		context.runtime = ei;
+		if (eigrp_interface_delay_set(
+			    &context, yang_dnode_get_uint32(args->dnode, NULL))
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -5443,14 +5420,14 @@ static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/bandwidth
- * Target: eigrp_interface_runtime_reset()
+ * Target: eigrp_interface_bandwidth_set()
  * Description:
  * This is the `modify` northbound callback for the `bandwidth` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `eigrp_interface_runtime_reset()` rather than duplicating
+ * The runtime path terminates at `eigrp_interface_bandwidth_set()` rather than duplicating
  * EIGRP behavior in the FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -5459,6 +5436,7 @@ static int lib_interface_eigrp_delay_modify(struct nb_cb_modify_args *args)
  */
 static int lib_interface_eigrp_bandwidth_modify(struct nb_cb_modify_args *args)
 {
+	eigrp_interface_context_t context = {0};
 	struct interface *ifp;
 	eigrp_interface_t *ei;
 
@@ -5487,8 +5465,11 @@ static int lib_interface_eigrp_bandwidth_modify(struct nb_cb_modify_args *args)
 		if (ei == NULL)
 			return NB_ERR_INCONSISTENCY;
 
-		ei->params.bandwidth = yang_dnode_get_uint32(args->dnode, NULL);
-		eigrp_interface_runtime_reset(ei);
+		context.runtime = ei;
+		if (eigrp_interface_bandwidth_set(
+			    &context, yang_dnode_get_uint32(args->dnode, NULL))
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -5626,14 +5607,14 @@ lib_interface_eigrp_split_horizon_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance
- * Target: eigrp_get()
+ * Target: eigrp_instance_classic_read()
  * Description:
  * This is the `create` northbound callback for the `classic EIGRP instance` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `eigrp_get()` rather than duplicating EIGRP behavior in the
+ * The runtime path terminates at `eigrp_instance_classic_read()` rather than duplicating EIGRP behavior in the
  * FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -5657,9 +5638,11 @@ static int lib_interface_eigrp_instance_create(struct nb_cb_create_args *args)
 			break;
 		}
 
-		eigrp = eigrp_get(yang_dnode_get_uint16(args->dnode, "./asn"),
-				  ifp->vrf->vrf_id);
-		intf = eigrp_interface_lookup(eigrp, ifp->name);
+		eigrp = eigrp_instance_classic_read(
+			yang_dnode_get_uint16(args->dnode, "./asn"),
+			ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
+				 : EIGRP_VRF_DEFAULT);
+		intf = eigrp ? eigrp_intf_lookup_by_name(eigrp, ifp->name) : NULL;
 		if (intf == NULL)
 			return NB_ERR_INCONSISTENCY;
 		break;
@@ -5669,9 +5652,11 @@ static int lib_interface_eigrp_instance_create(struct nb_cb_create_args *args)
 		break;
 	case NB_EV_APPLY:
 		ifp = nb_running_get_entry(args->dnode, NULL, true);
-		eigrp = eigrp_get(yang_dnode_get_uint16(args->dnode, "./asn"),
-				  ifp->vrf->vrf_id);
-		intf = eigrp_interface_lookup(eigrp, ifp->name);
+		eigrp = eigrp_instance_classic_read(
+			yang_dnode_get_uint16(args->dnode, "./asn"),
+			ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
+				 : EIGRP_VRF_DEFAULT);
+		intf = eigrp ? eigrp_intf_lookup_by_name(eigrp, ifp->name) : NULL;
 		if (intf == NULL)
 			return NB_ERR_INCONSISTENCY;
 
@@ -5769,14 +5754,14 @@ static int lib_interface_eigrp_instance_summarize_addresses_destroy(
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/authentication
- * Target: classic EIGRP interface authentication state
+ * Target: eigrp_auth_mode_update()/eigrp_auth_mode_delete()
  * Description:
  * This is the `modify` northbound callback for the `authentication` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `classic EIGRP interface authentication state` rather than
+ * The runtime path terminates at the EIGRP-owned authentication target rather than
  * duplicating EIGRP behavior in the FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -5786,17 +5771,33 @@ static int lib_interface_eigrp_instance_summarize_addresses_destroy(
 static int lib_interface_eigrp_instance_authentication_modify(
 	struct nb_cb_modify_args *args)
 {
+	eigrp_interface_context_t context = {0};
+	eigrp_authentication_mode_t mode;
 	eigrp_interface_t *intf;
+	const char *mode_text;
+	eigrp_result_t result;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		intf = nb_running_get_entry(args->dnode, NULL, true);
-		intf->params.auth_type = yang_dnode_get_enum(args->dnode, NULL);
+		if (!intf)
+			return NB_ERR_INCONSISTENCY;
+		context.runtime = intf;
+		mode_text = yang_dnode_get_string(args->dnode, NULL);
+		if (strcmp(mode_text, "none") == 0)
+			result = eigrp_auth_mode_delete(&context);
+		else {
+			mode = strcmp(mode_text, "md5") == 0
+				       ? EIGRP_AUTHENTICATION_MD5
+				       : EIGRP_AUTHENTICATION_HMAC_SHA256;
+			result = eigrp_auth_mode_update(&context, mode, NULL);
+		}
+		if (result != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -5805,14 +5806,14 @@ static int lib_interface_eigrp_instance_authentication_modify(
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/keychain
- * Target: classic EIGRP interface key-chain state
+ * Target: eigrp_auth_keychain_update()/eigrp_auth_keychain_delete()
  * Description:
  * This is the `modify` northbound callback for the `keychain` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `classic EIGRP interface key-chain state` rather than
+ * The runtime path terminates at the EIGRP-owned key-chain target rather than
  * duplicating EIGRP behavior in the FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -5822,32 +5823,28 @@ static int lib_interface_eigrp_instance_authentication_modify(
 static int
 lib_interface_eigrp_instance_keychain_modify(struct nb_cb_modify_args *args)
 {
+	eigrp_interface_context_t context = {0};
 	eigrp_interface_t *intf;
 	struct keychain *keychain;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
-		keychain = keychain_lookup(
-			yang_dnode_get_string(args->dnode, NULL));
-		if (keychain == NULL)
+		keychain = keychain_lookup(yang_dnode_get_string(args->dnode, NULL));
+		if (!keychain)
 			return NB_ERR_INCONSISTENCY;
 		break;
 	case NB_EV_PREPARE:
-		args->resource->ptr =
-			strdup(yang_dnode_get_string(args->dnode, NULL));
-		if (args->resource->ptr == NULL)
-			return NB_ERR_RESOURCE;
-		break;
 	case NB_EV_ABORT:
-		free(args->resource->ptr);
-		args->resource->ptr = NULL;
 		break;
 	case NB_EV_APPLY:
 		intf = nb_running_get_entry(args->dnode, NULL, true);
-		if (intf->params.auth_keychain)
-			free(intf->params.auth_keychain);
-
-		intf->params.auth_keychain = args->resource->ptr;
+		if (!intf)
+			return NB_ERR_INCONSISTENCY;
+		context.runtime = intf;
+		if (eigrp_auth_keychain_update(
+			    &context, yang_dnode_get_string(args->dnode, NULL))
+		    != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 
@@ -5856,14 +5853,14 @@ lib_interface_eigrp_instance_keychain_modify(struct nb_cb_modify_args *args)
 
 /*
  * XPath: /frr-interface:lib/interface/frr-eigrpd:eigrp/instance/keychain
- * Target: classic EIGRP interface key-chain state
+ * Target: eigrp_auth_keychain_update()/eigrp_auth_keychain_delete()
  * Description:
  * This is the `destroy` northbound callback for the `keychain` configuration node.
  * FRR owns the YANG transaction here and resolves or normalizes host values before common EIGRP
  * state is touched.
  * The callback follows northbound event ordering so validation and prepare do not perform
  * protocol work that belongs in APPLY.
- * The runtime path terminates at `classic EIGRP interface key-chain state` rather than
+ * The runtime path terminates at the EIGRP-owned key-chain target rather than
  * duplicating EIGRP behavior in the FRR northbound layer.
  * If named mode exposes the same feature, it uses the real EIGRP-owned target below this
  * boundary rather than calling this classic FRR callback.
@@ -5873,20 +5870,21 @@ lib_interface_eigrp_instance_keychain_modify(struct nb_cb_modify_args *args)
 static int
 lib_interface_eigrp_instance_keychain_destroy(struct nb_cb_destroy_args *args)
 {
+	eigrp_interface_context_t context = {0};
 	eigrp_interface_t *intf;
 
 	switch (args->event) {
 	case NB_EV_VALIDATE:
 	case NB_EV_PREPARE:
 	case NB_EV_ABORT:
-		/* NOTHING */
 		break;
 	case NB_EV_APPLY:
 		intf = nb_running_get_entry(args->dnode, NULL, true);
-		if (intf->params.auth_keychain)
-			free(intf->params.auth_keychain);
-
-		intf->params.auth_keychain = NULL;
+		if (!intf)
+			return NB_ERR_INCONSISTENCY;
+		context.runtime = intf;
+		if (eigrp_auth_keychain_delete(&context) != EIGRP_RESULT_SUCCESS)
+			return NB_ERR_INCONSISTENCY;
 		break;
 	}
 

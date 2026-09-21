@@ -50,7 +50,7 @@ void eigrp_reply_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 /*EIGRP REPLY read function*/
 void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
-			 struct eigrp_header *eigrph, struct stream *pkt,
+			 struct eigrp_header *eigrph, eigrp_stream_t *pkt,
 			 eigrp_interface_t *ei, int length)
 {
 	struct eigrp_fsm_action_message msg;
@@ -73,7 +73,7 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &route->dest);
-			zlog_debug("EIGRP REPLY: Neighbor(%s) sent unknown prefix %s",
+			eigrp_log_debug("EIGRP REPLY: Neighbor(%s) sent unknown prefix %s",
 				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_topology_route_free(route);
 			continue;

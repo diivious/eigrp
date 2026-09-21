@@ -7,11 +7,10 @@
 
 #include <string.h>
 
-#include "linklist.h"
 
-#include "lib/table.h"
 
 #include "eigrpd/eigrpd.h"
+#include "eigrpd/eigrp_table.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
@@ -48,13 +47,13 @@ static void eigrp_statistics_neighbor_address(const eigrp_neighbor_t *nbr,
 
 static uint32_t eigrp_statistics_prefix_count(eigrp_instance_t *runtime)
 {
-	struct route_node *node;
+	eigrp_table_node_t *node;
 	uint32_t count = 0;
 
 	if (!runtime || !runtime->topology_table)
 		return 0;
-	for (node = route_top(runtime->topology_table); node;
-	     node = route_next(node))
+	for (node = eigrp_table_first(runtime->topology_table); node;
+	     node = eigrp_table_next(node))
 		if (node->info)
 			count++;
 	return count;
@@ -65,19 +64,19 @@ static uint32_t eigrp_statistics_neighbor_prefix_count(
 {
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
-	struct route_node *route_node;
-	struct listnode *list_node;
+	eigrp_table_node_t *route_node;
+	eigrp_list_node_t *list_node;
 	uint32_t count = 0;
 
 	if (!runtime || !runtime->topology_table || !neighbor)
 		return 0;
 
-	for (route_node = route_top(runtime->topology_table); route_node;
-	     route_node = route_next(route_node)) {
+	for (route_node = eigrp_table_first(runtime->topology_table); route_node;
+	     route_node = eigrp_table_next(route_node)) {
 		prefix = route_node->info;
 		if (!prefix)
 			continue;
-		for (ALL_LIST_ELEMENTS_RO(prefix->entries, list_node, route)) {
+		for (EIGRP_LIST_ELEMENTS_RO(prefix->entries, list_node, route)) {
 			if (route->adv_router == neighbor) {
 				count++;
 				break;
@@ -104,8 +103,8 @@ eigrp_result_t eigrp_statistics_accounting_show(
 	eigrp_result_t result = eigrp_statistics_context_validate(context);
 	eigrp_interface_t *interface;
 	eigrp_neighbor_t *neighbor;
-	struct listnode *interface_node;
-	struct listnode *neighbor_node;
+	eigrp_list_node_t *interface_node;
+	eigrp_list_node_t *neighbor_node;
 
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
@@ -113,9 +112,9 @@ eigrp_result_t eigrp_statistics_accounting_show(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	*total_prefix_count = eigrp_statistics_prefix_count(context->runtime);
-	for (ALL_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
+	for (EIGRP_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
 				  interface)) {
-		for (ALL_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
+		for (EIGRP_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
 			eigrp_statistics_accounting_state_t state = {0};
 
 			if (neighbor->state == EIGRP_NEIGHBOR_DOWN)
@@ -152,7 +151,7 @@ eigrp_result_t eigrp_statistics_traffic_show(
 {
 	eigrp_result_t result = eigrp_statistics_context_validate(context);
 	eigrp_interface_t *interface;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
@@ -169,7 +168,7 @@ eigrp_result_t eigrp_statistics_traffic_show(
 			    | EIGRP_STATISTICS_TRAFFIC_SIA_QUERY
 			    | EIGRP_STATISTICS_TRAFFIC_SIA_REPLY;
 	state->received_valid = state->sent_valid;
-	for (ALL_LIST_ELEMENTS_RO(context->runtime->eiflist, node, interface)) {
+	for (EIGRP_LIST_ELEMENTS_RO(context->runtime->eiflist, node, interface)) {
 		state->sent_ack += interface->stats.sent.ack;
 		state->sent_hello += interface->stats.sent.hello;
 		state->sent_query += interface->stats.sent.query;

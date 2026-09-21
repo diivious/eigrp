@@ -21,6 +21,7 @@
 #include "eigrpd/eigrp_southbound.h"
 
 extern struct zclient *eigrp_zclient;
+extern struct zebra_privs_t eigrpd_privs;
 
 extern void eigrp_zebra_init(void);
 extern void eigrp_zebra_stop(void);

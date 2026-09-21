@@ -59,6 +59,8 @@ extern eigrp_metric_t eigrp_calculate_metrics(eigrp_instance_t *, eigrp_metrics_
 extern eigrp_metric_t eigrp_calculate_total_metrics(eigrp_instance_t *,
 						    eigrp_route_descriptor_t *);
 extern bool eigrp_metrics_is_same(eigrp_metrics_t, eigrp_metrics_t);
+void eigrp_metric_values_convert(const eigrp_metric_values_t *values,
+				eigrp_metrics_t *metric);
 
 eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
 					   const eigrp_metric_values_t *metric);

@@ -18,6 +18,8 @@
 #ifndef _ZEBRA_EIGRP_TOPOLOGY_H
 #define _ZEBRA_EIGRP_TOPOLOGY_H
 
+#include <string.h>
+
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_result.h"
 
@@ -66,31 +68,31 @@ extern void eigrp_route_descriptor_delete(eigrp_instance_t *,
 void eigrp_topology_route_free(eigrp_route_descriptor_t *);
 
 /* EIGRP Topology table storage related functions. */
-extern struct route_table *eigrp_topology_table_create(void);
-extern void eigrp_topology_init(struct route_table *table);
+extern eigrp_table_t *eigrp_topology_table_create(void);
+extern void eigrp_topology_init(eigrp_table_t *table);
 
 extern eigrp_prefix_descriptor_t *eigrp_topology_prefix_create(void);
 extern void eigrp_topology_prefix_free(eigrp_prefix_descriptor_t *);
 
 extern void eigrp_topology_table_delete(eigrp_instance_t *eigrp,
-					struct route_table *table);
-extern void eigrp_prefix_descriptor_add(struct route_table *table,
+					eigrp_table_t *table);
+extern void eigrp_prefix_descriptor_add(eigrp_table_t *table,
 					eigrp_prefix_descriptor_t *pe);
 extern void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
-					   struct route_table *table,
+					   eigrp_table_t *table,
 					   eigrp_prefix_descriptor_t *pe);
 extern void eigrp_topology_delete_all(eigrp_instance_t *eigrp,
-				      struct route_table *table);
+				      eigrp_table_t *table);
 extern eigrp_prefix_descriptor_t *
-eigrp_topology_table_lookup(struct route_table *table,
+eigrp_topology_table_lookup(eigrp_table_t *table,
 			    const eigrp_prefix_t *prefix);
-extern struct list *eigrp_topology_get_successor(eigrp_prefix_descriptor_t *pe);
-extern struct list *
+extern eigrp_list_t *eigrp_topology_get_successor(eigrp_prefix_descriptor_t *pe);
+extern eigrp_list_t *
 eigrp_topology_get_successor_max(eigrp_prefix_descriptor_t *pe,
 				 unsigned int maxpaths);
 extern eigrp_route_descriptor_t *eigrp_prefix_descriptor_lookup(
-    struct list *entries, eigrp_neighbor_t *neigh);
-extern struct list *eigrp_neighbor_prefixes_lookup(eigrp_instance_t *eigrp,
+    eigrp_list_t *entries, eigrp_neighbor_t *neigh);
+extern eigrp_list_t *eigrp_neighbor_prefixes_lookup(eigrp_instance_t *eigrp,
 						   eigrp_neighbor_t *n);
 extern void eigrp_topology_update_all_node_flags(eigrp_instance_t *eigrp);
 extern void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
@@ -101,7 +103,7 @@ extern void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 extern void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp,
 					 eigrp_neighbor_t *neigh);
 extern void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
-					       struct route_table *table,
+					       eigrp_table_t *table,
 					       eigrp_prefix_descriptor_t *pe);
 
 eigrp_result_t eigrp_topology_state_walk(

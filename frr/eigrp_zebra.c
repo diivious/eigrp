@@ -36,6 +36,7 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_southbound.h"
 #include "eigrpd/eigrp_frr.h"
+#include "eigrpd/eigrp_frr_memory.h"
 
 /* Zebra structure to hold current status. */
 struct zclient *eigrp_zclient = NULL;
@@ -98,23 +99,6 @@ static void eigrp_zebra_instance_delete_all(void)
 	}
 }
 
-/* eigrpd privileges */
-zebra_capabilities_t _caps_p[] = {
-	ZCAP_NET_RAW, ZCAP_BIND, ZCAP_NET_ADMIN,
-};
-
-struct zebra_privs_t eigrpd_privs = {
-#if defined(FRR_USER) && defined(FRR_GROUP)
-	.user = FRR_USER,
-	.group = FRR_GROUP,
-#endif
-#if defined(VTY_GROUP)
-	.vty_group = VTY_GROUP,
-#endif
-	.caps_p = _caps_p,
-	.cap_num_p = array_size(_caps_p),
-	.cap_num_i = 0};
-
 /* For registering events. */
 extern struct event_loop *master;
 struct in_addr router_id_zebra;
@@ -129,19 +113,11 @@ static const char *eigrp_zebra_prefix_string(const struct prefix *prefix)
 /* Router-id update message from zebra. */
 static int eigrp_zebra_router_id_update(ZAPI_CALLBACK_ARGS)
 {
-	eigrp_instance_t *eigrp;
-	struct listnode *node;
 	struct prefix router_id;
 	zebra_router_id_update_read(zclient->ibuf, &router_id);
 
 	router_id_zebra = router_id.u.prefix4;
-
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (eigrp->vrf_id != vrf_id)
-			continue;
-		eigrp_router_id_update(eigrp);
-	}
-
+	eigrp_instance_router_id_refresh_vrf((eigrp_vrf_id_t)vrf_id);
 	return 0;
 }
 
@@ -167,115 +143,68 @@ static void eigrp_zebra_connected(struct zclient *zclient)
 static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 {
 	struct zapi_route api;
-	eigrp_instance_t *eigrp;
 
 	if (zapi_route_decode(zclient->ibuf, &api) < 0)
 		return -1;
 
-	if (IPV4_NET127(ntohl(api.prefix.u.prefix4.s_addr)))
-		return 0;
-
-	eigrp = eigrp_lookup(vrf_id);
-	if (eigrp == NULL)
-		return 0;
-
-	if (eigrp_debug_address_family_enabled(
-		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
-		zlog_debug("EIGRP AS %u: Zebra redistribute %s %s", eigrp->AS,
+	/* The external-route receive path is not implemented yet.  Keep this
+	 * callback limited to Zebra decode/debug until it can normalize a route
+	 * event and hand it to the EIGRP redistribution target.
+	 */
+	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB))
+		zlog_debug("Zebra: redistribute %s %s",
 			   cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD ? "add" : "delete",
 			   eigrp_zebra_prefix_string(&api.prefix));
-
-	if (cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD) {
-
-	} else /* if (cmd == ZEBRA_REDISTRIBUTE_ROUTE_DEL) */
-	{
-	}
 
 	return 0;
 }
 
 static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 {
-	struct listnode *node, *nnode;
-	struct interface *ifp;
+	eigrp_interface_runtime_state_t state;
 	struct connected *c;
-	eigrp_instance_t *eigrp;
+	struct interface *ifp;
 
 	c = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
-	if (c == NULL)
+	if (!c)
 		return 0;
 	ifp = c->ifp;
 
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE)) {
+	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_INTERFACE))
 		zlog_debug("Zebra: interface %s address add %s", ifp->name,
 			   eigrp_zebra_prefix_string(c->address));
-	}
 
-	/*
-	 * In the event there are multiple eigrp autonymnous systems running,
-	 * we need to check each one and add the interface as approperate
-	 */
-	for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-		if (eigrp_debug_address_family_enabled(
-			    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
-			zlog_debug("EIGRP AS %u: interface %s address add %s",
-				   eigrp->AS, ifp->name,
-				   eigrp_zebra_prefix_string(c->address));
-		eigrp_southbound_interfaces_refresh(eigrp);
-	}
+	if (c->address
+	    && eigrp_frr_interface_state_import(
+		       ifp, c->address,
+		       CHECK_FLAG(c->flags, ZEBRA_IFA_SECONDARY), &state)
+		       == EIGRP_RESULT_SUCCESS)
+		eigrp_network_interface_refresh((eigrp_vrf_id_t)vrf_id, &state);
 	return 0;
 }
 
 static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 {
+	eigrp_prefix_t removed;
 	struct connected *c;
 	struct interface *ifp;
-	eigrp_interface_t *ei;
 
 	c = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
-
-	if (c == NULL)
+	if (!c)
 		return 0;
 
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_INTERFACE)) {
-		zlog_debug("Zebra: interface %s address delete %s",
-			   c->ifp->name, eigrp_zebra_prefix_string(c->address));
-	}
-
 	ifp = c->ifp;
-	{
-		eigrp_prefix_t removed;
-		eigrp_instance_t *eigrp;
-		struct listnode *node, *nnode;
+	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_INTERFACE))
+		zlog_debug("Zebra: interface %s address delete %s", ifp->name,
+			   eigrp_zebra_prefix_string(c->address));
 
-		if (eigrp_frr_prefix_import(c->address, &removed)
-		    == EIGRP_RESULT_SUCCESS) {
-			for (ALL_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-				if (eigrp->vrf_id != vrf_id)
-					continue;
-				ei = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
-				if (!ei
-				    || ei->address.prefix_length != removed.prefix_length
-				    || ei->address.address.afi != removed.address.afi
-				    || memcmp(ei->address.address.bytes,
-					      removed.address.bytes,
-					      sizeof(removed.address.bytes)) != 0)
-					continue;
-
-				if (eigrp_debug_address_family_enabled(
-					    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
-					zlog_debug(
-						"EIGRP AS %u: interface %s address delete %s",
-						eigrp->AS, ifp->name,
-						eigrp_zebra_prefix_string(c->address));
-				eigrp_interface_runtime_delete(
-					ei, INTERFACE_DOWN_BY_ZEBRA);
-			}
-		}
-	}
+	if (eigrp_frr_prefix_import(c->address, &removed)
+	    == EIGRP_RESULT_SUCCESS)
+		eigrp_interface_runtime_address_remove(
+			(eigrp_vrf_id_t)vrf_id, ifp->ifindex, &removed,
+			EIGRP_INTERFACE_REMOVE_HOST);
 
 	connected_free(&c);
-
 	return 0;
 }
 
@@ -328,7 +257,7 @@ eigrp_result_t eigrp_zebra_route_install(
 	}
 	api.nexthop_num = count;
 
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
+	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
 		zlog_debug("Zebra: Route add %s",
@@ -360,7 +289,7 @@ eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
 	api.prefix = host_prefix;
 	zclient_route_send(ZEBRA_ROUTE_DELETE, eigrp_zclient, &api);
 
-	if (IS_DEBUG_EIGRP(zebra, ZEBRA_REDISTRIBUTE)
+	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
 		zlog_debug("Zebra: Route del %s",
@@ -387,23 +316,6 @@ static int eigrp_zebra_redistribute_type(const char *protocol)
 	return type;
 }
 
-static eigrp_metrics_t eigrp_zebra_redistribute_metric(
-	const eigrp_metric_values_t *metric)
-{
-	eigrp_metrics_t runtime_metric = {0};
-
-	if (!metric)
-		return runtime_metric;
-	runtime_metric.bandwidth = metric->bandwidth;
-	runtime_metric.delay = metric->delay;
-	runtime_metric.reliability = metric->reliability;
-	runtime_metric.load = metric->load;
-	runtime_metric.mtu[0] = metric->mtu & 0xff;
-	runtime_metric.mtu[1] = (metric->mtu >> 8) & 0xff;
-	runtime_metric.mtu[2] = 0;
-	return runtime_metric;
-}
-
 eigrp_result_t eigrp_zebra_redistribute_update(
 	eigrp_instance_t *eigrp, const char *protocol,
 	const eigrp_metric_values_t *metric, const char *route_map)
@@ -423,7 +335,7 @@ eigrp_result_t eigrp_zebra_redistribute_update(
 	if (!state)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 
-	runtime_metric = eigrp_zebra_redistribute_metric(metric);
+	eigrp_metric_values_convert(metric, &runtime_metric);
 	if (eigrp_is_type_redistributed(type, eigrp->vrf_id)) {
 		state->dmetric[type] = runtime_metric;
 	} else {

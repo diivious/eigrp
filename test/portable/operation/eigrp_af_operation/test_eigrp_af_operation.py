@@ -35,13 +35,12 @@ def function_body(source: str, name: str) -> str:
 
 def test_address_family_shutdown_stops_and_restarts_runtime_interfaces():
     instance = read("eigrpd/eigrp_instance.c")
-    southbound = read("frr/eigrp_southbound.c")
     update = function_body(instance, "eigrp_instance_address_family_shutdown_update")
-    stop = function_body(southbound, "eigrp_southbound_address_family_stop")
-    start = function_body(southbound, "eigrp_southbound_address_family_start")
+    stop = function_body(instance, "eigrp_instance_address_family_stop")
+    start = function_body(instance, "eigrp_instance_address_family_start")
 
-    assert "eigrp_southbound_address_family_stop(af->runtime)" in update
-    assert "eigrp_southbound_address_family_start(af->runtime)" in update
+    assert "eigrp_instance_address_family_stop(af->runtime)" in update
+    assert "eigrp_instance_address_family_start(af->runtime)" in update
     assert "eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL)" in stop
     assert "eigrp_intf_down(ei)" in stop
     assert "eigrp_intf_up(runtime, ei)" in start
@@ -54,19 +53,18 @@ def test_router_id_rejects_reserved_values_and_refreshes_runtime():
     assert "router_id == 0" in update
     assert "router_id == UINT32_MAX" in update
     assert "context->runtime->router_id_static.s_addr = htonl(router_id);" in update
-    assert "eigrp_southbound_router_id_refresh(context->runtime);" in update
+    assert "eigrp_instance_router_id_refresh(context->runtime);" in update
 
 
 def test_new_runtime_interface_binds_retained_named_interface_configuration():
-    southbound = read("frr/eigrp_southbound.c")
     interface = read("eigrpd/eigrp_interface.c")
-    run_interface = function_body(southbound, "eigrp_southbound_network_run_interface")
+    refresh = function_body(interface, "eigrp_interface_runtime_refresh")
     bind = function_body(interface, "eigrp_interface_runtime_bind")
 
-    assert "eigrp_instance_runtime_config(eigrp)" in run_interface
-    assert "eigrp_interface_config_read(af, state.interface_name)" in run_interface
-    assert "eigrp_interface_runtime_bind(ei, config)" in run_interface
-    assert "config && config->shutdown" in run_interface
+    assert "eigrp_instance_runtime_config(eigrp)" in refresh
+    assert "eigrp_interface_config_read(af, state->interface_name)" in refresh
+    assert "eigrp_interface_runtime_bind(ei, config)" in refresh
+    assert "config && config->shutdown" in refresh
     assert "runtime->params.delay = config->delay;" in bind
     assert "runtime->params.v_hello = config->hello_interval;" in bind
     assert "runtime->params.v_wait = config->hold_time;" in bind

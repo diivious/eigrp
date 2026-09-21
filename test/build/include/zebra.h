@@ -488,7 +488,7 @@ static inline struct if_rmap *if_rmap_lookup(const char *ifname) { (void)ifname;
 static inline void if_rmap_init(enum node_type node) { (void)node; }
 
 static inline int vrf_socket(int family, int type, int proto, vrf_id_t vrf_id, const char *name) { (void)family; (void)type; (void)proto; (void)vrf_id; (void)name; return 0; }
-static inline void vrf_init(void *master, void *info, bool enabled, void *unused) { (void)master; (void)info; (void)enabled; (void)unused; }
+static inline void vrf_init(int (*create)(struct vrf *), int (*enable)(struct vrf *), int (*disable)(struct vrf *), int (*destroy)(struct vrf *)) { (void)create; (void)enable; (void)disable; (void)destroy; }
 static inline int setsockopt_so_sendbuf(int fd, unsigned int size) { (void)fd; return (int)size; }
 static inline int getsockopt_so_sendbuf(int fd) { (void)fd; return 0; }
 static inline int setsockopt_ifindex(int family, int fd, int val) { (void)family; (void)fd; (void)val; return 0; }

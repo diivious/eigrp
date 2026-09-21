@@ -20,7 +20,6 @@
 
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_types.h"
-#include "eigrpd/eigrp_macros.h"
 
 struct eigrp_addr {
     uint8_t afi;		// ipv4 or ipv6
@@ -84,7 +83,7 @@ struct eigrp_instance {
 	struct in_addr router_id;	 /* Configured automatically. */
 	struct in_addr router_id_static; /* Configured manually. */
 
-	struct list *eiflist;		   /* eigrp interfaces */
+	eigrp_list_t *eiflist;		   /* eigrp interfaces */
 	uint8_t passive_interface_default; /* passive-interface default */
 
 	int fd;
@@ -92,23 +91,23 @@ struct eigrp_instance {
 
 	uint32_t sequence_number; /*Global EIGRP sequence number*/
 
-	struct stream *ibuf;
-	struct list *oi_write_q;
+	eigrp_stream_t *ibuf;
+	eigrp_list_t *oi_write_q;
 
 	/*Events*/
 	eigrp_event_t *t_write;
 	eigrp_event_t *t_read;
 	eigrp_event_t *t_distribute; /* timer for distribute list */
 
-	struct route_table *networks; /* EIGRP config networks. */
+	struct eigrp_network_runtime *networks; /* EIGRP runtime networks. */
 
-	struct route_table *topology_table;
+	eigrp_table_t *topology_table;
 
 	uint64_t serno; /* Global serial number counter for topology entry
 			   changes*/
 	uint64_t serno_last_update; /* Highest serial number of information send
 				       by last update*/
-	struct list *topology_changes;
+	eigrp_list_t *topology_changes;
 
 	eigrp_work_queue_t *packetizer_queue;
 
@@ -211,7 +210,7 @@ typedef struct eigrp_interface {
 	bool split_horizon;
 
 	/* Neighbor information. */
-	struct list *nbrs; /* EIGRP Neighbor List */
+	eigrp_list_t *nbrs; /* EIGRP Neighbor List */
 
 	/* Events. */
 	eigrp_event_t *t_hello;	     /* timer */
@@ -246,7 +245,7 @@ typedef struct eigrp_packet {
 	eigrp_packet_t *previous;
 
 	/* Pointer to data stream. */
-	struct stream *s;
+	eigrp_stream_t *s;
 
 	/* IP destination address. */
 	eigrp_addr_t dst;
@@ -403,7 +402,7 @@ enum GR_type { EIGRP_GR_MANUAL, EIGRP_GR_FILTER };
 
 /* EIGRP Topology table node structure */
 typedef struct eigrp_prefix_descriptor {
-	struct list *entries, *rij;
+	eigrp_list_t *entries, *rij;
 	eigrp_prefix_t destination;
 
 	eigrp_metrics_t reported_metric; // RD for sending

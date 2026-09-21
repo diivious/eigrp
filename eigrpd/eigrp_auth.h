@@ -24,11 +24,9 @@
 #ifndef _ZEBRA_EIGRP_AUTH_H
 #define _ZEBRA_EIGRP_AUTH_H
 
-#include "lib/keychain.h"
-#include "lib/checksum.h"
-#include "lib/md5.h"
-#include "lib/sha256.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_md5.h"
+#include "eigrpd/eigrp_sha256.h"
 #include "eigrpd/eigrp_result.h"
 
 typedef enum eigrp_authentication_mode {
@@ -40,13 +38,13 @@ typedef enum eigrp_authentication_mode {
 /*
  * These externs need to cleaned up
  */
-extern int eigrp_make_md5_digest(eigrp_interface_t *, struct stream *, uint8_t);
-extern int eigrp_check_md5_digest(struct stream *,
+extern int eigrp_make_md5_digest(eigrp_interface_t *, eigrp_stream_t *, uint8_t);
+extern int eigrp_check_md5_digest(eigrp_stream_t *,
 				  struct TLV_MD5_Authentication_Type *,
 				  eigrp_neighbor_t *, uint8_t);
-extern int eigrp_make_sha256_digest(eigrp_interface_t *, struct stream *,
+extern int eigrp_make_sha256_digest(eigrp_interface_t *, eigrp_stream_t *,
 				    uint8_t);
-extern int eigrp_check_sha256_digest(struct stream *,
+extern int eigrp_check_sha256_digest(eigrp_stream_t *,
 				     struct TLV_SHA256_Authentication_Type *,
 				     eigrp_neighbor_t *, uint8_t);
 
@@ -57,9 +55,9 @@ extern void eigrp_authTLV_SHA256_free(struct TLV_SHA256_Authentication_Type *);
 extern struct TLV_MD5_Authentication_Type *eigrp_authTLV_MD5_new(void);
 extern void eigrp_authTLV_MD5_free(struct TLV_MD5_Authentication_Type *);
 
-extern uint16_t eigrp_add_authTLV_MD5_encode(struct stream *,
+extern uint16_t eigrp_add_authTLV_MD5_encode(eigrp_stream_t *,
 					     eigrp_interface_t *);
-extern uint16_t eigrp_add_authTLV_SHA256_encode(struct stream *,
+extern uint16_t eigrp_add_authTLV_SHA256_encode(eigrp_stream_t *,
 						eigrp_interface_t *);
 
 typedef struct eigrp_auth_hmac_config {

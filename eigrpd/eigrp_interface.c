@@ -13,6 +13,9 @@
  *   Martin Kontsek
  *   Lukas Koribsky
  */
+
+#include <stdlib.h>
+#include <string.h>
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
@@ -25,16 +28,12 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_fsm.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_southbound.h"
-
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF,      "EIGRP interface");
-DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_INTF_INFO, "EIGRP Interface Information");
-
 static bool eigrp_interface_destination_get(const eigrp_interface_t *ei,
 					    eigrp_prefix_t *destination)
 {
@@ -64,13 +63,13 @@ static char *eigrp_interface_string_duplicate(const char *value)
 static unsigned long eigrp_interface_reliable_queue_count(eigrp_interface_t *ei)
 {
 	eigrp_neighbor_t *nbr;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 	unsigned long count = 0;
 
 	if (!ei || !ei->nbrs)
 		return 0;
 
-	for (ALL_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+	for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
 		if (nbr->retrans_queue)
 			count += nbr->retrans_queue->count;
 	}
@@ -164,7 +163,7 @@ eigrp_result_t eigrp_interface_state_walk(
 {
 	eigrp_interface_t *ei;
 	eigrp_interface_config_t *configured;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 	bool matched = false;
 	eigrp_result_t result;
 
@@ -174,7 +173,7 @@ eigrp_result_t eigrp_interface_state_walk(
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	if (runtime && runtime->eiflist) {
-		for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+		for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
 			const char *name = eigrp_intf_name_string(ei);
 
 			if (interface_name && strcmp(name, interface_name) != 0)
@@ -724,7 +723,7 @@ eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *contex
 			eigrp_intf_down(context->runtime);
 		} else if (!shutdown && context->runtime->operative
 			   && !context->runtime->t_hello) {
-			(void)eigrp_southbound_address_family_start(
+			(void)eigrp_instance_address_family_start(
 				context->runtime->eigrp);
 		}
 	}
@@ -817,8 +816,8 @@ static void eigrp_intf_stream_unset(eigrp_interface_t *ei)
 	eigrp_instance_t *eigrp = ei->eigrp;
 
 	if (ei->on_write_q) {
-		listnode_delete(eigrp->oi_write_q, ei);
-		if (list_isempty(eigrp->oi_write_q))
+		eigrp_list_delete_data(eigrp->oi_write_q, ei);
+		if (eigrp_list_isempty(eigrp->oi_write_q))
 			eigrp_southbound_event_cancel(&eigrp->t_write);
 		ei->on_write_q = 0;
 	}
@@ -842,10 +841,10 @@ static void eigrp_interface_runtime_state_apply(
 
 	if (state->interface_name
 	    && (!ei->name || strcmp(ei->name, state->interface_name) != 0)) {
-		name = XSTRDUP(MTYPE_EIGRP_INTF_INFO, state->interface_name);
+		name = strdup(state->interface_name);
 		if (name) {
 			if (ei->name)
-				XFREE(MTYPE_EIGRP_INTF_INFO, ei->name);
+				free(ei->name);
 			ei->name = name;
 		}
 	}
@@ -878,16 +877,16 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 		return ei;
 	}
 
-	ei = XCALLOC(MTYPE_EIGRP_INTF, sizeof(*ei));
+	ei = calloc(1, sizeof(*ei));
 	ei->eigrp = eigrp;
 	eigrp_interface_runtime_state_apply(ei, state);
 	if (!ei->name) {
-		XFREE(MTYPE_EIGRP_INTF, ei);
+		free(ei);
 		return NULL;
 	}
 
-	listnode_add(eigrp->eiflist, ei);
-	ei->nbrs = list_new();
+	eigrp_list_add(eigrp->eiflist, ei);
+	ei->nbrs = eigrp_list_new();
 	ei->crypt_seqnum = time(NULL);
 	eigrp_interface_encoder_clear(ei);
 	ei->split_horizon = true;
@@ -915,12 +914,134 @@ void eigrp_interface_runtime_update(eigrp_interface_t *ei,
 	ei->params.type = state->type;
 }
 
-void eigrp_interface_runtime_delete(eigrp_interface_t *ei, int source)
+eigrp_result_t eigrp_interface_runtime_refresh(
+	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state)
+{
+	eigrp_address_family_config_t *af;
+	eigrp_interface_config_t *config;
+	eigrp_interface_t *ei;
+	bool was_running;
+	uint32_t old_mtu;
+
+	if (!eigrp || !state || !state->interface_name
+	    || !state->interface_name[0] || !eigrp_prefix_valid(&state->address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	ei = eigrp_intf_lookup_by_ifindex(eigrp, state->ifindex);
+	was_running = ei && ei->t_hello;
+	old_mtu = ei ? ei->curr_mtu : state->mtu;
+	if (ei)
+		eigrp_interface_runtime_update(ei, state);
+	else
+		ei = eigrp_interface_runtime_create(eigrp, state);
+	if (!ei)
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+
+	af = eigrp_instance_runtime_config(eigrp);
+	config = af ? eigrp_interface_config_read(af, state->interface_name) : NULL;
+	if (config)
+		eigrp_interface_runtime_bind(ei, config);
+
+	if ((af && af->shutdown) || (config && config->shutdown)
+	    || !state->operative) {
+		if (was_running)
+			eigrp_intf_down(ei);
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (was_running && old_mtu != state->mtu)
+		eigrp_interface_runtime_reset(ei);
+	else if (!was_running)
+		eigrp_intf_up(eigrp, ei);
+
+	return EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_interface_runtime_delete(
+	eigrp_interface_t *ei, eigrp_interface_remove_reason_t reason)
 {
 	if (!ei)
 		return;
 
-	eigrp_intf_free(ei->eigrp, ei, source);
+	eigrp_intf_free(ei->eigrp, ei, reason);
+}
+
+void eigrp_interface_runtime_link_down(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex, const char *interface_name,
+	uint8_t type, uint32_t bandwidth, uint32_t mtu)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	eigrp_interface_runtime_state_t state;
+	eigrp_list_node_t *node;
+
+	if (!ifindex || !eigrp_om || !eigrp_om->eigrp)
+		return;
+
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (eigrp->vrf_id != vrf_id)
+			continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
+		if (!ei)
+			continue;
+
+		memset(&state, 0, sizeof(state));
+		state.interface_name = interface_name ? interface_name : ei->name;
+		state.ifindex = ifindex;
+		state.address = ei->address;
+		state.type = type;
+		state.operative = false;
+		state.bandwidth = bandwidth;
+		state.mtu = mtu;
+		eigrp_interface_runtime_update(ei, &state);
+		eigrp_intf_down(ei);
+	}
+}
+
+void eigrp_interface_runtime_link_remove(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
+	eigrp_interface_remove_reason_t reason)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	eigrp_list_node_t *node;
+
+	if (!ifindex || !eigrp_om || !eigrp_om->eigrp)
+		return;
+
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (eigrp->vrf_id != vrf_id)
+			continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
+		if (ei)
+			eigrp_interface_runtime_delete(ei, reason);
+	}
+}
+
+void eigrp_interface_runtime_address_remove(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
+	const eigrp_prefix_t *address, eigrp_interface_remove_reason_t reason)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	eigrp_list_node_t *node;
+
+	if (!ifindex || !address || !eigrp_prefix_valid(address) || !eigrp_om
+	    || !eigrp_om->eigrp)
+		return;
+
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (eigrp->vrf_id != vrf_id)
+			continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
+		if (!ei || ei->address.prefix_length != address->prefix_length
+		    || ei->address.address.afi != address->address.afi
+		    || memcmp(ei->address.address.bytes, address->address.bytes,
+			      sizeof(address->address.bytes)) != 0)
+			continue;
+
+		eigrp_interface_runtime_delete(ei, reason);
+	}
 }
 
 void eigrp_del_intf_params(eigrp_intf_params_t *eip)
@@ -986,7 +1107,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 
 		eigrp_prefix_descriptor_add(eigrp->topology_table, prefix);
 
-		listnode_add(eigrp->topology_changes, prefix);
+		eigrp_list_add(eigrp->topology_changes, prefix);
 
 		route->prefix = prefix;
 		eigrp_route_descriptor_add(eigrp, prefix, route);
@@ -1014,7 +1135,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 
 int eigrp_intf_down(eigrp_interface_t *ei)
 {
-	struct listnode *node, *nnode;
+	eigrp_list_node_t *node, *nnode;
 	eigrp_neighbor_t *nbr;
 
 	if (ei == NULL)
@@ -1028,7 +1149,7 @@ int eigrp_intf_down(eigrp_interface_t *ei)
 
 	/*Set infinite metrics to routes learned by this interface and start
 	 * query process*/
-	for (ALL_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
+	for (EIGRP_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
 		eigrp_nbr_delete(nbr);
 	}
 	eigrp_interface_encoder_clear(ei);
@@ -1056,12 +1177,13 @@ void eigrp_intf_set_multicast(eigrp_interface_t *ei)
 	}
 }
 
-void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
+void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
+		    eigrp_interface_remove_reason_t reason)
 {
 	eigrp_prefix_t destination;
 	eigrp_prefix_descriptor_t *pe = NULL;
 
-	if (source == INTERFACE_DOWN_BY_VTY) {
+	if (reason == EIGRP_INTERFACE_REMOVE_CONFIG) {
 		eigrp_southbound_event_cancel(&ei->t_hello);
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 	}
@@ -1075,13 +1197,13 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei, int source)
 
 	eigrp_intf_down(ei);
 
-	listnode_delete(ei->eigrp->eiflist, ei);
-	list_delete(&ei->nbrs);
+	eigrp_list_delete_data(ei->eigrp->eiflist, ei);
+	eigrp_list_delete(&ei->nbrs);
 	eigrp_packet_queue_free(ei->obuf);
 	eigrp_filter_runtime_state_clear(&ei->filter);
 	if (ei->name)
-		XFREE(MTYPE_EIGRP_INTF_INFO, ei->name);
-	XFREE(MTYPE_EIGRP_INTF, ei);
+		free(ei->name);
+	free(ei);
 }
 
 void eigrp_interface_runtime_reset(eigrp_interface_t *ei)
@@ -1096,13 +1218,13 @@ void eigrp_interface_runtime_reset(eigrp_interface_t *ei)
 eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *eigrp,
 						   const eigrp_addr_t *address)
 {
-	struct listnode *node;
+	eigrp_list_node_t *node;
 	eigrp_interface_t *ei;
 
 	if (!eigrp || !address)
 		return NULL;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
 		if (address->afi == AF_INET
 		    && ei->address.address.afi == EIGRP_ADDRESS_FAMILY_IPV4
 		    && memcmp(ei->address.address.bytes, &address->ip.v4,
@@ -1122,14 +1244,34 @@ eigrp_interface_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *eigrp,
 						 eigrp_ifindex_t ifindex)
 {
 	eigrp_interface_t *ei;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (!eigrp || !ifindex)
 		return NULL;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
 		if (ei->ifindex == ifindex)
 			return ei;
+	return NULL;
+}
+
+eigrp_interface_t *eigrp_intf_lookup_by_vrf_ifindex(
+	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_interface_t *ei;
+	eigrp_list_node_t *node;
+
+	if (!ifindex)
+		return NULL;
+
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+		if (eigrp->vrf_id != vrf_id)
+			continue;
+		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
+		if (ei)
+			return ei;
+	}
 	return NULL;
 }
 
@@ -1137,12 +1279,12 @@ eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *eigrp,
 					     const char *if_name)
 {
 	eigrp_interface_t *ei;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (!eigrp || !if_name)
 		return NULL;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
 		if (ei->name && strcmp(ei->name, if_name) == 0)
 			return ei;
 

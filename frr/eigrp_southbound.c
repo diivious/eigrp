@@ -3,6 +3,9 @@
  * EIGRP host southbound abstraction.
  * Copyright (C) 2026 Donnie V. Savage
  */
+#include <lib/version.h>
+#include <stdio.h>
+
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
@@ -13,12 +16,14 @@
 #include "eigrpd/eigrp_southbound.h"
 #include "eigrp_zebra.h"
 #include "eigrp_frr.h"
+#include "eigrp_frr_memory.h"
 #include "eigrp_policy.h"
 
-#include "table.h"
 #include "vrf.h"
 #include "frrevent.h"
 #include "workqueue.h"
+#include "lib/sockopt.h"
+#include "keychain.h"
 #include "lib/libfrr.h"
 
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE, "EIGRP work queue");
@@ -451,311 +456,111 @@ int eigrp_southbound_multicast_leave(eigrp_instance_t *eigrp,
 	return ret;
 }
 
-eigrp_result_t eigrp_southbound_instance_create(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
-	uint16_t asn, eigrp_instance_t **runtime)
+eigrp_result_t eigrp_southbound_vrf_resolve(const char *vrf_name,
+					     eigrp_vrf_id_t *vrf_id)
 {
-	eigrp_instance_t *eigrp;
 	struct vrf *vrf;
 
-	if (runtime)
-		*runtime = NULL;
-	if (!name || !name[0] || !vrf_name || !vrf_name[0] || asn == 0
-	    || !runtime)
+	if (!vrf_name || !vrf_name[0] || !vrf_id)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    && afi != EIGRP_ADDRESS_FAMILY_IPV6)
-		return EIGRP_RESULT_UNSUPPORTED;
 
 	vrf = vrf_lookup_by_name(vrf_name);
 	if (!vrf)
 		return EIGRP_RESULT_NOT_FOUND;
-
-	/*
-	 * {AF, VRF, AS} is the runtime/on-wire identity.  A named parent is
-	 * local configuration ownership only, so two different parents (or a
-	 * classic instance and a named parent) must not share one runtime.
-	 */
-	eigrp = eigrp_lookup_by_af_as_vrf(afi, asn, vrf->vrf_id);
-	if (eigrp) {
-		if (!eigrp->name || strcmp(eigrp->name, name) != 0)
-			return EIGRP_RESULT_CONFLICT;
-		*runtime = eigrp;
-		return EIGRP_RESULT_SUCCESS;
-	}
-
-	eigrp = eigrp_get_by_af(afi, asn, vrf->vrf_id,
-			       afi == EIGRP_ADDRESS_FAMILY_IPV4);
-	if (!eigrp)
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	eigrp_name_set(eigrp, name);
-	*runtime = eigrp;
+	*vrf_id = (eigrp_vrf_id_t)vrf->vrf_id;
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_southbound_instance_delete(
-	const char *name, eigrp_instance_t *runtime)
-{
-	if (!name || !name[0])
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!runtime)
-		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->name || strcmp(runtime->name, name) != 0)
-		return EIGRP_RESULT_CONFLICT;
-
-	eigrp_finish_final(runtime);
-	return EIGRP_RESULT_SUCCESS;
-}
-
-void eigrp_southbound_router_id_refresh(eigrp_instance_t *runtime)
-{
-	if (!runtime)
-		return;
-	if (!runtime->data_path_ready) {
-		/* Router ID is control state; do not walk host interfaces for IPv6. */
-		runtime->router_id = runtime->router_id_static;
-		return;
-	}
-	eigrp_router_id_update(runtime);
-}
-
-eigrp_result_t eigrp_southbound_address_family_stop(eigrp_instance_t *runtime)
-{
-	eigrp_interface_t *ei;
-	struct listnode *node;
-
-	if (!runtime)
-		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
-
-	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
-		if (!ei->t_hello)
-			continue;
-		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
-		eigrp_intf_down(ei);
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
-
-eigrp_result_t eigrp_southbound_address_family_start(eigrp_instance_t *runtime)
-{
-	eigrp_address_family_config_t *af;
-	eigrp_interface_config_t *config;
-	eigrp_interface_t *ei;
-	struct listnode *node;
-
-	if (!runtime)
-		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	if (runtime->router_id.s_addr == INADDR_ANY)
-		eigrp_router_id_update(runtime);
-	if (runtime->router_id.s_addr == INADDR_ANY)
-		return EIGRP_RESULT_SUCCESS;
-
-	af = eigrp_instance_runtime_config(runtime);
-	for (ALL_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
-		config = af ? eigrp_interface_config_read(af, ei->name) : NULL;
-		if (config)
-			eigrp_interface_runtime_bind(ei, config);
-		if ((config && config->shutdown) || !ei->operative || ei->t_hello)
-			continue;
-		eigrp_intf_up(runtime, ei);
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
-
-static bool eigrp_southbound_interface_vrf_match(
-	const eigrp_instance_t *eigrp, const struct interface *ifp)
-{
-	if (!eigrp || !ifp)
-		return false;
-	if (ifp->vrf)
-		return ifp->vrf->vrf_id == (vrf_id_t)eigrp->vrf_id;
-	return eigrp->vrf_id == EIGRP_VRF_DEFAULT;
-}
-
-static uint8_t eigrp_southbound_interface_type(const struct interface *ifp)
-{
-	if (if_is_pointopoint(ifp))
-		return EIGRP_IFTYPE_POINTOPOINT;
-	if (if_is_loopback(ifp))
-		return EIGRP_IFTYPE_LOOPBACK;
-	return EIGRP_IFTYPE_BROADCAST;
-}
-
-static bool eigrp_southbound_interface_state_get(
-	struct interface *ifp, const struct prefix *address,
-	eigrp_interface_runtime_state_t *state)
-{
-	if (!ifp || !address || !state)
-		return false;
-
-	memset(state, 0, sizeof(*state));
-	if (eigrp_frr_prefix_import(address, &state->address)
-	    != EIGRP_RESULT_SUCCESS)
-		return false;
-	state->interface_name = ifp->name;
-	state->ifindex = ifp->ifindex;
-	state->type = eigrp_southbound_interface_type(ifp);
-	state->operative = if_is_operative(ifp);
-	state->bandwidth = ifp->bandwidth;
-	state->mtu = ifp->mtu;
-	return true;
-}
-
-static void eigrp_southbound_network_run_interface(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network,
-	struct interface *ifp)
+eigrp_result_t eigrp_southbound_interface_walk(
+	eigrp_instance_t *eigrp, eigrp_southbound_interface_walk_cb callback,
+	void *arg)
 {
 	eigrp_interface_runtime_state_t state;
-	eigrp_address_family_config_t *af;
-	eigrp_interface_config_t *config;
-	eigrp_prefix_t connected_prefix;
-	eigrp_interface_t *ei;
 	struct connected *co;
-	bool was_running;
-	uint32_t old_mtu;
-
-	if (!eigrp || !network || !ifp
-	    || eigrp->router_id.s_addr == INADDR_ANY
-	    || !eigrp_southbound_interface_vrf_match(eigrp, ifp))
-		return;
-
-	frr_each (if_connected, ifp->connected, co) {
-		if (!co->address || co->address->family != AF_INET
-		    || CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY))
-			continue;
-		if (eigrp_frr_prefix_import(co->address, &connected_prefix)
-			    != EIGRP_RESULT_SUCCESS
-		    || !eigrp->af_vectors.network_interface_match
-		    || !eigrp->af_vectors.network_interface_match(
-			    network, &connected_prefix))
-			continue;
-		if (!eigrp_southbound_interface_state_get(ifp, co->address, &state))
-			continue;
-
-		ei = eigrp_intf_lookup_by_ifindex(eigrp, state.ifindex);
-		was_running = ei && ei->t_hello;
-		old_mtu = ei ? ei->curr_mtu : state.mtu;
-		if (ei)
-			eigrp_interface_runtime_update(ei, &state);
-		else
-			ei = eigrp_interface_runtime_create(eigrp, &state);
-		if (!ei)
-			return;
-
-		af = eigrp_instance_runtime_config(eigrp);
-		config = af ? eigrp_interface_config_read(af, state.interface_name) : NULL;
-		if (config)
-			eigrp_interface_runtime_bind(ei, config);
-
-		if ((af && af->shutdown) || (config && config->shutdown)
-		    || !state.operative) {
-			if (was_running)
-				eigrp_intf_down(ei);
-			return;
-		}
-
-		if (was_running && old_mtu != state.mtu)
-			eigrp_interface_runtime_reset(ei);
-		else if (!was_running)
-			eigrp_intf_up(eigrp, ei);
-		return;
-	}
-}
-
-static void eigrp_southbound_interface_refresh_one(eigrp_instance_t *eigrp,
-					   struct interface *ifp)
-{
-	eigrp_prefix_t network;
-	struct route_node *rn;
-
-	if (!eigrp || !ifp || eigrp->router_id.s_addr == INADDR_ANY
-	    || !eigrp_southbound_interface_vrf_match(eigrp, ifp))
-		return;
-
-	for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
-		if (!rn->info)
-			continue;
-		if (eigrp_frr_prefix_import(&rn->p, &network)
-		    != EIGRP_RESULT_SUCCESS)
-			continue;
-		eigrp_southbound_network_run_interface(eigrp, &network, ifp);
-	}
-}
-
-void eigrp_southbound_interfaces_refresh(eigrp_instance_t *eigrp)
-{
 	struct interface *ifp;
 	struct vrf *vrf;
 
-	if (!eigrp)
-		return;
+	if (!eigrp || !callback)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	vrf = vrf_lookup_by_id((vrf_id_t)eigrp->vrf_id);
 	if (!vrf)
-		return;
+		return EIGRP_RESULT_NOT_FOUND;
 
-	FOR_ALL_INTERFACES (vrf, ifp)
-		eigrp_southbound_interface_refresh_one(eigrp, ifp);
+	FOR_ALL_INTERFACES (vrf, ifp) {
+		frr_each (if_connected, ifp->connected, co) {
+			if (!co->address)
+				continue;
+			if (eigrp_frr_interface_state_import(
+				    ifp, co->address,
+				    CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY),
+				    &state) != EIGRP_RESULT_SUCCESS)
+				continue;
+			callback(&state, arg);
+		}
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+static void eigrp_southbound_interface_notify(struct interface *ifp)
+{
+	eigrp_interface_runtime_state_t state;
+	eigrp_vrf_id_t vrf_id;
+	struct connected *co;
+
+	if (!ifp)
+		return;
+	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
+			     : EIGRP_VRF_DEFAULT;
+
+	frr_each (if_connected, ifp->connected, co) {
+		if (!co->address)
+			continue;
+		if (eigrp_frr_interface_state_import(
+			    ifp, co->address,
+			    CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY), &state)
+		    != EIGRP_RESULT_SUCCESS)
+			continue;
+		eigrp_network_interface_refresh(vrf_id, &state);
+	}
 }
 
 static int eigrp_southbound_if_real(struct interface *ifp)
 {
-	eigrp_instance_t *eigrp;
-	struct listnode *node;
-
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp))
-		eigrp_southbound_interface_refresh_one(eigrp, ifp);
+	eigrp_southbound_interface_notify(ifp);
 	return 0;
 }
 
 static int eigrp_southbound_if_up(struct interface *ifp)
 {
-	return eigrp_southbound_if_real(ifp);
+	eigrp_southbound_interface_notify(ifp);
+	return 0;
 }
 
 static int eigrp_southbound_if_down(struct interface *ifp)
 {
-	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_interface_runtime_state_t state;
-	struct listnode *node;
+	eigrp_vrf_id_t vrf_id;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (!eigrp_southbound_interface_vrf_match(eigrp, ifp))
-			continue;
-		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
-		if (!ei)
-			continue;
-		memset(&state, 0, sizeof(state));
-		state.interface_name = ifp->name;
-		state.ifindex = ifp->ifindex;
-		state.address = ei->address;
-		state.type = eigrp_southbound_interface_type(ifp);
-		state.operative = false;
-		state.bandwidth = ifp->bandwidth;
-		state.mtu = ifp->mtu;
-		eigrp_interface_runtime_update(ei, &state);
-		eigrp_intf_down(ei);
-	}
+	if (!ifp)
+		return 0;
+	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
+			     : EIGRP_VRF_DEFAULT;
+	eigrp_interface_runtime_link_down(
+		vrf_id, ifp->ifindex, ifp->name, eigrp_frr_interface_type(ifp),
+		ifp->bandwidth, ifp->mtu);
 	return 0;
 }
 
 static int eigrp_southbound_if_unreal(struct interface *ifp)
 {
-	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	struct listnode *node;
+	eigrp_vrf_id_t vrf_id;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (!eigrp_southbound_interface_vrf_match(eigrp, ifp))
-			continue;
-		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifp->ifindex);
-		if (ei)
-			eigrp_interface_runtime_delete(ei, INTERFACE_DOWN_BY_ZEBRA);
-	}
+	if (!ifp)
+		return 0;
+	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
+			     : EIGRP_VRF_DEFAULT;
+	eigrp_interface_runtime_link_remove(
+		vrf_id, ifp->ifindex, EIGRP_INTERFACE_REMOVE_HOST);
 	return 0;
 }
 
@@ -773,160 +578,20 @@ void eigrp_southbound_runtime_finish(void)
 	frr_fini();
 }
 
-eigrp_result_t eigrp_southbound_network_exists(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *exists)
-{
-	struct prefix host_network;
-	struct route_node *rn;
-
-	if (!exists)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	*exists = false;
-	if (!eigrp)
-		return EIGRP_RESULT_NOT_FOUND;
-	if (eigrp_frr_prefix_export(network, &host_network)
-	    != EIGRP_RESULT_SUCCESS)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	rn = route_node_lookup(eigrp->networks, &host_network);
-	if (!rn)
-		return EIGRP_RESULT_SUCCESS;
-
-	*exists = (rn->info != NULL);
-	route_unlock_node(rn);
-	return EIGRP_RESULT_SUCCESS;
-}
-
-eigrp_result_t eigrp_southbound_network_create(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed)
-{
-	struct prefix host_network;
-	struct prefix *stored;
-	struct route_node *rn;
-	struct interface *ifp;
-	struct vrf *vrf;
-
-	if (changed)
-		*changed = false;
-	if (!eigrp)
-		return EIGRP_RESULT_NOT_FOUND;
-	if (eigrp_frr_prefix_export(network, &host_network)
-	    != EIGRP_RESULT_SUCCESS)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	rn = route_node_get(eigrp->networks, &host_network);
-	if (rn->info) {
-		/* The runtime already owns this network statement. */
-		route_unlock_node(rn);
-		return EIGRP_RESULT_SUCCESS;
-	}
-
-	stored = prefix_new();
-	if (!stored) {
-		route_unlock_node(rn);
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	}
-	prefix_copy(stored, &host_network);
-	rn->info = stored;
-
-	if (eigrp->router_id.s_addr == INADDR_ANY)
-		eigrp_router_id_update(eigrp);
-
-	vrf = vrf_lookup_by_id(eigrp->vrf_id);
-	if (vrf) {
-		FOR_ALL_INTERFACES (vrf, ifp) {
-			zlog_debug("Setting up %s", ifp->name);
-			eigrp_southbound_network_run_interface(eigrp, network, ifp);
-		}
-	}
-
-	if (changed)
-		*changed = true;
-	return EIGRP_RESULT_SUCCESS;
-}
-
-eigrp_result_t eigrp_southbound_network_delete(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *network, bool *changed)
-{
-	eigrp_prefix_t connected_prefix;
-	eigrp_prefix_t configured_network;
-	struct prefix host_network;
-	struct prefix *stored;
-	struct route_node *rn;
-	struct listnode *node;
-	struct listnode *nnode;
-	eigrp_interface_t *ei;
-
-	if (changed)
-		*changed = false;
-	if (!eigrp)
-		return EIGRP_RESULT_NOT_FOUND;
-	if (eigrp_frr_prefix_export(network, &host_network)
-	    != EIGRP_RESULT_SUCCESS)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	rn = route_node_lookup(eigrp->networks, &host_network);
-	if (!rn || !rn->info) {
-		if (rn)
-			route_unlock_node(rn);
-		return EIGRP_RESULT_NOT_FOUND;
-	}
-
-	stored = rn->info;
-	rn->info = NULL;
-	prefix_free(&stored);
-	/* route_node_lookup() added one lock and route_node_get() retained the
-	 * original lock while the network marker existed.
-	 */
-	route_unlock_node(rn);
-	route_unlock_node(rn);
-
-	/* Disable EIGRP only on interfaces that no remaining network statement
-	 * still covers.
-	 */
-	for (ALL_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
-		bool found = false;
-
-		connected_prefix = ei->address;
-
-		for (rn = route_top(eigrp->networks); rn; rn = route_next(rn)) {
-			if (!rn->info)
-				continue;
-			if (eigrp_frr_prefix_import(&rn->p, &configured_network)
-			    != EIGRP_RESULT_SUCCESS)
-				continue;
-			if (!eigrp->af_vectors.network_interface_match
-			    || !eigrp->af_vectors.network_interface_match(
-				    &configured_network, &connected_prefix))
-				continue;
-			found = true;
-			route_unlock_node(rn);
-			break;
-		}
-
-		if (!found)
-			eigrp_intf_free(eigrp, ei, INTERFACE_DOWN_BY_VTY);
-	}
-
-	if (changed)
-		*changed = true;
-	return EIGRP_RESULT_SUCCESS;
-}
-
 eigrp_result_t eigrp_southbound_redistribute_update(
 	eigrp_instance_t *eigrp, const char *protocol,
 	const eigrp_metric_values_t *metric, const char *route_map)
 {
-	if (!eigrp || !eigrp->data_path_ready)
-		return eigrp ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_NOT_FOUND;
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
 	return eigrp_zebra_redistribute_update(eigrp, protocol, metric, route_map);
 }
 
 eigrp_result_t eigrp_southbound_redistribute_delete(
 	eigrp_instance_t *eigrp, const char *protocol)
 {
-	if (!eigrp || !eigrp->data_path_ready)
-		return eigrp ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_NOT_FOUND;
+	if (!eigrp)
+		return EIGRP_RESULT_NOT_FOUND;
 	return eigrp_zebra_redistribute_delete(eigrp, protocol);
 }
 
@@ -956,4 +621,133 @@ eigrp_result_t eigrp_southbound_filter_evaluate(
 	eigrp_filter_decision_t *decision)
 {
 	return eigrp_policy_filter_evaluate(eigrp, type, name, prefix, decision);
+}
+
+int eigrp_southbound_ipv4_packet_send(eigrp_instance_t *eigrp,
+                                      eigrp_interface_t *ei,
+                                      const eigrp_addr_t *destination,
+                                      const uint8_t *payload, size_t length)
+{
+	struct sockaddr_in sa_dst;
+	struct ip iph;
+	struct msghdr msg;
+	struct iovec iov[2];
+	int flags = 0;
+	int ret;
+
+	if (!eigrp || !ei || !destination || !payload || destination->afi != AF_INET)
+		return -1;
+	if (destination->ip.v4.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
+		(void)eigrp_southbound_multicast_interface_set(eigrp, ei);
+	memset(&iph, 0, sizeof(iph));
+	memset(&sa_dst, 0, sizeof(sa_dst));
+	memset(&msg, 0, sizeof(msg));
+	sa_dst.sin_family = AF_INET;
+	sa_dst.sin_addr = destination->ip.v4;
+	if (!IN_MULTICAST(ntohl(destination->ip.v4.s_addr)))
+		flags = MSG_DONTROUTE;
+	iph.ip_hl = sizeof(struct ip) / 4;
+	iph.ip_v = IPVERSION;
+	iph.ip_tos = IPTOS_PREC_INTERNETCONTROL;
+	iph.ip_len = (uint16_t)(sizeof(struct ip) + length);
+	iph.ip_ttl = EIGRP_IP_TTL;
+	iph.ip_p = IPPROTO_EIGRPIGP;
+	memcpy(&iph.ip_src, ei->address.address.bytes, sizeof(iph.ip_src));
+	iph.ip_dst = destination->ip.v4;
+	msg.msg_name = &sa_dst;
+	msg.msg_namelen = sizeof(sa_dst);
+	msg.msg_iov = iov;
+	msg.msg_iovlen = 2;
+	iov[0].iov_base = &iph;
+	iov[0].iov_len = sizeof(iph);
+	iov[1].iov_base = (void *)payload;
+	iov[1].iov_len = length;
+	sockopt_iphdrincl_swab_htosys(&iph);
+	ret = sendmsg(eigrp->fd, &msg, flags);
+	sockopt_iphdrincl_swab_systoh(&iph);
+	return ret;
+}
+
+bool eigrp_southbound_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
+                                           eigrp_stream_t *stream,
+                                           eigrp_ifindex_t *ifindex,
+                                           eigrp_addr_t *source,
+                                           eigrp_addr_t *destination,
+                                           eigrp_packet_rx_meta_t *meta)
+{
+	struct ip *iph;
+	struct iovec iov;
+	struct msghdr msgh;
+	uint16_t header_length, ip_length;
+	int ret;
+	char control[CMSG_SPACE(SOPT_SIZE_CMSG_IFINDEX_IPV4())];
+
+	(void)eigrp;
+	if (!stream || !ifindex || !source || !destination || !meta)
+		return false;
+	memset(&msgh, 0, sizeof(msgh));
+	msgh.msg_iov = &iov;
+	msgh.msg_iovlen = 1;
+	msgh.msg_control = control;
+	msgh.msg_controllen = sizeof(control);
+	ret = eigrp_stream_recvmsg(stream, fd, &msgh, 0, EIGRP_PACKET_MAX_LEN + 1);
+	if (ret < (int)sizeof(struct ip))
+		return false;
+	iph = (struct ip *)eigrp_stream_data(stream);
+	sockopt_iphdrincl_swab_systoh(iph);
+	if (iph->ip_v != 4 || iph->ip_hl < 5)
+		return false;
+	header_length = (uint16_t)iph->ip_hl * 4U;
+	if (header_length > (uint16_t)ret)
+		return false;
+	ip_length = iph->ip_len;
+	if (ip_length != (uint16_t)ret || ip_length < header_length + EIGRP_HEADER_LEN)
+		return false;
+	memset(source, 0, sizeof(*source));
+	memset(destination, 0, sizeof(*destination));
+	source->afi = AF_INET;
+	source->ip.v4 = iph->ip_src;
+	destination->afi = AF_INET;
+	destination->ip.v4 = iph->ip_dst;
+	*ifindex = (eigrp_ifindex_t)getsockopt_ifindex(AF_INET, &msgh);
+	meta->network_header_length = header_length;
+	meta->eigrp_length = ip_length - header_length;
+	meta->destination_multicast = iph->ip_dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS);
+	return true;
+}
+
+bool eigrp_southbound_auth_key_lookup(const char *keychain_name,
+                                      uint32_t *key_id, char *key_string,
+                                      size_t key_string_size)
+{
+	struct keychain *keychain;
+	struct key *key;
+
+	if (!keychain_name || !keychain_name[0] || !key_id || !key_string
+	    || key_string_size == 0)
+		return false;
+	keychain = keychain_lookup(keychain_name);
+	if (!keychain)
+		return false;
+	key = key_lookup_for_send(keychain);
+	if (!key || !key->string)
+		return false;
+	*key_id = key->index;
+	strlcpy(key_string, key->string, key_string_size);
+	return true;
+}
+
+void eigrp_southbound_software_version(uint8_t *major, uint8_t *minor)
+{
+	unsigned int maj = 0, min = 0;
+	if (major)
+		*major = 0;
+	if (minor)
+		*minor = 0;
+	if (sscanf(VERSION, "%u.%u", &maj, &min) == 2) {
+		if (major)
+			*major = (uint8_t)maj;
+		if (minor)
+			*minor = (uint8_t)min;
+	}
 }

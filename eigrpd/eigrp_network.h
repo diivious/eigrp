@@ -14,6 +14,8 @@
 #ifndef _ZEBRA_EIGRP_NETWORK_H
 #define _ZEBRA_EIGRP_NETWORK_H
 
+#include <arpa/inet.h>
+
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_result.h"
 #include "eigrpd/eigrp_types.h"
@@ -41,6 +43,12 @@ eigrp_result_t eigrp_network_create(eigrp_instance_context_t *context,
 eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
 				    const eigrp_prefix_t *prefix);
 void eigrp_network_config_delete_all(eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_network_runtime_exists(
+	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix, bool *exists);
+void eigrp_network_runtime_delete_all(eigrp_instance_t *eigrp);
+void eigrp_network_interfaces_refresh(eigrp_instance_t *eigrp);
+void eigrp_network_interface_refresh(
+	eigrp_vrf_id_t vrf_id, const eigrp_interface_runtime_state_t *state);
 
 
 

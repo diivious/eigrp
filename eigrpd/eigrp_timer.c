@@ -9,7 +9,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "linklist.h"
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
@@ -114,8 +113,8 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 {
 	eigrp_interface_t *interface;
 	eigrp_neighbor_t *neighbor;
-	struct listnode *interface_node;
-	struct listnode *neighbor_node;
+	eigrp_list_node_t *interface_node;
+	eigrp_list_node_t *neighbor_node;
 	eigrp_result_t result;
 
 	if (!context || (!context->config && !context->runtime))
@@ -127,7 +126,7 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 	if (!context->runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
-	for (ALL_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
+	for (EIGRP_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
 				  interface)) {
 		if (interface->t_hello) {
 			eigrp_timer_state_t state = {
@@ -143,7 +142,7 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 				return result;
 		}
 
-		for (ALL_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
+		for (EIGRP_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
 			eigrp_timer_state_t state = {0};
 
 			if (neighbor->state == EIGRP_NEIGHBOR_DOWN

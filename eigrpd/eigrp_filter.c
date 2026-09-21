@@ -185,16 +185,16 @@ void eigrp_filter_runtime_refresh_all(void)
 {
 	eigrp_instance_t *eigrp;
 	eigrp_interface_t *ei;
-	struct listnode *instance_node;
-	struct listnode *interface_node;
+	eigrp_list_node_t *instance_node;
+	eigrp_list_node_t *interface_node;
 
 	if (!eigrp_om || !eigrp_om->eigrp)
 		return;
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, instance_node, eigrp)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, instance_node, eigrp)) {
 		if (eigrp_filter_runtime_state_active(&eigrp->filter))
 			eigrp_filter_schedule_process(eigrp);
-		for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, interface_node, ei))
+		for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, interface_node, ei))
 			if (eigrp_filter_runtime_state_active(&ei->filter))
 				eigrp_filter_schedule_interface(ei);
 	}

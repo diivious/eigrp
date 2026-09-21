@@ -35,6 +35,8 @@
 #include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_topology.h"
+#include "eigrpd/eigrp_table.h"
+#include "eigrpd/eigrp_frr.h"
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_vty.h"
 #include "eigrpd/eigrp_network.h"
@@ -71,9 +73,9 @@ static void eigrp_vty_display_prefix_entry(struct vty *vty, eigrp_instance_t *ei
 {
 	bool first = true;
 	struct eigrp_route_descriptor *te;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
-	for (ALL_LIST_ELEMENTS_RO(pe->entries, node, te)) {
+	for (EIGRP_LIST_ELEMENTS_RO(pe->entries, node, te)) {
 		if (all
 		    || (((te->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)
 			 == EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)
@@ -118,11 +120,11 @@ static void eigrp_topology_helper(struct vty *vty, eigrp_instance_t *eigrp,
 				  const char *all)
 {
 	eigrp_prefix_descriptor_t *tn;
-	struct route_node *rn;
+	eigrp_table_node_t *rn;
 
 	show_ip_eigrp_topology_header(vty, eigrp);
 
-	for (rn = route_top(eigrp->topology_table); rn; rn = route_next(rn)) {
+	for (rn = eigrp_table_first(eigrp->topology_table); rn; rn = eigrp_table_next(rn)) {
 		if (!rn->info)
 			continue;
 
@@ -135,7 +137,7 @@ static void eigrp_topology_helper(struct vty *vty, eigrp_instance_t *eigrp,
 struct eigrp_vty_topology_walk_context {
 	struct vty *vty;
 	const char *all;
-	const struct prefix *prefix;
+	const eigrp_prefix_t *prefix;
 	const char *vrf_name;
 	bool print_vrf;
 	bool vrf_printed;
@@ -168,13 +170,13 @@ static eigrp_result_t eigrp_vty_topology_prefix_instance_render(
 {
 	struct eigrp_vty_topology_walk_context *ctx = arg;
 	eigrp_prefix_descriptor_t *tn;
-	struct route_node *rn;
+	eigrp_table_node_t *rn;
 
 	eigrp_vty_topology_vrf_header(ctx);
 	show_ip_eigrp_topology_header(ctx->vty, eigrp);
 	ctx->matched++;
 
-	rn = route_node_match(eigrp->topology_table, ctx->prefix);
+	rn = eigrp_table_node_match(eigrp->topology_table, ctx->prefix);
 	if (!rn) {
 		vty_out(ctx->vty, "%% Network not in table\n");
 		return EIGRP_RESULT_SUCCESS;
@@ -183,12 +185,10 @@ static eigrp_result_t eigrp_vty_topology_prefix_instance_render(
 	tn = rn->info;
 	if (!tn) {
 		vty_out(ctx->vty, "%% Network not in table\n");
-		route_unlock_node(rn);
 		return EIGRP_RESULT_SUCCESS;
 	}
 
 	eigrp_vty_display_prefix_entry(ctx->vty, eigrp, tn, ctx->all != NULL);
-	route_unlock_node(rn);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -268,6 +268,7 @@ DEFPY (show_ip_eigrp_topology,
 	};
 	eigrp_result_t result;
 	struct prefix cmp;
+	eigrp_prefix_t eigrp_prefix;
 	struct vrf *v;
 	uint16_t asn = as > 0 ? (uint16_t)as : 0;
 
@@ -284,7 +285,12 @@ DEFPY (show_ip_eigrp_topology,
 		return CMD_WARNING;
 	}
 
-	ctx.prefix = &cmp;
+	if (eigrp_frr_prefix_import(&cmp, &eigrp_prefix) != EIGRP_RESULT_SUCCESS) {
+		vty_out(vty, "%% Unsupported prefix\n");
+		return CMD_WARNING;
+	}
+
+	ctx.prefix = &eigrp_prefix;
 	v = eigrp_vty_get_vrf(vty, vrf);
 	if (!v)
 		return CMD_WARNING;
@@ -303,12 +309,12 @@ static void eigrp_interface_helper(struct vty *vty, eigrp_instance_t *eigrp,
 				   const char *ifname, const char *detail)
 {
 	eigrp_interface_t *ei;
-	struct listnode *node;
+	eigrp_list_node_t *node;
 
 	if (!ifname)
 		show_ip_eigrp_interface_header(vty, eigrp);
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
 		if (!ifname || strcmp(ei->name, ifname) == 0) {
 			show_ip_eigrp_interface_sub(vty, eigrp, ei);
 			if (detail)
@@ -360,14 +366,14 @@ static void eigrp_neighbors_helper(struct vty *vty, eigrp_instance_t *eigrp,
 				   const char *ifname, const char *detail)
 {
 	eigrp_interface_t *ei;
-	struct listnode *node, *node2, *nnode2;
+	eigrp_list_node_t *node, *node2, *nnode2;
 	eigrp_neighbor_t *nbr;
 
 	show_ip_eigrp_neighbor_header(vty, eigrp);
 
-	for (ALL_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
 		if (!ifname || strcmp(ei->name, ifname) == 0) {
-			for (ALL_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+			for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
 				if (detail || (nbr->state == EIGRP_NEIGHBOR_UP))
 					show_ip_eigrp_neighbor_sub(vty, nbr,
 								   !!detail);

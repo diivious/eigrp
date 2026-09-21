@@ -114,7 +114,8 @@ def test_named_md5_and_keychain_reach_runtime_and_late_interface_bind():
 
     assert "eigrp_auth_mode_update(&context, mode, hmac_ptr)" in apply
     assert "eigrp_auth_keychain_update(&context" in keychain
-    assert "context->runtime->params.auth_type = EIGRP_AUTH_TYPE_MD5;" in mode_target
+    assert "context->runtime->params.auth_type =" in mode_target
+    assert "EIGRP_AUTH_TYPE_MD5" in mode_target
     assert "context->runtime->params.auth_keychain = runtime_copy;" in key_target
 
     # If configuration exists before a network statement creates the runtime

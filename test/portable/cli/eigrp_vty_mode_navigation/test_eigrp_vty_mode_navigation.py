@@ -83,7 +83,13 @@ def test_zebra_router_id_refresh_covers_all_instances_in_the_vrf():
     end = zebra.index("\n}\n", start) + 3
     body = zebra[start:end]
 
-    assert "ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)" in body
-    assert "if (eigrp->vrf_id != vrf_id)" in body
-    assert "eigrp_router_id_update(eigrp);" in body
-    assert "eigrp_lookup(vrf_id)" not in body
+    assert "eigrp_instance_router_id_refresh_vrf((eigrp_vrf_id_t)vrf_id)" in body
+    assert "ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp" not in body
+    assert "eigrp_router_id_update(" not in body
+    instance = read(ROOT / "eigrpd" / "eigrp_instance.c")
+    refresh = instance[
+        instance.index("void eigrp_instance_router_id_refresh_vrf"):
+        instance.index("eigrp_result_t eigrp_instance_address_family_stop")
+    ]
+    assert "EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, runtime)" in refresh
+    assert "runtime->vrf_id == vrf_id" in refresh

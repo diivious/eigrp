@@ -82,68 +82,7 @@ The review must preserve:
 
 Do not perform a rename-only migration before that coordinated review.
 
-## 3. Portable `main()` / platform lifecycle boundary
-
-The end-state repository requires portable protocol code to be usable with FRR
-and BIRD. Review the remaining host bootstrap responsibilities in
-`eigrp_main.c`, `eigrpd.c`, `eigrp_vrf.[ch]`, and host adapter files.
-
-The desired boundary is a narrow platform lifecycle contract for process
-bootstrap/termination only. It must not become a generic adapter dumping ground.
-
-A possible shape is:
-
-```text
-eigrpd/eigrp_main.c       portable process orchestration
-eigrpd/eigrp_platform.h   narrow process/platform lifecycle contract
-frr/eigrp_platform.c      FRR implementation
-bird/eigrp_platform.c     BIRD implementation
-```
-
-Timers, work queues, sockets, route installation, CLI, policy, and packet I/O
-remain behind their existing module/southbound contracts rather than moving into
-one catch-all platform API.
-
-## 4. Generic container and packet-buffer dependencies
-
-Portable code still uses several FRR/lib-style utility representations in its
-internal implementation, notably `route_table`/`route_node`, `struct list`, and
-`struct stream`. These are not Zebra RIB objects, but they are still portability
-dependencies when their concrete host-library types appear in public portable
-interfaces or shared structure layouts.
-
-Before the BIRD build is considered native, establish EIGRP-owned container
-and packet-buffer contracts so portable module APIs do not require FRR utility
-object layouts. The review should decide whether to:
-
-- retain an existing implementation behind an opaque EIGRP-owned contract;
-- replace it with project-owned prefix/list/packet-buffer implementations; or
-- use another host-independent implementation shared by both adapters.
-
-In particular, `eigrp_stream_t` must not remain a typedef alias whose public
-contract is an FRR `struct stream`. Packet/TLV modules may keep efficient stream
-semantics, but the end-state portable API and owned runtime structures must use
-an EIGRP-owned representation.
-
-Do not confuse this utility-storage cleanup with the already-established
-Zebra/RIB southbound boundary.
-
-## 5. SNMP and VRF ownership
-
-`eigrp_snmp.[ch]` and `eigrp_vrf.[ch]` require a focused ownership review before
-production/BIRD integration.
-
-The review should determine which behavior is:
-
-- portable EIGRP protocol state;
-- host-management integration;
-- FRR-specific lifecycle/presentation;
-- optional platform functionality.
-
-Move code only when the ownership boundary is clear; do not move files for
-directory symmetry.
-
-## 6. Naming consistency pass
+## 3. Naming consistency pass
 
 Before production, perform one bounded navigation/naming review against
 `code-conventions.md`:

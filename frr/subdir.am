@@ -10,20 +10,27 @@ endif
 
 eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_auth.c \
+	eigrpd/eigrp_checksum.c \
 	eigrpd/eigrp_cli_classic.c \
 	eigrpd/eigrp_cli_named.c \
+	eigrpd/eigrp_debug.c \
 	eigrpd/eigrp_dump.c \
 	eigrpd/eigrp_errors.c \
 	eigrpd/eigrp_eventlog.c \
 	eigrpd/eigrp_filter.c \
 	eigrpd/eigrp_frr.c \
+	eigrpd/eigrp_frr_memory.c \
 	eigrpd/eigrp_fsm.c \
 	eigrpd/eigrp_hello.c \
 	eigrpd/eigrp_interface.c \
 	eigrpd/eigrp_instance.c \
 	eigrpd/eigrp_ipv4.c \
 	eigrpd/eigrp_ipv6.c \
+	eigrpd/eigrp_list.c \
+	eigrpd/eigrp_log.c \
 	eigrpd/eigrp_main.c \
+	eigrpd/eigrp_md5.c \
+	eigrpd/eigrp_memory.c \
 	eigrpd/eigrp_metric.c \
 	eigrpd/eigrp_neighbor.c \
 	eigrpd/eigrp_network.c \
@@ -35,13 +42,16 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_query.c \
 	eigrpd/eigrp_redistribute.c \
 	eigrpd/eigrp_reply.c \
+	eigrpd/eigrp_sha256.c \
 	eigrpd/eigrp_siaquery.c \
 	eigrpd/eigrp_siareply.c \
 	eigrpd/eigrp_southbound.c \
 	eigrpd/eigrp_snmp.c \
 	eigrpd/eigrp_statistics.c \
 	eigrpd/eigrp_status.c \
+	eigrpd/eigrp_stream.c \
 	eigrpd/eigrp_summary.c \
+	eigrpd/eigrp_table.c \
 	eigrpd/eigrp_tlv1.c \
 	eigrpd/eigrp_tlv2.c \
 	eigrpd/eigrp_timer.c \
@@ -68,17 +78,23 @@ clippy_scan += \
 
 noinst_HEADERS += \
 	eigrpd/eigrp_auth.h \
+	eigrpd/eigrp_checksum.h \
 	eigrpd/eigrp_cli_classic.h \
 	eigrpd/eigrp_cli_named.h \
 	eigrpd/eigrp_const.h \
+	eigrpd/eigrp_debug.h \
 	eigrpd/eigrp_errors.h \
 	eigrpd/eigrp_eventlog.h \
 	eigrpd/eigrp_filter.h \
 	eigrpd/eigrp_frr.h \
+	eigrpd/eigrp_frr_memory.h \
 	eigrpd/eigrp_fsm.h \
 	eigrpd/eigrp_interface.h \
+	eigrpd/eigrp_list.h \
+	eigrpd/eigrp_log.h \
 	eigrpd/eigrp_instance.h \
-	eigrpd/eigrp_macros.h \
+	eigrpd/eigrp_md5.h \
+	eigrpd/eigrp_memory.h \
 	eigrpd/eigrp_metric.h \
 	eigrpd/eigrp_result.h \
 	eigrpd/eigrp_neighbor.h \
@@ -89,10 +105,13 @@ noinst_HEADERS += \
 	eigrpd/eigrp_policy.h \
 	eigrpd/eigrp_prefix.h \
 	eigrpd/eigrp_redistribute.h \
+	eigrpd/eigrp_sha256.h \
 	eigrpd/eigrp_snmp.h \
 	eigrpd/eigrp_statistics.h \
 	eigrpd/eigrp_status.h \
+	eigrpd/eigrp_stream.h \
 	eigrpd/eigrp_summary.h \
+	eigrpd/eigrp_table.h \
 	eigrpd/eigrp_southbound.h \
 	eigrpd/eigrp_structs.h \
 	eigrpd/eigrp_tlv1.h \

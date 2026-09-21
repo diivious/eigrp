@@ -1,3 +1,4 @@
+#include <assert.h>
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRPd Finite State Machine (DUAL).
@@ -59,7 +60,7 @@
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_fsm.h"
-#include "eigrpd/eigrp_dump.h"
+#include "eigrpd/eigrp_debug.h"
 
 /*
  * Prototypes
@@ -257,7 +258,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 
 	switch (actual_state) {
 	case EIGRP_FSM_STATE_PASSIVE: {
-		eigrp_route_descriptor_t *head = listnode_head(prefix->entries);
+		eigrp_route_descriptor_t *head = eigrp_list_node_data(eigrp_list_head(prefix->entries));
 
 		if (head->reported_distance < prefix->fdistance) {
 			return EIGRP_FSM_KEEP_STATE;
@@ -278,13 +279,13 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_ACTIVE_0: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
 			eigrp_route_descriptor_t *head =
-				listnode_head(prefix->entries);
+				eigrp_list_node_data(eigrp_list_head(prefix->entries));
 
-			listnode_delete(prefix->rij, route->adv_router);
+			eigrp_list_delete_data(prefix->rij, route->adv_router);
 			if (prefix->rij->count)
 				return EIGRP_FSM_KEEP_STATE;
 
-			zlog_info("All reply received");
+			eigrp_log_info("All reply received");
 			if (head->reported_distance < prefix->fdistance) {
 				return EIGRP_FSM_EVENT_LR_FCS;
 			}
@@ -305,7 +306,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 		    && (route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
 			return EIGRP_FSM_EVENT_QACT;
 		} else if (msg->packet_type == EIGRP_OPC_REPLY) {
-			listnode_delete(prefix->rij, route->adv_router);
+			eigrp_list_delete_data(prefix->rij, route->adv_router);
 
 			if (change == METRIC_INCREASE
 			    && (route->flags
@@ -314,7 +315,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 			} else if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
-				zlog_info("All reply received");
+				eigrp_log_info("All reply received");
 				return EIGRP_FSM_EVENT_LR;
 			}
 		} else if (msg->packet_type == EIGRP_OPC_UPDATE
@@ -330,13 +331,13 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_ACTIVE_2: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
 			eigrp_route_descriptor_t *head =
-				listnode_head(prefix->entries);
+				eigrp_list_node_data(eigrp_list_head(prefix->entries));
 
-			listnode_delete(prefix->rij, route->adv_router);
+			eigrp_list_delete_data(prefix->rij, route->adv_router);
 			if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
-				zlog_info("All reply received");
+				eigrp_log_info("All reply received");
 				if (head->reported_distance
 				    < prefix->fdistance) {
 					return EIGRP_FSM_EVENT_LR_FCS;
@@ -351,7 +352,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	}
 	case EIGRP_FSM_STATE_ACTIVE_3: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
-			listnode_delete(prefix->rij, route->adv_router);
+			eigrp_list_delete_data(prefix->rij, route->adv_router);
 
 			if (change == METRIC_INCREASE
 			    && (route->flags
@@ -360,7 +361,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 			} else if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
-				zlog_info("All reply received");
+				eigrp_log_info("All reply received");
 				return EIGRP_FSM_EVENT_LR;
 			}
 		} else if (msg->packet_type == EIGRP_OPC_UPDATE
@@ -394,7 +395,7 @@ int eigrp_fsm_event(eigrp_fsm_action_message_t *msg)
 
 		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 				      &msg->prefix->destination);
-		zlog_debug(
+		eigrp_log_debug(
 			"EIGRP AS: %d State: %s Event: %s Network: %s Packet Type: %s Reply RIJ Count: %d change: %s",
 			msg->eigrp->AS, prefix_state2str(msg->prefix->state),
 			fsm_state2str(event), prefix_buf,
@@ -426,7 +427,7 @@ int eigrp_fsm_event_nq_fcn(eigrp_fsm_action_message_t *msg)
 
 	if (eigrp_nbr_count_get(eigrp)) {
 		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
-		listnode_add(eigrp->topology_changes, prefix);
+		eigrp_list_add(eigrp->topology_changes, prefix);
 	} else {
 		eigrp_fsm_event_lr(msg); // in the case that there are no more
 					 // neighbors left
@@ -448,7 +449,7 @@ int eigrp_fsm_event_q_fcn(eigrp_fsm_action_message_t *msg)
 	prefix->state = EIGRP_FSM_STATE_ACTIVE_3;
 	if (eigrp_nbr_count_get(eigrp)) {
 		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
-		listnode_add(eigrp->topology_changes, prefix);
+		eigrp_list_add(eigrp->topology_changes, prefix);
 	} else {
 		eigrp_fsm_event_lr(msg); // in the case that there are no more
 					 // neighbors left
@@ -461,7 +462,7 @@ int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = listnode_head(prefix->entries);
+	eigrp_route_descriptor_t *route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
 
 	if (prefix->state == EIGRP_FSM_STATE_PASSIVE) {
 		if (!eigrp_metrics_is_same(prefix->reported_metric,
@@ -473,7 +474,7 @@ int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
 				eigrp_reply_send(eigrp, msg->adv_router,
 						 prefix);
 			prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
-			listnode_add(eigrp->topology_changes, prefix);
+			eigrp_list_add(eigrp->topology_changes, prefix);
 		}
 		eigrp_topology_update_node_flags(eigrp, prefix);
 		eigrp_update_routing_table(eigrp, prefix);
@@ -489,25 +490,25 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = listnode_head(prefix->entries);
+	eigrp_route_descriptor_t *route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
 
 	prefix->fdistance = prefix->distance = prefix->rdistance =
 		route->distance;
 	prefix->reported_metric = route->total_metric;
 
 	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_3) {
-		struct list *successors = eigrp_topology_get_successor(prefix);
+		eigrp_list_t *successors = eigrp_topology_get_successor(prefix);
 
 		assert(successors); // It's like Napolean and Waterloo
 
-		route = listnode_head(successors);
+		route = eigrp_list_node_data(eigrp_list_head(successors));
 		eigrp_reply_send(eigrp, route->adv_router, prefix);
-		list_delete(&successors);
+		eigrp_list_delete(&successors);
 	}
 
 	prefix->state = EIGRP_FSM_STATE_PASSIVE;
 	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
-	listnode_add(eigrp->topology_changes, prefix);
+	eigrp_list_add(eigrp->topology_changes, prefix);
 	eigrp_topology_update_node_flags(eigrp, prefix);
 	eigrp_update_routing_table(eigrp, prefix);
 	eigrp_update_topology_table_prefix(eigrp, eigrp->topology_table,
@@ -537,7 +538,7 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = listnode_head(prefix->entries);
+	eigrp_route_descriptor_t *route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
 
 	prefix->state = EIGRP_FSM_STATE_PASSIVE;
 	prefix->distance = prefix->rdistance = route->distance;
@@ -546,17 +547,17 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 				    ? prefix->distance
 				    : prefix->fdistance;
 	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_2) {
-		struct list *successors = eigrp_topology_get_successor(prefix);
+		eigrp_list_t *successors = eigrp_topology_get_successor(prefix);
 
 		assert(successors); // Having a spoon and all you need is a
 		// knife
-		route = listnode_head(successors);
+		route = eigrp_list_node_data(eigrp_list_head(successors));
 		eigrp_reply_send(eigrp, route->adv_router, prefix);
 
-		list_delete(&successors);
+		eigrp_list_delete(&successors);
 	}
 	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
-	listnode_add(eigrp->topology_changes, prefix);
+	eigrp_list_add(eigrp->topology_changes, prefix);
 	eigrp_topology_update_node_flags(eigrp, prefix);
 	eigrp_update_routing_table(eigrp, prefix);
 	eigrp_update_topology_table_prefix(eigrp, eigrp->topology_table,
@@ -581,7 +582,7 @@ int eigrp_fsm_event_lr_fcn(eigrp_fsm_action_message_t *msg)
 
 	if (eigrp_nbr_count_get(eigrp)) {
 		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
-		listnode_add(eigrp->topology_changes, prefix);
+		eigrp_list_add(eigrp->topology_changes, prefix);
 	} else {
 		eigrp_fsm_event_lr(msg); // in the case that there are no more
 					 // neighbors left

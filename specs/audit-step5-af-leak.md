@@ -81,14 +81,14 @@ The handoff contains only EIGRP-owned prefix and next-hop snapshot data.
 
 ### Remaining portability work
 
-The remaining portability concerns are architectural cleanup items rather than
-violations of the established runtime/RIB boundary. They are tracked in
-`refactor-work.md`, principally:
+The host-boundary cleanup has also removed the former FRR utility-storage,
+process-bootstrap, SNMP, and VRF ownership dependencies from portable `eigrpd/`.
+Portable lists, prefix tables, packet streams, logging, allocation, checksum, and
+crypto are EIGRP-owned; FRR process bootstrap, VRF/SNMP integration, and VTY/debug
+presentation live under `frr/`.
 
-- generic route-table/list storage and packet-buffer (`struct stream`) dependencies;
-- process/platform lifecycle bootstrap;
-- SNMP/VRF ownership;
-- final topology descriptor and lifecycle naming.
+The remaining pre-production portability/refactor work is limited to the parked
+topology descriptor and runtime lifecycle naming reviews in `refactor-work.md`.
 
 ## Regression rule
 

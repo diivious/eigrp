@@ -74,9 +74,9 @@ def test_classic_and_named_converge_on_one_network_processor():
     named_destroy = function_body(northbound, "eigrpd_named_network_destroy")
 
     assert "eigrp_network_config_create" in processor
-    assert "eigrp_southbound_network_create" in processor
+    assert "eigrp_network_runtime_create" in processor
     assert "eigrp_network_config_delete" in processor
-    assert "eigrp_southbound_network_delete" in processor
+    assert "eigrp_network_runtime_delete" in processor
 
     assert "eigrp_network_create(&context, &network)" in classic_create
     assert "eigrp_network_delete(&context, &network)" in classic_destroy
@@ -99,13 +99,14 @@ def test_common_network_validation_dispatches_through_selected_af_vector():
     assert "prefix->prefix_length > 32" not in validate
 
 
-def test_common_network_processor_stops_at_eigrp_southbound_boundary():
+def test_common_network_processor_owns_runtime_decisions_and_uses_host_walk_only():
     network = read(NETWORK_C)
     southbound_h = read(SOUTHBOUND_H)
     processor = function_body(network, "eigrp_network_process")
 
-    assert "eigrp_southbound_network_create" in southbound_h
-    assert "eigrp_southbound_network_delete" in southbound_h
+    assert "eigrp_southbound_interface_walk" in southbound_h
+    assert "eigrp_southbound_network_create" not in southbound_h
+    assert "eigrp_southbound_network_delete" not in southbound_h
     assert "FOR_ALL_INTERFACES" not in processor
     assert "route_node_" not in processor
     assert "vrf_lookup" not in processor
@@ -137,8 +138,8 @@ def test_classic_frr_network_callbacks_convert_then_call_portable_targets():
     assert "context.runtime = eigrp;" in destroy
     assert "eigrp_network_create(&context, &network)" in create
     assert "eigrp_network_delete(&context, &network)" in destroy
-    assert "eigrp_southbound_network_exists" in create
-    assert "eigrp_southbound_network_exists" in destroy
+    assert "eigrp_network_runtime_exists" in create
+    assert "eigrp_network_runtime_exists" in destroy
     assert "route_node_" not in create
     assert "route_node_" not in destroy
     assert "eigrp_network_set" not in create
@@ -161,38 +162,38 @@ def test_frr_prefix_conversion_is_owned_by_frr_adapter():
     assert "eigrp_southbound_prefix_to_host" not in southbound
 
 
-def test_frr_southbound_owns_network_interface_walk_and_runtime_storage():
+def test_common_network_owns_runtime_storage_while_frr_only_enumerates_interfaces():
     network = read(NETWORK_C)
     southbound = read(SOUTHBOUND_C)
-    runtime_create = function_body(southbound, "eigrp_southbound_network_create")
-    runtime_delete = function_body(southbound, "eigrp_southbound_network_delete")
-    refresh = function_body(southbound, "eigrp_southbound_interfaces_refresh")
-    refresh_one = function_body(southbound, "eigrp_southbound_interface_refresh_one")
+    runtime_create = function_body(network, "eigrp_network_runtime_create")
+    runtime_delete = function_body(network, "eigrp_network_runtime_delete")
+    refresh = function_body(network, "eigrp_network_interfaces_refresh")
+    host_walk = function_body(southbound, "eigrp_southbound_interface_walk")
 
-    assert "FOR_ALL_INTERFACES" in runtime_create
-    assert "route_node_get" in runtime_create
-    assert "route_node_lookup" in runtime_delete
+    assert "network->next = eigrp->networks" in runtime_create
+    assert "eigrp_network_interfaces_refresh(eigrp)" in runtime_create
+    assert "eigrp_network_runtime_matches(eigrp, &ei->address)" in runtime_delete
     assert "eigrp_intf_free" in runtime_delete
-    assert "FOR_ALL_INTERFACES" in refresh
-    assert "route_top(eigrp->networks)" in refresh_one
-    assert "eigrp_southbound_network_run_interface" in refresh_one
-    assert "void eigrp_intf_update" not in network
-    assert "void eigrp_intf_update" not in southbound
+    assert "eigrp_southbound_interface_walk(" in refresh
+    assert "FOR_ALL_INTERFACES" in host_walk
+    assert "eigrp_frr_interface_state_import" in host_walk
+    assert "route_node_" not in southbound
+    assert "eigrp->networks" not in southbound
 
 
 def test_network_interface_participation_uses_selected_af_vector():
     types = read(TYPES_H)
     ipv4 = read(IPV4_C)
     ipv6 = read(IPV6_C)
-    southbound = read(SOUTHBOUND_C)
-    run_interface = function_body(southbound, "eigrp_southbound_network_run_interface")
-    runtime_delete = function_body(southbound, "eigrp_southbound_network_delete")
+    network = read(NETWORK_C)
+    matches = function_body(network, "eigrp_network_runtime_matches")
+    runtime_delete = function_body(network, "eigrp_network_runtime_delete")
     ipv4_match = function_body(ipv4, "eigrp_ipv4_network_interface_match")
     ipv6_match = function_body(ipv6, "eigrp_ipv6_network_interface_match")
 
     assert "network_interface_match" in types
-    assert "eigrp->af_vectors.network_interface_match" in run_interface
-    assert "eigrp->af_vectors.network_interface_match" in runtime_delete
+    assert "eigrp->af_vectors.network_interface_match" in matches
+    assert "eigrp_network_runtime_matches(eigrp, &ei->address)" in runtime_delete
     assert "memcmp" in ipv4_match
     assert "return false;" in ipv6_match
     assert "vectors->network_interface_match = eigrp_ipv4_network_interface_match" in ipv4
