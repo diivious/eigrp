@@ -127,7 +127,42 @@ network-to-interface participation, interface start/stop/reset behavior,
 address-family start/stop behavior, runtime identity/conflict handling, and
 other protocol/runtime lifecycle decisions.
 
-### 4.1 Northbound responsibilities
+### 4.1 Boundary validation
+
+External data is validated and normalized at the boundary where it enters
+EIGRP. Invalid host data is rejected there and the error is logged with enough
+context to identify the source. Common protocol code must not repeatedly defend
+against the same malformed host input after it has crossed that boundary.
+
+This applies to:
+
+- CLI/northbound input before normalized values are passed to a portable
+  feature target;
+- RIB, redistribution, interface, and other host notifications before host
+  objects are converted to EIGRP-owned data;
+- timer, event, work-queue, socket, and other system callbacks before they
+  dispatch into portable protocol code;
+- address-family and codec vectors when they are bound to a runtime object.
+
+Once a required vector or normalized EIGRP object has passed its boundary
+validation, common code treats that contract as an invariant. Do not scatter
+`if (callback) callback(...)` or equivalent required-vector probes through
+consumers. A missing required callback is a binding/programming error and is
+reported where the vector is installed. Use an explicit capability such as
+`data_path_ready`, address-family applicability, or an `eigrp_result_t` result
+instead of encoding feature support as a NULL callback.
+
+Optional lifecycle state remains optional. Checks such as whether a timer is
+currently armed, whether an optional delete callback was supplied, or whether
+retained configuration exists are state tests, not substitutes for boundary
+validation.
+
+Wire packets are themselves untrusted external input. Fixed-header, TLV,
+length, bounds, address-family, and semantic validation therefore remains in
+the receive/decode path before decoded native EIGRP data is consumed by DUAL,
+topology, or other protocol modules.
+
+### 4.2 Northbound responsibilities
 
 The host northbound adapter:
 
@@ -141,7 +176,7 @@ The CLI parser may normalize text to construct a host transaction. It must not
 submit that transaction and then perform a second direct mutation of the same
 portable runtime state.
 
-### 4.2 Southbound responsibilities
+### 4.3 Southbound responsibilities
 
 The EIGRP southbound contract owns requests from portable protocol code to host
 runtime services, including:
@@ -165,7 +200,7 @@ source of an interface, routing, timer, or lifecycle event.
 boundary. Portable code does not call `eigrp_zebra_*()` directly and does not
 construct Zebra route objects.
 
-### 4.3 Host objects that must not cross into portable APIs
+### 4.4 Host objects that must not cross into portable APIs
 
 Examples include:
 

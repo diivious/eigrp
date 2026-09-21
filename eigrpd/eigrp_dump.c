@@ -433,7 +433,7 @@ void eigrp_debug_neighbor_state(eigrp_neighbor_t *nbr, uint8_t old_state,
 	    && !eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NEIGHBOR, &nbr->src))
 		return;
-	zlog_debug("EIGRP: Neighbor %s on %s state %u -> %u",
+	eigrp_log_debug("EIGRP: Neighbor %s on %s state %u -> %u",
 		   eigrp_print_addr(&nbr->src),
 		   nbr->ei ? EIGRP_INTF_NAME(nbr->ei) : "self", old_state,
 		   new_state);
@@ -443,7 +443,7 @@ void eigrp_debug_neighbor_sia(eigrp_neighbor_t *nbr, const char *event)
 {
 	if (!nbr || !(term_debug_eigrp_nei & EIGRP_DEBUG_NEI_SIATIMER))
 		return;
-	zlog_debug("EIGRP: Neighbor %s on %s SIA: %s",
+	eigrp_log_debug("EIGRP: Neighbor %s on %s SIA: %s",
 		   eigrp_print_addr(&nbr->src),
 		   nbr->ei ? EIGRP_INTF_NAME(nbr->ei) : "-",
 		   event ? event : "event");
@@ -455,7 +455,7 @@ void eigrp_debug_nsf_event(const eigrp_instance_t *eigrp,
 {
 	if (!(term_debug_eigrp & EIGRP_DEBUG_NSF))
 		return;
-	zlog_debug("EIGRP NSF AS %u nbr %s flags 0x%x: %s",
+	eigrp_log_debug("EIGRP NSF AS %u nbr %s flags 0x%x: %s",
 		   eigrp ? eigrp->AS : 0,
 		   nbr ? eigrp_print_addr((eigrp_addr_t *)&nbr->src) : "-",
 		   flags, event ? event : "event");
@@ -474,12 +474,12 @@ void eigrp_debug_transmit_event(unsigned long category,
 	vsnprintf(message, sizeof(message), format, ap);
 	va_end(ap);
 	if (nbr)
-		zlog_debug("EIGRP TX AS %u %s nbr %s: %s",
+		eigrp_log_debug("EIGRP TX AS %u %s nbr %s: %s",
 			   eigrp ? eigrp->AS : 0,
 			   ei ? EIGRP_INTF_NAME((eigrp_interface_t *)ei) : "-",
 			   eigrp_print_addr((eigrp_addr_t *)&nbr->src), message);
 	else
-		zlog_debug("EIGRP TX AS %u %s: %s", eigrp ? eigrp->AS : 0,
+		eigrp_log_debug("EIGRP TX AS %u %s: %s", eigrp ? eigrp->AS : 0,
 			   ei ? EIGRP_INTF_NAME((eigrp_interface_t *)ei) : "-",
 			   message);
 }
@@ -706,16 +706,16 @@ static void eigrp_debug_ipv4_prefix_dump(const uint8_t *data, size_t length,
 		return;
 	prefixlen = data[prefix_offset];
 	if (prefixlen > 32) {
-		zlog_debug("    invalid IPv4 prefix length %u", prefixlen);
+		eigrp_log_debug("    invalid IPv4 prefix length %u", prefixlen);
 		return;
 	}
 	bytes = (prefixlen + 7U) / 8U;
 	if (prefix_offset + 1U + bytes > length) {
-		zlog_debug("    truncated IPv4 prefix /%u", prefixlen);
+		eigrp_log_debug("    truncated IPv4 prefix /%u", prefixlen);
 		return;
 	}
 	memcpy(&prefix.s_addr, data + prefix_offset + 1U, bytes);
-	zlog_debug("    prefix %pI4/%u", &prefix, prefixlen);
+	eigrp_log_debug("    prefix %pI4/%u", &prefix, prefixlen);
 }
 
 static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
@@ -727,30 +727,30 @@ static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
 	switch (type) {
 	case EIGRP_TLV_PARAMETER:
 		if (length >= EIGRP_TLV_PARAMETER_LEN)
-			zlog_debug(
+			eigrp_log_debug(
 				"    K-values %u/%u/%u/%u/%u/%u, hold %u sec",
 				data[4], data[5], data[6], data[7], data[8], data[9],
 				eigrp_debug_get16(data + 10));
 		break;
 	case EIGRP_TLV_AUTH:
 		if (length >= 16)
-			zlog_debug(
+			eigrp_log_debug(
 				"    auth type %u, digest length %u, key-id %u, sequence %u",
 				eigrp_debug_get16(data + 4), eigrp_debug_get16(data + 6),
 				eigrp_debug_get32(data + 8), eigrp_debug_get32(data + 12));
 		break;
 	case EIGRP_TLV_SEQ:
 		if (length >= EIGRP_TLV_SEQ_BASE_LEN)
-			zlog_debug("    sequence address-length %u", data[4]);
+			eigrp_log_debug("    sequence address-length %u", data[4]);
 		break;
 	case EIGRP_TLV_SW_VERSION:
 		if (length >= EIGRP_TLV_SW_VERSION_LEN)
-			zlog_debug("    software %u.%u, EIGRP %u.%u", data[4], data[5],
+			eigrp_log_debug("    software %u.%u, EIGRP %u.%u", data[4], data[5],
 				   data[6], data[7]);
 		break;
 	case EIGRP_TLV_NEXT_MCAST_SEQ:
 		if (length >= 8)
-			zlog_debug("    next multicast sequence %u",
+			eigrp_log_debug("    next multicast sequence %u",
 				   eigrp_debug_get32(data + 4));
 		break;
 	case EIGRP_TLV_PEER_TERMINATION:
@@ -758,7 +758,7 @@ static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
 			struct in_addr peer;
 
 			memcpy(&peer.s_addr, data + 5, sizeof(peer.s_addr));
-			zlog_debug("    peer termination neighbor %pI4", &peer);
+			eigrp_log_debug("    peer termination neighbor %pI4", &peer);
 		}
 		break;
 	case EIGRP_TLV_IPv4_INT:
@@ -766,7 +766,7 @@ static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
 			struct in_addr nexthop;
 
 			memcpy(&nexthop.s_addr, data + 4, sizeof(nexthop.s_addr));
-			zlog_debug(
+			eigrp_log_debug(
 				"    next-hop %pI4, delay(raw) %u, bandwidth %u, hop %u, reliability %u, load %u",
 				&nexthop, eigrp_debug_get32(data + 8),
 				eigrp_debug_get32(data + 12), data[19], data[20], data[21]);
@@ -780,11 +780,11 @@ static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
 
 			memcpy(&nexthop.s_addr, data + 4, sizeof(nexthop.s_addr));
 			memcpy(&origin.s_addr, data + 8, sizeof(origin.s_addr));
-			zlog_debug(
+			eigrp_log_debug(
 				"    next-hop %pI4, origin %pI4, origin-AS %u, external-metric %u, protocol %u",
 				&nexthop, &origin, eigrp_debug_get32(data + 12),
 				eigrp_debug_get32(data + 20), data[26]);
-			zlog_debug(
+			eigrp_log_debug(
 				"    delay(raw) %u, bandwidth %u, hop %u, reliability %u, load %u",
 				eigrp_debug_get32(data + 28), eigrp_debug_get32(data + 32),
 				data[39], data[40], data[41]);
@@ -802,10 +802,10 @@ static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
 			struct in_addr rid_addr;
 
 			rid_addr.s_addr = htonl(rid);
-			zlog_debug(
+			eigrp_log_debug(
 				"    AFI %u, TID %u, router-id %pI4, tag %u, reliability %u, load %u, hop %u",
 				afi, tid, &rid_addr, data[13], data[14], data[15], data[19]);
-			zlog_debug("    wide delay %" PRIu64 ", bandwidth %" PRIu64,
+			eigrp_log_debug("    wide delay %" PRIu64 ", bandwidth %" PRIu64,
 				   eigrp_debug_get48(data + 20),
 				   eigrp_debug_get48(data + 26));
 			if (type == EIGRP_TLV_MP_EXT)
@@ -828,7 +828,7 @@ static void eigrp_debug_packet_detail_dump(const eigrp_header_t *header,
 	if (!header || length < EIGRP_HEADER_LEN)
 		return;
 
-	zlog_debug(
+	eigrp_log_debug(
 		"  header version %u, opcode %u, checksum 0x%04x, vrid %u, AS %u",
 		header->version, header->opcode, ntohs(header->checksum),
 		ntohs(header->vrid), ntohs(header->ASNumber));
@@ -838,20 +838,20 @@ static void eigrp_debug_packet_detail_dump(const eigrp_header_t *header,
 		uint16_t tlv_length;
 
 		if (length - offset < EIGRP_TLV_HDR_SIZE) {
-			zlog_debug("  malformed TLV framing: %zu trailing byte(s)",
+			eigrp_log_debug("  malformed TLV framing: %zu trailing byte(s)",
 				   length - offset);
 			return;
 		}
 		type = eigrp_debug_get16(data + offset);
 		tlv_length = eigrp_debug_get16(data + offset + 2);
 		if (tlv_length < EIGRP_TLV_HDR_SIZE || tlv_length > length - offset) {
-			zlog_debug(
+			eigrp_log_debug(
 				"  malformed TLV 0x%04x: length %u exceeds remaining %zu",
 				type, tlv_length, length - offset);
 			return;
 		}
 
-		zlog_debug("  TLV 0x%04x (%s), length %u", type,
+		eigrp_log_debug("  TLV 0x%04x (%s), length %u", type,
 			   eigrp_debug_tlv_name(type), tlv_length);
 		eigrp_debug_tlv_detail_dump(type, data + offset, tlv_length);
 		offset += tlv_length;
@@ -878,22 +878,22 @@ void eigrp_debug_packet_send(eigrp_interface_t *ei,
 
 	ifname = EIGRP_INTF_NAME(ei);
 	if (packet->nbr)
-		zlog_debug("EIGRP: Sending %s on %s nbr %s",
+		eigrp_log_debug("EIGRP: Sending %s on %s nbr %s",
 			   eigrp_debug_packet_category_name(category), ifname,
 			   eigrp_print_addr(&packet->nbr->src));
 	else if (packet->dst.ip.v4.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
-		zlog_debug("EIGRP: Sending %s on %s",
+		eigrp_log_debug("EIGRP: Sending %s on %s",
 			   eigrp_debug_packet_category_name(category), ifname);
 	else
-		zlog_debug("EIGRP: Sending %s on %s dst %s",
+		eigrp_log_debug("EIGRP: Sending %s on %s dst %s",
 			   eigrp_debug_packet_category_name(category), ifname,
 			   eigrp_print_addr((eigrp_addr_t *)&packet->dst));
-	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
+	eigrp_log_debug("  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
 		   ntohl(header->sequence), ntohl(header->ack));
 
 	if (state & EIGRP_DEBUG_PACKET_DETAIL) {
-		zlog_debug("  packet length %u, send-result %d", packet->length,
+		eigrp_log_debug("  packet length %u, send-result %d", packet->length,
 			   send_result);
 		eigrp_debug_packet_detail_dump(header, packet->length);
 	}
@@ -916,19 +916,19 @@ void eigrp_debug_packet_receive(eigrp_interface_t *ei,
 	if (!(state & EIGRP_DEBUG_RECV))
 		return;
 
-	zlog_debug("EIGRP: Received %s on %s nbr %s",
+	eigrp_log_debug("EIGRP: Received %s on %s nbr %s",
 		   eigrp_debug_packet_category_name(category), EIGRP_INTF_NAME(ei),
 		   eigrp_print_addr((eigrp_addr_t *)source));
-	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
+	eigrp_log_debug("  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
 		   ntohl(header->sequence), ntohl(header->ack));
 
 	if (state & EIGRP_DEBUG_PACKET_DETAIL) {
 		if (destination)
-			zlog_debug("  packet length %u, dst %s", length,
+			eigrp_log_debug("  packet length %u, dst %s", length,
 				   eigrp_print_addr((eigrp_addr_t *)destination));
 		else
-			zlog_debug("  packet length %u", length);
+			eigrp_log_debug("  packet length %u", length);
 		eigrp_debug_packet_detail_dump(header, length);
 	}
 }
@@ -944,16 +944,16 @@ void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
 		return;
 	header = (const eigrp_header_t *)STREAM_DATA(packet->s);
 
-	zlog_debug("EIGRP: Sending %s on %s nbr %s, retry %u, RTO %u",
+	eigrp_log_debug("EIGRP: Sending %s on %s nbr %s, retry %u, RTO %u",
 		   eigrp_debug_packet_category_name(
 			   eigrp_debug_packet_category_get(header)),
 		   EIGRP_INTF_NAME(nbr->ei), eigrp_print_addr(&nbr->src), retry_count,
 		   eigrp_neighbor_rto_get(nbr));
-	zlog_debug("  AS %u, Flags 0x%x, Seq %u/%u",
+	eigrp_log_debug("  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
 		   ntohl(header->sequence), ntohl(header->ack));
 	if (state & EIGRP_DEBUG_PACKET_DETAIL) {
-		zlog_debug("  packet length %u", packet->length);
+		eigrp_log_debug("  packet length %u", packet->length);
 		eigrp_debug_packet_detail_dump(header, packet->length);
 	}
 }
@@ -1129,14 +1129,14 @@ static int eigrp_neighbor_packet_queue_sum(eigrp_interface_t *ei)
 void eigrp_header_dump(struct eigrp_header *eigrph)
 {
 	/* EIGRP Header dump. */
-	zlog_debug("eigrp_version %u", eigrph->version);
-	zlog_debug("eigrp_opcode %u", eigrph->opcode);
-	zlog_debug("eigrp_checksum 0x%x", ntohs(eigrph->checksum));
-	zlog_debug("eigrp_flags 0x%x", ntohl(eigrph->flags));
-	zlog_debug("eigrp_sequence %u", ntohl(eigrph->sequence));
-	zlog_debug("eigrp_ack %u", ntohl(eigrph->ack));
-	zlog_debug("eigrp_vrid %u", ntohs(eigrph->vrid));
-	zlog_debug("eigrp_AS %u", ntohs(eigrph->ASNumber));
+	eigrp_log_debug("eigrp_version %u", eigrph->version);
+	eigrp_log_debug("eigrp_opcode %u", eigrph->opcode);
+	eigrp_log_debug("eigrp_checksum 0x%x", ntohs(eigrph->checksum));
+	eigrp_log_debug("eigrp_flags 0x%x", ntohl(eigrph->flags));
+	eigrp_log_debug("eigrp_sequence %u", ntohl(eigrph->sequence));
+	eigrp_log_debug("eigrp_ack %u", ntohl(eigrph->ack));
+	eigrp_log_debug("eigrp_vrid %u", ntohs(eigrph->vrid));
+	eigrp_log_debug("eigrp_AS %u", ntohs(eigrph->ASNumber));
 }
 
 void show_ip_eigrp_interface_header(struct vty *vty, eigrp_instance_t *eigrp)

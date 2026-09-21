@@ -93,15 +93,15 @@ def test_named_summary_adapter_uses_generic_prefix_boundary():
     assert 'yang_dnode_get_string(dnode, "prefix")' in apply
 
 
-def test_auto_summary_capability_is_selected_by_af_vector():
+def test_auto_summary_command_applicability_is_explicit_not_a_null_vector():
     summary = read(SUMMARY_C)
     update = function_body(summary, "eigrp_summary_auto_update")
     types = read(TYPES_H)
 
     assert "summary_auto_prefix" in types
     assert "eigrp_summary_context_vectors(context)" in update
-    assert "vectors->summary_auto_prefix" in update
-    assert "EIGRP_ADDRESS_FAMILY_IPV4" not in update
+    assert "!vectors->summary_auto_prefix" not in update
+    assert "vectors->afi != EIGRP_ADDRESS_FAMILY_IPV4" in update
     assert "EIGRP_ADDRESS_FAMILY_IPV6" not in update
 
 
@@ -119,8 +119,9 @@ def test_ipv4_owns_classful_auto_summary_derivation():
     assert "vectors->summary_auto_prefix = eigrp_ipv4_summary_auto_prefix" in ipv4
 
 
-def test_ipv6_does_not_fake_auto_summary_support():
+def test_ipv6_binds_explicit_unsupported_auto_summary_semantics():
     ipv6 = read(IPV6_C)
+    unsupported = function_body(ipv6, "eigrp_ipv6_summary_auto_prefix")
 
-    assert "eigrp_ipv6_summary_auto_prefix" not in ipv6
-    assert "vectors->summary_auto_prefix" not in ipv6
+    assert "return EIGRP_RESULT_UNSUPPORTED" in unsupported
+    assert "vectors->summary_auto_prefix = eigrp_ipv6_summary_auto_prefix" in ipv6

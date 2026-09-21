@@ -6,22 +6,21 @@
  */
 
 #include <arpa/inet.h>
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_packet.h"
-#include "eigrpd/eigrp_debug.h"
+#include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_types.h"
 #include "eigrpd/eigrp_southbound.h"
 
 #define EIGRP_IPV4_ADDRESS_BYTES 4U
 #define EIGRP_IPV4_PREFIX_LENGTH_BYTES 1U
-#define EIGRP_IPV4_PACKET_WRITE_IPHL_SHIFT 2
 
 static bool eigrp_ipv4_stream_has(eigrp_stream_t *stream, size_t needed)
 {
@@ -163,6 +162,7 @@ static uint16_t eigrp_ipv4_packet_prefix_decode(eigrp_stream_t *stream,
 	prefix->prefix_length = prefix_length;
 	if (address_length)
 		eigrp_stream_get(prefix->address.bytes, stream, address_length);
+	eigrp_prefix_normalize(prefix);
 
 	return EIGRP_IPV4_PREFIX_LENGTH_BYTES + address_length;
 }
@@ -170,6 +170,7 @@ static uint16_t eigrp_ipv4_packet_prefix_decode(eigrp_stream_t *stream,
 static uint16_t eigrp_ipv4_packet_prefix_encode(eigrp_stream_t *stream,
 					const eigrp_prefix_t *prefix)
 {
+	eigrp_prefix_t normalized;
 	uint16_t address_length;
 
 	if (!stream || !prefix
@@ -177,10 +178,12 @@ static uint16_t eigrp_ipv4_packet_prefix_encode(eigrp_stream_t *stream,
 	    || prefix->prefix_length > EIGRP_IPV4_MAX_BITLEN)
 		return 0;
 
-	address_length = eigrp_ipv4_prefix_bytes(prefix->prefix_length);
-	eigrp_stream_putc(stream, prefix->prefix_length);
+	normalized = *prefix;
+	eigrp_prefix_normalize(&normalized);
+	address_length = eigrp_ipv4_prefix_bytes(normalized.prefix_length);
+	eigrp_stream_putc(stream, normalized.prefix_length);
 	if (address_length)
-		eigrp_stream_put(stream, prefix->address.bytes, address_length);
+		eigrp_stream_put(stream, normalized.address.bytes, address_length);
 
 	return EIGRP_IPV4_PREFIX_LENGTH_BYTES + address_length;
 }
@@ -199,88 +202,14 @@ static int eigrp_ipv4_addr_snprintf(char *buf, size_t len,
 	return (int)strlen(buf);
 }
 
-static int eigrp_ipv4_prefix_snprintf(char *buf, size_t len,
-				      const eigrp_prefix_t *prefix)
-{
-	char address[INET_ADDRSTRLEN];
-	int written;
-
-	if (!buf || !len || !prefix
-	    || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || prefix->prefix_length > EIGRP_IPV4_MAX_BITLEN)
-		return -1;
-
-	if (!inet_ntop(AF_INET, prefix->address.bytes, address, sizeof(address))) {
-		buf[0] = '\0';
-		return -1;
-	}
-
-	written = snprintf(buf, len, "%s/%u", address, prefix->prefix_length);
-	if (written < 0 || (size_t)written >= len) {
-		buf[0] = '\0';
-		return -1;
-	}
-
-	return written;
-}
-
-static eigrp_result_t eigrp_ipv4_address_validate(
-	const eigrp_address_t *address)
-{
-	if (!address || address->afi != EIGRP_ADDRESS_FAMILY_IPV4)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	return EIGRP_RESULT_SUCCESS;
-}
-
-static eigrp_result_t eigrp_ipv4_prefix_validate(const eigrp_prefix_t *prefix)
-{
-	if (!prefix || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || prefix->prefix_length > EIGRP_IPV4_MAX_BITLEN)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	return EIGRP_RESULT_SUCCESS;
-}
-
-static eigrp_result_t eigrp_ipv4_network_validate(const eigrp_prefix_t *network)
-{
-	return eigrp_ipv4_prefix_validate(network);
-}
-
-static bool eigrp_ipv4_network_interface_match(
-	const eigrp_prefix_t *network, const eigrp_prefix_t *interface_address)
-{
-	uint8_t full_bytes;
-	uint8_t remaining_bits;
-	uint8_t mask;
-
-	if (eigrp_ipv4_network_validate(network) != EIGRP_RESULT_SUCCESS
-	    || eigrp_ipv4_prefix_validate(interface_address)
-		       != EIGRP_RESULT_SUCCESS)
-		return false;
-
-	full_bytes = network->prefix_length / 8U;
-	remaining_bits = network->prefix_length % 8U;
-	if (full_bytes
-	    && memcmp(network->address.bytes, interface_address->address.bytes,
-		      full_bytes) != 0)
-		return false;
-	if (!remaining_bits)
-		return true;
-
-	mask = (uint8_t)(0xffU << (8U - remaining_bits));
-	return (network->address.bytes[full_bytes] & mask)
-	       == (interface_address->address.bytes[full_bytes] & mask);
-}
-
 static eigrp_result_t eigrp_ipv4_summary_auto_prefix(
 	const eigrp_prefix_t *component, eigrp_prefix_t *summary)
 {
 	uint8_t classful_length;
 	uint8_t first_octet;
 
-	if (eigrp_ipv4_prefix_validate(component) != EIGRP_RESULT_SUCCESS
-	    || !summary)
+	if (!component || component->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || !eigrp_prefix_valid(component) || !summary)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	first_octet = component->address.bytes[0];
@@ -310,8 +239,7 @@ static eigrp_result_t eigrp_ipv4_summary_auto_prefix(
 
 void eigrp_ipv4_init(eigrp_af_vectors_t *vectors)
 {
-	if (!vectors)
-		return;
+	assert(vectors);
 
 	memset(vectors, 0, sizeof(*vectors));
 	vectors->afi = EIGRP_ADDRESS_FAMILY_IPV4;
@@ -327,10 +255,5 @@ void eigrp_ipv4_init(eigrp_af_vectors_t *vectors)
 	vectors->classic_external_tlv_type = EIGRP_TLV_IPv4_EXT;
 	vectors->multiprotocol_afi = EIGRP_AF_IPv4;
 	vectors->addr_snprintf = eigrp_ipv4_addr_snprintf;
-	vectors->prefix_snprintf = eigrp_ipv4_prefix_snprintf;
-	vectors->address_validate = eigrp_ipv4_address_validate;
-	vectors->prefix_validate = eigrp_ipv4_prefix_validate;
-	vectors->network_validate = eigrp_ipv4_network_validate;
-	vectors->network_interface_match = eigrp_ipv4_network_interface_match;
 	vectors->summary_auto_prefix = eigrp_ipv4_summary_auto_prefix;
 }

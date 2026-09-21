@@ -87,15 +87,18 @@ def test_classic_and_named_converge_on_one_network_processor():
     assert "eigrp_network_unset" not in network
 
 
-def test_common_network_validation_dispatches_through_selected_af_vector():
+def test_common_network_validation_uses_prefix_shape_and_explicit_ipv4_semantics():
     network = read(NETWORK_C)
+    types = read(TYPES_H)
     validate = function_body(network, "eigrp_network_validate")
-    vectors = function_body(network, "eigrp_network_vectors")
 
-    assert "context->config->af_vectors" in vectors
-    assert "context->runtime->af_vectors" in vectors
-    assert "vectors->network_validate(prefix)" in validate
-    assert "EIGRP_ADDRESS_FAMILY_IPV4" not in validate
+    assert "eigrp_prefix_valid(prefix)" in validate
+    assert "EIGRP_ADDRESS_FAMILY_IPV4" in validate
+    assert "EIGRP_RESULT_UNSUPPORTED" in validate
+    assert "network_validate" not in types
+    assert "prefix_validate" not in types
+    assert "address_validate" not in types
+    assert "network_interface_match" not in types
     assert "prefix->prefix_length > 32" not in validate
 
 
@@ -181,27 +184,20 @@ def test_common_network_owns_runtime_storage_while_frr_only_enumerates_interface
     assert "eigrp->networks" not in southbound
 
 
-def test_network_interface_participation_uses_selected_af_vector():
+def test_network_interface_participation_uses_common_prefix_matching():
     types = read(TYPES_H)
     ipv4 = read(IPV4_C)
     ipv6 = read(IPV6_C)
     network = read(NETWORK_C)
+    prefix = read(ROOT / "eigrpd" / "eigrp_prefix.c")
     matches = function_body(network, "eigrp_network_runtime_matches")
     runtime_delete = function_body(network, "eigrp_network_runtime_delete")
-    ipv4_match = function_body(ipv4, "eigrp_ipv4_network_interface_match")
-    ipv6_match = function_body(ipv6, "eigrp_ipv6_network_interface_match")
+    prefix_match = function_body(prefix, "eigrp_prefix_address_match")
 
-    assert "network_interface_match" in types
-    assert "eigrp->af_vectors.network_interface_match" in matches
+    assert "network_interface_match" not in types
+    assert "eigrp_prefix_address_match" in matches
     assert "eigrp_network_runtime_matches(eigrp, &ei->address)" in runtime_delete
-    assert "memcmp" in ipv4_match
-    assert "return false;" in ipv6_match
-    assert "vectors->network_interface_match = eigrp_ipv4_network_interface_match" in ipv4
-    assert "vectors->network_interface_match = eigrp_ipv6_network_interface_match" in ipv6
-
-
-def test_ipv6_network_feature_remains_explicitly_unsupported():
-    ipv6 = read(IPV6_C)
-    validate = function_body(ipv6, "eigrp_ipv6_network_validate")
-
-    assert "EIGRP_RESULT_UNSUPPORTED" in validate
+    assert "memcmp" in prefix_match
+    assert "eigrp_ipv4_network_interface_match" not in ipv4
+    assert "network_interface_match" not in ipv6
+    assert "eigrp_ipv6_network_" not in ipv6

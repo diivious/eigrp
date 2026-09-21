@@ -27,9 +27,57 @@
 #include "eigrpd/eigrp_tlv1.h"
 #include "eigrpd/eigrp_tlv2.h"
 
-/* Current runtime creation is IPv4-only; AF modules expose only init binds. */
+/* Address-family vectors are bound once when the runtime/control context is
+ * created.  Common protocol code treats a validated binding as an invariant.
+ */
 static struct eigrpd eigrpd;
 struct eigrpd *eigrp_om;
+
+static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors,
+				       bool data_path_ready)
+{
+#define EIGRP_AF_VECTOR_REQUIRE(_field)                                      \
+	do {                                                                   \
+		if (!(vectors->_field)) {                                        \
+			eigrp_log_error(                                           \
+				"address-family %u missing required vector %s",      \
+				(unsigned)vectors->afi, #_field);                    \
+			return false;                                              \
+		}                                                              \
+	} while (0)
+
+	if (!vectors) {
+		eigrp_log_error("address-family runtime has no vector binding");
+		return false;
+	}
+
+	if (vectors->afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    && vectors->afi != EIGRP_ADDRESS_FAMILY_IPV6) {
+		eigrp_log_error("address-family runtime has invalid AF %u",
+				(unsigned)vectors->afi);
+		return false;
+	}
+
+	EIGRP_AF_VECTOR_REQUIRE(packet_source_on_link);
+	EIGRP_AF_VECTOR_REQUIRE(packet_address_bytes);
+	EIGRP_AF_VECTOR_REQUIRE(packet_address_decode);
+	EIGRP_AF_VECTOR_REQUIRE(packet_address_encode);
+	EIGRP_AF_VECTOR_REQUIRE(packet_prefix_decode);
+	EIGRP_AF_VECTOR_REQUIRE(packet_prefix_encode);
+	EIGRP_AF_VECTOR_REQUIRE(classic_internal_tlv_type);
+	EIGRP_AF_VECTOR_REQUIRE(classic_external_tlv_type);
+	EIGRP_AF_VECTOR_REQUIRE(multiprotocol_afi);
+	EIGRP_AF_VECTOR_REQUIRE(addr_snprintf);
+	EIGRP_AF_VECTOR_REQUIRE(summary_auto_prefix);
+
+	if (data_path_ready) {
+		EIGRP_AF_VECTOR_REQUIRE(packet_send);
+		EIGRP_AF_VECTOR_REQUIRE(packet_receive);
+	}
+
+#undef EIGRP_AF_VECTOR_REQUIRE
+	return true;
+}
 
 const char *eigrp_message_lookup(const eigrp_message_t *messages, int value,
                                  const char *fallback)
@@ -111,6 +159,12 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp_instance_t *eigrp = calloc(1, sizeof(struct eigrp_instance));
 	eigrp_addr_t src = {0};
 
+	if (!eigrp) {
+		eigrp_log_error("address-family %u AS %u runtime allocation failed",
+				(unsigned)afi, (unsigned)as);
+		return NULL;
+	}
+
 	/* Initialize address-family-independent control state first. */
 	eigrp->vrf_id = vrf_id;
 	eigrp->data_path_ready = data_path_ready;
@@ -122,6 +176,11 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 		eigrp_ipv6_init(&eigrp->af_vectors);
 		break;
 	default:
+		free(eigrp);
+		return NULL;
+	}
+	if (!eigrp_af_vectors_runtime_validate(&eigrp->af_vectors,
+					       data_path_ready)) {
 		free(eigrp);
 		return NULL;
 	}

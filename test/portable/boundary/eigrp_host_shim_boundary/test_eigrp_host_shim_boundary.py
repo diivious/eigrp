@@ -101,7 +101,7 @@ def test_interface_adapter_reports_host_facts_and_common_code_decides_participat
     assert "ZEBRA_IFA_SECONDARY" in walk
     assert "eigrp_frr_interface_state_import" in walk
 
-    assert "eigrp->af_vectors.network_interface_match" in matches
+    assert "eigrp_prefix_address_match" in matches
     assert "state->secondary" in network
     assert "eigrp_instance_runtime_config(eigrp)" in refresh
     assert "config && config->shutdown" in refresh
@@ -260,3 +260,79 @@ def test_frr_memory_tracking_stays_inside_frr_adapter():
     assert "DEFINE_MGROUP(EIGRPD" not in common
     assert "DECLARE_MGROUP(EIGRPD" not in common
     assert "DEFINE_MTYPE" not in common
+
+
+def test_design_spec_requires_boundary_validation_before_common_code():
+    design = read("specs/design-spec.md")
+
+    assert "External data is validated and normalized at the boundary" in design
+    assert "Common protocol code must not repeatedly defend" in design
+    assert "A missing required callback is a binding/programming error" in design
+    assert "Wire packets are themselves untrusted external input" in design
+
+
+def test_address_family_vectors_are_validated_once_before_common_use():
+    types = read("eigrpd/eigrp_types.h")
+    runtime = read("eigrpd/eigrpd.c")
+    packet = read("eigrpd/eigrp_packet.c")
+    tlv1 = read("eigrpd/eigrp_tlv1.c")
+    tlv2 = read("eigrpd/eigrp_tlv2.c")
+
+    assert "eigrp_af_vectors_runtime_validate" in runtime
+    for field in (
+        "packet_source_on_link",
+        "packet_address_bytes",
+        "packet_address_decode",
+        "packet_address_encode",
+        "packet_prefix_decode",
+        "packet_prefix_encode",
+        "classic_internal_tlv_type",
+        "classic_external_tlv_type",
+        "multiprotocol_afi",
+        "addr_snprintf",
+        "summary_auto_prefix",
+    ):
+        assert f"EIGRP_AF_VECTOR_REQUIRE({field})" in runtime
+
+    assert "if (!eigrp->af_vectors.packet_send)" not in packet
+    assert "if (!eigrp->af_vectors.packet_receive)" not in packet
+    assert "|| !ei->eigrp->af_vectors.packet_source_on_link" not in packet
+    assert "if (!ei->eigrp->af_vectors.packet_source_on_link\n" not in packet
+    assert "eigrp_tlv1_af_ready" not in tlv1
+    assert "eigrp_tlv2_af_ready" not in tlv2
+    assert "prefix_snprintf" not in types
+
+
+def test_frr_debug_logging_uses_eigrp_logging_boundary():
+    frr_log = read("frr/eigrp_log.c")
+    zebra = read("frr/eigrp_zebra.c")
+    common_dump = read("eigrpd/eigrp_dump.c")
+
+    assert "zlog_debug(\"%s\", message)" in frr_log
+    assert "eigrp_log_debug(" in zebra
+    assert "zlog_debug(" not in zebra
+    assert "zlog_debug(" not in common_dump
+
+
+def test_frr_event_and_rib_ingress_logs_invalid_host_data_at_boundary():
+    southbound = read("frr/eigrp_southbound.c")
+    zebra = read("frr/eigrp_zebra.c")
+
+    event_prepare = function_body(southbound, "eigrp_southbound_event_prepare")
+    event_run = function_body(southbound, "eigrp_southbound_event_run")
+    work_new = function_body(southbound, "eigrp_work_queue_new")
+    work_run = function_body(southbound, "eigrp_work_queue_host_run")
+    address_add = function_body(zebra, "eigrp_zebra_interface_address_add")
+    address_delete = function_body(zebra, "eigrp_zebra_interface_address_delete")
+    redistribute = function_body(zebra, "eigrp_zebra_redistribute_route")
+
+    assert "eigrp_log_error" in event_prepare
+    assert "eigrp_log_error" in event_run
+    assert "eigrp_log_error" in work_new
+    assert "eigrp_log_error" in work_run
+    assert "eigrp_frr_interface_state_import" in address_add
+    assert "eigrp_log_error" in address_add
+    assert "eigrp_frr_prefix_import" in address_delete
+    assert "eigrp_log_error" in address_delete
+    assert "zapi_route_decode" in redistribute
+    assert "eigrp_log_error" in redistribute

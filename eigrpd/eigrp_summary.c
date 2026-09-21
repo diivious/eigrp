@@ -246,7 +246,7 @@ eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	vectors = eigrp_summary_context_vectors(context);
-	if (!vectors || !vectors->summary_auto_prefix)
+	if (vectors->afi != EIGRP_ADDRESS_FAMILY_IPV4)
 		return EIGRP_RESULT_UNSUPPORTED;
 	if (context->config) {
 		state = eigrp_summary_state_get(context->config);

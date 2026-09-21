@@ -15,6 +15,8 @@
 
 bool eigrp_prefix_valid(const eigrp_prefix_t *prefix);
 void eigrp_prefix_normalize(eigrp_prefix_t *prefix);
+bool eigrp_prefix_address_match(const eigrp_prefix_t *prefix,
+				const eigrp_address_t *address);
 int eigrp_prefix_snprintf(char *buf, size_t len, const eigrp_prefix_t *prefix);
 
 #endif /* EIGRPD_EIGRP_PREFIX_H_ */

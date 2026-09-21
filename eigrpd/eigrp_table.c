@@ -27,30 +27,12 @@ static bool eigrp_table_prefix_equal(const eigrp_prefix_t *a,
 static bool eigrp_table_prefix_contains(const eigrp_prefix_t *network,
 					const eigrp_prefix_t *candidate)
 {
-	eigrp_prefix_t n, c;
-	unsigned int bytes, full, rem;
-	uint8_t mask;
-
-	if (!network || !candidate || network->address.afi != candidate->address.afi
+	if (!eigrp_prefix_valid(network) || !eigrp_prefix_valid(candidate)
+	    || network->address.afi != candidate->address.afi
 	    || network->prefix_length > candidate->prefix_length)
 		return false;
-	n = *network;
-	c = *candidate;
-	eigrp_prefix_normalize(&n);
-	eigrp_prefix_normalize(&c);
-	bytes = n.address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
-	full = n.prefix_length / 8;
-	rem = n.prefix_length % 8;
-	if (full && memcmp(n.address.bytes, c.address.bytes, full) != 0)
-		return false;
-	if (rem) {
-		if (full >= bytes)
-			return false;
-		mask = (uint8_t)(0xffU << (8U - rem));
-		if ((n.address.bytes[full] & mask) != (c.address.bytes[full] & mask))
-			return false;
-	}
-	return true;
+
+	return eigrp_prefix_address_match(network, &candidate->address);
 }
 
 eigrp_table_t *eigrp_table_new(void)

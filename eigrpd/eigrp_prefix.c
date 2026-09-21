@@ -64,6 +64,35 @@ void eigrp_prefix_normalize(eigrp_prefix_t *prefix)
 		       sizeof(prefix->address.bytes) - address_bytes);
 }
 
+bool eigrp_prefix_address_match(const eigrp_prefix_t *prefix,
+				const eigrp_address_t *address)
+{
+	size_t address_bytes;
+	size_t full_bytes;
+	uint8_t remaining_bits;
+	uint8_t mask;
+
+	if (!eigrp_prefix_valid(prefix) || !address
+	    || prefix->address.afi != address->afi)
+		return false;
+
+	address_bytes = eigrp_prefix_address_bytes(prefix->address.afi);
+	full_bytes = prefix->prefix_length / 8U;
+	remaining_bits = prefix->prefix_length % 8U;
+
+	if (full_bytes
+	    && memcmp(prefix->address.bytes, address->bytes, full_bytes) != 0)
+		return false;
+	if (!remaining_bits)
+		return true;
+	if (full_bytes >= address_bytes)
+		return false;
+
+	mask = (uint8_t)(0xffU << (8U - remaining_bits));
+	return (prefix->address.bytes[full_bytes] & mask)
+	       == (address->bytes[full_bytes] & mask);
+}
+
 int eigrp_prefix_snprintf(char *buf, size_t len, const eigrp_prefix_t *prefix)
 {
 	char address[INET6_ADDRSTRLEN];

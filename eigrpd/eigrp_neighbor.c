@@ -15,6 +15,7 @@
  */
 
 #include <stdlib.h>
+#include <assert.h>
 #include <string.h>
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_table.h"
@@ -500,16 +501,18 @@ eigrp_result_t eigrp_neighbor_state_walk(
 }
 void eigrp_neighbor_encoder_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
 {
-	if (!nbr || !codec || !codec->encoder)
-		return;
+	assert(nbr);
+	assert(codec);
+	assert(codec->encoder);
 
 	nbr->encoder = codec->encoder;
 }
 
 void eigrp_neighbor_decoder_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
 {
-	if (!nbr || !codec || !codec->decoder)
-		return;
+	assert(nbr);
+	assert(codec);
+	assert(codec->decoder);
 
 	nbr->decoder = codec->decoder;
 }

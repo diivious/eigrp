@@ -5,146 +5,169 @@
  * Copyright (C) 2026 Donnie V. Savage
  */
 
+#include <arpa/inet.h>
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
+#include "eigrpd/eigrp_structs.h"
+#include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_types.h"
 
-/*
- * IPv6 runtime/data-path behavior is intentionally not implemented in this
- * pass.  These private functions establish the AF boundary so later IPv6 work
- * does not require family conditionals in common modules.
- */
-static int eigrp_ipv6_packet_send(eigrp_instance_t *eigrp,
-				  eigrp_interface_t *ei,
-				  eigrp_packet_t *packet)
+#define EIGRP_IPV6_ADDRESS_BYTES 16U
+#define EIGRP_IPV6_PREFIX_LENGTH_BYTES 1U
+#define EIGRP_IPV6_MAX_BITLEN 128U
+
+static bool eigrp_ipv6_stream_has(eigrp_stream_t *stream, size_t needed)
 {
-	(void)eigrp;
-	(void)ei;
-	(void)packet;
-	return -1;
+	if (!stream || stream->endp <= stream->getp)
+		return needed == 0;
+
+	return (stream->endp - stream->getp) >= needed;
 }
 
-static bool eigrp_ipv6_packet_receive(eigrp_instance_t *eigrp, int fd,
-				      eigrp_stream_t *stream,
-				      eigrp_interface_t **ei,
-				      eigrp_addr_t *source,
-				      eigrp_addr_t *destination,
-				      eigrp_packet_rx_meta_t *meta)
+/*
+ * RFC 7868 sections 6.8.4 and 6.9.5 define a different compressed
+ * destination length for IPv6 than IPv4.  Prefix lengths that end on an
+ * octet boundary still carry the following octet, except /128 which is the
+ * full 16-byte address.  /0 carries no address bytes.
+ */
+static uint16_t eigrp_ipv6_prefix_bytes(uint8_t prefix_length)
 {
-	(void)eigrp;
-	(void)fd;
-	(void)stream;
-	(void)ei;
-	(void)source;
-	(void)destination;
-	(void)meta;
-	return false;
+	if (prefix_length == 0)
+		return 0;
+	if (prefix_length == EIGRP_IPV6_MAX_BITLEN)
+		return EIGRP_IPV6_ADDRESS_BYTES;
+
+	return (prefix_length / 8U) + 1U;
 }
 
 static bool eigrp_ipv6_packet_source_on_link(eigrp_interface_t *ei,
 					     const eigrp_addr_t *source)
 {
-	(void)ei;
-	(void)source;
-	return false;
+	if (!ei || !source || source->afi != AF_INET6)
+		return false;
+
+	/* EIGRP for IPv6 accepts neighbors by the receiving link and requires a
+	 * link-local source.  The peers do not need a common global prefix.
+	 */
+	return IN6_IS_ADDR_LINKLOCAL(&source->ip.v6);
 }
 
-static uint16_t
-eigrp_ipv6_packet_address_decode(eigrp_stream_t *stream,
-				 eigrp_addr_t *address)
+static uint16_t eigrp_ipv6_packet_address_decode(eigrp_stream_t *stream,
+					 eigrp_addr_t *address)
 {
-	(void)stream;
-	(void)address;
-	return 0;
+	if (!stream || !address
+	    || !eigrp_ipv6_stream_has(stream, EIGRP_IPV6_ADDRESS_BYTES))
+		return 0;
+
+	memset(address, 0, sizeof(*address));
+	address->afi = AF_INET6;
+	eigrp_stream_get(&address->ip.v6, stream, EIGRP_IPV6_ADDRESS_BYTES);
+	return EIGRP_IPV6_ADDRESS_BYTES;
 }
 
-static uint16_t
-eigrp_ipv6_packet_address_encode(eigrp_stream_t *stream,
-				 const eigrp_addr_t *address)
+static uint16_t eigrp_ipv6_packet_address_encode(eigrp_stream_t *stream,
+					 const eigrp_addr_t *address)
 {
-	(void)stream;
-	(void)address;
-	return 0;
+	if (!stream || !address
+	    || (address->afi != 0 && address->afi != AF_INET6))
+		return 0;
+
+	eigrp_stream_put(stream, &address->ip.v6, EIGRP_IPV6_ADDRESS_BYTES);
+	return EIGRP_IPV6_ADDRESS_BYTES;
 }
 
-static uint16_t
-eigrp_ipv6_packet_prefix_decode(eigrp_stream_t *stream, eigrp_prefix_t *prefix)
+static uint16_t eigrp_ipv6_packet_prefix_decode(eigrp_stream_t *stream,
+					eigrp_prefix_t *prefix)
 {
-	(void)stream;
-	(void)prefix;
-	return 0;
+	size_t start;
+	uint16_t address_length;
+	uint8_t prefix_length;
+
+	if (!stream || !prefix
+	    || !eigrp_ipv6_stream_has(stream, EIGRP_IPV6_PREFIX_LENGTH_BYTES))
+		return 0;
+
+	start = eigrp_stream_get_getp(stream);
+	prefix_length = eigrp_stream_getc(stream);
+	if (prefix_length > EIGRP_IPV6_MAX_BITLEN) {
+		eigrp_stream_set_getp(stream, start);
+		return 0;
+	}
+
+	address_length = eigrp_ipv6_prefix_bytes(prefix_length);
+	if (!eigrp_ipv6_stream_has(stream, address_length)) {
+		eigrp_stream_set_getp(stream, start);
+		return 0;
+	}
+
+	memset(prefix, 0, sizeof(*prefix));
+	prefix->address.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+	prefix->prefix_length = prefix_length;
+	if (address_length)
+		eigrp_stream_get(prefix->address.bytes, stream, address_length);
+	eigrp_prefix_normalize(prefix);
+
+	return EIGRP_IPV6_PREFIX_LENGTH_BYTES + address_length;
 }
 
-static uint16_t
-eigrp_ipv6_packet_prefix_encode(eigrp_stream_t *stream,
-				const eigrp_prefix_t *prefix)
+static uint16_t eigrp_ipv6_packet_prefix_encode(eigrp_stream_t *stream,
+					const eigrp_prefix_t *prefix)
 {
-	(void)stream;
-	(void)prefix;
-	return 0;
+	eigrp_prefix_t normalized;
+	uint16_t address_length;
+
+	if (!stream || !prefix
+	    || prefix->address.afi != EIGRP_ADDRESS_FAMILY_IPV6
+	    || !eigrp_prefix_valid(prefix))
+		return 0;
+
+	normalized = *prefix;
+	eigrp_prefix_normalize(&normalized);
+	address_length = eigrp_ipv6_prefix_bytes(normalized.prefix_length);
+	eigrp_stream_putc(stream, normalized.prefix_length);
+	if (address_length)
+		eigrp_stream_put(stream, normalized.address.bytes, address_length);
+
+	return EIGRP_IPV6_PREFIX_LENGTH_BYTES + address_length;
 }
 
 static int eigrp_ipv6_addr_snprintf(char *buf, size_t len,
 				    const eigrp_addr_t *address)
 {
-	(void)address;
-	if (buf && len)
+	if (!buf || !len || !address || address->afi != AF_INET6)
+		return -1;
+
+	if (!inet_ntop(AF_INET6, &address->ip.v6, buf, len)) {
 		buf[0] = '\0';
-	return -1;
+		return -1;
+	}
+
+	return (int)strlen(buf);
 }
 
-static int eigrp_ipv6_prefix_snprintf(char *buf, size_t len,
-				      const eigrp_prefix_t *prefix)
+static eigrp_result_t eigrp_ipv6_summary_auto_prefix(
+	const eigrp_prefix_t *component, eigrp_prefix_t *summary)
 {
-	(void)prefix;
-	if (buf && len)
-		buf[0] = '\0';
-	return -1;
-}
-
-static eigrp_result_t
-eigrp_ipv6_address_validate(const eigrp_address_t *address)
-{
-	(void)address;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
-}
-
-static eigrp_result_t
-eigrp_ipv6_prefix_validate(const eigrp_prefix_t *prefix)
-{
-	(void)prefix;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
-}
-
-static eigrp_result_t
-eigrp_ipv6_network_validate(const eigrp_prefix_t *network)
-{
-	(void)network;
+	(void)component;
+	(void)summary;
 	return EIGRP_RESULT_UNSUPPORTED;
-}
-
-static bool eigrp_ipv6_network_interface_match(
-	const eigrp_prefix_t *network, const eigrp_prefix_t *interface_address)
-{
-	(void)network;
-	(void)interface_address;
-	return false;
 }
 
 void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 {
-	if (!vectors)
-		return;
+	assert(vectors);
 
 	memset(vectors, 0, sizeof(*vectors));
 	vectors->afi = EIGRP_ADDRESS_FAMILY_IPV6;
-	vectors->packet_send = eigrp_ipv6_packet_send;
-	vectors->packet_receive = eigrp_ipv6_packet_receive;
-	vectors->packet_source_on_link = eigrp_ipv6_packet_source_on_link;
 
-	vectors->packet_address_bytes = 16;
+	/* IPv6 packet/socket integration is intentionally still capability-gated.
+	 * Do not install fake send/receive vectors that look usable to common code.
+	 */
+	vectors->packet_source_on_link = eigrp_ipv6_packet_source_on_link;
+	vectors->packet_address_bytes = EIGRP_IPV6_ADDRESS_BYTES;
 	vectors->packet_address_decode = eigrp_ipv6_packet_address_decode;
 	vectors->packet_address_encode = eigrp_ipv6_packet_address_encode;
 	vectors->packet_prefix_decode = eigrp_ipv6_packet_prefix_decode;
@@ -153,9 +176,6 @@ void eigrp_ipv6_init(eigrp_af_vectors_t *vectors)
 	vectors->classic_external_tlv_type = EIGRP_TLV_IPv6_EXT;
 	vectors->multiprotocol_afi = EIGRP_AF_IPv6;
 	vectors->addr_snprintf = eigrp_ipv6_addr_snprintf;
-	vectors->prefix_snprintf = eigrp_ipv6_prefix_snprintf;
-	vectors->address_validate = eigrp_ipv6_address_validate;
-	vectors->prefix_validate = eigrp_ipv6_prefix_validate;
-	vectors->network_validate = eigrp_ipv6_network_validate;
-	vectors->network_interface_match = eigrp_ipv6_network_interface_match;
+	vectors->summary_auto_prefix = eigrp_ipv6_summary_auto_prefix;
+
 }

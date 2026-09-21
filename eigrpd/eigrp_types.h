@@ -200,7 +200,10 @@ typedef struct eigrp_af_vectors {
 	 * Network-layer packet envelope.  Common EIGRP packet processing owns
 	 * queueing, acknowledgements, checksum/authentication, and opcode
 	 * dispatch; the AF owns the IP header/socket representation and extracts
-	 * the native EIGRP source/destination addresses.
+	 * the native EIGRP source/destination addresses.  Send/receive may be
+	 * unbound only while an address-family data path is capability-gated.
+	 * Runtime creation validates the complete vector before packet processing
+	 * is started; common packet code does not probe callbacks before use.
 	 */
 	int (*packet_send)(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 			   eigrp_packet_t *packet);
@@ -239,17 +242,12 @@ typedef struct eigrp_af_vectors {
 	/* Portable text presentation used by show/debug callers. */
 	int (*addr_snprintf)(char *buf, size_t len,
 			     const eigrp_addr_t *address);
-	int (*prefix_snprintf)(char *buf, size_t len,
-			       const eigrp_prefix_t *prefix);
 
-	/* AF-specific constraints and feature decisions. */
-	eigrp_result_t (*address_validate)(const eigrp_address_t *address);
-	eigrp_result_t (*prefix_validate)(const eigrp_prefix_t *prefix);
-	eigrp_result_t (*network_validate)(const eigrp_prefix_t *network);
-	bool (*network_interface_match)(const eigrp_prefix_t *network,
-				       const eigrp_prefix_t *interface_address);
+	/* AF-specific classful automatic-summary derivation.  Every AF binds a
+	 * function; families without classful semantics return UNSUPPORTED.
+	 */
 	eigrp_result_t (*summary_auto_prefix)(const eigrp_prefix_t *component,
-					eigrp_prefix_t *summary);
+					      eigrp_prefix_t *summary);
 } eigrp_af_vectors_t;
 
 /* AF modules expose only vector initialization. */

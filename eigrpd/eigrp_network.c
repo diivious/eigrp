@@ -122,12 +122,15 @@ static bool eigrp_network_runtime_matches(
 {
 	const struct eigrp_network_runtime *network;
 
-	if (!eigrp || !connected || !eigrp->af_vectors.network_interface_match)
+	if (!eigrp || !connected
+	    || eigrp->af_vectors.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || connected->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || !eigrp_prefix_valid(connected))
 		return false;
 
 	for (network = eigrp->networks; network; network = network->next) {
-		if (eigrp->af_vectors.network_interface_match(&network->prefix,
-						      connected))
+		if (eigrp_prefix_address_match(&network->prefix,
+					       &connected->address))
 			return true;
 	}
 	return false;
@@ -284,35 +287,28 @@ static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,
 					    eigrp_network_operation_t operation,
 					    bool *runtime_changed);
 
-static const eigrp_af_vectors_t *
-eigrp_network_vectors(const eigrp_instance_context_t *context)
-{
-	if (!context)
-		return NULL;
-	if (context->config)
-		return &context->config->af_vectors;
-	if (context->runtime)
-		return &context->runtime->af_vectors;
-	return NULL;
-}
-
 static eigrp_result_t eigrp_network_validate(eigrp_instance_context_t *context,
 					      const eigrp_prefix_t *prefix)
 {
-	const eigrp_af_vectors_t *vectors;
+	eigrp_address_family_t afi;
 
 	if (!prefix)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 
-	vectors = eigrp_network_vectors(context);
-	if (!vectors || !vectors->network_validate)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	if (vectors->afi != prefix->address.afi)
+	afi = context->config ? context->config->afi
+			      : context->runtime->af_vectors.afi;
+	if (afi != prefix->address.afi || !eigrp_prefix_valid(prefix))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	return vectors->network_validate(prefix);
+	/* `network` is an IPv4 configuration feature.  Prefix matching itself is
+	 * generic and lives in eigrp_prefix.c rather than in the AF vectors.
+	 */
+	if (afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return EIGRP_RESULT_UNSUPPORTED;
+
+	return EIGRP_RESULT_SUCCESS;
 }
 
 static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,

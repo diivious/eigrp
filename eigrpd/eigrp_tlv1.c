@@ -12,6 +12,7 @@
  * to the system (meaning a delay is a delay and you dont have to worry about
  * conversion)
  */
+#include <assert.h>
 #include <string.h>
 
 #include "eigrpd/eigrpd.h"
@@ -51,16 +52,6 @@ static bool eigrp_tlv1_stream_has(eigrp_stream_t *pkt, size_t needed)
 	return eigrp_tlv1_stream_remaining(pkt) >= needed;
 }
 
-static bool eigrp_tlv1_af_ready(const eigrp_instance_t *eigrp)
-{
-	return eigrp && eigrp->af_vectors.packet_address_bytes
-	       && eigrp->af_vectors.packet_address_decode
-	       && eigrp->af_vectors.packet_address_encode
-	       && eigrp->af_vectors.packet_prefix_decode
-	       && eigrp->af_vectors.packet_prefix_encode
-	       && eigrp->af_vectors.classic_internal_tlv_type
-	       && eigrp->af_vectors.classic_external_tlv_type;
-}
 
 static uint16_t eigrp_tlv1_min_length(const eigrp_instance_t *eigrp,
 				      bool external)
@@ -171,7 +162,7 @@ static uint16_t eigrp_tlv1_metric_encode(eigrp_stream_t *pkt,
 static uint16_t eigrp_tlv1_route_tlv_type(
 	const eigrp_instance_t *eigrp, const eigrp_route_descriptor_t *route)
 {
-	if (!eigrp_tlv1_af_ready(eigrp) || !route)
+	if (!eigrp || !route)
 		return 0;
 
 	if (route->type == EIGRP_INT
@@ -206,7 +197,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 
 	(void)pktlen;
 
-	if (!eigrp_tlv1_af_ready(eigrp) || !nbr || !pkt)
+	if (!eigrp || !nbr || !pkt)
 		return NULL;
 
 	tlv_start = eigrp_stream_get_getp(pkt);
@@ -321,7 +312,7 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 	uint16_t length;
 	uint16_t encoded;
 
-	if (!eigrp_tlv1_af_ready(eigrp) || !pkt || !route)
+	if (!eigrp || !pkt || !route)
 		return 0;
 
 	if (!ei && nbr)
@@ -379,8 +370,7 @@ encode_failed:
 
 void eigrp_tlv1_init(eigrp_tlv_codec_t *codec)
 {
-	if (!codec)
-		return;
+	assert(codec);
 
 	codec->decoder = eigrp_tlv1_decoder;
 	codec->encoder = eigrp_tlv1_encoder;
@@ -388,8 +378,10 @@ void eigrp_tlv1_init(eigrp_tlv_codec_t *codec)
 
 void eigrp_tlv1_neighbor_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
 {
-	if (!nbr || !codec)
-		return;
+	assert(nbr);
+	assert(codec);
+	assert(codec->decoder);
+	assert(codec->encoder);
 
 	nbr->tlv_version = EIGRP_TLV_32B_VERSION;
 	eigrp_neighbor_decoder_bind(nbr, codec);
@@ -398,8 +390,9 @@ void eigrp_tlv1_neighbor_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
 
 void eigrp_tlv1_interface_bind(eigrp_interface_t *ei, eigrp_tlv_codec_t *codec)
 {
-	if (!ei || !codec || !codec->encoder)
-		return;
+	assert(ei);
+	assert(codec);
+	assert(codec->encoder);
 
 	ei->encoder = codec->encoder;
 }

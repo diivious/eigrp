@@ -171,8 +171,9 @@ static const char *eigrp_packet_addr_text(eigrp_instance_t *eigrp,
 		return "";
 
 	buf[0] = '\0';
-	if (!eigrp || !address || !eigrp->af_vectors.addr_snprintf
-	    || eigrp->af_vectors.addr_snprintf(buf, len, address) < 0)
+	if (!eigrp || !address)
+		snprintf(buf, len, "?");
+	else if (eigrp->af_vectors.addr_snprintf(buf, len, address) < 0)
 		snprintf(buf, len, "?");
 
 	return buf;
@@ -433,12 +434,7 @@ void eigrp_packet_write(void *arg)
 	seqno = ntohl(eigrph->sequence);
 	ack = ntohl(eigrph->ack);
 
-	if (!eigrp->af_vectors.packet_send) {
-		eigrp_log_warn("%s: no address-family packet sender is bound", __func__);
-		ret = -1;
-	} else {
-		ret = eigrp->af_vectors.packet_send(eigrp, ei, packet);
-	}
+	ret = eigrp->af_vectors.packet_send(eigrp, ei, packet);
 
 	eigrp_debug_packet_send(ei, packet, ret);
 	if (ret >= 0) {
@@ -496,10 +492,6 @@ void eigrp_packet_read(void *arg)
 			    eigrp_packet_read, eigrp);
 
 	eigrp_stream_reset(eigrp->ibuf);
-	if (!eigrp->af_vectors.packet_receive) {
-		eigrp_log_warn("%s: no address-family packet receiver is bound", __func__);
-		return;
-	}
 
 	ibuf = eigrp->ibuf;
 	if (!eigrp->af_vectors.packet_receive(eigrp, eigrp->fd, ibuf, &ei,
@@ -1178,8 +1170,7 @@ static int eigrp_verify_header(eigrp_interface_t *ei, eigrp_addr_t *source,
 		return -1;
 
 	/* Raw sockets can receive protocol-matched packets from other links. */
-	if (!ei->eigrp->af_vectors.packet_source_on_link
-	    || !ei->eigrp->af_vectors.packet_source_on_link(ei, source)) {
+	if (!ei->eigrp->af_vectors.packet_source_on_link(ei, source)) {
 		eigrp_log_warn("interface %s: eigrp_packet_read source is not on-link [%s]",
 			  eigrp_intf_name_string(ei),
 			  eigrp_packet_addr_text(ei->eigrp, source, source_text,
