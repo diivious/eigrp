@@ -285,7 +285,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 			if (prefix->rij->count)
 				return EIGRP_FSM_KEEP_STATE;
 
-			eigrp_log_info("All reply received");
+			eigrp_log(EIGRP_LOG_INFO, "All reply received");
 			if (head->reported_distance < prefix->fdistance) {
 				return EIGRP_FSM_EVENT_LR_FCS;
 			}
@@ -315,7 +315,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 			} else if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
-				eigrp_log_info("All reply received");
+				eigrp_log(EIGRP_LOG_INFO, "All reply received");
 				return EIGRP_FSM_EVENT_LR;
 			}
 		} else if (msg->packet_type == EIGRP_OPC_UPDATE
@@ -337,7 +337,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 			if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
-				eigrp_log_info("All reply received");
+				eigrp_log(EIGRP_LOG_INFO, "All reply received");
 				if (head->reported_distance
 				    < prefix->fdistance) {
 					return EIGRP_FSM_EVENT_LR_FCS;
@@ -361,7 +361,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 			} else if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
-				eigrp_log_info("All reply received");
+				eigrp_log(EIGRP_LOG_INFO, "All reply received");
 				return EIGRP_FSM_EVENT_LR;
 			}
 		} else if (msg->packet_type == EIGRP_OPC_UPDATE
@@ -395,7 +395,7 @@ int eigrp_fsm_event(eigrp_fsm_action_message_t *msg)
 
 		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 				      &msg->prefix->destination);
-		eigrp_log_debug(
+		eigrp_log(EIGRP_LOG_DEBUG,
 			"EIGRP AS: %d State: %s Event: %s Network: %s Packet Type: %s Reply RIJ Count: %d change: %s",
 			msg->eigrp->AS, prefix_state2str(msg->prefix->state),
 			fsm_state2str(event), prefix_buf,

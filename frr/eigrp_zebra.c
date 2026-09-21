@@ -145,7 +145,7 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 	struct zapi_route api;
 
 	if (zapi_route_decode(zclient->ibuf, &api) < 0) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra redistribute %s decode failed for VRF %u",
 			cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD ? "add" : "delete",
 			(unsigned)vrf_id);
@@ -157,7 +157,7 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 	 * event and hand it to the EIGRP redistribution target.
 	 */
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB))
-		eigrp_log_debug(
+		eigrp_log(EIGRP_LOG_DEBUG,
 			"Zebra: redistribute %s %s",
 			cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD ? "add" : "delete",
 			eigrp_zebra_prefix_string(&api.prefix));
@@ -174,20 +174,20 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 
 	c = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 	if (!c) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface-address add decode failed for VRF %u",
 			(unsigned)vrf_id);
 		return 0;
 	}
 	ifp = c->ifp;
 	if (!ifp) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface-address add has no interface for VRF %u",
 			(unsigned)vrf_id);
 		return 0;
 	}
 	if (!c->address) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface %s[%u] address add has no address",
 			ifp->name, ifp->ifindex);
 		return 0;
@@ -196,7 +196,7 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 	result = eigrp_frr_interface_state_import(
 		ifp, c->address, CHECK_FLAG(c->flags, ZEBRA_IFA_SECONDARY), &state);
 	if (result != EIGRP_RESULT_SUCCESS) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface %s[%u] address add could not normalize family %u/%u (result %u)",
 			ifp->name, ifp->ifindex, (unsigned)c->address->family,
 			(unsigned)c->address->prefixlen, (unsigned)result);
@@ -204,7 +204,7 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 	}
 
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_INTERFACE))
-		eigrp_log_debug("Zebra: interface %s address add %s", ifp->name,
+		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: interface %s address add %s", ifp->name,
 				eigrp_zebra_prefix_string(c->address));
 
 	eigrp_network_interface_refresh((eigrp_vrf_id_t)vrf_id, &state);
@@ -220,7 +220,7 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 
 	c = zebra_interface_address_read(cmd, zclient->ibuf, vrf_id);
 	if (!c) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface-address delete decode failed for VRF %u",
 			(unsigned)vrf_id);
 		return 0;
@@ -228,14 +228,14 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 
 	ifp = c->ifp;
 	if (!ifp) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface-address delete has no interface for VRF %u",
 			(unsigned)vrf_id);
 		connected_free(&c);
 		return 0;
 	}
 	if (!c->address) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface %s[%u] address delete has no address",
 			ifp->name, ifp->ifindex);
 		connected_free(&c);
@@ -244,7 +244,7 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 
 	result = eigrp_frr_prefix_import(c->address, &removed);
 	if (result != EIGRP_RESULT_SUCCESS) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR Zebra interface %s[%u] address delete could not normalize family %u/%u (result %u)",
 			ifp->name, ifp->ifindex, (unsigned)c->address->family,
 			(unsigned)c->address->prefixlen, (unsigned)result);
@@ -253,7 +253,7 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	}
 
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_INTERFACE))
-		eigrp_log_debug("Zebra: interface %s address delete %s", ifp->name,
+		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: interface %s address delete %s", ifp->name,
 				eigrp_zebra_prefix_string(c->address));
 
 	eigrp_interface_runtime_address_remove((eigrp_vrf_id_t)vrf_id,
@@ -316,7 +316,7 @@ eigrp_result_t eigrp_zebra_route_install(
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
-		eigrp_log_debug("Zebra: Route add %s",
+		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: Route add %s",
 				eigrp_zebra_prefix_string(&host_prefix));
 
 	zclient_route_send(ZEBRA_ROUTE_ADD, eigrp_zclient, &api);
@@ -348,7 +348,7 @@ eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB)
 	    || eigrp_debug_address_family_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
-		eigrp_log_debug("Zebra: Route del %s",
+		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: Route del %s",
 				eigrp_zebra_prefix_string(&host_prefix));
 	return EIGRP_RESULT_SUCCESS;
 }

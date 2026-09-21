@@ -131,7 +131,7 @@ static void eigrp_filter_schedule_process(eigrp_instance_t *eigrp)
 	if (!eigrp)
 		return;
 	eigrp_southbound_timer_add(&eigrp->t_distribute,
-				   eigrp_distribute_timer_process, eigrp, 10);
+				   eigrp_distribute_timer_process, eigrp, 10000U);
 }
 
 static void eigrp_filter_schedule_interface(eigrp_interface_t *ei)
@@ -139,7 +139,7 @@ static void eigrp_filter_schedule_interface(eigrp_interface_t *ei)
 	if (!ei)
 		return;
 	eigrp_southbound_timer_add(&ei->t_distribute,
-				   eigrp_distribute_timer_interface, ei, 10);
+				   eigrp_distribute_timer_interface, ei, 10000U);
 }
 
 eigrp_result_t eigrp_filter_runtime_replace(

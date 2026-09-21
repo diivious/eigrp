@@ -500,19 +500,21 @@ def test_complete_eigrp_debug_command_family_is_registered_and_targeted():
         assert f"&no_debug_eigrp_{name}_cmd" in init
 
     targets = (
-        "eigrp_debug_event_set", "eigrp_debug_event_reset",
-        "eigrp_debug_timers_set", "eigrp_debug_timers_reset",
-        "eigrp_debug_fsm_set", "eigrp_debug_fsm_reset",
-        "eigrp_debug_nsf_set", "eigrp_debug_nsf_reset",
-        "eigrp_debug_fast_reroute_set", "eigrp_debug_fast_reroute_reset",
-        "eigrp_debug_neighbor_set", "eigrp_debug_neighbor_reset",
-        "eigrp_debug_notifications_set", "eigrp_debug_notifications_reset",
-        "eigrp_debug_transmit_set", "eigrp_debug_transmit_reset",
+        "eigrp_debug_set", "eigrp_debug_reset",
         "eigrp_debug_address_family_set", "eigrp_debug_address_family_reset",
     )
     for target in targets:
         assert target in header
         assert f"{target}(" in dump
+
+    for selector in (
+        "EIGRP_DEBUG_TARGET_GENERAL",
+        "EIGRP_DEBUG_TARGET_NEIGHBOR",
+        "EIGRP_DEBUG_TARGET_NOTIFICATIONS",
+        "EIGRP_DEBUG_TARGET_TRANSMIT",
+    ):
+        assert selector in header
+        assert selector in dump
 
 
 def test_debug_families_have_runtime_hooks_at_their_protocol_owners():

@@ -221,7 +221,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 			eigrp_tlv1_decode_abort(pkt);
 
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
-			eigrp_log_debug(
+			eigrp_log(EIGRP_LOG_DEBUG,
 				"EIGRP TLV: Neighbor(%s): invalid TLV_type(%u)",
 				eigrp_print_addr(&nbr->src), type);
 		}
@@ -231,7 +231,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 	min_length = eigrp_tlv1_min_length(eigrp, external);
 	if (length < min_length || length > remaining) {
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
-			eigrp_log_debug(
+			eigrp_log(EIGRP_LOG_DEBUG,
 				"EIGRP TLV: Neighbor(%s) corrupt packet type=%u length=%u remaining=%zu",
 				eigrp_print_addr(&nbr->src), type, length, remaining);
 		}
@@ -289,7 +289,7 @@ static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
 
 malformed:
 	if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_RECV)) {
-		eigrp_log_debug(
+		eigrp_log(EIGRP_LOG_DEBUG,
 			"EIGRP TLV: Neighbor(%s) malformed TLV type=%u length=%u decoded=%u",
 			eigrp_print_addr(&nbr->src), type, length, bytes);
 	}
@@ -322,14 +322,14 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 	if (ei && filter_prefix
 	    && eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
 					filter_prefix)) {
-		eigrp_log_info("Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
+		eigrp_log(EIGRP_LOG_INFO, "Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
 		route->metric.delay = EIGRP_MAX_METRIC;
 	}
 
 	type = eigrp_tlv1_route_tlv_type(eigrp, route);
 	if (!type) {
 		if (eigrp_debug_packet_any_enabled(EIGRP_DEBUG_SEND)) {
-			eigrp_log_debug("Neighbor(%s): invalid TLV_type(%u)",
+			eigrp_log(EIGRP_LOG_DEBUG, "Neighbor(%s): invalid TLV_type(%u)",
 				   nbr ? eigrp_print_addr(&nbr->src) : "multicast",
 				   route->type);
 		}
@@ -374,25 +374,4 @@ void eigrp_tlv1_init(eigrp_tlv_codec_t *codec)
 
 	codec->decoder = eigrp_tlv1_decoder;
 	codec->encoder = eigrp_tlv1_encoder;
-}
-
-void eigrp_tlv1_neighbor_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
-{
-	assert(nbr);
-	assert(codec);
-	assert(codec->decoder);
-	assert(codec->encoder);
-
-	nbr->tlv_version = EIGRP_TLV_32B_VERSION;
-	eigrp_neighbor_decoder_bind(nbr, codec);
-	eigrp_neighbor_encoder_bind(nbr, codec);
-}
-
-void eigrp_tlv1_interface_bind(eigrp_interface_t *ei, eigrp_tlv_codec_t *codec)
-{
-	assert(ei);
-	assert(codec);
-	assert(codec->encoder);
-
-	ei->encoder = codec->encoder;
 }

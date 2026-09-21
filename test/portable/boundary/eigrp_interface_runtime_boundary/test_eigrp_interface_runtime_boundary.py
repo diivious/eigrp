@@ -63,7 +63,8 @@ def test_protocol_runtime_uses_eigrp_southbound_event_contracts():
 
     assert "eigrp_southbound_event_add" in southbound_h
     assert "eigrp_southbound_timer_add" in southbound_h
-    assert "eigrp_southbound_timer_msec_add" in southbound_h
+    assert "uint32_t delay_msec" in southbound_h
+    assert "eigrp_southbound_timer_msec_add" not in southbound_h
     assert "eigrp_southbound_read_add" in southbound_h
     assert "eigrp_southbound_write_add" in southbound_h
     assert "eigrp_southbound_event_cancel" in southbound_h

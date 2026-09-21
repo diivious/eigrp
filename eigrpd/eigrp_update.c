@@ -91,7 +91,7 @@ static void eigrp_update_receive_GR_ask(eigrp_instance_t *eigrp,
 
 		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 				      &prefix->destination);
-		eigrp_log_debug("GR receive: Neighbor not advertised %s", prefix_buf);
+		eigrp_log(EIGRP_LOG_DEBUG, "GR receive: Neighbor not advertised %s", prefix_buf);
 
 		fsm_msg.metrics = prefix->reported_metric;
 		/* set delay to MAX */
@@ -144,7 +144,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		eigrp_debug_nsf_event(eigrp, nbr, flags,
 				      "peer graceful restart complete in one UPDATE");
 		if (eigrp->log_neighbor_changes)
-			eigrp_log_info("Neighbor %s (%s) is resync: peer graceful-restart",
+			eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is resync: peer graceful-restart",
 				  eigrp_print_addr(&nbr->src),
 				  nbr->ei->name);
 
@@ -159,7 +159,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		eigrp_debug_nsf_event(eigrp, nbr, flags,
 				      "peer graceful restart started");
 		if (eigrp->log_neighbor_changes)
-			eigrp_log_info("Neighbor %s (%s) is resync: peer graceful-restart",
+			eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is resync: peer graceful-restart",
 				  eigrp_print_addr(&nbr->src),
 				  nbr->ei->name);
 
@@ -213,7 +213,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
 			if (eigrp->log_neighbor_changes)
-				eigrp_log_info("Neighbor %s (%s) is down: peer restarted",
+				eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: peer restarted",
 					  eigrp_print_addr(&nbr->src),
 					  nbr->ei->name);
 			eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_PENDING);
@@ -471,7 +471,7 @@ void eigrp_update_send_EOT(eigrp_neighbor_t *nbr)
 			if (encoded > 0)
 				route_count++;
 			else if (encoded < 0)
-				eigrp_log_warn("interface %s: EIGRP route TLV exceeds packet limit %u",
+				eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 					  ei->name, packet_limit);
 		}
 	}
@@ -563,7 +563,7 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 		if (encoded < 0 && route_count)
 			break;
 		if (encoded < 0) {
-			eigrp_log_warn("interface %s: EIGRP route TLV exceeds packet limit %u",
+			eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 				  ei->name, packet_limit);
 			eigrp_list_delete_data(prefixes, prefix);
 			continue;
@@ -625,7 +625,7 @@ void eigrp_update_send_GR_event(void *arg)
 	/* if there is packet waiting in queue,
 	 * schedule this event again with small delay */
 	if (nbr->retrans_queue->count > 0) {
-		eigrp_southbound_timer_msec_add(&nbr->t_nbr_send_gr,
+		eigrp_southbound_timer_add(&nbr->t_nbr_send_gr,
 				       eigrp_update_send_GR_event, nbr, 10);
 		return;
 	}
@@ -667,14 +667,14 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type)
 	if (gr_type == EIGRP_GR_FILTER) {
 		/* function was called after applying filtration */
 		if (eigrp->log_neighbor_changes)
-			eigrp_log_info(
+			eigrp_log(EIGRP_LOG_INFO,
 				"Neighbor %s (%s) is resync: route configuration changed",
 				eigrp_print_addr(&nbr->src),
 				ei->name);
 	} else if (gr_type == EIGRP_GR_MANUAL) {
 		/* Graceful restart was called manually */
 		if (eigrp->log_neighbor_changes)
-			eigrp_log_info("Neighbor %s (%s) is resync: manually cleared",
+			eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is resync: manually cleared",
 				  eigrp_print_addr(&nbr->src),
 				  ei->name);
 

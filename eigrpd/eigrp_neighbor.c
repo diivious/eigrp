@@ -196,7 +196,7 @@ static void eigrp_neighbor_static_debug(const char *action,
 	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
 	if (!inet_ntop(family, address->bytes, address_text, sizeof(address_text)))
 		memcpy(address_text, "<invalid>", sizeof("<invalid>"));
-	eigrp_log_debug("EIGRP: %s static neighbor %s AS %u interface %s", action,
+	eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: %s static neighbor %s AS %u interface %s", action,
 		   address_text, af ? af->asn : 0,
 		   interface_name ? interface_name : "-");
 }
@@ -499,22 +499,30 @@ eigrp_result_t eigrp_neighbor_state_walk(
 
 	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
-void eigrp_neighbor_encoder_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
+void eigrp_neighbor_codec_bind(eigrp_neighbor_t *nbr, uint8_t tlv_version)
 {
-	assert(nbr);
-	assert(codec);
-	assert(codec->encoder);
+	const eigrp_tlv_codec_t *codec;
 
-	nbr->encoder = codec->encoder;
-}
-
-void eigrp_neighbor_decoder_bind(eigrp_neighbor_t *nbr, eigrp_tlv_codec_t *codec)
-{
 	assert(nbr);
-	assert(codec);
+	assert(nbr->ei);
+	assert(nbr->ei->eigrp);
+
+	switch (tlv_version) {
+	case EIGRP_TLV_32B_VERSION:
+		codec = &nbr->ei->eigrp->tlv1_codec;
+		break;
+	case EIGRP_TLV_64B_VERSION:
+		codec = &nbr->ei->eigrp->tlv2_codec;
+		break;
+	default:
+		return;
+	}
+
 	assert(codec->decoder);
-
+	assert(codec->encoder);
+	nbr->tlv_version = tlv_version;
 	nbr->decoder = codec->decoder;
+	nbr->encoder = codec->encoder;
 }
 
 /**
@@ -564,11 +572,11 @@ eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *ei, eigrp_addr_t *src)
 		eigrp_list_add(ei->nbrs, nbr);
 	}
 	if (IS_DEBUG_EIGRP_EVENT) {
-		eigrp_log_debug("EIGRP event: neighbor %s created%s%s",
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: neighbor %s created%s%s",
 			   eigrp_print_addr(&nbr->src),
 			   ei ? " on " : "", ei ? eigrp_intf_name_string(ei) : "");
 		if (IS_DEBUG_EIGRP(0, DETAIL) && ei && ei->eigrp)
-			eigrp_log_debug("EIGRP event detail: AS %u hold %u state %u",
+			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event detail: AS %u hold %u state %u",
 				   ei->eigrp->AS, nbr->v_holddown, nbr->state);
 	}
 	return nbr;
@@ -654,11 +662,11 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 {
 	if (nbr && IS_DEBUG_EIGRP_EVENT) {
-		eigrp_log_debug("EIGRP event: neighbor %s delete%s%s",
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: neighbor %s delete%s%s",
 			   eigrp_print_addr(&nbr->src), nbr->ei ? " on " : "",
 			   nbr->ei ? eigrp_intf_name_string(nbr->ei) : "");
 		if (IS_DEBUG_EIGRP(0, DETAIL) && nbr->ei && nbr->ei->eigrp)
-			eigrp_log_debug("EIGRP event detail: AS %u state %u retrans %u",
+			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event detail: AS %u state %u retrans %u",
 				   nbr->ei->eigrp->AS, nbr->state, nbr->retrans_counter);
 	}
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
@@ -683,10 +691,10 @@ void eigrp_neighbor_holddown_expired(void *arg)
 {
 	eigrp_neighbor_t *nbr = arg;
 	if (IS_DEBUG_EIGRP(0, TIMERS))
-		eigrp_log_debug("EIGRP: hold timer expired for neighbor %s",
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: hold timer expired for neighbor %s",
 			   eigrp_print_addr(&nbr->src));
 	if (nbr->ei->eigrp->log_neighbor_changes)
-		eigrp_log_info("Neighbor %s (%s) is down: holding time expired",
+		eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: holding time expired",
 			  eigrp_print_addr(&nbr->src),
 			  nbr->ei->name);
 	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
@@ -791,7 +799,7 @@ void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 		eigrp_southbound_event_cancel(&nbr->t_holddown);
 		eigrp_southbound_timer_add(&nbr->t_holddown,
 				  eigrp_neighbor_holddown_expired, nbr,
-				  nbr->v_holddown);
+				  (uint32_t)nbr->v_holddown * 1000U);
 		break;
 	}
 	case EIGRP_NEIGHBOR_UP: {
@@ -799,7 +807,7 @@ void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 		eigrp_southbound_event_cancel(&nbr->t_holddown);
 		eigrp_southbound_timer_add(&nbr->t_holddown,
 				  eigrp_neighbor_holddown_expired, nbr,
-				  nbr->v_holddown);
+				  (uint32_t)nbr->v_holddown * 1000U);
 		break;
 	}
 	}
@@ -864,7 +872,7 @@ static void eigrp_neighbor_clear_hard(eigrp_neighbor_t *nbr,
 {
 	const char *interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : "?";
 
-	eigrp_log_debug("Neighbor %s (%s) is down: manually cleared",
+	eigrp_log(EIGRP_LOG_DEBUG, "Neighbor %s (%s) is down: manually cleared",
 		   eigrp_print_addr(&nbr->src), interface_name);
 	eigrp_neighbor_clear_report(nbr, false, callback, arg);
 
@@ -1274,18 +1282,20 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
 
 /*
  * Syntax:
- *   Named: `eigrp log-neighbor-changes` / `no eigrp log-neighbor-changes`
+ *   Named: `eigrp log-neighbor-changes`
+ *   Named: `eigrp log-neighbor-warnings [INTERVAL]`
  * Supported: Named
  * Placement:
  *   Named: address-family mode
  * Description:
- * Enables or resets neighbor-change logging policy for the address-family.
- * Logging policy is retained in EIGRP-owned state.
+ * Sets neighbor logging policy selected by type.  The selector changes the
+ * logging attribute, not the semantic action exposed by the public API.
  */
-eigrp_result_t eigrp_neighbor_log_changes_update(
-	eigrp_instance_context_t *context, bool enabled)
+eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context,
+				      eigrp_neighbor_log_type_t type,
+				      bool enabled, uint16_t seconds)
 {
-	eigrp_neighbor_policy_state_t *state;
+	eigrp_neighbor_policy_state_t *state = NULL;
 
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -1293,100 +1303,69 @@ eigrp_result_t eigrp_neighbor_log_changes_update(
 		state = eigrp_neighbor_policy_state_get(context->config);
 		if (!state)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
-		state->log_changes_configured = true;
-		state->log_changes = enabled;
 	}
-	if (context->runtime)
-		context->runtime->log_neighbor_changes = enabled;
-	return EIGRP_RESULT_SUCCESS;
-}
 
-/*
- * Syntax:
- *   Named: `eigrp log-neighbor-changes` / `no eigrp log-neighbor-changes`
- * Supported: Named
- * Placement:
- *   Named: address-family mode
- * Description:
- * Enables or resets neighbor-change logging policy for the address-family.
- * Logging policy is retained in EIGRP-owned state.
- */
-eigrp_result_t eigrp_neighbor_log_changes_reset(eigrp_instance_context_t *context)
-{
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->neighbor_policy) {
-		context->config->neighbor_policy->log_changes_configured = false;
-		context->config->neighbor_policy->log_changes = true;
-	}
-	if (context->runtime)
-		context->runtime->log_neighbor_changes = true;
-	return EIGRP_RESULT_SUCCESS;
-}
-
-/*
- * Syntax:
- *   Named: `eigrp log-neighbor-warnings [INTERVAL]` / `no eigrp log-neighbor-warnings`
- * Supported: Named
- * Placement:
- *   Named: address-family mode
- * Description:
- * Sets or removes neighbor-warning logging configuration.
- * The target keeps the real feature boundary and reports NOT_IMPLEMENTED if warning generation is not wired yet.
- */
-eigrp_result_t eigrp_neighbor_log_warnings_update(
-	eigrp_instance_context_t *context, bool enabled, uint16_t seconds)
-{
-	eigrp_neighbor_policy_state_t *state;
-
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (enabled && !seconds)
+	switch (type) {
+	case EIGRP_NEIGHBOR_LOG_CHANGES:
+		if (state) {
+			state->log_changes_configured = true;
+			state->log_changes = enabled;
+		}
+		if (context->runtime)
+			context->runtime->log_neighbor_changes = enabled;
+		return EIGRP_RESULT_SUCCESS;
+	case EIGRP_NEIGHBOR_LOG_WARNINGS:
+		if (enabled && !seconds)
+			return EIGRP_RESULT_INVALID_ARGUMENT;
+		if (state) {
+			state->log_warnings_configured = true;
+			state->log_warnings = enabled;
+			state->log_warning_interval = seconds ? seconds : 10;
+		}
+		if (context->runtime) {
+			context->runtime->log_neighbor_warnings = enabled;
+			context->runtime->log_neighbor_warning_interval =
+				seconds ? seconds : 10;
+		}
+		/* Warning de-duplication/rate limiting is not yet wired. */
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_SUCCESS;
+	default:
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (context->config) {
-		state = eigrp_neighbor_policy_state_get(context->config);
-		if (!state)
-			return EIGRP_RESULT_INTERNAL_FAILURE;
-		state->log_warnings_configured = true;
-		state->log_warnings = enabled;
-		state->log_warning_interval = seconds ? seconds : 10;
 	}
-	if (context->runtime) {
-		context->runtime->log_neighbor_warnings = enabled;
-		context->runtime->log_neighbor_warning_interval =
-			seconds ? seconds : 10;
-	}
-	/* Warning de-duplication/rate limiting is not yet in the runtime path. */
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
 }
 
-/*
- * Syntax:
- *   Named: `eigrp log-neighbor-warnings [INTERVAL]` / `no eigrp log-neighbor-warnings`
- * Supported: Named
- * Placement:
- *   Named: address-family mode
- * Description:
- * Sets or removes neighbor-warning logging configuration.
- * The target keeps the real feature boundary and reports NOT_IMPLEMENTED if warning generation is not wired yet.
- */
-eigrp_result_t eigrp_neighbor_log_warnings_delete(
-	eigrp_instance_context_t *context)
+/* Restore the selected neighbor logging attribute to its default. */
+eigrp_result_t eigrp_neighbor_log_reset(eigrp_instance_context_t *context,
+					eigrp_neighbor_log_type_t type)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->neighbor_policy) {
-		context->config->neighbor_policy->log_warnings_configured = false;
-		context->config->neighbor_policy->log_warnings = true;
-		context->config->neighbor_policy->log_warning_interval = 10;
+
+	switch (type) {
+	case EIGRP_NEIGHBOR_LOG_CHANGES:
+		if (context->config && context->config->neighbor_policy) {
+			context->config->neighbor_policy->log_changes_configured = false;
+			context->config->neighbor_policy->log_changes = true;
+		}
+		if (context->runtime)
+			context->runtime->log_neighbor_changes = true;
+		return EIGRP_RESULT_SUCCESS;
+	case EIGRP_NEIGHBOR_LOG_WARNINGS:
+		if (context->config && context->config->neighbor_policy) {
+			context->config->neighbor_policy->log_warnings_configured = false;
+			context->config->neighbor_policy->log_warnings = true;
+			context->config->neighbor_policy->log_warning_interval = 10;
+		}
+		if (context->runtime) {
+			context->runtime->log_neighbor_warnings = true;
+			context->runtime->log_neighbor_warning_interval = 10;
+		}
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_SUCCESS;
+	default:
+		return EIGRP_RESULT_INVALID_ARGUMENT;
 	}
-	if (context->runtime) {
-		context->runtime->log_neighbor_warnings = true;
-		context->runtime->log_neighbor_warning_interval = 10;
-	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
 }
 
 void eigrp_neighbor_policy_delete_all(eigrp_address_family_config_t *af)

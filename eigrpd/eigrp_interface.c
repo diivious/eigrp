@@ -15,6 +15,7 @@
  */
 
 #include <stdlib.h>
+#include <assert.h>
 #include <string.h>
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
@@ -752,12 +753,14 @@ static void eigrp_interface_encoder_select(eigrp_interface_t *ei)
 	}
 
 	if (ei->tlv1_peer_count) {
-		eigrp_tlv1_interface_bind(ei, &ei->eigrp->tlv1_codec);
+		assert(ei->eigrp->tlv1_codec.encoder);
+		ei->encoder = ei->eigrp->tlv1_codec.encoder;
 		return;
 	}
 
 	if (ei->tlv2_peer_count) {
-		eigrp_tlv2_interface_bind(ei, &ei->eigrp->tlv2_codec);
+		assert(ei->eigrp->tlv2_codec.encoder);
+		ei->encoder = ei->eigrp->tlv2_codec.encoder;
 		return;
 	}
 

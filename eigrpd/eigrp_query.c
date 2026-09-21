@@ -129,7 +129,7 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &route->dest);
-			eigrp_log_debug("EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
+			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
 				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_query_unknown_reply_send(eigrp, nbr, route);
 			eigrp_topology_route_free(route);

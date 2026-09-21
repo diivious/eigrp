@@ -43,7 +43,7 @@ void eigrp_hello_timer(void *arg)
 	eigrp_interface_t *ei = arg;
 
 	if (IS_DEBUG_EIGRP(0, TIMERS))
-		eigrp_log_debug("Start Hello Timer (%s) Expire [%u]",
+		eigrp_log(EIGRP_LOG_DEBUG, "Start Hello Timer (%s) Expire [%u]",
 			   eigrp_intf_name_string(ei), ei->params.v_hello);
 
 	/* Passive interfaces retain the timer so a later `no passive-interface`
@@ -58,7 +58,7 @@ void eigrp_hello_timer(void *arg)
 
 	/* Hello timer set. */
 	eigrp_southbound_timer_add(&ei->t_hello, eigrp_hello_timer, ei,
-			    ei->params.v_hello);
+			    (uint32_t)ei->params.v_hello * 1000U);
 
 	return;
 }
@@ -133,7 +133,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		if (eigrp_nbr_state_get(nbr) != EIGRP_NEIGHBOR_DOWN) {
 			if ((param->K1 & param->K2 & param->K3 & param->K4 & param->K5) == 255) {
 				if (eigrp->log_neighbor_changes)
-					eigrp_log_info(
+					eigrp_log(EIGRP_LOG_INFO,
 						"Neighbor %s (%s) is down: Interface Goodbye received",
 						eigrp_print_addr(&nbr->src),
 						nbr->ei->name);
@@ -141,7 +141,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				return NULL;
 			} else {
 				if (eigrp->log_neighbor_changes)
-					eigrp_log_info(
+					eigrp_log(EIGRP_LOG_INFO,
 						"Neighbor %s (%s) is down: K-value mismatch",
 						eigrp_print_addr(&nbr->src),
 						nbr->ei->name);
@@ -184,9 +184,9 @@ static void eigrp_sw_version_decode(eigrp_neighbor_t *nbr,
 	 * currently supported peer uses classic TLV1 encoding.
 	 */
 	if (nbr->tlv_rel_major == EIGRP_TLV_64B_VERSION)
-		eigrp_tlv2_neighbor_bind(nbr, &ei->eigrp->tlv2_codec);
+		eigrp_neighbor_codec_bind(nbr, EIGRP_TLV_64B_VERSION);
 	else
-		eigrp_tlv1_neighbor_bind(nbr, &ei->eigrp->tlv1_codec);
+		eigrp_neighbor_codec_bind(nbr, EIGRP_TLV_32B_VERSION);
 }
 
 /**
@@ -210,7 +210,7 @@ static void eigrp_peer_termination_decode(eigrp_instance_t *eigrp,
 
 	if (my_ip == received_ip) {
 		if (eigrp->log_neighbor_changes)
-			eigrp_log_info("Neighbor %s (%s) is down: Peer Termination received",
+			eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: Peer Termination received",
 				  eigrp_print_addr(&nbr->src),
 				  nbr->ei->name);
 		/* set neighbor to DOWN */

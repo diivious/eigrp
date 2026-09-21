@@ -210,7 +210,7 @@ static int eigrp_packetizer_builder_route_add(
 	if (encoded > 0)
 		builder->route_count++;
 	else if (encoded < 0)
-		eigrp_log_warn("interface %s: EIGRP route TLV exceeds packet limit %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 			  builder->ei->name, builder->packet_limit);
 	return encoded > 0 ? encoded : 0;
 }

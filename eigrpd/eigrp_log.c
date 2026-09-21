@@ -5,25 +5,30 @@
 
 #include "eigrpd/eigrp_log.h"
 
-static void eigrp_log_vwrite(const char *level, const char *format, va_list ap)
+static const char *eigrp_log_level_name(eigrp_log_level_t level)
 {
-	if (level)
-		fprintf(stderr, "EIGRP %s: ", level);
+	switch (level) {
+	case EIGRP_LOG_DEBUG:
+		return "debug";
+	case EIGRP_LOG_INFO:
+		return "info";
+	case EIGRP_LOG_NOTICE:
+		return "notice";
+	case EIGRP_LOG_WARNING:
+		return "warning";
+	case EIGRP_LOG_ERROR:
+	default:
+		return "error";
+	}
+}
+
+void eigrp_log(eigrp_log_level_t level, const char *format, ...)
+{
+	va_list ap;
+
+	fprintf(stderr, "EIGRP %s: ", eigrp_log_level_name(level));
+	va_start(ap, format);
 	vfprintf(stderr, format, ap);
+	va_end(ap);
 	fputc('\n', stderr);
 }
-
-#define EIGRP_LOG_IMPL(NAME, LEVEL) \
-void NAME(const char *format, ...) \
-{ \
-	va_list ap; \
-	va_start(ap, format); \
-	eigrp_log_vwrite(LEVEL, format, ap); \
-	va_end(ap); \
-}
-
-EIGRP_LOG_IMPL(eigrp_log_debug, "debug")
-EIGRP_LOG_IMPL(eigrp_log_info, "info")
-EIGRP_LOG_IMPL(eigrp_log_notice, "notice")
-EIGRP_LOG_IMPL(eigrp_log_warn, "warning")
-EIGRP_LOG_IMPL(eigrp_log_error, "error")

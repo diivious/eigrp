@@ -74,7 +74,7 @@ def test_retransmission_timer_uses_neighbor_rto_and_backs_off_to_protocol_ceilin
     packet = read(PACKET)
 
     assert "eigrp_neighbor_rto_backoff(nbr);" in packet
-    assert "eigrp_southbound_timer_msec_add" in packet
+    assert "eigrp_southbound_timer_add" in packet
     assert "eigrp_neighbor_rto_get(nbr)" in packet
     assert "rto *= 2U;" in neighbor_c
     assert "EIGRP_TRANSPORT_RTO_MAX_MSEC" in neighbor_c

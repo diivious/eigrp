@@ -192,29 +192,19 @@ extern unsigned long conf_debug_eigrp_zebra;
 
 
 /* Non-packet debug targets. */
-extern eigrp_result_t eigrp_debug_event_set(bool detail,
-					 eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_event_reset(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_timers_set(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_timers_reset(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_fsm_set(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_fsm_reset(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_nsf_set(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_nsf_reset(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_fast_reroute_set(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_fast_reroute_reset(eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_neighbor_set(unsigned long flags,
-					    eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_neighbor_reset(unsigned long flags,
-					      eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_notifications_set(unsigned long flags,
-						 eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_notifications_reset(unsigned long flags,
-						   eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_transmit_set(unsigned long flags,
-					    eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_transmit_reset(unsigned long flags,
-					      eigrp_debug_scope_t scope);
+typedef enum eigrp_debug_target {
+	EIGRP_DEBUG_TARGET_GENERAL = 0,
+	EIGRP_DEBUG_TARGET_NEIGHBOR,
+	EIGRP_DEBUG_TARGET_NOTIFICATIONS,
+	EIGRP_DEBUG_TARGET_TRANSMIT
+} eigrp_debug_target_t;
+
+extern eigrp_result_t eigrp_debug_set(eigrp_debug_target_t target,
+				      unsigned long flags,
+				      eigrp_debug_scope_t scope);
+extern eigrp_result_t eigrp_debug_reset(eigrp_debug_target_t target,
+					unsigned long flags,
+					eigrp_debug_scope_t scope);
 
 typedef enum eigrp_debug_address_family_category {
 	EIGRP_DEBUG_AF_ROUTE = 0,

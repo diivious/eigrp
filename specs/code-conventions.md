@@ -143,6 +143,34 @@ and internal operation enums are acceptable when they remove duplicated code.
 Avoid vague public verbs such as `process`, `handle`, `do`, `run`, or `manage`
 when a protocol-specific action is available.
 
+### 4.1 Public API granularity
+
+A public symbol represents a semantic action, not every possible value of an
+attribute used by that action. If several public functions have the same
+contract and differ only by a level, category, codec family, time unit, or
+similar selector, prefer one public API with an EIGRP-owned typed selector or a
+single canonical unit.
+
+Examples:
+
+```c
+eigrp_log(EIGRP_LOG_WARNING, ...);
+eigrp_debug_set(EIGRP_DEBUG_TARGET_NEIGHBOR, flags, scope);
+eigrp_neighbor_codec_bind(nbr, tlv_version);
+eigrp_southbound_timer_add(event, callback, arg, delay_msec);
+```
+
+Do not apply this mechanically. Keep separate public functions when the
+operations have different ownership, lifecycle, side effects, argument
+contracts, or protocol meaning. Width-specific packet-buffer helpers may also
+remain separate when the typed operation makes wire code materially easier to
+read and audit.
+
+This rule does not replace the action rule above. `set/reset`, `add/remove`, and
+`create/delete` remain separate public actions when they represent distinct
+semantics. Do not collapse those actions into a public operation enum merely to
+reduce the symbol count.
+
 ## 5. Feature target rule
 
 Every CLI or management feature terminates at its own real EIGRP target

@@ -209,7 +209,7 @@ void eigrp_prefix_descriptor_add(eigrp_table_t *topology,
 		if (IS_DEBUG_EIGRP_EVENT) {
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &pe->destination);
-			eigrp_log_debug("%s: %s Should we have found this prefix in the topo table?",
+			eigrp_log(EIGRP_LOG_DEBUG, "%s: %s Should we have found this prefix in the topo table?",
 				   __func__, prefix_buf);
 		}
 		eigrp_table_node_release(rn);
@@ -219,9 +219,9 @@ void eigrp_prefix_descriptor_add(eigrp_table_t *topology,
 	if (IS_DEBUG_EIGRP_EVENT) {
 		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 				      &pe->destination);
-		eigrp_log_debug("EIGRP event: topology prefix add %s", prefix_buf);
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: topology prefix add %s", prefix_buf);
 		if (IS_DEBUG_EIGRP(0, DETAIL))
-			eigrp_log_debug("EIGRP event detail: prefix state %u distance %u fd %u rd %u",
+			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event detail: prefix state %u distance %u fd %u rd %u",
 				   pe->state, pe->distance, pe->fdistance,
 				   pe->rdistance);
 	}
@@ -268,9 +268,9 @@ void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 	if (IS_DEBUG_EIGRP_EVENT) {
 		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 				      &pe->destination);
-		eigrp_log_debug("EIGRP event: topology prefix delete %s", prefix_buf);
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: topology prefix delete %s", prefix_buf);
 		if (IS_DEBUG_EIGRP(0, DETAIL))
-			eigrp_log_debug("EIGRP event detail: AS %u prefix state %u distance %u fd %u rd %u",
+			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event detail: AS %u prefix state %u distance %u fd %u rd %u",
 				   eigrp->AS, pe->state, pe->distance,
 				   pe->fdistance, pe->rdistance);
 	}
@@ -507,7 +507,7 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		route->distance = eigrp_calculate_total_metrics(eigrp, route);
 		break;
 	default:
-		eigrp_log_error( "%s: Please implement handler",
+		eigrp_log(EIGRP_LOG_ERROR,  "%s: Please implement handler",
 			 __func__);
 		break;
 	}
@@ -579,7 +579,7 @@ void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
 
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &dest->destination);
-			eigrp_log_debug(
+			eigrp_log(EIGRP_LOG_DEBUG,
 				"EIGRP FRR AS %u prefix %s via %s: successor %s feasible-successor %s RD %u FD %u distance %u",
 				eigrp->AS, prefix_buf,
 				route->adv_router

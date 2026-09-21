@@ -52,7 +52,7 @@ void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 					      &route->dest);
-			eigrp_log_debug("EIGRP SIA-QUERY: Neighbor(%s) sent unknown prefix %s",
+			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP SIA-QUERY: Neighbor(%s) sent unknown prefix %s",
 				   eigrp_print_addr(&nbr->src), prefix_buf);
 			eigrp_topology_route_free(route);
 			continue;
@@ -105,4 +105,3 @@ void eigrp_siaquery_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	work->owner = prefix;
 	eigrp_packetizer_enqueue(eigrp, work);
 }
-

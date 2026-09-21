@@ -55,10 +55,7 @@ void eigrp_southbound_event_add(eigrp_event_t **event,
                                 eigrp_event_callback_t callback, void *arg);
 void eigrp_southbound_timer_add(eigrp_event_t **event,
                                 eigrp_event_callback_t callback, void *arg,
-                                uint32_t seconds);
-void eigrp_southbound_timer_msec_add(eigrp_event_t **event,
-                                     eigrp_event_callback_t callback, void *arg,
-                                     uint32_t milliseconds);
+                                uint32_t delay_msec);
 void eigrp_southbound_read_add(eigrp_event_t **event, int fd,
                                eigrp_event_callback_t callback, void *arg);
 void eigrp_southbound_write_add(eigrp_event_t **event, int fd,

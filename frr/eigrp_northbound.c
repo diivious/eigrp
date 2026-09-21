@@ -1911,7 +1911,7 @@ static int eigrpd_named_neighbor_prefix_limit_all_destroy(struct nb_cb_destroy_a
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_neighbor_log_changes_update()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_neighbor_log_set()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
  */
@@ -1921,8 +1921,9 @@ static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *ar
     if (args->event != NB_EV_APPLY) return NB_OK;
     if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_neighbor_log_changes_update(
-        &context, yang_dnode_get_bool(args->dnode, NULL)), false);
+    return eigrpd_named_config_result(eigrp_neighbor_log_set(
+        &context, EIGRP_NEIGHBOR_LOG_CHANGES,
+        yang_dnode_get_bool(args->dnode, NULL), 0), false);
 }
 /*
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
@@ -1930,7 +1931,7 @@ static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *ar
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_neighbor_log_changes_reset()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_neighbor_log_reset()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
  */
@@ -1940,7 +1941,7 @@ static int eigrpd_named_log_neighbor_changes_destroy(struct nb_cb_destroy_args *
     if (args->event != NB_EV_APPLY) return NB_OK;
     if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_neighbor_log_changes_reset(&context), true);
+    return eigrpd_named_config_result(eigrp_neighbor_log_reset(&context, EIGRP_NEIGHBOR_LOG_CHANGES), true);
 }
 
 static int eigrpd_named_log_neighbor_warnings_apply(const struct lyd_node *dnode)
@@ -1951,7 +1952,7 @@ static int eigrpd_named_log_neighbor_warnings_apply(const struct lyd_node *dnode
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
     enabled = yang_dnode_get_bool(dnode, "enabled");
     if (yang_dnode_exists(dnode, "interval")) seconds = yang_dnode_get_uint16(dnode, "interval");
-    return eigrpd_named_config_result(eigrp_neighbor_log_warnings_update(&context, enabled, seconds), false);
+    return eigrpd_named_config_result(eigrp_neighbor_log_set(&context, EIGRP_NEIGHBOR_LOG_WARNINGS, enabled, seconds), false);
 }
 /*
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
@@ -1995,7 +1996,7 @@ static int eigrpd_named_log_neighbor_warnings_interval_destroy(struct nb_cb_dest
 }
 /*
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
- * Target: eigrpd_named_log_neighbor_warnings_apply() -> eigrp_neighbor_log_warnings_update()
+ * Target: eigrpd_named_log_neighbor_warnings_apply() -> eigrp_neighbor_log_set()
  * Description:
  * This is the `apply_finish` northbound callback for the `log neighbor warnings` configuration
  * node.
@@ -2004,7 +2005,7 @@ static int eigrpd_named_log_neighbor_warnings_interval_destroy(struct nb_cb_dest
  * This callback runs at APPLY_FINISH so multi-leaf configuration is presented to the target as
  * one settled command state.
  * The runtime path terminates at `eigrpd_named_log_neighbor_warnings_apply() ->
- * eigrp_neighbor_log_warnings_update()` rather than duplicating EIGRP behavior in the FRR
+ * eigrp_neighbor_log_set()` rather than duplicating EIGRP behavior in the FRR
  * northbound layer.
  * This is named-mode configuration, so host and YANG objects stop at this boundary and the
  * protocol work stays in EIGRP-owned code.
@@ -2021,7 +2022,7 @@ static void eigrpd_named_log_neighbor_warnings_apply_finish(struct nb_cb_apply_f
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_neighbor_log_warnings_delete()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_neighbor_log_reset()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
  */
@@ -2031,7 +2032,7 @@ static int eigrpd_named_log_neighbor_warnings_destroy(struct nb_cb_destroy_args 
     if (args->event != NB_EV_APPLY) return NB_OK;
     if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn)
         || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context)) return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_neighbor_log_warnings_delete(&context), true);
+    return eigrpd_named_config_result(eigrp_neighbor_log_reset(&context, EIGRP_NEIGHBOR_LOG_WARNINGS), true);
 }
 
 static int eigrpd_named_config_result(eigrp_result_t result, bool removing)

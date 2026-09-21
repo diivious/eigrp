@@ -216,9 +216,8 @@ def test_neighbor_policy_targets_retain_configuration_and_logging_state():
     maximum_prefix_all = function_body(
         source, "eigrp_neighbor_maximum_prefix_all_update"
     )
-    log_changes = function_body(source, "eigrp_neighbor_log_changes_update")
-    log_reset = function_body(source, "eigrp_neighbor_log_changes_reset")
-    log_warnings = function_body(source, "eigrp_neighbor_log_warnings_update")
+    log_set = function_body(source, "eigrp_neighbor_log_set")
+    log_reset = function_body(source, "eigrp_neighbor_log_reset")
 
     assert "entry->description = copy;" in description
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in description
@@ -229,15 +228,18 @@ def test_neighbor_policy_targets_retain_configuration_and_logging_state():
     assert "state->maximum_prefix_all = *limit;" in maximum_prefix_all
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" in maximum_prefix_all
 
-    assert "state->log_changes = enabled;" in log_changes
-    assert "context->runtime->log_neighbor_changes = enabled;" in log_changes
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in log_changes
-    assert "context->runtime->log_neighbor_changes = true;" in log_reset
-    assert "eigrp_neighbor_log_changes_reset(&context)" in northbound
+    assert "case EIGRP_NEIGHBOR_LOG_CHANGES:" in log_set
+    assert "state->log_changes = enabled;" in log_set
+    assert "context->runtime->log_neighbor_changes = enabled;" in log_set
+    assert "case EIGRP_NEIGHBOR_LOG_WARNINGS:" in log_set
+    assert "state->log_warnings = enabled;" in log_set
+    assert "context->runtime->log_neighbor_warning_interval" in log_set
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in log_set
 
-    assert "state->log_warnings = enabled;" in log_warnings
-    assert "context->runtime->log_neighbor_warning_interval" in log_warnings
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in log_warnings
+    assert "case EIGRP_NEIGHBOR_LOG_CHANGES:" in log_reset
+    assert "context->runtime->log_neighbor_changes = true;" in log_reset
+    assert "case EIGRP_NEIGHBOR_LOG_WARNINGS:" in log_reset
+    assert "eigrp_neighbor_log_reset(&context, EIGRP_NEIGHBOR_LOG_CHANGES)" in northbound
 
 
 def test_neighbor_change_logging_switch_guards_adjacency_messages():
@@ -290,8 +292,8 @@ def test_item5_northbound_commands_terminate_at_module_targets():
         "eigrp_neighbor_description_update",
         "eigrp_neighbor_maximum_prefix_update",
         "eigrp_neighbor_maximum_prefix_all_update",
-        "eigrp_neighbor_log_changes_update",
-        "eigrp_neighbor_log_warnings_update",
+        "eigrp_neighbor_log_set",
+        "eigrp_neighbor_log_reset",
     )
     for target in targets:
         assert target in northbound

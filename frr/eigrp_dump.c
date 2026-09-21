@@ -494,8 +494,10 @@ DEFUN(debug_eigrp_event, debug_eigrp_event_cmd,
 {
 	int idx = 0;
 
-	return eigrp_debug_cli_result(eigrp_debug_event_set(
-		argv_find(argv, argc, "detail", &idx), eigrp_debug_cli_scope(vty)));
+	return eigrp_debug_cli_result(eigrp_debug_set(EIGRP_DEBUG_TARGET_GENERAL,
+		EIGRP_DEBUG_EVENT | (argv_find(argv, argc, "detail", &idx)
+				     ? EIGRP_DEBUG_DETAIL : 0),
+		eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(no_debug_eigrp_event, no_debug_eigrp_event_cmd,
@@ -505,7 +507,9 @@ DEFUN(no_debug_eigrp_event, no_debug_eigrp_event_cmd,
       "Detailed information\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_event_reset(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_reset(EIGRP_DEBUG_TARGET_GENERAL,
+			 EIGRP_DEBUG_EVENT | EIGRP_DEBUG_DETAIL,
+			 eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(debug_eigrp_timers, debug_eigrp_timers_cmd,
@@ -513,7 +517,8 @@ DEFUN(debug_eigrp_timers, debug_eigrp_timers_cmd,
       DEBUG_STR EIGRP_STR "EIGRP timer debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_timers_set(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_set(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_TIMERS,
+			eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(no_debug_eigrp_timers, no_debug_eigrp_timers_cmd,
@@ -521,7 +526,8 @@ DEFUN(no_debug_eigrp_timers, no_debug_eigrp_timers_cmd,
       NO_STR UNDEBUG_STR EIGRP_STR "EIGRP timer debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_timers_reset(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_reset(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_TIMERS,
+			  eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(debug_eigrp_fsm, debug_eigrp_fsm_cmd,
@@ -529,7 +535,8 @@ DEFUN(debug_eigrp_fsm, debug_eigrp_fsm_cmd,
       DEBUG_STR EIGRP_STR "EIGRP DUAL finite-state-machine debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_fsm_set(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_set(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_FSM,
+			eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(no_debug_eigrp_fsm, no_debug_eigrp_fsm_cmd,
@@ -537,7 +544,8 @@ DEFUN(no_debug_eigrp_fsm, no_debug_eigrp_fsm_cmd,
       NO_STR UNDEBUG_STR EIGRP_STR "EIGRP DUAL finite-state-machine debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_fsm_reset(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_reset(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_FSM,
+			  eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(debug_eigrp_nsf, debug_eigrp_nsf_cmd,
@@ -545,7 +553,8 @@ DEFUN(debug_eigrp_nsf, debug_eigrp_nsf_cmd,
       DEBUG_STR EIGRP_STR "EIGRP NSF/graceful-restart debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_nsf_set(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_set(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_NSF,
+			eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(no_debug_eigrp_nsf, no_debug_eigrp_nsf_cmd,
@@ -553,7 +562,8 @@ DEFUN(no_debug_eigrp_nsf, no_debug_eigrp_nsf_cmd,
       NO_STR UNDEBUG_STR EIGRP_STR "EIGRP NSF/graceful-restart debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_nsf_reset(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_reset(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_NSF,
+			  eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(debug_eigrp_frr, debug_eigrp_frr_cmd,
@@ -561,7 +571,8 @@ DEFUN(debug_eigrp_frr, debug_eigrp_frr_cmd,
       DEBUG_STR EIGRP_STR "EIGRP fast-reroute debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_fast_reroute_set(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_set(EIGRP_DEBUG_TARGET_GENERAL, EIGRP_DEBUG_FAST_REROUTE,
+			eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(no_debug_eigrp_frr, no_debug_eigrp_frr_cmd,
@@ -569,7 +580,9 @@ DEFUN(no_debug_eigrp_frr, no_debug_eigrp_frr_cmd,
       NO_STR UNDEBUG_STR EIGRP_STR "EIGRP fast-reroute debugging\n")
 {
 	return eigrp_debug_cli_result(
-		eigrp_debug_fast_reroute_reset(eigrp_debug_cli_scope(vty)));
+		eigrp_debug_reset(EIGRP_DEBUG_TARGET_GENERAL,
+			  EIGRP_DEBUG_FAST_REROUTE,
+			  eigrp_debug_cli_scope(vty)));
 }
 
 static unsigned long eigrp_debug_neighbor_flags(int argc,
@@ -592,7 +605,7 @@ DEFUN(debug_eigrp_neighbor, debug_eigrp_neighbor_cmd,
       "Stuck-in-active timer messages\n"
       "Static-neighbor messages\n")
 {
-	return eigrp_debug_cli_result(eigrp_debug_neighbor_set(
+	return eigrp_debug_cli_result(eigrp_debug_set(EIGRP_DEBUG_TARGET_NEIGHBOR,
 		eigrp_debug_neighbor_flags(argc, argv), eigrp_debug_cli_scope(vty)));
 }
 
@@ -603,7 +616,7 @@ DEFUN(no_debug_eigrp_neighbor, no_debug_eigrp_neighbor_cmd,
       "Stuck-in-active timer messages\n"
       "Static-neighbor messages\n")
 {
-	return eigrp_debug_cli_result(eigrp_debug_neighbor_reset(
+	return eigrp_debug_cli_result(eigrp_debug_reset(EIGRP_DEBUG_TARGET_NEIGHBOR,
 		eigrp_debug_neighbor_flags(argc, argv), eigrp_debug_cli_scope(vty)));
 }
 
@@ -620,7 +633,8 @@ DEFUN(debug_eigrp_notifications, debug_eigrp_notifications_cmd,
 				      : EIGRP_DEBUG_NOTIFICATION_INTERFACE;
 
 	return eigrp_debug_cli_result(
-		eigrp_debug_notifications_set(flags, eigrp_debug_cli_scope(vty)));
+		eigrp_debug_set(EIGRP_DEBUG_TARGET_NOTIFICATIONS, flags,
+			eigrp_debug_cli_scope(vty)));
 }
 
 DEFUN(no_debug_eigrp_notifications, no_debug_eigrp_notifications_cmd,
@@ -636,7 +650,8 @@ DEFUN(no_debug_eigrp_notifications, no_debug_eigrp_notifications_cmd,
 				      : EIGRP_DEBUG_NOTIFICATION_INTERFACE;
 
 	return eigrp_debug_cli_result(
-		eigrp_debug_notifications_reset(flags, eigrp_debug_cli_scope(vty)));
+		eigrp_debug_reset(EIGRP_DEBUG_TARGET_NOTIFICATIONS, flags,
+			  eigrp_debug_cli_scope(vty)));
 }
 
 static unsigned long eigrp_debug_transmit_flags(int argc,
@@ -687,7 +702,7 @@ DEFUN(debug_eigrp_transmit, debug_eigrp_transmit_cmd,
       "Peer startup and initialization\n"
       "Unusual packet-processing events\n")
 {
-	return eigrp_debug_cli_result(eigrp_debug_transmit_set(
+	return eigrp_debug_cli_result(eigrp_debug_set(EIGRP_DEBUG_TARGET_TRANSMIT,
 		eigrp_debug_transmit_flags(argc, argv), eigrp_debug_cli_scope(vty)));
 }
 
@@ -705,7 +720,7 @@ DEFUN(no_debug_eigrp_transmit, no_debug_eigrp_transmit_cmd,
       "Peer startup and initialization\n"
       "Unusual packet-processing events\n")
 {
-	return eigrp_debug_cli_result(eigrp_debug_transmit_reset(
+	return eigrp_debug_cli_result(eigrp_debug_reset(EIGRP_DEBUG_TARGET_TRANSMIT,
 		eigrp_debug_transmit_flags(argc, argv), eigrp_debug_cli_scope(vty)));
 }
 
@@ -1104,4 +1119,3 @@ void eigrp_debug_init(void)
 	EIGRP_INSTALL_DEBUG_NODE(CONFIG_NODE);
 #undef EIGRP_INSTALL_DEBUG_NODE
 }
-

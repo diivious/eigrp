@@ -69,16 +69,22 @@ def test_packet_owns_safe_and_both_vectors():
     assert "eigrp->tlv2_codec.encoder" in packet
 
 
-def test_tlv_modules_export_init_and_bind_without_leaking_wire_types():
+def test_tlv_modules_export_only_codec_init_without_leaking_wire_types():
     tlv1_h = read("eigrp_tlv1.h")
     tlv2_h = read("eigrp_tlv2.h")
 
     for header in (tlv1_h, tlv2_h):
         assert "eigrp_tlv_codec_t" in header
-        assert "neighbor_bind" in header
-        assert "interface_bind" in header
+        assert "_init" in header
+        assert "neighbor_bind" not in header
+        assert "interface_bind" not in header
         assert "struct eigrp_tlv1" not in header
         assert "struct eigrp_tlv2" not in header
+
+    neighbor_h = read("eigrp_neighbor.h")
+    hello = read("eigrp_hello.c")
+    assert "eigrp_neighbor_codec_bind" in neighbor_h
+    assert "eigrp_neighbor_codec_bind" in hello
 
 
 def test_route_tlv_codecs_delegate_address_family_wire_details():

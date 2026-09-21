@@ -77,11 +77,11 @@ static void eigrp_southbound_event_run(struct event *host_event)
 	void *arg;
 
 	if (!event) {
-		eigrp_log_error("FRR event callback has no EIGRP event context");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR event callback has no EIGRP event context");
 		return;
 	}
 	if (!event->callback) {
-		eigrp_log_error("FRR event callback has no bound EIGRP callback");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR event callback has no bound EIGRP callback");
 		if (event->owner && *event->owner == event)
 			*event->owner = NULL;
 		event->host_event = NULL;
@@ -105,11 +105,11 @@ static eigrp_event_t *eigrp_southbound_event_prepare(
 	eigrp_event_t *event;
 
 	if (!owner) {
-		eigrp_log_error("FRR event registration has no EIGRP event owner");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR event registration has no EIGRP event owner");
 		return NULL;
 	}
 	if (!callback) {
-		eigrp_log_error("FRR event registration has no EIGRP callback");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR event registration has no EIGRP callback");
 		return NULL;
 	}
 
@@ -148,24 +148,13 @@ void eigrp_southbound_event_add(eigrp_event_t **owner,
 
 void eigrp_southbound_timer_add(eigrp_event_t **owner,
 				eigrp_event_callback_t callback, void *arg,
-				uint32_t seconds)
-{
-	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
-
-	if (event)
-		event_add_timer(eigrpd_event, eigrp_southbound_event_run, event, seconds,
-				&event->host_event);
-}
-
-void eigrp_southbound_timer_msec_add(eigrp_event_t **owner,
-				     eigrp_event_callback_t callback, void *arg,
-				     uint32_t milliseconds)
+				uint32_t delay_msec)
 {
 	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
 
 	if (event)
 		event_add_timer_msec(eigrpd_event, eigrp_southbound_event_run, event,
-				     milliseconds, &event->host_event);
+				     delay_msec, &event->host_event);
 }
 
 void eigrp_southbound_read_add(eigrp_event_t **owner, int fd,
@@ -218,16 +207,16 @@ static wq_item_status eigrp_work_queue_host_run(struct work_queue *host_queue,
 	eigrp_work_queue_result_t result;
 
 	if (!host_queue) {
-		eigrp_log_error("FRR work-queue callback has no host queue");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue callback has no host queue");
 		return WQ_SUCCESS;
 	}
 	queue = host_queue->spec.data;
 	if (!queue) {
-		eigrp_log_error("FRR work-queue callback has no EIGRP queue context");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue callback has no EIGRP queue context");
 		return WQ_SUCCESS;
 	}
 	if (!queue->workfunc) {
-		eigrp_log_error("FRR work queue %s has no bound EIGRP worker",
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work queue %s has no bound EIGRP worker",
 				queue->name ? queue->name : "<unnamed>");
 		return WQ_SUCCESS;
 	}
@@ -269,15 +258,15 @@ eigrp_work_queue_t *eigrp_work_queue_new(eigrp_instance_t *eigrp,
 	eigrp_work_queue_t *queue;
 
 	if (!eigrp) {
-		eigrp_log_error("FRR work-queue registration has no EIGRP instance");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue registration has no EIGRP instance");
 		return NULL;
 	}
 	if (!name || !name[0]) {
-		eigrp_log_error("FRR work-queue registration has no queue name");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue registration has no queue name");
 		return NULL;
 	}
 	if (!workfunc) {
-		eigrp_log_error("FRR work-queue registration %s has no worker", name);
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue registration %s has no worker", name);
 		return NULL;
 	}
 
@@ -315,16 +304,16 @@ void eigrp_work_queue_reset(eigrp_work_queue_t *queue)
 void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data)
 {
 	if (!queue) {
-		eigrp_log_error("FRR work-queue enqueue has no EIGRP queue");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue enqueue has no EIGRP queue");
 		return;
 	}
 	if (!queue->host_queue) {
-		eigrp_log_error("FRR work-queue enqueue %s has no host queue",
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue enqueue %s has no host queue",
 				queue->name ? queue->name : "<unnamed>");
 		return;
 	}
 	if (!data) {
-		eigrp_log_error("FRR work-queue enqueue %s has no work item",
+		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue enqueue %s has no work item",
 				queue->name ? queue->name : "<unnamed>");
 		return;
 	}
@@ -542,7 +531,7 @@ eigrp_result_t eigrp_southbound_interface_walk(
 	FOR_ALL_INTERFACES (vrf, ifp) {
 		frr_each (if_connected, ifp->connected, co) {
 			if (!co->address) {
-				eigrp_log_error(
+				eigrp_log(EIGRP_LOG_ERROR,
 					"FRR interface walk %s[%u] has a connected entry with no address",
 					ifp->name, ifp->ifindex);
 				continue;
@@ -551,7 +540,7 @@ eigrp_result_t eigrp_southbound_interface_walk(
 				    ifp, co->address,
 				    CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY),
 				    &state) != EIGRP_RESULT_SUCCESS) {
-				eigrp_log_error(
+				eigrp_log(EIGRP_LOG_ERROR,
 					"FRR interface walk could not normalize %s[%u] address family %u/%u",
 					ifp->name, ifp->ifindex,
 					(unsigned)co->address->family,
@@ -571,7 +560,7 @@ static void eigrp_southbound_interface_notify(struct interface *ifp)
 	struct connected *co;
 
 	if (!ifp) {
-		eigrp_log_error("FRR interface notification has no interface object");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR interface notification has no interface object");
 		return;
 	}
 	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
@@ -579,7 +568,7 @@ static void eigrp_southbound_interface_notify(struct interface *ifp)
 
 	frr_each (if_connected, ifp->connected, co) {
 		if (!co->address) {
-			eigrp_log_error(
+			eigrp_log(EIGRP_LOG_ERROR,
 				"FRR interface notification %s[%u] has a connected entry with no address",
 				ifp->name, ifp->ifindex);
 			continue;
@@ -588,7 +577,7 @@ static void eigrp_southbound_interface_notify(struct interface *ifp)
 			    ifp, co->address,
 			    CHECK_FLAG(co->flags, ZEBRA_IFA_SECONDARY), &state)
 		    != EIGRP_RESULT_SUCCESS) {
-			eigrp_log_error(
+			eigrp_log(EIGRP_LOG_ERROR,
 				"FRR interface notification could not normalize %s[%u] address family %u/%u",
 				ifp->name, ifp->ifindex,
 				(unsigned)co->address->family,
@@ -616,7 +605,7 @@ static int eigrp_southbound_if_down(struct interface *ifp)
 	eigrp_vrf_id_t vrf_id;
 
 	if (!ifp) {
-		eigrp_log_error("FRR interface-down notification has no interface object");
+		eigrp_log(EIGRP_LOG_ERROR, "FRR interface-down notification has no interface object");
 		return 0;
 	}
 	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
@@ -632,7 +621,7 @@ static int eigrp_southbound_if_unreal(struct interface *ifp)
 	eigrp_vrf_id_t vrf_id;
 
 	if (!ifp) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"FRR interface-delete notification has no interface object");
 		return 0;
 	}

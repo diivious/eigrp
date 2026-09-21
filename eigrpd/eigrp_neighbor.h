@@ -146,8 +146,7 @@ extern int eigrp_neighborship_check(eigrp_neighbor_t *,
 				    struct TLV_Parameter_Type *tlv);
 extern void eigrp_nbr_state_update(eigrp_neighbor_t *);
 extern void eigrp_nbr_state_set(eigrp_neighbor_t *, uint8_t state);
-extern void eigrp_neighbor_encoder_bind(eigrp_neighbor_t *, eigrp_tlv_codec_t *);
-extern void eigrp_neighbor_decoder_bind(eigrp_neighbor_t *, eigrp_tlv_codec_t *);
+extern void eigrp_neighbor_codec_bind(eigrp_neighbor_t *, uint8_t tlv_version);
 extern uint8_t eigrp_nbr_state_get(eigrp_neighbor_t *);
 extern int eigrp_nbr_count_get(eigrp_instance_t *);
 extern const char *eigrp_nbr_state_str(eigrp_neighbor_t *);
@@ -198,14 +197,16 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
 eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
 	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_neighbor_log_changes_update(
-	eigrp_instance_context_t *context, bool enabled);
-eigrp_result_t eigrp_neighbor_log_changes_reset(
-	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_neighbor_log_warnings_update(
-	eigrp_instance_context_t *context, bool enabled, uint16_t seconds);
-eigrp_result_t eigrp_neighbor_log_warnings_delete(
-	eigrp_instance_context_t *context);
+typedef enum eigrp_neighbor_log_type {
+	EIGRP_NEIGHBOR_LOG_CHANGES = 0,
+	EIGRP_NEIGHBOR_LOG_WARNINGS
+} eigrp_neighbor_log_type_t;
+
+eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context,
+				      eigrp_neighbor_log_type_t type,
+				      bool enabled, uint16_t seconds);
+eigrp_result_t eigrp_neighbor_log_reset(eigrp_instance_context_t *context,
+					eigrp_neighbor_log_type_t type);
 void eigrp_neighbor_policy_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* _ZEBRA_EIGRP_NEIGHBOR_H */

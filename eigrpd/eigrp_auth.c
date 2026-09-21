@@ -100,7 +100,7 @@ int eigrp_check_md5_digest(eigrp_stream_t *s,
 	uint16_t saved_checksum;
 
 	if (ntohl(nbr->crypt_seqnum) > ntohl(authTLV->key_sequence)) {
-		eigrp_log_warn(
+		eigrp_log(EIGRP_LOG_WARNING,
 			"interface %s: eigrp_check_md5 bad sequence %d (expect %d)",
 			eigrp_intf_name_string(nbr->ei), ntohl(authTLV->key_sequence),
 			ntohl(nbr->crypt_seqnum));
@@ -122,7 +122,7 @@ int eigrp_check_md5_digest(eigrp_stream_t *s,
 
 	if (!eigrp_southbound_auth_key_lookup(nbr->ei->params.auth_keychain, &key_id,
 	                                       key_string, sizeof(key_string))) {
-		eigrp_log_warn(
+		eigrp_log(EIGRP_LOG_WARNING,
 			"Interface %s: Expected key value not found in config",
 			nbr->ei->name);
 		memcpy(auth_TLV->digest, orig, EIGRP_AUTH_TYPE_MD5_LEN);
@@ -164,7 +164,7 @@ int eigrp_check_md5_digest(eigrp_stream_t *s,
 	eigrph->checksum = saved_checksum;
 
 	if (memcmp(orig, digest, EIGRP_AUTH_TYPE_MD5_LEN) != 0) {
-		eigrp_log_warn("interface %s: eigrp_check_md5 checksum mismatch",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: eigrp_check_md5 checksum mismatch",
 			  eigrp_intf_name_string(nbr->ei));
 		return 0;
 	}
@@ -202,7 +202,7 @@ int eigrp_make_sha256_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 
 	if (!eigrp_southbound_auth_key_lookup(ei->params.auth_keychain, &key_id,
 	                                       key_string, sizeof(key_string))) {
-		eigrp_log_warn(
+		eigrp_log(EIGRP_LOG_WARNING,
 			"Interface %s: Expected key value not found in config",
 			ei->name);
 		eigrp_authTLV_SHA256_free(auth_TLV);

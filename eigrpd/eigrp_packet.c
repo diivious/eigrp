@@ -273,7 +273,7 @@ static void eigrp_packet_retransmit_limit_exceeded(eigrp_neighbor_t *nbr)
 		return;
 
 	if (nbr->ei->eigrp->log_neighbor_changes)
-		eigrp_log_info("Neighbor %s (%s) is down: retry limit exceeded",
+		eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: retry limit exceeded",
 			  eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
 					 sizeof(address)),
 			  nbr->ei->name);
@@ -312,7 +312,7 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 				char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
 				if (eigrp->log_neighbor_changes)
-					eigrp_log_info("Neighbor %s (%s) is up: new adjacency",
+					eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is up: new adjacency",
 						  eigrp_packet_addr_text(eigrp, &nbr->src,
 								 address, sizeof(address)),
 						  nbr->ei->name);
@@ -417,13 +417,13 @@ void eigrp_packet_write(void *arg)
 	/* Get one packet from queue. */
 	packet = eigrp_packet_queue_next(ei->obuf);
 	if (!packet) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			 "%s: Interface %s no packet on queue?", __func__,
 			 ei->name);
 		goto out;
 	}
 	if (packet->length < EIGRP_HEADER_LEN) {
-		eigrp_log_error( "%s: Packet just has a header?",
+		eigrp_log(EIGRP_LOG_ERROR,  "%s: Packet just has a header?",
 			 __func__);
 		eigrp_debug_header_dump((const eigrp_header_t *)packet->s->data);
 		eigrp_packet_delete(ei);
@@ -447,7 +447,7 @@ void eigrp_packet_write(void *arg)
 		char destination[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
 		eigrph = (struct eigrp_header *)eigrp_stream_data(packet->s);
-		eigrp_log_debug(
+		eigrp_log(EIGRP_LOG_DEBUG,
 			"Sending [%s][%d/%d] to [%s] via [%s] ret [%d].",
 			eigrp_message_lookup(eigrp_packet_type_str, eigrph->opcode, NULL),
 			seqno, ack,
@@ -513,7 +513,7 @@ void eigrp_packet_read(void *arg)
 		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE)) {
 			char destination[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
-			eigrp_log_debug(
+			eigrp_log(EIGRP_LOG_DEBUG,
 				"ignoring packet from router %u sent to %s, received on passive interface %s",
 				ntohs(eigrph->vrid),
 				eigrp_packet_addr_text(eigrp, &dst, destination,
@@ -532,7 +532,7 @@ void eigrp_packet_read(void *arg)
 		if (IS_DEBUG_EIGRP_TRANSMIT(0, STRANGE)) {
 			char source[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
-			eigrp_log_debug("eigrp_packet_read[%s]: Header check failed, dropping.",
+			eigrp_log(EIGRP_LOG_DEBUG, "eigrp_packet_read[%s]: Header check failed, dropping.",
 				   eigrp_packet_addr_text(eigrp, &src, source,
 							  sizeof(source)));
 		}
@@ -549,7 +549,7 @@ void eigrp_packet_read(void *arg)
 		eigrp_packet_addr_text(eigrp, &src, source_text, sizeof(source_text));
 		eigrp_packet_addr_text(eigrp, &dst, destination_text,
 				       sizeof(destination_text));
-		eigrp_log_debug(
+		eigrp_log(EIGRP_LOG_DEBUG,
 			"Received [%s][%d/%d] length [%u] via [%s] src [%s] dst [%s]",
 			eigrp_message_lookup(eigrp_packet_type_str, opcode, NULL),
 			ntohl(eigrph->sequence), ntohl(eigrph->ack), length,
@@ -638,7 +638,7 @@ void eigrp_packet_read(void *arg)
 		eigrp_update_receive(eigrp, nbr, eigrph, ibuf, ei, length);
 		break;
 	default:
-		eigrp_log_warn("interface %s: EIGRP packet header type %d unsupported",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP packet header type %d unsupported",
 			  eigrp_intf_name_string(ei), opcode);
 		break;
 	}
@@ -808,12 +808,12 @@ void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
 	if (IS_DEBUG_EIGRP(0, TIMERS)) {
 		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
-		eigrp_log_debug("EIGRP: start retransmit timer nbr %s seq %u interval %u ms",
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: start retransmit timer nbr %s seq %u interval %u ms",
 			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src,
 						  address, sizeof(address)),
 			   packet->sequence_number, rto_msec);
 	}
-	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
+	eigrp_southbound_timer_add(&packet->t_retrans_timer,
 				 eigrp_packet_unack_retrans, nbr, rto_msec);
 }
 
@@ -888,7 +888,7 @@ void eigrp_packet_header_init(int type, eigrp_instance_t *eigrp, eigrp_stream_t 
 	eigrph->flags = htonl(flags);
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, BUILD))
-		eigrp_log_debug("Packet Header Init Seq [%u] Ack [%u]",
+		eigrp_log(EIGRP_LOG_DEBUG, "Packet Header Init Seq [%u] Ack [%u]",
 			   htonl(eigrph->sequence), htonl(eigrph->ack));
 
 	eigrp_stream_forward_endp(s, EIGRP_HEADER_LEN);
@@ -992,7 +992,7 @@ static int eigrp_packet_auth_tlv_validate(eigrp_interface_t *ei,
 	auth_length = ntohs(((struct TLV_MD5_Authentication_Type *)auth_tlv)->auth_length);
 
 	if (auth_type != ei->params.auth_type) {
-		eigrp_log_warn("interface %s: EIGRP authentication type mismatch: received %u expected %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication type mismatch: received %u expected %u",
 			  eigrp_intf_name_string(ei), auth_type, ei->params.auth_type);
 		return -1;
 	}
@@ -1009,7 +1009,7 @@ static int eigrp_packet_auth_tlv_validate(eigrp_interface_t *ei,
 			return -1;
 		return 0;
 	default:
-		eigrp_log_warn("interface %s: unsupported EIGRP authentication type %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: unsupported EIGRP authentication type %u",
 			  eigrp_intf_name_string(ei), auth_type);
 		return -1;
 	}
@@ -1025,14 +1025,14 @@ static int eigrp_packet_auth_header_validate(eigrp_interface_t *ei,
 
 	ret = eigrp_packet_auth_tlv_find(eigrph, length, &auth_tlv, &auth_first);
 	if (ret < 0) {
-		eigrp_log_warn("interface %s: malformed EIGRP TLV framing",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: malformed EIGRP TLV framing",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
 
 	if (ei->params.auth_type == EIGRP_AUTH_TYPE_NONE) {
 		if (auth_tlv) {
-			eigrp_log_warn("interface %s: EIGRP authentication TLV received on unauthenticated interface",
+			eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication TLV received on unauthenticated interface",
 				  eigrp_intf_name_string(ei));
 			return -1;
 		}
@@ -1040,19 +1040,19 @@ static int eigrp_packet_auth_header_validate(eigrp_interface_t *ei,
 	}
 
 	if (!ei->params.auth_keychain) {
-		eigrp_log_warn("interface %s: EIGRP authentication configured without keychain",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication configured without keychain",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
 
 	if (!auth_tlv) {
-		eigrp_log_warn("interface %s: EIGRP authenticated interface received packet without auth TLV",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authenticated interface received packet without auth TLV",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
 
 	if (!auth_first) {
-		eigrp_log_warn("interface %s: EIGRP authentication TLV is not first TLV",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication TLV is not first TLV",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
@@ -1091,7 +1091,7 @@ static int eigrp_packet_auth_digest_validate(eigrp_interface_t *ei,
 		return -1;
 
 	if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256) {
-		eigrp_log_warn("interface %s: EIGRP SHA256 authentication receive validation is not implemented",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP SHA256 authentication receive validation is not implemented",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
@@ -1116,7 +1116,7 @@ static int eigrp_packet_auth_digest_validate(eigrp_interface_t *ei,
 
 	eigrp_stream_free(auth_stream);
 	if (!ret) {
-		eigrp_log_warn("interface %s: EIGRP MD5 authentication failed",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP MD5 authentication failed",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
@@ -1132,26 +1132,26 @@ static int eigrp_verify_header(eigrp_interface_t *ei, eigrp_addr_t *source,
 	uint16_t checksum;
 
 	if (length < EIGRP_HEADER_LEN) {
-		eigrp_log_warn("interface %s: EIGRP packet too short: %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP packet too short: %u",
 			  eigrp_intf_name_string(ei), length);
 		return -1;
 	}
 
 	if (eigrph->version != EIGRP_HEADER_VERSION) {
-		eigrp_log_warn("interface %s: unsupported EIGRP header version %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: unsupported EIGRP header version %u",
 			  eigrp_intf_name_string(ei), eigrph->version);
 		return -1;
 	}
 
 	if (ntohs(eigrph->ASNumber) != ei->eigrp->AS) {
-		eigrp_log_warn("interface %s: EIGRP AS mismatch: received %u expected %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP AS mismatch: received %u expected %u",
 			  eigrp_intf_name_string(ei), ntohs(eigrph->ASNumber),
 			  ei->eigrp->AS);
 		return -1;
 	}
 
 	if (ntohs(eigrph->vrid) != ei->eigrp->vrid) {
-		eigrp_log_warn("interface %s: EIGRP VRID mismatch: received %u expected %u",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP VRID mismatch: received %u expected %u",
 			  eigrp_intf_name_string(ei), ntohs(eigrph->vrid),
 			  ei->eigrp->vrid);
 		return -1;
@@ -1159,7 +1159,7 @@ static int eigrp_verify_header(eigrp_interface_t *ei, eigrp_addr_t *source,
 
 	checksum = eigrp_checksum(eigrph, length);
 	if (checksum != 0) {
-		eigrp_log_warn("interface %s: EIGRP checksum failed from %s",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP checksum failed from %s",
 			  eigrp_intf_name_string(ei),
 			  eigrp_packet_addr_text(ei->eigrp, source, source_text,
 					 sizeof(source_text)));
@@ -1171,7 +1171,7 @@ static int eigrp_verify_header(eigrp_interface_t *ei, eigrp_addr_t *source,
 
 	/* Raw sockets can receive protocol-matched packets from other links. */
 	if (!ei->eigrp->af_vectors.packet_source_on_link(ei, source)) {
-		eigrp_log_warn("interface %s: eigrp_packet_read source is not on-link [%s]",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: eigrp_packet_read source is not on-link [%s]",
 			  eigrp_intf_name_string(ei),
 			  eigrp_packet_addr_text(ei->eigrp, source, source_text,
 					 sizeof(source_text)));
@@ -1202,7 +1202,7 @@ void eigrp_packet_unack_retrans(void *arg)
 	if (IS_DEBUG_EIGRP(0, TIMERS)) {
 		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
 
-		eigrp_log_debug("EIGRP: retransmit timer expired nbr %s seq %u retry %u",
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: retransmit timer expired nbr %s seq %u retry %u",
 			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
 						  sizeof(address)),
 			   packet->sequence_number, packet->retrans_counter + 1);
@@ -1216,7 +1216,7 @@ void eigrp_packet_unack_retrans(void *arg)
 	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
 
 	packet->retrans_counter++;
-	eigrp_southbound_timer_msec_add(&packet->t_retrans_timer,
+	eigrp_southbound_timer_add(&packet->t_retrans_timer,
 				 eigrp_packet_unack_retrans, nbr,
 				 eigrp_neighbor_rto_get(nbr));
 }

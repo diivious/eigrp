@@ -210,9 +210,11 @@ typedef struct eigrp_tlv_codec {
 } eigrp_tlv_codec_t;
 ```
 
-TLV init functions install private codec functions into these vectors. Public
-bind functions copy the selected codec into runtime dispatch state; callers do
-not call private TLV codec internals directly.
+TLV init functions install private codec functions into these vectors.
+`eigrp_neighbor_codec_bind()` copies the selected neighbor codec and records its
+TLV version. Interface aggregate selection uses the interface encoder state.
+Callers do not need TLV1/TLV2-specific public bind entry points and do not call
+private TLV codec internals directly.
 
 ### 7.3 Safe codec state
 
@@ -242,8 +244,7 @@ neighbor create
   -> safe encoder/decoder
 
 neighbor becomes fully up and capability is known
-  -> set TLV1 or TLV2 version
-  -> bind matching neighbor encoder/decoder
+  -> bind the selected TLV version and codec with eigrp_neighbor_codec_bind()
   -> contribute that version to interface aggregate encoder state
 
 neighbor teardown

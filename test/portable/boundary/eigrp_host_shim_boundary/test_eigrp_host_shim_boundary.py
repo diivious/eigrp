@@ -309,7 +309,7 @@ def test_frr_debug_logging_uses_eigrp_logging_boundary():
     common_dump = read("eigrpd/eigrp_dump.c")
 
     assert "zlog_debug(\"%s\", message)" in frr_log
-    assert "eigrp_log_debug(" in zebra
+    assert "eigrp_log(EIGRP_LOG_DEBUG, " in zebra
     assert "zlog_debug(" not in zebra
     assert "zlog_debug(" not in common_dump
 
@@ -326,13 +326,13 @@ def test_frr_event_and_rib_ingress_logs_invalid_host_data_at_boundary():
     address_delete = function_body(zebra, "eigrp_zebra_interface_address_delete")
     redistribute = function_body(zebra, "eigrp_zebra_redistribute_route")
 
-    assert "eigrp_log_error" in event_prepare
-    assert "eigrp_log_error" in event_run
-    assert "eigrp_log_error" in work_new
-    assert "eigrp_log_error" in work_run
+    assert "eigrp_log(EIGRP_LOG_ERROR," in event_prepare
+    assert "eigrp_log(EIGRP_LOG_ERROR," in event_run
+    assert "eigrp_log(EIGRP_LOG_ERROR," in work_new
+    assert "eigrp_log(EIGRP_LOG_ERROR," in work_run
     assert "eigrp_frr_interface_state_import" in address_add
-    assert "eigrp_log_error" in address_add
+    assert "eigrp_log(EIGRP_LOG_ERROR," in address_add
     assert "eigrp_frr_prefix_import" in address_delete
-    assert "eigrp_log_error" in address_delete
+    assert "eigrp_log(EIGRP_LOG_ERROR," in address_delete
     assert "zapi_route_decode" in redistribute
-    assert "eigrp_log_error" in redistribute
+    assert "eigrp_log(EIGRP_LOG_ERROR," in redistribute

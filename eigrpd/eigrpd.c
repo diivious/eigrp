@@ -39,7 +39,7 @@ static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors,
 #define EIGRP_AF_VECTOR_REQUIRE(_field)                                      \
 	do {                                                                   \
 		if (!(vectors->_field)) {                                        \
-			eigrp_log_error(                                           \
+			eigrp_log(EIGRP_LOG_ERROR,                                            \
 				"address-family %u missing required vector %s",      \
 				(unsigned)vectors->afi, #_field);                    \
 			return false;                                              \
@@ -47,13 +47,13 @@ static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors,
 	} while (0)
 
 	if (!vectors) {
-		eigrp_log_error("address-family runtime has no vector binding");
+		eigrp_log(EIGRP_LOG_ERROR, "address-family runtime has no vector binding");
 		return false;
 	}
 
 	if (vectors->afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    && vectors->afi != EIGRP_ADDRESS_FAMILY_IPV6) {
-		eigrp_log_error("address-family runtime has invalid AF %u",
+		eigrp_log(EIGRP_LOG_ERROR, "address-family runtime has invalid AF %u",
 				(unsigned)vectors->afi);
 		return false;
 	}
@@ -160,7 +160,7 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp_addr_t src = {0};
 
 	if (!eigrp) {
-		eigrp_log_error("address-family %u AS %u runtime allocation failed",
+		eigrp_log(EIGRP_LOG_ERROR, "address-family %u AS %u runtime allocation failed",
 				(unsigned)afi, (unsigned)as);
 		return NULL;
 	}
@@ -224,7 +224,7 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 		return eigrp;
 
 	if (eigrp_southbound_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
-		eigrp_log_error(
+		eigrp_log(EIGRP_LOG_ERROR,
 			"eigrp_new: fatal error: host runtime was unable to open an EIGRP socket");
 		exit(1);
 	}

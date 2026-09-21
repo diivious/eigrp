@@ -1764,7 +1764,7 @@ DEFUN(no_eigrp_neighbor_maximum_prefix_all,
  * Syntax: `eigrp log-neighbor-changes`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
- * Target: eigrp_neighbor_log_changes_update()
+ * Target: eigrp_neighbor_log_set()
  */
 DEFUN(eigrp_log_neighbor_changes,
       eigrp_log_neighbor_changes_cmd,
@@ -1781,7 +1781,7 @@ DEFUN(eigrp_log_neighbor_changes,
  * Syntax: `no eigrp log-neighbor-changes`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
- * Target: eigrp_neighbor_log_changes_reset()
+ * Target: eigrp_neighbor_log_reset()
  */
 DEFUN(no_eigrp_log_neighbor_changes,
       no_eigrp_log_neighbor_changes_cmd,
@@ -1798,7 +1798,7 @@ DEFUN(no_eigrp_log_neighbor_changes,
  * Syntax: `eigrp log-neighbor-warnings [(1-65535)]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
- * Target: eigrp_neighbor_log_warnings_update()
+ * Target: eigrp_neighbor_log_set()
  */
 DEFUN(eigrp_log_neighbor_warnings,
       eigrp_log_neighbor_warnings_cmd,
@@ -1822,7 +1822,7 @@ DEFUN(eigrp_log_neighbor_warnings,
  * Syntax: `no eigrp log-neighbor-warnings`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
- * Target: eigrp_neighbor_log_warnings_delete()
+ * Target: eigrp_neighbor_log_reset()
  */
 DEFUN(no_eigrp_log_neighbor_warnings,
       no_eigrp_log_neighbor_warnings_cmd,
