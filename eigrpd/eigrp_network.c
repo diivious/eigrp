@@ -18,7 +18,8 @@
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_prefix.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_topology.h"
 
 struct eigrp_network_config {
@@ -259,11 +260,11 @@ void eigrp_network_interfaces_refresh(eigrp_instance_t *eigrp)
 	if (!eigrp || !eigrp->data_path_ready
 	    || eigrp->router_id.s_addr == INADDR_ANY)
 		return;
-	(void)eigrp_southbound_interface_walk(
+	(void)eigrp_sys_interface_walk(
 		eigrp, eigrp_network_interface_walk_refresh, eigrp);
 }
 
-void eigrp_network_interface_refresh(
+void eigrp_sys_interface_state_apply(
 	eigrp_vrf_id_t vrf_id, const eigrp_interface_runtime_state_t *state)
 {
 	eigrp_instance_t *eigrp;

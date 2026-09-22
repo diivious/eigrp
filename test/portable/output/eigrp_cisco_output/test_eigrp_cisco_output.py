@@ -15,7 +15,7 @@ UPDATE = ROOT / "eigrpd" / "eigrp_update.c"
 PACKET = ROOT / "eigrpd" / "eigrp_packet.c"
 NAMED = ROOT / "frr" / "eigrp_cli_named.c"
 CLASSIC_VTY = ROOT / "frr" / "eigrp_vty.c"
-SPEC = ROOT / "specs" / "cli-spec.md"
+SPEC = ROOT / "specs" / "design-spec.md"
 
 
 def read(path: Path) -> str:

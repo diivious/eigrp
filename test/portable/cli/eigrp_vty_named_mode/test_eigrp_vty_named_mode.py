@@ -80,7 +80,7 @@ def test_neighbor_clear_uses_one_portable_neighbor_target():
     named = read(VTY)
     classic = read(CLASSIC_VTY)
     neighbor_c = read(NEIGHBOR_C)
-    neighbor_h = read(NEIGHBOR_H)
+    neighbor_h = read(ROOT / "eigrpd" / "eigrp_cli.h")
 
     assert "eigrp_result_t eigrp_neighbor_clear(" in neighbor_c
     assert "eigrp_result_t eigrp_neighbor_clear(" in neighbor_h
@@ -112,7 +112,7 @@ def test_named_neighbor_clear_accepts_ipv6_at_northbound_boundary():
     clippy = read(CLIPPY)
     northbound_c = read(NORTHBOUND_C)
     northbound_h = read(NORTHBOUND_H)
-    neighbor_h = read(NEIGHBOR_H)
+    neighbor_h = read(ROOT / "eigrpd" / "eigrp_cli.h")
 
     assert (
         'neighbors <A.B.C.D$ipv4_addr|X:X::X:X$ipv6_addr> [soft]$soft'
@@ -124,11 +124,13 @@ def test_named_neighbor_clear_accepts_ipv6_at_northbound_boundary():
     # FRR host values stop at the northbound adapter.  It copies the parsed
     # address into the portable runtime eigrp_addr_t union before calling core.
     assert "eigrp_northbound_neighbor_clear_address(" in northbound_h
-    assert "destination->ip.v4 = *ipv4_address;" in northbound_c
-    assert "destination->ip.v6 = *ipv6_address;" in northbound_c
+    assert "destination->afi = EIGRP_ADDRESS_FAMILY_IPV4;" in northbound_c
+    assert "memcpy(destination->bytes, ipv4_address, sizeof(*ipv4_address));" in northbound_c
+    assert "destination->afi = EIGRP_ADDRESS_FAMILY_IPV6;" in northbound_c
+    assert "memcpy(destination->bytes, ipv6_address, sizeof(*ipv6_address));" in northbound_c
     assert "return eigrp_neighbor_clear(runtime, &request" in northbound_c
-    assert "const eigrp_addr_t *address;" in neighbor_h
-    assert "eigrp_addr_t address;" in neighbor_h
+    assert "const eigrp_address_t *address;" in neighbor_h
+    assert "eigrp_address_t address;" in neighbor_h
 
     clear_address = named[
         named.index("static void clear_eigrp_neighbor_address_cb("):
@@ -270,17 +272,15 @@ def test_debug_eigrp_supports_event_timer_neighbor_transmit_packet():
 
 def test_cli_implementation_notes_are_in_cli_spec():
     design = read(ROOT / "specs" / "design-spec.md")
-    cli = read(ROOT / "specs" / "cli-spec.md")
+    guide = read(ROOT / "specs" / "EIGRP-Config-Guide.md")
 
-    assert "CLI/VTY/debug" in design
-    assert "command-surface rules are owned by `cli-spec.md`." in design
-    assert "## 3. Named-Mode CLI Direction" not in design
-    assert "## 4. Named-Mode VTY and Debug CLI Direction" not in design
+    assert "## 9. CLI/configuration to core contract" in design
+    assert "eigrp_cli_named.[c|h]" in design
+    assert "eigrp_vty.[c|h]" in design
 
-    assert "## 3. Classic and named entry forms" in cli
-    assert "## 10. Named operational commands" in cli
-    assert "debug eigrp packet" in cli
-    assert "show_eigrp_neighbor_cmd" in cli
+    assert "## 10. Named EXEC commands" in guide
+    assert "debug eigrp packet" in guide
+    assert "show eigrp address-family ipv4 neighbors" in guide
 
 
 def test_named_operational_commands_use_owner_specific_targets():
@@ -305,7 +305,7 @@ def test_named_operational_commands_use_owner_specific_targets():
         assert target in vty
         assert f"{target}(" in read(source)
 
-    # Explicitly excluded by cli-spec.md.
+    # Excluded from the installed EIGRP operational surface.
     assert "install_element(VIEW_NODE, &show_eigrp_plugin_cmd);" not in vty
 
 
@@ -460,7 +460,7 @@ def test_traffic_show_reports_all_ipv4_packet_counters():
 
 def test_protocol_and_tech_support_walk_all_named_vrfs():
     status = read(ROOT / "eigrpd" / "eigrp_status.c")
-    types = read(ROOT / "eigrpd" / "eigrp_types.h")
+    types = read(ROOT / "eigrpd" / "eigrp.h")
 
     assert "bool all_vrfs" in types
     assert ".all_vrfs = true" in status
@@ -468,7 +468,7 @@ def test_protocol_and_tech_support_walk_all_named_vrfs():
 
 def test_complete_eigrp_debug_command_family_is_registered_and_targeted():
     dump = read(DUMP)
-    header = read(DEBUG_H)
+    header = read(ROOT / "eigrpd" / "eigrp_cli.h")
     init = function_body(dump, "eigrp_debug_init")
 
     command_fragments = (

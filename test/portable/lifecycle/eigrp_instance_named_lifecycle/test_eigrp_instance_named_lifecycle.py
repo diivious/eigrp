@@ -11,7 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parents[4]
 INSTANCE_H = ROOT / "eigrpd" / "eigrp_instance.h"
 INSTANCE_C = ROOT / "eigrpd" / "eigrp_instance.c"
-SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_southbound.h"
+SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_sys.h"
 SOUTHBOUND_C = ROOT / "frr" / "eigrp_southbound.c"
 NORTHBOUND = ROOT / "frr" / "eigrp_northbound.c"
 EIGRPD_C = ROOT / "eigrpd" / "eigrpd.c"
@@ -53,7 +53,7 @@ def test_address_family_configuration_owns_runtime_binding():
 
     assert "eigrp_instance_t *runtime;" in header
     assert "eigrp_instance_address_family_runtime_create(name, af)" in create
-    assert "eigrp_southbound_vrf_resolve(" in runtime_create
+    assert "eigrp_sys_vrf_resolve(" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
     assert "eigrp_get_by_af(" in runtime_create
     assert "af->runtime = runtime;" in runtime_create
@@ -109,10 +109,10 @@ def test_frr_southbound_only_resolves_host_vrf_for_common_runtime_creation():
     header = read(SOUTHBOUND_H)
     southbound = read(SOUTHBOUND_C)
     instance = read(INSTANCE_C)
-    resolve = function_body(southbound, "eigrp_southbound_vrf_resolve")
+    resolve = function_body(southbound, "eigrp_sys_vrf_resolve")
     create = function_body(instance, "eigrp_instance_address_family_runtime_create")
 
-    assert "eigrp_southbound_vrf_resolve(" in header
+    assert "eigrp_sys_vrf_resolve(" in header
     assert "vrf_lookup_by_name(vrf_name)" in resolve
     assert "eigrp_lookup_by_af_as_vrf" not in resolve
     assert "eigrp_get_by_af" not in resolve
@@ -124,8 +124,8 @@ def test_frr_southbound_only_resolves_host_vrf_for_common_runtime_creation():
 def test_router_id_runtime_refresh_is_owned_by_common_instance_code():
     header = read(SOUTHBOUND_H)
     instance = read(INSTANCE_C)
-    update = function_body(instance, "eigrp_instance_router_id_update")
-    delete = function_body(instance, "eigrp_instance_router_id_delete")
+    update = function_body(instance, "eigrp_instance_router_id_set")
+    delete = function_body(instance, "eigrp_instance_router_id_reset")
     refresh = function_body(instance, "eigrp_instance_router_id_refresh")
 
     assert "eigrp_southbound_router_id_refresh(" not in header
@@ -179,14 +179,21 @@ def test_runtime_binding_does_not_prevent_retained_interface_configuration():
     northbound = read(NORTHBOUND)
 
     targets = (
-        ("eigrp_interface_bandwidth_percent_update", "bandwidth_percent"),
-        ("eigrp_interface_bandwidth_percent_delete", "bandwidth_percent_configured"),
-        ("eigrp_interface_next_hop_self_update", "next_hop_self"),
-        ("eigrp_interface_split_horizon_update", "split_horizon"),
-        ("eigrp_interface_shutdown_update", "shutdown"),
+        ("eigrp_interface_bandwidth_percent_set", "bandwidth_percent"),
+        ("eigrp_interface_bandwidth_percent_reset", "bandwidth_percent_configured"),
+        ("eigrp_interface_next_hop_self_set", "next_hop_self"),
+        ("eigrp_interface_split_horizon_set", "split_horizon"),
+        ("eigrp_interface_shutdown_set", "shutdown"),
     )
     for name, config_field in targets:
         body = function_body(interface, name)
+        if name in {
+            "eigrp_interface_next_hop_self_set",
+            "eigrp_interface_split_horizon_set",
+            "eigrp_interface_shutdown_set",
+        }:
+            helper = name.removesuffix("_set") + "_apply"
+            body = function_body(interface, helper)
         assert f"context->config->{config_field}" in body
         assert "if (context->runtime)" in body
         assert body.index(f"context->config->{config_field}") < body.index(

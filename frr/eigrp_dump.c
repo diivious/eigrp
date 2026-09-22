@@ -12,7 +12,8 @@
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_network.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrp_dump.h"
 
 static void eigrp_debug_transmit_write(struct vty *vty, unsigned long state)
@@ -264,11 +265,11 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_neighbor_t *nbr,
 
 	if (nbr->t_holddown)
 		snprintf(hold, sizeof(hold), "%u",
-			 eigrp_southbound_timer_remaining_seconds(nbr->t_holddown));
+			 eigrp_sys_timer_remaining_seconds(nbr->t_holddown));
 	else
 		snprintf(hold, sizeof(hold), "-");
 	if (nbr->up_since_msec) {
-		uint64_t now = eigrp_southbound_monotime_msec();
+		uint64_t now = eigrp_sys_monotime_msec();
 
 		if (now >= nbr->up_since_msec)
 			uptime_seconds = (now - nbr->up_since_msec) / 1000U;

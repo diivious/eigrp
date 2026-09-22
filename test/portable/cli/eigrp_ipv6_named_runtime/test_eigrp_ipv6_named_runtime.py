@@ -23,7 +23,7 @@ UUT = ROOT / "tools" / "frr-named-uut.sh"
 SERIES = ROOT / "frr" / "patch" / "series"
 IPV6_PATCH = ROOT / "frr" / "patch" / "eigrp-named-ipv6.patch"
 DESIGN = ROOT / "specs" / "design-spec.md"
-PROCESS = ROOT / "specs" / "process-spec.md"
+PROCESS = ROOT / "specs" / "design-spec.md"
 
 
 def read(path: Path) -> str:
@@ -37,7 +37,7 @@ def test_named_ipv6_creates_a_real_control_runtime():
         instance.index("static eigrp_result_t eigrp_instance_address_family_runtime_delete")
     ]
 
-    assert "eigrp_southbound_vrf_resolve" in runtime_create
+    assert "eigrp_sys_vrf_resolve" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
     assert "eigrp_get_by_af(" in runtime_create
     assert "af->afi == EIGRP_ADDRESS_FAMILY_IPV4" in runtime_create
@@ -60,8 +60,8 @@ def test_ipv6_control_runtime_has_an_explicit_datapath_gate():
     assert "bool data_path_ready;" in structs
     gate = eigrpd.index("if (!data_path_ready)\n\t\treturn eigrp;")
     for marker in (
-        "eigrp_southbound_socket_open(eigrp)",
-        "eigrp_southbound_read_add",
+        "eigrp_sys_socket_open(eigrp)",
+        "eigrp_sys_read_add",
         "eigrp_nbr_create(NULL, &src)",
         "eigrp_packetizer_init(eigrp)",
     ):
@@ -107,7 +107,7 @@ def test_ipv4_and_ipv6_summaries_share_generic_prefix_storage_and_targets():
     assert 'yang_dnode_get_string(dnode, "prefix")' in northbound
     assert "prefix.address.afi != afi" in northbound
     assert "eigrp_summary_create(&context, &prefix" in northbound
-    assert "eigrp_summary_metric_update(&context, &prefix" in northbound
+    assert "eigrp_summary_metric_set(&context, &prefix" in northbound
     assert 'type inet:ip-prefix;' in patch
 
 

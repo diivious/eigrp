@@ -21,9 +21,11 @@
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_filter.h"
+#include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_packetizer.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_tlv1.h"
 #include "eigrpd/eigrp_tlv2.h"
 
@@ -129,12 +131,35 @@ void eigrp_router_id_update(eigrp_instance_t *eigrp)
 		router_id = eigrp->router_id_static;
 	else if (eigrp->router_id.s_addr != INADDR_ANY)
 		router_id = eigrp->router_id;
-	else
-		(void)eigrp_southbound_router_id_get(eigrp, &router_id);
+	else {
+		uint32_t host_router_id = 0;
+		if (eigrp_sys_router_id_get(eigrp, &host_router_id))
+			router_id.s_addr = htonl(host_router_id);
+	}
 
 	eigrp->router_id = router_id;
 	if (router_id_old.s_addr != router_id.s_addr)
 		eigrp_network_interfaces_refresh(eigrp);
+}
+
+eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp)
+{
+	return eigrp ? eigrp->vrf_id : EIGRP_VRF_DEFAULT;
+}
+
+eigrp_address_family_t eigrp_instance_address_family(const eigrp_instance_t *eigrp)
+{
+	return eigrp ? eigrp->af_vectors.afi : 0;
+}
+
+uint16_t eigrp_instance_asn(const eigrp_instance_t *eigrp)
+{
+	return eigrp ? eigrp->AS : 0;
+}
+
+const char *eigrp_instance_name(const eigrp_instance_t *eigrp)
+{
+	return eigrp ? eigrp->name : NULL;
 }
 
 void eigrp_init(void)
@@ -189,7 +214,6 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp->router_id.s_addr = INADDR_ANY;
 	eigrp->router_id_static.s_addr = INADDR_ANY;
 	eigrp->sequence_number = 1;
-	eigrp->fd = -1;
 
 	/* Configure default K values for the control context. */
 	eigrp->k_values[0] = EIGRP_K1_DEFAULT;
@@ -218,19 +242,19 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 
 	/* Diagnostic/control state is valid before a packet data path exists. */
 	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
-	(void)eigrp_southbound_policy_instance_create(eigrp);
+	(void)eigrp_sys_policy_instance_create(eigrp);
 
 	if (!data_path_ready)
 		return eigrp;
 
-	if (eigrp_southbound_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
+	if (eigrp_sys_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
 		eigrp_log(EIGRP_LOG_ERROR,
 			"eigrp_new: fatal error: host runtime was unable to open an EIGRP socket");
 		exit(1);
 	}
 
 	eigrp->ibuf = eigrp_stream_new(EIGRP_PACKET_MAX_LEN + 1);
-	eigrp_southbound_read_add(&eigrp->t_read, eigrp->fd,
+	eigrp_sys_read_add(&eigrp->t_read, eigrp,
 				   eigrp_packet_read, eigrp);
 
 	/* The self-neighbor is wire/data-path state and is created only there. */
@@ -328,8 +352,8 @@ void eigrp_terminate(void)
 	}
 
 	eigrp_instance_config_finish();
-	eigrp_southbound_rib_finish();
-	eigrp_southbound_runtime_finish();
+	eigrp_rib_finish();
+	eigrp_sys_runtime_finish();
 }
 
 void eigrp_finish(eigrp_instance_t *eigrp)
@@ -364,11 +388,11 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	}
 
 	eigrp_network_runtime_delete_all(eigrp);
-	eigrp_southbound_event_cancel(&eigrp->t_write);
-	eigrp_southbound_event_cancel(&eigrp->t_read);
+	eigrp_sys_event_cancel(&eigrp->t_write);
+	eigrp_sys_event_cancel(&eigrp->t_read);
 	eigrp_packetizer_finish(eigrp);
 	eigrp_eventlog_finish(eigrp);
-	eigrp_southbound_socket_close(eigrp);
+	eigrp_sys_socket_close(eigrp);
 
 	eigrp_list_delete(&eigrp->eiflist);
 	eigrp_list_delete(&eigrp->oi_write_q);
@@ -385,8 +409,8 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 
 	if (eigrp->ibuf)
 		eigrp_stream_free(eigrp->ibuf);
-	eigrp_southbound_policy_instance_delete(eigrp);
-	eigrp_southbound_rib_instance_delete(eigrp);
+	eigrp_sys_policy_instance_delete(eigrp);
+	eigrp_rib_instance_delete(eigrp);
 	eigrp_filter_runtime_state_clear(&eigrp->filter);
 	free(eigrp);
 }

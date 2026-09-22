@@ -29,8 +29,8 @@ def test_ipv4_vector_uses_posix_family_for_runtime_addresses():
     ipv4 = read("eigrpd/eigrp_ipv4.c")
     southbound = read("frr/eigrp_southbound.c")
 
-    assert "source->afi = AF_INET;" in southbound
-    assert "destination->afi = AF_INET;" in southbound
+    assert "source->afi = EIGRP_ADDRESS_FAMILY_IPV4;" in southbound
+    assert "destination->afi = EIGRP_ADDRESS_FAMILY_IPV4;" in southbound
     assert "address->afi = AF_INET;" in ipv4
     assert "packet->dst.afi != AF_INET" in ipv4
 

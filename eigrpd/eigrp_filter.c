@@ -22,7 +22,8 @@
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_packet.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 
 struct eigrp_offset_config {
 	char *access_list;
@@ -130,7 +131,7 @@ static void eigrp_filter_schedule_process(eigrp_instance_t *eigrp)
 {
 	if (!eigrp)
 		return;
-	eigrp_southbound_timer_add(&eigrp->t_distribute,
+	eigrp_sys_timer_add(&eigrp->t_distribute,
 				   eigrp_distribute_timer_process, eigrp, 10000U);
 }
 
@@ -138,11 +139,11 @@ static void eigrp_filter_schedule_interface(eigrp_interface_t *ei)
 {
 	if (!ei)
 		return;
-	eigrp_southbound_timer_add(&ei->t_distribute,
+	eigrp_sys_timer_add(&ei->t_distribute,
 				   eigrp_distribute_timer_interface, ei, 10000U);
 }
 
-eigrp_result_t eigrp_filter_runtime_replace(
+eigrp_result_t eigrp_sys_filter_runtime_replace(
 	eigrp_instance_t *eigrp, const char *interface_name,
 	const eigrp_filter_runtime_snapshot_t *snapshot)
 {
@@ -181,7 +182,7 @@ eigrp_result_t eigrp_filter_runtime_replace(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-void eigrp_filter_runtime_refresh_all(void)
+void eigrp_sys_policy_runtime_refresh(void)
 {
 	eigrp_instance_t *eigrp;
 	eigrp_interface_t *ei;
@@ -209,7 +210,7 @@ static bool eigrp_filter_reference_denies(
 
 	if (!name)
 		return false;
-	result = eigrp_southbound_filter_evaluate(eigrp, type, name, prefix,
+	result = eigrp_sys_filter_evaluate(eigrp, type, name, prefix,
 						 &decision);
 	return result == EIGRP_RESULT_SUCCESS
 	       && decision == EIGRP_FILTER_DECISION_DENY;
@@ -299,7 +300,7 @@ static eigrp_offset_config_t *eigrp_offset_config_find(
  * Creates, updates, or removes EIGRP offset-list configuration.
  * The real filter target remains explicit and reports NOT_IMPLEMENTED until offset application is wired into metric processing.
  */
-eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context,
 				   const char *access_list,
 				   eigrp_offset_direction_t direction,
 				   uint32_t offset,
@@ -365,7 +366,7 @@ eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
  * Creates, updates, or removes EIGRP offset-list configuration.
  * The real filter target remains explicit and reports NOT_IMPLEMENTED until offset application is wired into metric processing.
  */
-eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_offset_remove(eigrp_instance_context_t *context,
 				   const char *access_list,
 				   eigrp_offset_direction_t direction,
 				   uint32_t offset,
@@ -528,7 +529,7 @@ static eigrp_result_t eigrp_filter_runtime_reference_update(
 	else
 		snapshot.prefix_list[slot] = remove ? NULL : name;
 
-	return eigrp_filter_runtime_replace(eigrp, interface_name, &snapshot);
+	return eigrp_sys_filter_runtime_replace(eigrp, interface_name, &snapshot);
 }
 
 /*
@@ -543,7 +544,7 @@ static eigrp_result_t eigrp_filter_runtime_reference_update(
  * Creates, updates, or removes portable distribute-list state for named mode.
  * Classic and named configuration endpoints intentionally remain separate while both feed the portable runtime filter representation below the host boundary.
  */
-eigrp_result_t eigrp_distribute_list_update(
+eigrp_result_t eigrp_distribute_add(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
 	const char *interface_name)
@@ -629,7 +630,7 @@ eigrp_result_t eigrp_distribute_list_update(
  * Creates, updates, or removes portable distribute-list state for named mode.
  * Classic and named configuration endpoints intentionally remain separate while both feed the portable runtime filter representation below the host boundary.
  */
-eigrp_result_t eigrp_distribute_list_delete(
+eigrp_result_t eigrp_distribute_remove(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
 	const char *interface_name)

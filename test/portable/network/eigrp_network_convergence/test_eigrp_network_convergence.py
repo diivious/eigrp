@@ -15,7 +15,7 @@ NETWORK_H = ROOT / "eigrpd" / "eigrp_network.h"
 TYPES_H = ROOT / "eigrpd" / "eigrp_types.h"
 IPV4_C = ROOT / "eigrpd" / "eigrp_ipv4.c"
 IPV6_C = ROOT / "eigrpd" / "eigrp_ipv6.c"
-SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_southbound.h"
+SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_sys.h"
 SOUTHBOUND_C = ROOT / "frr" / "eigrp_southbound.c"
 NORTHBOUND = ROOT / "frr" / "eigrp_northbound.c"
 FRR_ADAPTER_C = ROOT / "frr" / "eigrp_frr.c"
@@ -107,7 +107,7 @@ def test_common_network_processor_owns_runtime_decisions_and_uses_host_walk_only
     southbound_h = read(SOUTHBOUND_H)
     processor = function_body(network, "eigrp_network_process")
 
-    assert "eigrp_southbound_interface_walk" in southbound_h
+    assert "eigrp_sys_interface_walk" in southbound_h
     assert "eigrp_southbound_network_create" not in southbound_h
     assert "eigrp_southbound_network_delete" not in southbound_h
     assert "FOR_ALL_INTERFACES" not in processor
@@ -171,13 +171,13 @@ def test_common_network_owns_runtime_storage_while_frr_only_enumerates_interface
     runtime_create = function_body(network, "eigrp_network_runtime_create")
     runtime_delete = function_body(network, "eigrp_network_runtime_delete")
     refresh = function_body(network, "eigrp_network_interfaces_refresh")
-    host_walk = function_body(southbound, "eigrp_southbound_interface_walk")
+    host_walk = function_body(southbound, "eigrp_sys_interface_walk")
 
     assert "network->next = eigrp->networks" in runtime_create
     assert "eigrp_network_interfaces_refresh(eigrp)" in runtime_create
     assert "eigrp_network_runtime_matches(eigrp, &ei->address)" in runtime_delete
     assert "eigrp_intf_free" in runtime_delete
-    assert "eigrp_southbound_interface_walk(" in refresh
+    assert "eigrp_sys_interface_walk(" in refresh
     assert "FOR_ALL_INTERFACES" in host_walk
     assert "eigrp_frr_interface_state_import" in host_walk
     assert "route_node_" not in southbound

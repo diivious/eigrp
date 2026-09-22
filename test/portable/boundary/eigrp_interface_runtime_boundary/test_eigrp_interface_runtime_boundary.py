@@ -25,13 +25,14 @@ def test_portable_public_headers_do_not_expose_frr_runtime_objects():
 
 
 def test_runtime_interface_state_is_eigrp_owned():
-    types = read("eigrpd/eigrp_types.h")
+    common = read("eigrpd/eigrp.h")
+    system = read("eigrpd/eigrp_sys.h")
     structs = read("eigrpd/eigrp_structs.h")
     interface_h = read("eigrpd/eigrp_interface.h")
 
-    assert "typedef uint32_t eigrp_vrf_id_t;" in types
-    assert "typedef uint32_t eigrp_ifindex_t;" in types
-    assert "typedef struct eigrp_event eigrp_event_t;" in types
+    assert "typedef uint32_t eigrp_vrf_id_t;" in common
+    assert "typedef uint32_t eigrp_ifindex_t;" in common
+    assert "typedef struct eigrp_event eigrp_event_t;" in common
     assert "eigrp_vrf_id_t vrf_id;" in structs
     assert "eigrp_event_t *t_write;" in structs
     assert "eigrp_event_t *t_hello;" in structs
@@ -41,15 +42,15 @@ def test_runtime_interface_state_is_eigrp_owned():
     assert "struct interface *ifp" not in structs
     assert "struct list *iflist;" not in read("eigrpd/eigrpd.h")
 
-    assert "typedef struct eigrp_interface_runtime_state" in types
-    assert "bool secondary;" in types
+    assert "typedef struct eigrp_interface_runtime_state" in system
+    assert "bool secondary;" in system
     assert "eigrp_interface_runtime_create(" in interface_h
     assert "eigrp_interface_runtime_update(" in interface_h
     assert "eigrp_interface_runtime_delete(" in interface_h
 
 
 def test_protocol_runtime_uses_eigrp_southbound_event_contracts():
-    southbound_h = read("eigrpd/eigrp_southbound.h")
+    system_h = read("eigrpd/eigrp_sys.h")
     protocol_files = [
         "eigrpd/eigrpd.c",
         "eigrpd/eigrp_interface.c",
@@ -61,13 +62,13 @@ def test_protocol_runtime_uses_eigrp_southbound_event_contracts():
         "eigrpd/eigrp_debug.c",
     ]
 
-    assert "eigrp_southbound_event_add" in southbound_h
-    assert "eigrp_southbound_timer_add" in southbound_h
-    assert "uint32_t delay_msec" in southbound_h
-    assert "eigrp_southbound_timer_msec_add" not in southbound_h
-    assert "eigrp_southbound_read_add" in southbound_h
-    assert "eigrp_southbound_write_add" in southbound_h
-    assert "eigrp_southbound_event_cancel" in southbound_h
+    assert "eigrp_sys_event_add" in system_h
+    assert "eigrp_sys_timer_add" in system_h
+    assert "uint32_t delay_msec" in system_h
+    assert "eigrp_southbound_timer_msec_add" not in system_h
+    assert "eigrp_sys_read_add" in system_h
+    assert "eigrp_sys_write_add" in system_h
+    assert "eigrp_sys_event_cancel" in system_h
 
     host_event_calls = [
         r"\bevent_add_(?:event|timer|timer_msec|read|write)\s*\(",
@@ -93,10 +94,10 @@ def test_interface_discovery_and_socket_host_objects_are_owned_by_frr_adapter():
     assert "FOR_ALL_INTERFACES" in southbound
     assert "vrf_lookup_by_id" in southbound
     assert "hook_register_prio(if_real" in southbound
-    assert "eigrp_southbound_socket_open" in southbound
-    assert "eigrp_southbound_socket_send_buffer_ensure" in southbound
+    assert "eigrp_sys_socket_open" in southbound
+    assert "eigrp_sys_socket_send_buffer_ensure" in southbound
     assert "setsockopt_so_sendbuf" in southbound
-    assert "eigrp_southbound_multicast_join" in southbound
+    assert "eigrp_sys_multicast_join" in southbound
 
     for text in (interface_c, ipv4, network):
         assert "struct interface" not in text
@@ -126,13 +127,13 @@ def test_frr_management_and_zebra_no_longer_store_runtime_in_ifp_info():
     assert "ifp->info" not in zebra
     assert "->ifp" not in vty
     assert "eigrp_interface_lookup_host(ifp)" in northbound
-    assert "eigrp_network_interface_refresh((eigrp_vrf_id_t)vrf_id, &state)" in zebra
+    assert "eigrp_sys_interface_state_apply((eigrp_vrf_id_t)vrf_id, &state)" in zebra
     assert "ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp" not in zebra
 
 
 def test_frr_southbound_has_explicit_host_header_dependencies():
     southbound = read("frr/eigrp_southbound.c")
-    southbound_h = read("eigrpd/eigrp_southbound.h")
+    system_h = read("eigrpd/eigrp_sys.h")
 
     # FRR route-table objects are intentionally confined to the FRR adapter,
     # but the adapter must include the FRR header that defines route_node and
@@ -143,8 +144,8 @@ def test_frr_southbound_has_explicit_host_header_dependencies():
     # The portable contract currently uses the system IPv4 scalar wrapper for
     # router-id handoff.  Declare that dependency directly so callers that do
     # not include zebra.h first still see a complete declaration.
-    if "struct in_addr" in southbound_h:
-        assert "#include <netinet/in.h>" in southbound_h
+    if "struct in_addr" in system_h:
+        assert "#include <netinet/in.h>" in system_h
 
 
 def test_route_table_users_include_the_host_storage_header_directly():

@@ -52,21 +52,21 @@ def test_named_hello_hold_and_passive_callbacks_reach_common_targets():
     passive = function_body(northbound, "eigrpd_named_af_interface_passive_create")
     passive_no = function_body(northbound, "eigrpd_named_af_interface_passive_destroy")
 
-    assert "eigrp_interface_hello_interval_update(&context" in hello
-    assert "eigrp_interface_hello_interval_delete(&context)" in hello_no
-    assert "eigrp_interface_hold_time_update(&context" in hold
-    assert "eigrp_interface_hold_time_delete(&context)" in hold_no
-    assert "eigrp_interface_passive_update(&context, true)" in passive
-    assert "eigrp_interface_passive_update(&context, false)" in passive_no
+    assert "eigrp_interface_hello_interval_set(&context" in hello
+    assert "eigrp_interface_hello_interval_reset(&context)" in hello_no
+    assert "eigrp_interface_hold_time_set(&context" in hold
+    assert "eigrp_interface_hold_time_reset(&context)" in hold_no
+    assert "eigrp_interface_passive_set(&context)" in passive
+    assert "eigrp_interface_passive_reset(&context)" in passive_no
 
 
 def test_interface_targets_update_active_runtime_and_passive_controls_hello_io():
     interface = read("eigrpd/eigrp_interface.c")
     hello_source = read("eigrpd/eigrp_hello.c")
 
-    hello = function_body(interface, "eigrp_interface_hello_interval_update")
-    hold = function_body(interface, "eigrp_interface_hold_time_update")
-    passive = function_body(interface, "eigrp_interface_passive_update")
+    hello = function_body(interface, "eigrp_interface_hello_interval_set")
+    hold = function_body(interface, "eigrp_interface_hold_time_set")
+    passive = function_body(interface, "eigrp_interface_passive_apply")
     is_passive = function_body(interface, "eigrp_intf_is_passive")
     hello_timer = function_body(hello_source, "eigrp_hello_timer")
 
@@ -87,13 +87,13 @@ def test_metric_weights_variance_and_maximum_paths_callbacks_reach_runtime_targe
     weights = function_body(northbound, "eigrpd_named_metric_weights_apply")
     variance = function_body(northbound, "eigrpd_named_variance_modify")
     maximum_paths = function_body(northbound, "eigrpd_named_maximum_paths_modify")
-    weight_target = function_body(metric, "eigrp_metric_weights_update")
-    variance_target = function_body(metric, "eigrp_metric_variance_update")
-    paths_target = function_body(topology, "eigrp_topology_maximum_paths_update")
+    weight_target = function_body(metric, "eigrp_metric_weights_set")
+    variance_target = function_body(metric, "eigrp_metric_variance_set")
+    paths_target = function_body(topology, "eigrp_topology_maximum_paths_set")
 
-    assert "eigrp_metric_weights_update(&context, &weights)" in weights
-    assert "eigrp_metric_variance_update(&context" in variance
-    assert "eigrp_topology_maximum_paths_update(" in maximum_paths
+    assert "eigrp_metric_weights_set(&context, &weights)" in weights
+    assert "eigrp_metric_variance_set(&context" in variance
+    assert "eigrp_topology_maximum_paths_set(" in maximum_paths
 
     for index in range(6):
         assert f"context->runtime->k_values[{index}]" in weight_target
@@ -108,20 +108,20 @@ def test_named_md5_and_keychain_reach_runtime_and_late_interface_bind():
 
     apply = function_body(northbound, "eigrpd_named_af_interface_authentication_apply")
     keychain = function_body(northbound, "eigrpd_named_af_interface_keychain_modify")
-    mode_target = function_body(auth, "eigrp_auth_mode_update")
-    key_target = function_body(auth, "eigrp_auth_keychain_update")
+    mode_target = function_body(auth, "eigrp_auth_mode_set")
+    key_target = function_body(auth, "eigrp_auth_keychain_set")
     bind = function_body(interface, "eigrp_interface_runtime_bind")
 
-    assert "eigrp_auth_mode_update(&context, mode, hmac_ptr)" in apply
-    assert "eigrp_auth_keychain_update(&context" in keychain
+    assert "eigrp_auth_mode_set(&context, mode, hmac_ptr)" in apply
+    assert "eigrp_auth_keychain_set(&context" in keychain
     assert "context->runtime->params.auth_type =" in mode_target
     assert "EIGRP_AUTH_TYPE_MD5" in mode_target
     assert "context->runtime->params.auth_keychain = runtime_copy;" in key_target
 
     # If configuration exists before a network statement creates the runtime
     # interface, the same real authentication targets are applied at bind.
-    assert "eigrp_auth_mode_update(&context, EIGRP_AUTHENTICATION_MD5, NULL)" in bind
-    assert "eigrp_auth_keychain_update(&context, config->keychain)" in bind
+    assert "eigrp_auth_mode_set(&context, EIGRP_AUTHENTICATION_MD5, NULL)" in bind
+    assert "eigrp_auth_keychain_set(&context, config->keychain)" in bind
 
 
 def test_ipv6_config_only_stage_is_not_promoted_to_runtime_by_item_4():

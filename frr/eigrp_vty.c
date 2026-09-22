@@ -427,14 +427,10 @@ static void eigrp_vty_neighbor_clear_render(
 	char address[INET6_ADDRSTRLEN];
 	int family;
 
-	family = state->address.afi;
-	if (family == AF_INET6) {
-		if (!inet_ntop(family, &state->address.ip.v6, address,
-			       sizeof(address)))
-			strlcpy(address, "<invalid>", sizeof(address));
-	} else if (family == AF_INET) {
-		if (!inet_ntop(family, &state->address.ip.v4, address,
-			       sizeof(address)))
+	family = state->address.afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 :
+		 state->address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? AF_INET : AF_UNSPEC;
+	if (family == AF_INET6 || family == AF_INET) {
+		if (!inet_ntop(family, state->address.bytes, address, sizeof(address)))
 			strlcpy(address, "<invalid>", sizeof(address));
 	} else {
 		strlcpy(address, "<invalid>", sizeof(address));
@@ -527,15 +523,15 @@ DEFPY (clear_ip_eigrp_neighbors_IP,
        "IP-EIGRP neighbor address\n")
 {
 	eigrp_instance_t *eigrp;
-	eigrp_addr_t address = {
-		.afi = AF_INET,
+	eigrp_address_t address = {
+		.afi = EIGRP_ADDRESS_FAMILY_IPV4,
 	};
 	eigrp_neighbor_clear_request_t request = {
 		.address = &address,
 	};
 	eigrp_result_t result;
 
-	address.ip.v4 = nbr_addr;
+	memcpy(address.bytes, &nbr_addr, sizeof(nbr_addr));
 
 	/* Check if eigrp process is enabled */
 	eigrp = eigrp_vty_get_eigrp(vty, vrf);
@@ -636,8 +632,8 @@ DEFPY (clear_ip_eigrp_neighbors_IP_soft,
        "Resync with peer without adjacency reset\n")
 {
 	eigrp_instance_t *eigrp;
-	eigrp_addr_t address = {
-		.afi = AF_INET,
+	eigrp_address_t address = {
+		.afi = EIGRP_ADDRESS_FAMILY_IPV4,
 	};
 	eigrp_neighbor_clear_request_t request = {
 		.address = &address,
@@ -645,7 +641,7 @@ DEFPY (clear_ip_eigrp_neighbors_IP_soft,
 	};
 	eigrp_result_t result;
 
-	address.ip.v4 = nbr_addr;
+	memcpy(address.bytes, &nbr_addr, sizeof(nbr_addr));
 
 	/* Check if eigrp process is enabled */
 	eigrp = eigrp_vty_get_eigrp(vty, vrf);

@@ -71,10 +71,10 @@ def test_portable_runtime_structs_store_policy_names_not_host_objects():
 def test_filter_feature_owner_uses_portable_runtime_state_and_southbound_decision():
     filt = read("eigrpd/eigrp_filter.c")
     apply = function_body(filt, "eigrp_filter_prefix_apply")
-    replace = function_body(filt, "eigrp_filter_runtime_replace")
+    replace = function_body(filt, "eigrp_sys_filter_runtime_replace")
 
     assert "eigrp_filter_runtime_state_denies" in apply
-    assert "eigrp_southbound_filter_evaluate" in filt
+    assert "eigrp_sys_filter_evaluate" in filt
     assert "eigrp_filter_runtime_state_copy" in replace
     assert "eigrp_filter_schedule_interface" in replace
     assert "eigrp_filter_schedule_process" in replace
@@ -102,14 +102,14 @@ def test_frr_policy_adapter_owns_policy_objects_and_callbacks():
     assert "access_list_add_hook" in policy
     assert "prefix_list_add_hook" in policy
     assert "route_map_init();" in policy
-    assert "eigrp_filter_runtime_replace" in policy
-    assert "eigrp_filter_runtime_refresh_all" in policy
+    assert "eigrp_sys_filter_runtime_replace" in policy
+    assert "eigrp_sys_policy_runtime_refresh" in policy
 
 
 def test_southbound_filter_contract_returns_eigrp_decision_only():
-    header = read("eigrpd/eigrp_southbound.h")
+    header = read("eigrpd/eigrp_sys.h")
     southbound = read("frr/eigrp_southbound.c")
-    evaluate = function_body(southbound, "eigrp_southbound_filter_evaluate")
+    evaluate = function_body(southbound, "eigrp_sys_filter_evaluate")
 
     assert "eigrp_filter_decision_t *decision" in header
     assert "const eigrp_prefix_t *prefix" in header

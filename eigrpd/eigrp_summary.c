@@ -237,7 +237,7 @@ static eigrp_summary_state_t *eigrp_summary_state_get(
  * Controls retained automatic summarization state for the named topology.
  * This project keeps the command target separate even where modern deployment guidance treats auto-summary as retired.
  */
-eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
+static eigrp_result_t eigrp_summary_auto_apply(eigrp_instance_context_t *context,
 					 bool enabled)
 {
 	const eigrp_af_vectors_t *vectors;
@@ -258,6 +258,16 @@ eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
 				: EIGRP_RESULT_SUCCESS;
 }
 
+eigrp_result_t eigrp_summary_auto_set(eigrp_instance_context_t *context)
+{
+	return eigrp_summary_auto_apply(context, true);
+}
+
+eigrp_result_t eigrp_summary_auto_reset(eigrp_instance_context_t *context)
+{
+	return eigrp_summary_auto_apply(context, false);
+}
+
 /*
  * Syntax:
  *   Named: `summary-metric PREFIX <metric-vector|distance DISTANCE>` / `no summary-metric PREFIX`
@@ -268,7 +278,7 @@ eigrp_result_t eigrp_summary_auto_update(eigrp_instance_context_t *context,
  * Creates, updates, or removes an explicit summary metric override.
  * The target retains the configuration and reports NOT_IMPLEMENTED until summary-metric runtime application is complete.
  */
-eigrp_result_t eigrp_summary_metric_update(
+eigrp_result_t eigrp_summary_metric_set(
 	eigrp_instance_context_t *context, const eigrp_prefix_t *prefix,
 	const eigrp_summary_metric_config_t *config)
 {
@@ -325,7 +335,7 @@ eigrp_result_t eigrp_summary_metric_update(
  * Creates, updates, or removes an explicit summary metric override.
  * The target retains the configuration and reports NOT_IMPLEMENTED until summary-metric runtime application is complete.
  */
-eigrp_result_t eigrp_summary_metric_delete(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_summary_metric_reset(eigrp_instance_context_t *context,
 					   const eigrp_prefix_t *prefix)
 {
 	eigrp_summary_state_t *state;

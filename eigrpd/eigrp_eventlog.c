@@ -233,7 +233,7 @@ eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context)
  * Sets or restores the EIGRP event-log capacity.
  * The target updates retained configuration and the live EIGRP event log when runtime exists.
  */
-eigrp_result_t eigrp_eventlog_size_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_eventlog_size_set(eigrp_instance_context_t *context,
 					  uint32_t size)
 {
 	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
@@ -263,7 +263,7 @@ eigrp_result_t eigrp_eventlog_size_update(eigrp_instance_context_t *context,
  * Sets or restores the EIGRP event-log capacity.
  * The target updates retained configuration and the live EIGRP event log when runtime exists.
  */
-eigrp_result_t eigrp_eventlog_size_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_eventlog_size_reset(eigrp_instance_context_t *context)
 {
 	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
 

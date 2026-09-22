@@ -24,7 +24,8 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_debug.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 
 /*
  * @fn eigrp_hello_timer
@@ -57,7 +58,7 @@ void eigrp_hello_timer(void *arg)
 	}
 
 	/* Hello timer set. */
-	eigrp_southbound_timer_add(&ei->t_hello, eigrp_hello_timer, ei,
+	eigrp_sys_timer_add(&ei->t_hello, eigrp_hello_timer, ei,
 			    (uint32_t)ei->params.v_hello * 1000U);
 
 	return;
@@ -395,7 +396,7 @@ static uint8_t eigrp_host_minor;
 
 void eigrp_sw_version_init(void)
 {
-	eigrp_southbound_software_version(&eigrp_host_major, &eigrp_host_minor);
+	eigrp_sys_software_version(&eigrp_host_major, &eigrp_host_minor);
 }
 
 /**

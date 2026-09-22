@@ -18,13 +18,9 @@
 #ifndef _ZEBRA_EIGRP_INTERFACE_H_
 #define _ZEBRA_EIGRP_INTERFACE_H_
 
-#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_cli.h"
+#include "eigrpd/eigrp_mgnt.h"
 #include "eigrpd/eigrp_types.h"
-
-#define EIGRP_INTERFACE_BANDWIDTH_MIN 1U
-#define EIGRP_INTERFACE_BANDWIDTH_MAX 10000000U
-#define EIGRP_INTERFACE_DELAY_MIN 1U
-#define EIGRP_INTERFACE_DELAY_MAX 16777215U
 
 struct eigrp_interface_config {
 	char *interface_name;
@@ -51,52 +47,6 @@ struct eigrp_interface_config {
 	eigrp_interface_config_t *next;
 };
 
-typedef struct eigrp_interface_context {
-	eigrp_interface_config_t *config;
-	eigrp_interface_t *runtime;
-} eigrp_interface_context_t;
-
-typedef struct eigrp_interface_state {
-	const char *interface_name;
-	bool config_present;
-	bool runtime_present;
-	bool passive;
-	bool shutdown;
-	bool multicast_enabled;
-	bool authentication_configured;
-	uint8_t authentication_mode;
-	uint32_t bandwidth;
-	uint32_t bandwidth_percent;
-	uint32_t delay;
-	uint32_t mtu;
-	uint32_t hello_interval;
-	uint16_t hold_time;
-	uint32_t peer_count;
-	unsigned long output_queue_count;
-	unsigned long reliable_queue_count;
-	uint8_t reliability;
-	uint8_t load;
-	uint16_t tlv1_peer_count;
-	uint16_t tlv2_peer_count;
-	bool split_horizon;
-	bool next_hop_self;
-	bool hello_timer_running;
-	uint32_t hello_timer_remaining;
-	uint64_t unreliable_multicast_sent;
-	uint64_t reliable_multicast_sent;
-	uint64_t unreliable_unicast_sent;
-	uint64_t reliable_unicast_sent;
-	uint64_t multicast_exceptions;
-	uint64_t cr_packets_sent;
-	uint64_t retransmissions_sent;
-	bool bandwidth_percent_configured;
-	bool hello_interval_configured;
-	bool hold_time_configured;
-} eigrp_interface_state_t;
-
-typedef eigrp_result_t (*eigrp_interface_state_walk_cb)(
-	const eigrp_interface_state_t *state, void *arg);
-
 /* Prototypes */
 extern bool eigrp_intf_is_passive(eigrp_interface_t *ei);
 extern void eigrp_del_intf_params(eigrp_intf_params_t *);
@@ -108,15 +58,6 @@ eigrp_result_t eigrp_interface_runtime_refresh(
 	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state);
 void eigrp_interface_runtime_delete(
 	eigrp_interface_t *ei, eigrp_interface_remove_reason_t reason);
-void eigrp_interface_runtime_link_down(
-	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex, const char *interface_name,
-	uint8_t type, uint32_t bandwidth, uint32_t mtu);
-void eigrp_interface_runtime_link_remove(
-	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
-	eigrp_interface_remove_reason_t reason);
-void eigrp_interface_runtime_address_remove(
-	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
-	const eigrp_prefix_t *address, eigrp_interface_remove_reason_t reason);
 extern int eigrp_intf_up(eigrp_instance_t *, eigrp_interface_t *);
 extern void eigrp_intf_set_multicast(eigrp_interface_t *);
 extern void eigrp_intf_free(eigrp_instance_t *, eigrp_interface_t *,
@@ -155,9 +96,9 @@ void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af);
 void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
                                   const eigrp_interface_config_t *config);
 
-eigrp_result_t eigrp_interface_bandwidth_percent_update(
+eigrp_result_t eigrp_interface_bandwidth_percent_set(
 	eigrp_interface_context_t *context, uint32_t percent);
-eigrp_result_t eigrp_interface_bandwidth_percent_delete(
+eigrp_result_t eigrp_interface_bandwidth_percent_reset(
 	eigrp_interface_context_t *context);
 eigrp_result_t eigrp_interface_bandwidth_set(
 	eigrp_interface_context_t *context, uint32_t bandwidth);
@@ -167,20 +108,24 @@ eigrp_result_t eigrp_interface_delay_set(
 	eigrp_interface_context_t *context, uint32_t delay);
 eigrp_result_t eigrp_interface_delay_reset(
 	eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_hello_interval_update(
+eigrp_result_t eigrp_interface_hello_interval_set(
 	eigrp_interface_context_t *context, uint16_t seconds);
-eigrp_result_t eigrp_interface_hello_interval_delete(
+eigrp_result_t eigrp_interface_hello_interval_reset(
 	eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *context,
+eigrp_result_t eigrp_interface_hold_time_set(eigrp_interface_context_t *context,
 					       uint16_t seconds);
-eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context,
-					      bool passive);
-eigrp_result_t eigrp_interface_next_hop_self_update(
-	eigrp_interface_context_t *context, bool enabled);
-eigrp_result_t eigrp_interface_split_horizon_update(
-	eigrp_interface_context_t *context, bool enabled);
-eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *context,
-					       bool shutdown);
+eigrp_result_t eigrp_interface_hold_time_reset(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_passive_set(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_passive_reset(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_next_hop_self_set(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_next_hop_self_reset(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_split_horizon_set(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_split_horizon_reset(
+	eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_shutdown_set(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_shutdown_reset(eigrp_interface_context_t *context);
 
 #endif /* ZEBRA_EIGRP_INTERFACE_H_ */

@@ -8,21 +8,30 @@ prior authorship.
 
 ## 1. Purpose
 
-This document defines the architectural rules for the EIGRP implementation in
-this repository. It owns repository boundaries, portability, management/runtime
-separation, common data ownership, module responsibilities, protocol-safe packet
-handling, testing expectations, and delivery rules.
+This document is the contributor specification for portable EIGRP core code.
+It answers one question: what does a developer need to know before changing
+`eigrpd/` or changing behavior that belongs to EIGRP itself?
 
-Focused specifications extend this document:
+It owns:
 
-- `code-conventions.md` — source/module/function naming.
-- `cli-spec.md` — classic/named CLI and management behavior.
-- `process-spec.md` — named parent, address-family, and runtime ownership.
-- `packetizing-spec.md` — DUAL-to-packet pipeline and reliable transport.
-- `refactor-work.md` — deliberately deferred pre-production cleanup.
+- protocol and design authority;
+- repository and module ownership;
+- portable versus host-specific boundaries;
+- EIGRP-owned data and result contracts;
+- source, file, and public symbol naming;
+- instance, address-family, and runtime ownership;
+- configuration-to-core rules;
+- packet/TLV safety rules;
+- testing, refactor, and delivery rules.
 
-`EIGRP-Config-Guide.md` and `EIGRP-Named-Mode.md` are reference notes, not
-implementation authority.
+Detailed protocol subsystems are described separately:
+
+- `dual.md` describes how this implementation uses the DUAL state machine;
+- `rtp-spec.md` describes packetization and Reliable Transport Protocol behavior;
+- `rfc7868.md` identifies the protocol specification used by this project;
+- `integration-spec.md` defines the public black-box contract for host platforms;
+- `EIGRP-Config-Guide.md` is the operator configuration and EXEC guide;
+- `refactor-work.md` is the bounded pre-production parking lot.
 
 ## 2. Authority
 
@@ -35,18 +44,11 @@ Protocol and design authority is, in order:
 
 FRR and BIRD are host frameworks. Neither defines EIGRP protocol behavior.
 
-Behavior outside RFC 7868 must be identifiable as one of:
-
-- implementation detail with no wire/protocol effect;
-- intentional protocol clarification;
-- intentional protocol extension;
-- defect requiring correction.
-
-Do not silently adopt host-framework behavior as EIGRP protocol behavior.
+Behavior outside RFC 7868 must be identifiable as an implementation detail with
+no wire/protocol effect, an intentional clarification or extension, or a defect
+that needs correction. Host-framework convenience is not protocol authority.
 
 ## 3. Repository ownership
-
-Canonical ownership is:
 
 ```text
 eigrp/
@@ -54,250 +56,131 @@ eigrp/
   frr/            FRR-specific adapters/integration
     patch/        managed FRR-wide changes
     test/         FRR-native integration/UUT material
-  bird/           BIRD-specific adapters/integration
+  bsd/            BIRD/BSD-specific adapters/integration
   test/
     build/        lightweight compile-smoke harness
     common/       shared host-independent fixtures
     portable/     host-independent tests
-  specs/          architecture and protocol implementation specifications
+  specs/          project specifications and protocol references
   tools/          host staging/build/UUT/packaging orchestration
 ```
 
-The project tree is canonical. A staged FRR `eigrpd/` directory is a generated
-projection, not a second source tree.
+The project tree is canonical. A staged FRR `eigrpd/` directory is generated
+output, not a second source tree.
 
-FRR staging assembles:
+FRR staging assembles portable source plus FRR adapter files into the FRR tree.
+Changes outside FRR's staged daemon tree are exceptional and must be carried as
+managed patches under `frr/patch/`. Managed patches are applied idempotently.
+If a patch does not apply cleanly and is not already applied, stop for source
+review. Do not fuzz or force it.
 
-```text
-eigrpd/* + frr daemon adapter files -> FRR/eigrpd/
-frr/test/*                          -> FRR/tests/eigrpd/
-```
+## 4. Core and platform boundary
 
-Changes outside FRR's staged `eigrpd/` tree are exceptional. They are carried
-as managed patches under `frr/patch/`, applied in explicit dependency order,
-and must be idempotent. If a patch is neither cleanly applicable nor recognized
-as already applied, patching stops for source-drift review. Do not fuzz or force
-managed patches.
-
-## 4. Portability boundary
-
-Portable protocol modules must use EIGRP-owned APIs and data structures. Host
-objects stop at host adapters.
-
-The architectural flow is:
+Portable protocol modules use EIGRP-owned APIs and data structures. Host-native
+objects stop at platform adapters.
 
 ```text
 host CLI/configuration
-  -> host front end
-  -> host management transaction
-  -> EIGRP northbound adapter
-  -> normalized EIGRP-owned configuration/state
-  -> EIGRP protocol modules
-  -> EIGRP southbound contract
-  -> host runtime/RIB/socket/event implementation
+  -> host management/front end
+  -> platform configuration adapter
+  -> EIGRP-owned semantic API
+  -> portable EIGRP modules
+  -> public host service / RIB contract
+  -> platform adapter
+  -> host runtime, sockets, RIB, policy, event loop
 ```
 
-For FRR:
+The platform adapter must convert host/system objects, values, and events to or from EIGRP-owned types, abstract host/system calls and services, and provide only the host mechanisms portable EIGRP requires. This boundary must prevent EIGRP behavior from being reimplemented separately for each host platform. It does not own protocol decisions that should be identical on every platform.
 
-```text
-frr/eigrp_cli_*.c / frr/eigrp_vty.c
-  -> FRR YANG/northbound machinery
-  -> frr/eigrp_northbound.c
-  -> eigrpd/*
-  -> eigrpd/eigrp_southbound.h
-  -> frr/eigrp_southbound.c
-  -> frr/eigrp_zebra.c / FRR runtime APIs
-```
-
-The BIRD adapter implements equivalent host services under `bird/` without
-changing portable DUAL, topology, metric, packetizer, TLV, neighbor, network,
-or reliable-transport APIs.
-
-The host shim has a deliberately narrow purpose:
-
-1. convert host/system objects, values, and events to or from EIGRP-owned types;
-2. abstract host/system calls and services required by portable EIGRP code;
-3. prevent EIGRP behavior from being reimplemented separately for FRR, BIRD,
-   macOS, or another host.
-
-A host callback may report normalized state or an event. It does not decide the
-EIGRP consequence of that state. If FRR, BIRD, macOS, and another host should
-make the same decision, that decision belongs in `eigrpd/`. Examples include
-network-to-interface participation, interface start/stop/reset behavior,
-address-family start/stop behavior, runtime identity/conflict handling, and
-other protocol/runtime lifecycle decisions.
+If FRR, BIRD, macOS, and another host should reach the same decision from equivalent
+normalized inputs, that decision belongs in `eigrpd/`.
 
 ### 4.1 Boundary validation
 
-External data is validated and normalized at the boundary where it enters
-EIGRP. Invalid host data is rejected there and the error is logged with enough
-context to identify the source. Common protocol code must not repeatedly defend
-against the same malformed host input after it has crossed that boundary.
+External data is validated and normalized at the boundary where it enters EIGRP. Common protocol code must not repeatedly defend against the same malformed host input after that boundary has accepted it. Once a
+required vector or normalized EIGRP value passes that boundary, portable code
+may treat the contract as an invariant.
 
-This applies to:
+Do not scatter required-vector NULL checks through core consumers. A missing required callback is a binding/programming error and is diagnosed at bind time. Real
+optional state, such as an unarmed timer, remains explicitly optional.
 
-- CLI/northbound input before normalized values are passed to a portable
-  feature target;
-- RIB, redistribution, interface, and other host notifications before host
-  objects are converted to EIGRP-owned data;
-- timer, event, work-queue, socket, and other system callbacks before they
-  dispatch into portable protocol code;
-- address-family and codec vectors when they are bound to a runtime object.
+Wire packets are themselves untrusted external input. Header, length, TLV, prefix,
+address-family, and semantic validation stays in the receive/decode path before
+native data is consumed by DUAL, topology, or other protocol modules.
 
-Once a required vector or normalized EIGRP object has passed its boundary
-validation, common code treats that contract as an invariant. Do not scatter
-`if (callback) callback(...)` or equivalent required-vector probes through
-consumers. A missing required callback is a binding/programming error and is
-reported where the vector is installed. Use an explicit capability such as
-`data_path_ready`, address-family applicability, or an `eigrp_result_t` result
-instead of encoding feature support as a NULL callback.
+### 4.2 Northbound rule
 
-Optional lifecycle state remains optional. Checks such as whether a timer is
-currently armed, whether an optional delete callback was supplied, or whether
-retained configuration exists are state tests, not substitutes for boundary
-validation.
+A host configuration adapter receives committed host configuration, normalizes
+host values, calls the real EIGRP feature target, and translates
+`eigrp_result_t` for the host.
 
-Wire packets are themselves untrusted external input. Fixed-header, TLV,
-length, bounds, address-family, and semantic validation therefore remains in
-the receive/decode path before decoded native EIGRP data is consumed by DUAL,
-topology, or other protocol modules.
+A CLI must not submit a management transaction and then separately mutate the
+same portable state.
 
-### 4.2 Northbound responsibilities
+### 4.3 Southbound/system rule
 
-The host northbound adapter:
+Portable EIGRP reaches host services only through the public integration
+contract described by `integration-spec.md`. Host objects such as FRR VTY,
+libyang, Zebra routes, FRR events/interfaces/streams, and equivalent BIRD
+objects do not cross into core APIs.
 
-- receives committed host configuration;
-- converts host/YANG values to EIGRP-owned types;
-- resolves host-owned objects by stable EIGRP inputs such as names/IDs;
-- invokes the real EIGRP feature target;
-- translates the EIGRP structured result into host management semantics.
-
-The CLI parser may normalize text to construct a host transaction. It must not
-submit that transaction and then perform a second direct mutation of the same
-portable runtime state.
-
-### 4.3 Southbound responsibilities
-
-The EIGRP southbound contract owns requests from portable protocol code to host
-runtime services, including:
-
-- host resources required by an EIGRP runtime instance;
-- event/read/write scheduling and timers;
-- work queues;
-- socket creation and multicast operations;
-- interface enumeration and normalized host-state reporting;
-- policy/filter evaluation;
-- redistribution subscriptions;
-- route installation/removal;
-- host RIB lifecycle.
-
-Portable modules must not directly call FRR `work_queue`, `struct event`,
-Zebra, VTY, libyang, interface, or equivalent BIRD APIs. Conversely, the host
-southbound implementation must not own EIGRP decisions merely because it is the
-source of an interface, routing, timer, or lifecycle event.
-
-`frr/eigrp_zebra.[c|h]` is an FRR-private RIB adapter behind the southbound
-boundary. Portable code does not call `eigrp_zebra_*()` directly and does not
-construct Zebra route objects.
-
-### 4.4 Host objects that must not cross into portable APIs
-
-Examples include:
-
-```text
-FRR struct vty
-FRR struct stream
-FRR struct interface
-FRR struct event
-FRR/YANG/libyang callback objects
-Zebra zapi_route / zapi_nexthop
-FRR route-map/access-list/prefix-list objects
-BIRD configuration/routing-table/event-loop/interface/socket/timer objects
-```
-
-A wrapper with an `eigrp_` name is not portable if its representation or
-lifecycle still depends on a host object's layout.
-
-Standard socket/networking primitives such as `AF_INET`, `AF_INET6`, `in_addr`,
+Standard networking primitives such as `AF_INET`, `AF_INET6`, `in_addr`,
 `in6_addr`, and `sockaddr` are not host-framework leaks by themselves.
 
 ## 5. EIGRP-owned data model
 
-Portable address-family-aware objects carry explicit AF identity and normalized
-EIGRP address/prefix data.
-
-Use EIGRP-owned types at protocol boundaries, including:
+Portable AF-aware objects carry explicit address-family identity and normalized
+EIGRP address/prefix data. Public/core boundaries use EIGRP-owned types such as:
 
 ```text
 eigrp_instance_t
 eigrp_interface_t
 eigrp_neighbor_t
+eigrp_address_t
 eigrp_prefix_t
-eigrp_address_t / eigrp_addr_t
-eigrp_metrics_t / metric value structures
+eigrp_metrics_t
 eigrp_result_t
 ```
 
-IPv4 and IPv6 share a target/API when the protocol semantics are identical.
-Create AF-specific implementation functions only when the protocol behavior or
-wire/runtime operation is genuinely AF-specific.
+IPv4 and IPv6 share a public/core target when their protocol semantics are the
+same. AF-specific vectors or functions are used only where protocol behavior or
+wire/runtime mechanics genuinely differ.
 
-Host/RIB route objects are not DUAL topology objects. Keep these concepts
-separate:
+Do not confuse these domains:
 
 ```text
-DUAL prefix descriptor
-DUAL route/path descriptor
-EIGRP learned routing information
-EIGRP southbound route-install snapshot
+DUAL destination descriptor
+DUAL path descriptor
+EIGRP learned route information
+public RIB install snapshot
 host RIB route
 kernel route
 ```
 
-## 6. Feature target and result contract
+## 6. Feature targets and structured results
 
 Every configuration or operational feature terminates at its own real EIGRP
-feature target. Do not create generic CLI stubs, generic `not configured`
-handlers, generic `not implemented` dispatchers, or unrelated-command routers.
+semantic target. The host adapter must call the real EIGRP semantic target rather
+than another CLI surface or a generic dispatcher. Do not add generic CLI stubs, generic not-configured handlers,
+generic not-implemented dispatchers, or unrelated command routers.
 
-Examples:
+An incomplete feature still owns the correct target and may return
+`EIGRP_RESULT_NOT_IMPLEMENTED` there. This keeps the architecture stable while
+runtime capability is filled in.
 
-```c
-eigrp_metric_variance_set(...);
-eigrp_metric_variance_reset(...);
-eigrp_redistribute_add(...);
-eigrp_redistribute_remove(...);
-eigrp_neighbor_clear(...);
-```
+Portable semantic results include success, not implemented, invalid argument,
+not found, conflict, unsupported capability, and internal failure. The core
+returns the semantic result. The platform decides how to display or log it.
 
-An incomplete feature still owns its real target. That target may return
-`EIGRP_RESULT_NOT_IMPLEMENTED` without changing the CLI/northbound architecture.
+Valid retained configuration is not discarded merely because runtime
+application reports a missing capability.
 
-Portable operations return EIGRP-owned structured results capable of
-representing at least:
+## 7. Human-navigation naming
 
-```text
-success
-not implemented
-invalid input/configuration
-not found
-conflict
-unsupported address family/capability
-internal failure
-```
+A developer who knows the protocol area should be able to predict the source
+file and symbol prefix to search.
 
-The portable core determines semantic result. Host adapters decide how that
-result is rendered through CLI, logs, or host management APIs. Portable core
-code must not call `vty_out()` merely to report a result.
-
-For retained configuration, host configuration is committed before runtime
-application. A missing runtime capability does not silently discard valid
-configuration. This rule is especially important for named IPv6 configuration
-while its data path is capability-gated.
-
-## 7. Source/module naming
-
-Human navigation is the primary naming goal. The normal pattern is:
+Normal pattern:
 
 ```text
 eigrp_<module>.c
@@ -305,251 +188,392 @@ eigrp_<module>.h
 eigrp_<module>_<object>_<action>()
 ```
 
-The module/function prefix normally aligns, the object/detail narrows the
-operation, and the action appears last.
+Examples:
 
-Portable function names follow the protocol/module owner, not Cisco CLI or YANG
-nesting. A command under `topology base` that changes metric behavior belongs in
-the metric namespace.
-
-Closely related small feature families may share a file while retaining their
-predictable public prefixes. `eigrp_filter.c` containing `eigrp_distribute_*`
-and `eigrp_offset_*` is the model.
-
-Public action naming and rename discipline are defined by
-`code-conventions.md`.
-
-## 8. Production code rule
-
-Do not add unapproved compatibility debt.
-
-Forbidden without an explicit migration reason:
-
-```text
-legacy_* or old_* replacement paths
-alias wrappers for renamed internal APIs
-parallel old/new protocol implementations
-generic compatibility dispatchers
-temporary host-object leakage into portable APIs
+```c
+eigrp_query_receive();
+eigrp_query_send();
+eigrp_interface_create();
+eigrp_interface_delete();
+eigrp_interface_shutdown_set();
+eigrp_interface_shutdown_reset();
+eigrp_instance_parent_create();
+eigrp_instance_address_family_delete();
+eigrp_metric_variance_set();
+eigrp_metric_variance_reset();
 ```
 
-Existing classic EIGRP CLI is retained as a compatibility surface as defined by
-`cli-spec.md`; that does not authorize duplicate portable implementations.
+The module/function prefix normally aligns. Object/detail follows the module
+name. The action normally appears last.
 
-When replacing an internal API, update callers directly unless a separately
-approved compatibility contract requires otherwise.
+Do not derive portable names from Cisco CLI or YANG nesting. A command under
+`topology base` that changes metric behavior belongs in `eigrp_metric_*`, not
+in `eigrp_topology_*` simply because of command placement.
 
-## 9. Header ownership
+### 7.1 Grouped modules
 
-### 9.1 `eigrp_types.h`
-
-Owns broadly reusable primitives, forward declarations, opaque types, callback
-typedefs, and basic EIGRP type aliases.
-
-### 9.2 `eigrp_structs.h`
-
-Owns shared EIGRP structures whose layouts are required by multiple portable
-modules. It must not become a general dumping ground.
-
-Keep structure definitions private to an owning `.c` file or module header when
-other modules do not require the layout.
-
-### 9.3 Module headers
-
-Each module header exports only the public API and public datatypes needed by
-other modules for that subsystem.
-
-Host adapter headers export only genuine adapter contracts. Do not create
-headers merely for naming symmetry.
-
-## 10. Protocol module ownership
-
-The stable ownership model is:
+Avoid needless file proliferation. Closely related small feature families may
+share a source file while retaining distinct searchable prefixes. The model is:
 
 ```text
-instance      named/config/runtime instance ownership
+eigrp_filter.c
+  eigrp_distribute_*
+  eigrp_offset_*
+```
+
+Do not mechanically rename those functions to `eigrp_filter_*`.
+
+### 7.2 Action verbs
+
+Use the verb that matches ownership and semantics:
+
+```text
+create / delete   object lifecycle
+add / remove      collection membership or protocol relationship
+set / reset       retained configuration and its no/default form
+init / finish     module/subsystem initialization
+start / stop      runtime operation lifecycle
+enable / disable  literal capability/runtime state
+attach / detach   ownership/binding relationship
+install / remove  route or host-state installation
+send / receive    protocol messages
+encode / decode   wire conversion
+parse / build     representation construction
+validate          semantic/wire validation
+calculate         derived-value computation
+find / lookup     object retrieval
+walk              enumeration
+clear             operational state, counters, or neighbors
+```
+
+Prefer separate public `set/reset`, `add/remove`, and `create/delete` functions
+over a public generic operation enum. Private helpers may share implementation.
+
+Avoid vague public verbs such as `process`, `handle`, `do`, `run`, or `manage`
+when a protocol-specific action is available.
+
+### 7.3 Address-family naming
+
+Do not duplicate public IPv4/IPv6 APIs when one AF-aware EIGRP object correctly
+represents both. AF-specific behavior belongs in AF implementation vectors when
+appropriate.
+
+### 7.4 Rename discipline
+
+Apply the convention to new APIs and to materially touched APIs. Do not create
+rename-only churn during unrelated feature work. Approved renames update callers
+directly. Do not leave alias wrappers without an explicit migration reason.
+
+The topology descriptor naming decision remains parked in `refactor-work.md`.
+Until then preserve `prefix_descriptor` and `route_descriptor`, avoid ambiguous
+new bare `route` APIs, and do not perform rename-only churn.
+
+### 7.5 Public API granularity
+
+A public symbol represents a semantic action, not every possible value of an
+attribute used by that action. If several functions have the same contract and
+differ only by a level, category, codec family, time unit, or similar selector,
+prefer one public API with an EIGRP-owned typed selector or one canonical unit.
+
+Keep separate public functions when ownership, lifecycle, side effects, argument
+contracts, or protocol meaning differ. `set/reset`, `add/remove`, and
+`create/delete` remain distinct semantic actions and are not collapsed merely to
+reduce symbol count.
+
+## 8. Instance, address-family, and runtime ownership
+
+A named EIGRP parent is a local configuration object containing one or more
+address-family protocol contexts.
+
+```text
+router eigrp <name>
+  address-family <afi> [vrf <vrf>] autonomous-system <asn>
+```
+
+The parent name is local configuration identity. It is never an on-wire EIGRP
+identity.
+
+Each configured address family owns one context identified locally by:
+
+```text
+{name, address-family, VRF, AS}
+```
+
+The address-family configuration binds to one `eigrp_instance_t` runtime. Child
+network, interface, topology, filter, redistribution, metric, neighbor, and
+summary targets consume that binding. They must not independently discover or
+create a second runtime.
+
+### 8.1 Receive identity
+
+Packet acceptance is based on protocol context, including receiving VRF/socket,
+packet address family, receiving interface, AS number, and topology/VRID where
+applicable. The local named-parent string is not a receive demultiplexing key.
+
+Configuration must not create an ambiguous receive identity for the same
+`{VRF, AF, AS, interface, topology}` context.
+
+### 8.2 Runtime capability
+
+A configured address family always has configuration/control identity. Runtime
+packet/RIB operation may be capability-gated. `data_path_ready` records whether
+that AF may perform packet, adjacency, interface-I/O, packetizer, RTP, and RIB
+operations.
+
+Configuration and runtime ownership are separate. Configuration may be retained
+when the data path is unavailable.
+
+When `data_path_ready` is false, retained configuration remains valid but packet,
+adjacency, interface-I/O, packetizer/RTP, multicast, and RIB data-path work does
+not start for that address family. IPv6 named configuration uses the same
+ownership model as IPv4 even when its runtime data path is capability-gated.
+
+### 8.3 Lifecycle ordering
+
+Creation:
+
+```text
+named parent
+  -> address-family retained state
+  -> resolve host VRF/context
+  -> create/bind eigrp_instance_t
+  -> apply retained child configuration
+  -> start data path when capability and shutdown state permit
+```
+
+Deletion:
+
+```text
+stop address-family data path
+  -> detach interfaces/neighbors/timers/queues
+  -> remove host RIB/runtime state
+  -> unbind runtime from retained AF configuration
+  -> free child retained state
+  -> free parent when removed
+```
+
+Teardown must not leave child objects referring to destroyed runtime or platform
+objects.
+
+## 9. CLI/configuration to core contract
+
+Classic and named command surfaces may differ in syntax and placement, but when
+they represent the same protocol operation they converge on the same EIGRP-owned
+semantic behavior below the host boundary. Classic and named configuration surfaces
+therefore converge on the same EIGRP-owned semantic behavior below the host boundary. Named mode is the canonical surface for new configuration work. Named mode covers the complete applicable classic EIGRP protocol feature set except features explicitly excluded by this specification.
+
+```text
+classic front end --\
+                    -> EIGRP-owned target/processor
+named front end   ---/
+```
+
+Named mode must not call a classic FRR CLI callback as protocol behavior.
+Likewise classic mode must not become a second portable implementation.
+
+Every supported configuration feature implements its applicable `no` form. The no form
+removes explicit retained configuration or restores the defined default and
+calls the same EIGRP feature family as the positive form.
+
+Configuration values normally use `set/reset`, collection relationships use
+`add/remove`, and owned objects use `create/delete`.
+
+The host parser, YANG/libyang node, VTY object, interface object, route-map
+object, or equivalent platform representation never becomes an argument to a
+portable semantic target.
+
+Operational show/state is exported through public management snapshots or
+walkers. Clear/debug/admin actions call real EIGRP operational targets after
+host argument normalization.
+
+Where named EXEC grammar includes the `multicast` selector, it selects EIGRP's
+Multicast Address Family (MAF), VRID `0x0001`. It is not normal EIGRP packet
+multicast transport. The project configuration/runtime model is unicast; a MAF
+request remains an explicit unsupported/not implemented semantic result until a
+MAF design exists.
+
+For FRR, the normal ownership is:
+
+```text
+frr/eigrp_cli_classic.[c|h]  classic configuration front end
+frr/eigrp_cli_named.[c|h]    named configuration and named EXEC front end
+frr/eigrp_vty.[c|h]          classic operational VTY surface
+frr/eigrp_northbound.c       committed FRR configuration -> EIGRP adapter
+```
+
+### 9.1 Operational output conventions
+
+EIGRP-owned operational presentation follows the established Cisco EIGRP
+troubleshooting form where the implementation has the corresponding real state.
+The presentation reference is:
+
+```text
+https://www.cisco.com/c/en/us/support/docs/ip/enhanced-interior-gateway-routing-protocol-eigrp/118974-technote-eigrp-00.html
+```
+
+This applies to EIGRP-owned headings, field labels, topology terminology,
+neighbor-change reason text, and packet-debug wording. Host timestamps, logging
+prefixes, parser decoration, and other framework-owned presentation remain host
+owned.
+
+Do not create protocol state or implement an incomplete capability solely to
+fill a presentation field. If a value is not maintained by the backend, omit or
+mark it unavailable. detailed topology/vector-metric output is not synthesized
+from partial state merely to match an example.
+
+## 10. Header ownership
+
+`eigrp.h`, `eigrp_cli.h`, `eigrp_mgnt.h`, `eigrp_rib.h`, and `eigrp_sys.h` are
+public platform integration headers. Their contract is documented by
+`integration-spec.md`.
+
+Private/core headers own only what portable modules need internally.
+`eigrp_types.h` contains broadly reusable internal primitives and declarations.
+`eigrp_structs.h` contains shared internal layouts required across several core
+modules. Module headers export the minimum internal API needed by peer modules.
+
+Do not create headers merely for symmetry and do not promote a private type to a
+public header because one host currently finds it convenient.
+
+## 11. Protocol module ownership
+
+```text
+instance      named/config/runtime ownership
 network       configured network participation
-interface     EIGRP interface state and interface-scoped behavior
-neighbor      neighbor lifecycle/state/policy
-metric        classic/wide metric calculation and metric configuration
+interface     EIGRP interface state and interface behavior
+neighbor      neighbor lifecycle/state/policy and per-neighbor transport values
+metric        classic/wide metrics and metric configuration
 summary       manual/automatic summary behavior
-filter        distribute/offset filtering feature families
+filter        distribute/offset feature families
 redistribute  redistribution configuration and portable state
-topology      DUAL topology database records/lookup/route selection ownership
+topology      DUAL topology records, lookup, route selection
 fsm           DUAL state transitions
-query         QUERY behavior
-reply         REPLY behavior
-siaquery      SIA-QUERY behavior
-siareply      SIA-REPLY behavior
-update        UPDATE behavior and initialization/resync update walking
+query         QUERY semantics
+reply         REPLY semantics
+siaquery      SIA-QUERY semantics
+siareply      SIA-REPLY semantics
+update        UPDATE semantics and adjacency init/resync table walk
 packetizer    DUAL/topology work-to-packet orchestration
-packet        packet buffer/header/checksum/reliable send queue mechanics
+packet        packet buffer/header/checksum/output/RTP mechanics
 tlv1          classic route TLV wire codec
 tlv2          multiprotocol/wide route TLV wire codec
-auth          authentication behavior and packet authentication data
+auth          packet authentication behavior and state
 eventlog      EIGRP event-log state
 statistics    protocol counters/accounting
-status        protocol/tech-support state presentation inputs
-southbound    portable core-to-host runtime/RIB contract
+status        management/tech-support state inputs
 ```
 
-FRR-only ownership remains under `frr/`:
+Platform-specific CLI, configuration, policy, RIB, event-loop, socket, and host
+lifecycle implementations remain outside portable core.
 
-```text
-cli/vty       FRR command parsing and presentation
-northbound    FRR committed-config to EIGRP adapter
-policy        FRR policy object lookup/evaluation/callback integration
-southbound    FRR implementation of portable runtime services
-zebra         FRR Zebra/RIB implementation
-frr           daemon/platform glue
-```
+## 12. DUAL ownership and invariants
 
-## 11. DUAL topology invariants
+### 12.1 DUAL FSM Active-State Invariant
 
-### 11.1 Descriptor terminology
+The topology database currently uses a destination-level `prefix_descriptor`
+with one or more neighbor/path `route_descriptor` objects. Cisco DNDB/NDB and
+DRDB/RDB terminology may be useful in comments and debug output, but the final
+source/API naming decision is deferred to `refactor-work.md`.
 
-The topology database currently uses:
+While Active, per-neighbor/path observations and reply/origin bookkeeping may change, but destination-level successor selection, Feasible Distance, destination reported distance, current destination distance, and destination reported metric stay frozen until the destination returns to Passive.
 
-```text
-prefix_descriptor    destination-level DUAL topology object
-route_descriptor     one neighbor/path descriptor beneath that destination
-```
+`dual.md` defines the state-machine model and message interaction in detail.
 
-Cisco historical DNDB/NDB and DRDB/RDB terminology remains useful for EIGRP
-navigation/debugging. Final source/API naming is deliberately parked in
-`refactor-work.md`.
+## 13. Packet, TLV, packetizer, and RTP rules
 
-Until that review:
+Packet encode/decode must be bounds-safe, endian-safe, debuggable, and separated
+from route-selection decisions.
 
-- do not perform rename-only churn;
-- do not introduce new ambiguous bare `route` APIs;
-- preserve the distinction between topology descriptors and host/RIB routes.
+Internal EIGRP scalar values use host order unless explicitly documented
+otherwise. Wire buffers use network order. Every multibyte wire field crosses
+an explicit encode/decode boundary.
 
-### 11.2 DUAL FSM Active-State Invariant
+Packed structs may describe fixed wire views but do not replace safe parsing.
+Every TLV decoder validates header length, declared length, type-specific minimum
+size, variable fields/prefix length, and required alignment. Malformed input
+must fail safely and must never leave a non-progressing decode loop.
 
-RFC 7868 requires destination-level state to remain frozen while a destination
-is Active.
+`eigrp_tlv1` and `eigrp_tlv2` own private wire representations. DUAL, topology,
+packetizer, CLI, and RTP operate on native EIGRP data rather than private TLV
+layouts.
 
-While Active, protocol handlers may update per-neighbor/path observations and
-reply/origin bookkeeping, and may enqueue QUERY/REPLY/SIA work. They must not
-change destination-level successor selection, Feasible Distance, destination
-reported distance, current destination distance, or destination reported
-metric until the transition back to Passive.
+`rtp-spec.md` defines route work queueing, packetization, packet lifetime,
+interface pacing, reliable transmission, ACK tracking, SRTT/RTO, retry behavior,
+and conditional receive.
 
-This preserves FD as the Feasibility Condition loop-free anchor.
+## 14. Production code rule
 
-## 12. Packet and TLV rules
+Do not add compatibility debt without an explicit migration requirement.
+Forbidden examples include legacy/old replacement paths, alias wrappers for
+renamed internal APIs, parallel old/new protocol implementations, generic
+compatibility dispatchers, and temporary host-object leakage into portable APIs.
 
-Packet encode/decode must be:
+Existing classic CLI is a supported surface. That does not authorize duplicate
+portable protocol implementations.
 
-- bounds-safe;
-- endian-safe;
-- debuggable/dumpable;
-- separated from topology/route-selection decisions;
-- compatible with the host send/receive adapter without making host stream
-  objects the protocol data model.
-
-### 12.1 Byte order
-
-Internal EIGRP values use host order unless a type explicitly documents
-otherwise. Wire buffers use network order. Every multibyte wire field is
-converted at the encode/decode boundary.
-
-### 12.2 Packed structures
-
-Packed structures may describe fixed wire views. They do not replace safe
-parsing. Variable-length TLVs, prefixes, attributes, authentication data, and
-multiprotocol fields require explicit length/bounds validation.
-
-### 12.3 TLV validation
-
-Every decoder validates:
-
-- minimum TLV header length;
-- declared length against remaining packet bytes;
-- type-specific minimum size;
-- variable-field size/prefix length;
-- alignment where the encoding requires it.
-
-Malformed TLVs fail safely and must not advance receive loops into an invalid or
-non-progressing state.
-
-### 12.4 Route TLV ownership
-
-`eigrp_tlv1` and `eigrp_tlv2` own their private wire representations. Packetizer,
-DUAL, topology, CLI, and reliable transport operate on native EIGRP data and do
-not depend on private TLV1/TLV2 structure layouts.
-
-The packetizer architecture is defined in `packetizing-spec.md`.
-
-## 13. CLI and process scope
-
-Classic and named CLI behavior is defined by `cli-spec.md`. CLI/VTY/debug
-command-surface rules are owned by `cli-spec.md`.
-
-The named process/address-family runtime model is defined by `process-spec.md`.
-
-EIGRP Stub routing is explicitly outside project scope. Do not implement Stub
-runtime behavior, import it from FRR/Cisco code, or add tests that validate the
-EIGRP Stub feature. Existing external/reference mentions do not create a project
-requirement.
-
-## 14. Testing contract
-
-Tests are separated by dependency ownership:
+## 15. Testing contract
 
 ```text
 test/build/       lightweight compile/syntax/prototype smoke
 test/common/      host-independent fixtures
 test/portable/    host-independent behavior/source-boundary tests
 frr/test/         FRR-native integration/UUT tests
-bird/...          BIRD-native integration/UUT tests
+bsd/...           BIRD/BSD-native integration/UUT tests
 ```
 
-The lightweight smoke harness does not replace a complete FRR build/link.
-
-For source changes, the normal gate is:
+Normal source-change gate:
 
 ```text
 1. make test
-2. FRR stage/build/link succeeds
-3. relevant live/FRR-native UUT coverage succeeds
+2. relevant host stage/build/link succeeds
+3. relevant host-native/live UUT coverage succeeds
 ```
 
-Changes to CLI/configuration require validation of parsing, mutation,
-running-config writeback, and applicable `no` forms. Protocol packet changes
-require encode/decode/bounds/endian validation appropriate to the changed path.
+CLI/configuration changes validate parsing, mutation, writeback, and applicable
+`no` forms. Packet changes validate encode/decode, bounds, endian behavior, and
+reliable-transport effects appropriate to the changed path.
 
-Do not make portable tests depend on FRR-only types or lifecycle when the
-behavior under test is protocol-owned.
+Portable tests must not depend on FRR/BIRD types when the behavior under test is
+protocol-owned.
 
-## 15. Drift and refactor discipline
+## 16. Development order for named mode
+
+Named-mode work is staged deliberately:
+
+1. Make `router eigrp savage` / IPv4 AF AS 4453 pass every applicable command,
+   writeback, mutation, and documented `no` form.
+2. Do the same for IPv6 AF AS 4453.
+3. Test multiple autonomous systems under one named parent.
+4. Validate distinct case-sensitive parent names such as `savage` and `SAVAGE`.
+
+Do not attribute a parser/config-retention failure to process/thread runtime code
+until the command has actually reached that layer.
+
+## 17. Scope exclusions
+
+EIGRP Stub routing is explicitly outside project scope. Do not implement Stub runtime
+behavior, import it from another implementation, or add tests that validate it.
+Ordinary test/compiler stub terminology is unrelated.
+
+## 18. Drift and refactor discipline
 
 Do not refactor merely because a specification describes a cleaner final name.
-When code and design differ:
+When code and design differ, fix code when the design rule is intentional and
+the touched work makes that appropriate, or update the specification when the
+implementation demonstrates a better architecture.
 
-- fix the code when the design rule is intentional and the touched work makes
-  the correction appropriate; or
-- update the specification when the implementation demonstrates a better
-  architecture.
+Deferred naming/ownership work belongs in `refactor-work.md`. That document is a
+parking lot, not authorization for broad unrelated cleanup.
 
-Deferred naming/ownership work belongs in `refactor-work.md`. That file is a
-parking lot, not authorization for unrelated broad cleanup during feature work.
-
-## 16. Copyright and authorship
+## 19. Copyright and authorship
 
 New project files use Donnie V. Savage as copyright owner unless another author
-is intentionally identified.
+is intentionally identified. Existing source preserves prior copyright, SPDX,
+and author history.
 
-Existing source must preserve its prior copyright, SPDX, and author history.
-Substantial new work may add authorship/copyright without removing existing
-history.
-
-## 17. Delivery
+## 20. Delivery
 
 Requested project changes are delivered as a ZIP rooted at `eigrp/` so they can
-be copied into another checkout without inventing alternate paths.
-
-The delivery includes every changed source, specification, test, script,
-configuration, and supporting project file required by the change. Local VCS,
-build, and cache artifacts are not part of the delivery.
+be copied into another checkout with normal recursive copy tools. Delivery
+contains the complete changed project files and excludes local VCS/build/cache
+artifacts.

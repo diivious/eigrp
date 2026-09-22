@@ -65,19 +65,19 @@ static void eigrp_policy_distribute_update(struct distribute_ctx *ctx,
 	snapshot.access_list[EIGRP_FILTER_OUT] = dist->list[DISTRIBUTE_V4_OUT];
 	snapshot.prefix_list[EIGRP_FILTER_IN] = dist->prefix[DISTRIBUTE_V4_IN];
 	snapshot.prefix_list[EIGRP_FILTER_OUT] = dist->prefix[DISTRIBUTE_V4_OUT];
-	(void)eigrp_filter_runtime_replace(state->eigrp, dist->ifname, &snapshot);
+	(void)eigrp_sys_filter_runtime_replace(state->eigrp, dist->ifname, &snapshot);
 }
 
 static void eigrp_policy_access_list_changed(struct access_list *access)
 {
 	(void)access;
-	eigrp_filter_runtime_refresh_all();
+	eigrp_sys_policy_runtime_refresh();
 }
 
 static void eigrp_policy_prefix_list_changed(struct prefix_list *prefix)
 {
 	(void)prefix;
-	eigrp_filter_runtime_refresh_all();
+	eigrp_sys_policy_runtime_refresh();
 }
 
 void eigrp_policy_init(void)

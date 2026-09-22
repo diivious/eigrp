@@ -78,10 +78,10 @@ def test_address_family_owns_and_releases_item5_retained_state():
 def test_interface_controls_retain_configuration_and_apply_available_runtime_behavior():
     source = read(INTERFACE_C)
 
-    bandwidth = function_body(source, "eigrp_interface_bandwidth_percent_update")
-    next_hop = function_body(source, "eigrp_interface_next_hop_self_update")
-    split_horizon = function_body(source, "eigrp_interface_split_horizon_update")
-    shutdown = function_body(source, "eigrp_interface_shutdown_update")
+    bandwidth = function_body(source, "eigrp_interface_bandwidth_percent_set")
+    next_hop = function_body(source, "eigrp_interface_next_hop_self_apply")
+    split_horizon = function_body(source, "eigrp_interface_split_horizon_apply")
+    shutdown = function_body(source, "eigrp_interface_shutdown_apply")
     bind = function_body(source, "eigrp_interface_runtime_bind")
 
     assert "context->config->bandwidth_percent = percent;" in bandwidth
@@ -105,8 +105,8 @@ def test_interface_controls_retain_configuration_and_apply_available_runtime_beh
 
 def test_authentication_keeps_md5_runtime_and_truthful_hmac_boundary():
     source = read(AUTH_C)
-    mode = function_body(source, "eigrp_auth_mode_update")
-    keychain = function_body(source, "eigrp_auth_keychain_update")
+    mode = function_body(source, "eigrp_auth_mode_set")
+    keychain = function_body(source, "eigrp_auth_keychain_set")
 
     assert "context->config->authentication_mode = (uint8_t)mode;" in mode
     assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256" in mode
@@ -122,10 +122,10 @@ def test_filter_and_redistribution_targets_retain_policy_before_runtime_boundary
     redistribute_source = read(REDISTRIBUTE_C)
     northbound = read(NORTHBOUND_C)
 
-    offset = function_body(filter_source, "eigrp_offset_update")
-    offset_delete = function_body(filter_source, "eigrp_offset_delete")
+    offset = function_body(filter_source, "eigrp_offset_add")
+    offset_delete = function_body(filter_source, "eigrp_offset_remove")
     redist_limit = function_body(
-        redistribute_source, "eigrp_redistribute_maximum_prefix_update"
+        redistribute_source, "eigrp_redistribute_maximum_prefix_set"
     )
 
     assert "context->config->offsets" in offset
@@ -140,12 +140,12 @@ def test_filter_and_redistribution_targets_retain_policy_before_runtime_boundary
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" in redist_limit
 
     for target in (
-        "eigrp_offset_update",
-        "eigrp_offset_delete",
-        "eigrp_redistribute_update",
-        "eigrp_redistribute_delete",
-        "eigrp_redistribute_maximum_prefix_update",
-        "eigrp_redistribute_maximum_prefix_delete",
+        "eigrp_offset_add",
+        "eigrp_offset_remove",
+        "eigrp_redistribute_add",
+        "eigrp_redistribute_remove",
+        "eigrp_redistribute_maximum_prefix_set",
+        "eigrp_redistribute_maximum_prefix_reset",
     ):
         assert target in northbound
 
@@ -155,12 +155,12 @@ def test_summary_metric_and_timer_targets_own_retained_state():
     metric = read(METRIC_C)
     timer = read(TIMER_C)
 
-    auto_summary = function_body(summary, "eigrp_summary_auto_update")
-    summary_metric = function_body(summary, "eigrp_summary_metric_update")
-    default_metric = function_body(metric, "eigrp_metric_default_update")
-    traffic_share = function_body(metric, "eigrp_metric_traffic_share_balanced_update")
-    holddown = function_body(metric, "eigrp_metric_holddown_update")
-    active_time = function_body(timer, "eigrp_timer_active_time_update")
+    auto_summary = function_body(summary, "eigrp_summary_auto_apply")
+    summary_metric = function_body(summary, "eigrp_summary_metric_set")
+    default_metric = function_body(metric, "eigrp_metric_default_set")
+    traffic_share = function_body(metric, "eigrp_metric_traffic_share_balanced_apply")
+    holddown = function_body(metric, "eigrp_metric_holddown_set")
+    active_time = function_body(timer, "eigrp_timer_active_time_set")
 
     assert "state->auto_summary = enabled;" in auto_summary
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" in auto_summary
@@ -184,9 +184,9 @@ def test_summary_metric_and_timer_targets_own_retained_state():
 def test_metric_targets_apply_supported_runtime_state_and_hop_limit():
     source = read(METRIC_C)
 
-    weights = function_body(source, "eigrp_metric_weights_update")
-    variance = function_body(source, "eigrp_metric_variance_update")
-    maximum_hops = function_body(source, "eigrp_metric_maximum_hops_update")
+    weights = function_body(source, "eigrp_metric_weights_set")
+    variance = function_body(source, "eigrp_metric_variance_set")
+    maximum_hops = function_body(source, "eigrp_metric_maximum_hops_set")
     calculate = function_body(source, "eigrp_calculate_total_metrics")
 
     assert "config->weights = *weights;" in weights
@@ -211,10 +211,10 @@ def test_neighbor_policy_targets_retain_configuration_and_logging_state():
     source = read(NEIGHBOR_C)
     northbound = read(NORTHBOUND_C)
 
-    description = function_body(source, "eigrp_neighbor_description_update")
-    maximum_prefix = function_body(source, "eigrp_neighbor_maximum_prefix_update")
+    description = function_body(source, "eigrp_neighbor_description_set")
+    maximum_prefix = function_body(source, "eigrp_neighbor_maximum_prefix_set")
     maximum_prefix_all = function_body(
-        source, "eigrp_neighbor_maximum_prefix_all_update"
+        source, "eigrp_neighbor_maximum_prefix_all_set"
     )
     log_set = function_body(source, "eigrp_neighbor_log_set")
     log_reset = function_body(source, "eigrp_neighbor_log_reset")
@@ -266,32 +266,32 @@ def test_item5_northbound_commands_terminate_at_module_targets():
 
     targets = (
         # interface/auth
-        "eigrp_interface_bandwidth_percent_update",
-        "eigrp_interface_next_hop_self_update",
-        "eigrp_interface_split_horizon_update",
-        "eigrp_interface_shutdown_update",
-        "eigrp_auth_mode_update",
-        "eigrp_auth_keychain_update",
+        "eigrp_interface_bandwidth_percent_set",
+        "eigrp_interface_next_hop_self_set",
+        "eigrp_interface_split_horizon_set",
+        "eigrp_interface_shutdown_set",
+        "eigrp_auth_mode_set",
+        "eigrp_auth_keychain_set",
         # filtering/redistribution
-        "eigrp_distribute_list_update",
-        "eigrp_offset_update",
-        "eigrp_redistribute_update",
-        "eigrp_redistribute_maximum_prefix_update",
+        "eigrp_distribute_add",
+        "eigrp_offset_add",
+        "eigrp_redistribute_add",
+        "eigrp_redistribute_maximum_prefix_set",
         # summaries/metrics/timers
         "eigrp_summary_create",
-        "eigrp_summary_auto_update",
-        "eigrp_summary_metric_update",
-        "eigrp_metric_default_update",
-        "eigrp_metric_weights_update",
-        "eigrp_metric_variance_update",
-        "eigrp_metric_traffic_share_balanced_update",
-        "eigrp_metric_maximum_hops_update",
-        "eigrp_metric_holddown_update",
-        "eigrp_timer_active_time_update",
+        "eigrp_summary_auto_set",
+        "eigrp_summary_metric_set",
+        "eigrp_metric_default_set",
+        "eigrp_metric_weights_set",
+        "eigrp_metric_variance_set",
+        "eigrp_metric_traffic_share_balanced_set",
+        "eigrp_metric_maximum_hops_set",
+        "eigrp_metric_holddown_set",
+        "eigrp_timer_active_time_set",
         # neighbor policy/logging
-        "eigrp_neighbor_description_update",
-        "eigrp_neighbor_maximum_prefix_update",
-        "eigrp_neighbor_maximum_prefix_all_update",
+        "eigrp_neighbor_description_set",
+        "eigrp_neighbor_maximum_prefix_set",
+        "eigrp_neighbor_maximum_prefix_all_set",
         "eigrp_neighbor_log_set",
         "eigrp_neighbor_log_reset",
     )

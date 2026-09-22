@@ -43,7 +43,8 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_snmp.h"
 #include "eigrpd/eigrp_filter.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_errors.h"
 #include "eigrpd/eigrp_vrf.h"
 #include "eigrpd/eigrp_cli_classic.h"
@@ -96,7 +97,7 @@ static FRR_NORETURN void sigint(void)
 	zlog_notice("Terminating on signal");
 	keychain_terminate();
 	eigrp_terminate();
-	eigrp_southbound_policy_finish();
+	eigrp_sys_policy_finish();
 	exit(0);
 }
 
@@ -179,8 +180,8 @@ int main(int argc, char **argv, char **envp)
 	eigrp_vrf_init();
 
 	/* EIGRPd init. */
-	eigrp_southbound_runtime_init();
-	eigrp_southbound_rib_init();
+	eigrp_sys_runtime_init();
+	eigrp_rib_init();
 	eigrp_debug_init();
 
 	/* EIGRP VTY inits. */
@@ -195,7 +196,7 @@ int main(int argc, char **argv, char **envp)
 #endif /* HAVE_SNMP */
 
 	/* FRR policy object lifecycle and callbacks stay behind southbound. */
-	eigrp_southbound_policy_init();
+	eigrp_sys_policy_init();
 
 	frr_config_fork();
 	frr_run(master);

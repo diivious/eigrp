@@ -20,42 +20,10 @@
 
 #include <string.h>
 
+#include "eigrpd/eigrp_cli.h"
+#include "eigrpd/eigrp_mgnt.h"
 #include "eigrpd/eigrp_instance.h"
-#include "eigrpd/eigrp_result.h"
-
-typedef enum eigrp_default_information_direction {
-	EIGRP_DEFAULT_INFORMATION_IN = 0,
-	EIGRP_DEFAULT_INFORMATION_OUT,
-} eigrp_default_information_direction_t;
-
-typedef struct eigrp_topology_prefix_state {
-	eigrp_prefix_t destination;
-	bool active;
-	uint32_t feasible_distance;
-	uint32_t successor_count;
-	uint64_t serial_number;
-} eigrp_topology_prefix_state_t;
-
-typedef struct eigrp_topology_route_state {
-	eigrp_address_t next_hop;
-	const char *interface_name;
-	bool connected;
-	bool successor;
-	bool feasible_successor;
-	uint32_t distance;
-	uint32_t reported_distance;
-} eigrp_topology_route_state_t;
-
-typedef eigrp_result_t (*eigrp_topology_prefix_state_cb)(
-	const eigrp_topology_prefix_state_t *state, void *arg);
-typedef eigrp_result_t (*eigrp_topology_route_state_cb)(
-	const eigrp_topology_route_state_t *state, void *arg);
-typedef eigrp_result_t (*eigrp_topology_instance_walk_cb)(
-	eigrp_instance_t *runtime, void *arg);
-
-typedef struct eigrp_topology_clear_request {
-	const eigrp_prefix_t *destination; /* NULL clears the whole topology */
-} eigrp_topology_clear_request_t;
+#include "eigrpd/eigrp.h"
 
 /* EIGRP Route Descriptor related functions. */
 extern eigrp_route_descriptor_t *eigrp_topology_route_create(eigrp_interface_t *);
@@ -138,17 +106,19 @@ int eigrp_addr_same (eigrp_addr_t *dst, eigrp_addr_t *src)
 
 eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context);
 eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_topology_default_information_update(
+eigrp_result_t eigrp_topology_default_information_set(
 	eigrp_instance_context_t *context,
-	eigrp_default_information_direction_t direction, bool enabled,
-	const char *access_list);
-eigrp_result_t eigrp_topology_maximum_prefix_update(
+	eigrp_default_information_direction_t direction, const char *access_list);
+eigrp_result_t eigrp_topology_default_information_reset(
+	eigrp_instance_context_t *context,
+	eigrp_default_information_direction_t direction, const char *access_list);
+eigrp_result_t eigrp_topology_maximum_prefix_set(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_topology_maximum_prefix_delete(
+eigrp_result_t eigrp_topology_maximum_prefix_reset(
 	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_topology_maximum_paths_update(
+eigrp_result_t eigrp_topology_maximum_paths_set(
 	eigrp_instance_context_t *context, uint8_t maximum_paths);
-eigrp_result_t eigrp_topology_maximum_paths_delete(
+eigrp_result_t eigrp_topology_maximum_paths_reset(
 	eigrp_instance_context_t *context);
 
 #endif

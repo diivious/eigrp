@@ -19,7 +19,7 @@
 #define EIGRPD_EIGRP_FILTER_H_
 
 #include "eigrpd/eigrp_instance.h"
-#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp.h"
 #include "eigrpd/eigrp_types.h"
 
 bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
@@ -27,31 +27,27 @@ bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
                                const eigrp_prefix_t *prefix);
 
 /* Runtime policy references supplied by a host adapter. */
-eigrp_result_t eigrp_filter_runtime_replace(
-        eigrp_instance_t *eigrp, const char *interface_name,
-        const eigrp_filter_runtime_snapshot_t *snapshot);
-void eigrp_filter_runtime_refresh_all(void);
 void eigrp_filter_runtime_state_clear(eigrp_filter_runtime_state_t *state);
 
 void eigrp_distribute_timer_process(void *arg);
 void eigrp_distribute_timer_interface(void *arg);
 
-eigrp_result_t eigrp_offset_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context,
                                    const char *access_list,
                                    eigrp_offset_direction_t direction,
                                    uint32_t offset,
                                    const char *interface_name);
-eigrp_result_t eigrp_offset_delete(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_offset_remove(eigrp_instance_context_t *context,
                                    const char *access_list,
                                    eigrp_offset_direction_t direction,
                                    uint32_t offset,
                                    const char *interface_name);
 void eigrp_offset_config_delete_all(eigrp_address_family_config_t *af);
-eigrp_result_t eigrp_distribute_list_update(
+eigrp_result_t eigrp_distribute_add(
         eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
         const char *name, eigrp_offset_direction_t direction,
         const char *interface_name);
-eigrp_result_t eigrp_distribute_list_delete(
+eigrp_result_t eigrp_distribute_remove(
         eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
         const char *name, eigrp_offset_direction_t direction,
         const char *interface_name);

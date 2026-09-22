@@ -13,12 +13,12 @@ INSTANCE_H = ROOT / "eigrpd" / "eigrp_instance.h"
 INSTANCE_C = ROOT / "eigrpd" / "eigrp_instance.c"
 REDIST_C = ROOT / "eigrpd" / "eigrp_redistribute.c"
 FILTER_C = ROOT / "eigrpd" / "eigrp_filter.c"
-SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_southbound.h"
+SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_sys.h"
 SOUTHBOUND_C = ROOT / "frr" / "eigrp_southbound.c"
 POLICY_C = ROOT / "frr" / "eigrp_policy.c"
 ZEBRA_C = ROOT / "frr" / "eigrp_zebra.c"
 NORTHBOUND = ROOT / "frr" / "eigrp_northbound.c"
-CONVENTIONS = ROOT / "specs" / "code-conventions.md"
+CONVENTIONS = ROOT / "specs" / "design-spec.md"
 
 
 def read(path: Path) -> str:
@@ -56,13 +56,13 @@ def test_address_family_owns_portable_redistribution_and_filter_state():
 
 def test_named_redistribution_target_owns_state_then_crosses_southbound_boundary():
     redist = read(REDIST_C)
-    update = function_body(redist, "eigrp_redistribute_update")
-    delete = function_body(redist, "eigrp_redistribute_delete")
+    update = function_body(redist, "eigrp_redistribute_add")
+    delete = function_body(redist, "eigrp_redistribute_remove")
 
     assert "eigrp_redistribute_config_find" in update
-    assert "eigrp_southbound_redistribute_update" in update
+    assert "eigrp_rib_redistribute_add" in update
     assert "context->config->redistributions" in update
-    assert "eigrp_southbound_redistribute_delete" in delete
+    assert "eigrp_rib_redistribute_remove" in delete
     assert "zclient_redistribute" not in update
     assert "eigrp_redistribute_set" not in update
     assert "eigrp_redistribute_unset" not in delete
@@ -70,8 +70,8 @@ def test_named_redistribution_target_owns_state_then_crosses_southbound_boundary
 
 def test_named_distribute_list_target_owns_common_filter_state_and_runtime_names():
     filt = read(FILTER_C)
-    update = function_body(filt, "eigrp_distribute_list_update")
-    delete = function_body(filt, "eigrp_distribute_list_delete")
+    update = function_body(filt, "eigrp_distribute_add")
+    delete = function_body(filt, "eigrp_distribute_remove")
 
     assert "eigrp_distribute_list_config_find" in update
     assert "eigrp_filter_runtime_reference_update" in update
@@ -85,14 +85,14 @@ def test_named_distribute_list_target_owns_common_filter_state_and_runtime_names
 
 
 def test_southbound_contract_is_eigrp_owned_not_frr_cli_or_yang_objects():
-    header = read(SOUTHBOUND_H)
+    header = read(SOUTHBOUND_H) + read(ROOT / "eigrpd" / "eigrp_rib.h")
 
     for target in (
-        "eigrp_southbound_redistribute_update",
-        "eigrp_southbound_redistribute_delete",
-        "eigrp_southbound_policy_instance_create",
-        "eigrp_southbound_policy_instance_delete",
-        "eigrp_southbound_filter_evaluate",
+        "eigrp_rib_redistribute_add",
+        "eigrp_rib_redistribute_remove",
+        "eigrp_sys_policy_instance_create",
+        "eigrp_sys_policy_instance_delete",
+        "eigrp_sys_filter_evaluate",
     ):
         assert target in header
     for host_type in (
@@ -122,20 +122,20 @@ def test_named_northbound_resolves_runtime_and_terminates_at_portable_targets():
     assert "vrf_lookup_by_name" not in resolver
     assert "eigrp_lookup_by_as_vrf" not in resolver
     assert "eigrpd_named_runtime_context_resolve" in redist_apply
-    assert "eigrp_redistribute_update" in redist_apply
+    assert "eigrp_redistribute_add" in redist_apply
     assert "eigrpd_named_runtime_context_resolve" in redist_delete
-    assert "eigrp_redistribute_delete" in redist_delete
+    assert "eigrp_redistribute_remove" in redist_delete
     assert "eigrpd_named_runtime_context_resolve" in dist_update
-    assert "eigrp_distribute_list_update" in dist_update
+    assert "eigrp_distribute_add" in dist_update
     assert "eigrpd_named_runtime_context_resolve" in dist_delete
-    assert "eigrp_distribute_list_delete" in dist_delete
+    assert "eigrp_distribute_remove" in dist_delete
 
 
 def test_frr_redistribution_adapter_delegates_to_named_zebra_operations():
     southbound = read(SOUTHBOUND_C)
     zebra = read(ZEBRA_C)
-    adapter_update = function_body(southbound, "eigrp_southbound_redistribute_update")
-    adapter_delete = function_body(southbound, "eigrp_southbound_redistribute_delete")
+    adapter_update = function_body(southbound, "eigrp_rib_redistribute_add")
+    adapter_delete = function_body(southbound, "eigrp_rib_redistribute_remove")
     zebra_update = function_body(zebra, "eigrp_zebra_redistribute_update")
     zebra_delete = function_body(zebra, "eigrp_zebra_redistribute_delete")
 
@@ -162,13 +162,13 @@ def test_frr_filter_adapter_owns_host_policy_objects_and_returns_portable_decisi
     assert "access_list_apply(access, &host_prefix)" in evaluate
     assert "prefix_list_apply(plist, &host_prefix)" in evaluate
     assert "EIGRP_FILTER_DECISION_DENY" in evaluate
-    assert "eigrp_filter_runtime_replace" in callback
+    assert "eigrp_sys_filter_runtime_replace" in callback
     assert "dist->list[DISTRIBUTE_V4_IN]" in callback
     assert "dist->prefix[DISTRIBUTE_V4_OUT]" in callback
     assert "access_list_lookup" not in southbound
     assert "prefix_list_lookup" not in southbound
     assert "return eigrp_policy_filter_evaluate" in function_body(
-        southbound, "eigrp_southbound_filter_evaluate"
+        southbound, "eigrp_sys_filter_evaluate"
     )
 
 
@@ -181,8 +181,8 @@ def test_classic_endpoints_remain_unmodified_and_separate():
     assert "eigrp_redistribute_set(eigrp, proto, metrics)" in classic_redist_create
     assert "eigrp_redistribute_unset(eigrp, proto)" in classic_redist_destroy
     assert "group_distribute_list_create_helper" in classic_dist_create
-    assert "eigrp_redistribute_update" not in classic_redist_create
-    assert "eigrp_distribute_list_update" not in classic_dist_create
+    assert "eigrp_redistribute_add" not in classic_redist_create
+    assert "eigrp_distribute_add" not in classic_dist_create
 
 
 def test_runtime_redistribution_incompleteness_is_explicit_after_zebra_subscription():
@@ -198,6 +198,6 @@ def test_runtime_redistribution_incompleteness_is_explicit_after_zebra_subscript
 def test_redistribution_filter_target_contract_is_documented():
     conventions = read(CONVENTIONS)
 
-    assert "Classic and named configuration surfaces converge" in conventions
-    assert "Reuse the EIGRP behavior below the host boundary" in conventions
-    assert "real EIGRP target" in conventions
+    assert "converge on the same EIGRP-owned" in conventions
+    assert "same EIGRP-owned semantic behavior below the host boundary" in conventions
+    assert "real EIGRP semantic target" in conventions

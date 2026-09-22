@@ -29,17 +29,6 @@ struct eigrp_addr {
     } ip;
 };
     
-typedef struct eigrp_metrics {
-	eigrp_delay_t delay;
-	eigrp_bandwidth_t bandwidth;
-	unsigned char mtu[3];
-	uint8_t hop_count;
-	uint8_t reliability;
-	uint8_t load;
-	uint8_t tag;
-	uint8_t flags;
-} eigrp_metrics_t;
-
 typedef struct eigrp_extdata {
 	uint32_t orig;
 	uint32_t as;
@@ -86,8 +75,6 @@ struct eigrp_instance {
 	eigrp_list_t *eiflist;		   /* eigrp interfaces */
 	uint8_t passive_interface_default; /* passive-interface default */
 
-	int fd;
-	unsigned int maxsndbuflen;
 
 	uint32_t sequence_number; /*Global EIGRP sequence number*/
 

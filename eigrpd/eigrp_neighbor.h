@@ -20,7 +20,8 @@
 
 #include <stddef.h>
 
-#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_cli.h"
+#include "eigrpd/eigrp_mgnt.h"
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_types.h"
 
@@ -92,47 +93,6 @@ typedef struct eigrp_neighbor {
 
 } eigrp_neighbor_t;
 
-typedef struct eigrp_neighbor_state {
-	eigrp_address_t address;
-	const char *interface_name;
-	const char *state_name;
-	bool static_configured;
-	bool runtime_present;
-	uint16_t hold_time;
-	uint64_t uptime_seconds;
-	unsigned long reliable_queue_count;
-	uint32_t sequence_number;
-	uint32_t prefix_count;
-	uint64_t retransmit_count;
-	uint8_t retry_count;
-	bool srtt_valid;
-	uint32_t srtt_msec;
-	uint32_t rto_msec;
-	uint8_t os_major;
-	uint8_t os_minor;
-	uint8_t tlv_major;
-	uint8_t tlv_minor;
-	uint8_t tlv_version;
-} eigrp_neighbor_state_t;
-
-typedef eigrp_result_t (*eigrp_neighbor_state_walk_cb)(
-	const eigrp_neighbor_state_t *state, void *arg);
-
-typedef struct eigrp_neighbor_clear_request {
-	const char *interface_name;
-	const eigrp_addr_t *address;
-	bool soft;
-} eigrp_neighbor_clear_request_t;
-
-typedef struct eigrp_neighbor_clear_state {
-	eigrp_addr_t address;
-	const char *interface_name;
-	bool soft;
-} eigrp_neighbor_clear_state_t;
-
-typedef void (*eigrp_neighbor_clear_cb)(
-	const eigrp_neighbor_clear_state_t *state, void *arg);
-
 
 /* Prototypes */
 extern eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *, struct eigrp_header *,
@@ -183,25 +143,20 @@ eigrp_result_t eigrp_neighbor_clear(
 	eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request,
 	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count);
 
-eigrp_result_t eigrp_neighbor_description_update(
+eigrp_result_t eigrp_neighbor_description_set(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const char *description);
-eigrp_result_t eigrp_neighbor_description_delete(
+eigrp_result_t eigrp_neighbor_description_reset(
 	eigrp_instance_context_t *context, const eigrp_address_t *address);
-eigrp_result_t eigrp_neighbor_maximum_prefix_update(
+eigrp_result_t eigrp_neighbor_maximum_prefix_set(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
+eigrp_result_t eigrp_neighbor_maximum_prefix_reset(
 	eigrp_instance_context_t *context, const eigrp_address_t *address);
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_set(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_reset(
 	eigrp_instance_context_t *context);
-typedef enum eigrp_neighbor_log_type {
-	EIGRP_NEIGHBOR_LOG_CHANGES = 0,
-	EIGRP_NEIGHBOR_LOG_WARNINGS
-} eigrp_neighbor_log_type_t;
-
 eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context,
 				      eigrp_neighbor_log_type_t type,
 				      bool enabled, uint16_t seconds);

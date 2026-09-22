@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# Source-level guards for the packetizer/RTP pipeline in packetizing-spec.md.
+# Source-level guards for the packetizer/RTP pipeline in rtp-spec.md.
 
 from pathlib import Path
 

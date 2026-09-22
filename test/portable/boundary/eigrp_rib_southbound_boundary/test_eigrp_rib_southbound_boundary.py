@@ -49,18 +49,18 @@ def test_portable_code_does_not_expose_zebra_rib_types_or_route_constants():
 
 
 def test_route_install_remove_cross_eigrp_southbound_contract():
-    southbound_h = read("eigrpd/eigrp_southbound.h")
+    rib_h = read("eigrpd/eigrp_rib.h")
     topology = read("eigrpd/eigrp_topology.c")
     southbound = read("frr/eigrp_southbound.c")
 
-    assert "typedef struct eigrp_southbound_nexthop" in southbound_h
-    assert "eigrp_ifindex_t ifindex;" in southbound_h
-    assert "eigrp_address_t gateway;" in southbound_h
-    assert "eigrp_southbound_route_install(" in southbound_h
-    assert "eigrp_southbound_route_remove(" in southbound_h
+    assert "typedef struct eigrp_rib_nexthop" in rib_h
+    assert "eigrp_ifindex_t ifindex;" in rib_h
+    assert "eigrp_address_t gateway;" in rib_h
+    assert "eigrp_rib_route_install(" in rib_h
+    assert "eigrp_rib_route_remove(" in rib_h
 
-    assert "eigrp_southbound_route_install(" in topology
-    assert "eigrp_southbound_route_remove(" in topology
+    assert "eigrp_rib_route_install(" in topology
+    assert "eigrp_rib_route_remove(" in topology
     assert "eigrp_zebra_route_" not in topology
 
     assert "return eigrp_zebra_route_install" in southbound
@@ -75,7 +75,7 @@ def test_zebra_adapter_builds_host_rib_objects_from_portable_snapshot():
     assert "struct zapi_nexthop *api_nh;" in zebra
     assert "zclient_route_send(ZEBRA_ROUTE_ADD" in zebra
     assert "zclient_route_send(ZEBRA_ROUTE_DELETE" in zebra
-    assert "const eigrp_southbound_nexthop_t *nexthops" in zebra_h
+    assert "const eigrp_rib_route_t *route" in zebra_h
     assert "struct list *successors" not in zebra_h
     assert "eigrp_route_descriptor_t" not in zebra_h
 
@@ -96,15 +96,15 @@ def test_host_redistribution_bookkeeping_is_not_core_instance_state():
 def test_zebra_lifecycle_is_reached_through_southbound_from_portable_code():
     main = read("frr/eigrp_main.c")
     daemon = read("eigrpd/eigrpd.c")
-    header = read("eigrpd/eigrp_southbound.h")
+    header = read("eigrpd/eigrp_rib.h")
 
-    assert "eigrp_southbound_rib_init();" in main
-    assert "eigrp_southbound_rib_finish();" in daemon
-    assert "eigrp_southbound_rib_instance_delete(eigrp);" in daemon
+    assert "eigrp_rib_init();" in main
+    assert "eigrp_rib_finish();" in daemon
+    assert "eigrp_rib_instance_delete(eigrp);" in daemon
     assert "eigrp_zebra_init" not in main
     assert "eigrp_zebra_stop" not in daemon
-    assert "void eigrp_southbound_rib_init(void);" in header
-    assert "void eigrp_southbound_rib_finish(void);" in header
+    assert "void eigrp_rib_init(void);" in header
+    assert "void eigrp_rib_finish(void);" in header
 
 
 def test_obsolete_host_route_type_refresh_api_is_removed():
@@ -144,16 +144,16 @@ def test_gr_update_runtime_api_does_not_receive_frr_vty_objects():
 
 def test_host_runtime_shutdown_terminates_at_southbound_boundary():
     daemon = read("eigrpd/eigrpd.c")
-    southbound_h = read("eigrpd/eigrp_southbound.h")
+    sys_h = read("eigrpd/eigrp_sys.h")
     southbound = read("frr/eigrp_southbound.c")
     zebra_stub = read("test/build/include/zebra.h")
     vrf_stub = read("test/build/include/vrf.h")
     libfrr_stub = read("test/build/include/libfrr.h")
 
-    assert "eigrp_southbound_runtime_finish();" in daemon
+    assert "eigrp_sys_runtime_finish();" in daemon
     assert "vrf_terminate(" not in daemon
     assert "frr_fini(" not in daemon
-    assert "void eigrp_southbound_runtime_finish(void);" in southbound_h
+    assert "void eigrp_sys_runtime_finish(void);" in sys_h
     assert '#include "vrf.h"' in southbound
     assert '#include "lib/libfrr.h"' in southbound
     assert "vrf_terminate();" in southbound

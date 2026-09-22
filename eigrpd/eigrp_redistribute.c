@@ -9,7 +9,8 @@
 #include <string.h>
 
 #include "eigrp_redistribute.h"
-#include "eigrp_southbound.h"
+#include "eigrp_sys.h"
+#include "eigrp_rib.h"
 
 struct eigrp_redistribute_config {
 	char *protocol;
@@ -86,7 +87,7 @@ static bool eigrp_redistribute_runtime_result_committable(eigrp_result_t result)
  * Creates, updates, or removes portable named-mode redistribution state and invokes the southbound subscription boundary.
  * The current Zebra receive/topology/route-map path is incomplete, so a live named update can report NOT_IMPLEMENTED after establishing the correct subscription.
  */
-eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
 					 const char *protocol,
 					 const eigrp_metric_values_t *metric,
 					 const char *route_map)
@@ -134,7 +135,7 @@ eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
 	if (context->runtime && !eigrp_instance_data_path_ready(context->runtime))
 		result = EIGRP_RESULT_NOT_IMPLEMENTED;
 	else if (context->runtime)
-		result = eigrp_southbound_redistribute_update(
+		result = eigrp_rib_redistribute_add(
 			context->runtime, protocol, metric, route_map);
 	if (!eigrp_redistribute_runtime_result_committable(result)) {
 		free(new_route_map);
@@ -178,7 +179,7 @@ eigrp_result_t eigrp_redistribute_update(eigrp_instance_context_t *context,
  * Creates, updates, or removes portable named-mode redistribution state and invokes the southbound subscription boundary.
  * The current Zebra receive/topology/route-map path is incomplete, so a live named update can report NOT_IMPLEMENTED after establishing the correct subscription.
  */
-eigrp_result_t eigrp_redistribute_delete(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
 					 const char *protocol)
 {
 	eigrp_redistribute_config_t **cursor = NULL;
@@ -209,7 +210,7 @@ eigrp_result_t eigrp_redistribute_delete(eigrp_instance_context_t *context,
 	if (context->runtime) {
 		result = !eigrp_instance_data_path_ready(context->runtime)
 			 ? EIGRP_RESULT_NOT_IMPLEMENTED
-			 : eigrp_southbound_redistribute_delete(context->runtime,
+			 : eigrp_rib_redistribute_remove(context->runtime,
 							       protocol);
 		if (result != EIGRP_RESULT_SUCCESS
 		    && result != EIGRP_RESULT_NOT_FOUND
@@ -258,7 +259,7 @@ void eigrp_redistribute_config_delete_all(eigrp_address_family_config_t *af)
  * Sets or removes the redistribution prefix-limit policy.
  * Retained configuration stays here while enforcement remains a structured NOT_IMPLEMENTED runtime path.
  */
-eigrp_result_t eigrp_redistribute_maximum_prefix_update(
+eigrp_result_t eigrp_redistribute_maximum_prefix_set(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
 	if (!limit || !limit->maximum || limit->threshold > 100)
@@ -289,7 +290,7 @@ eigrp_result_t eigrp_redistribute_maximum_prefix_update(
  * Sets or removes the redistribution prefix-limit policy.
  * Retained configuration stays here while enforcement remains a structured NOT_IMPLEMENTED runtime path.
  */
-eigrp_result_t eigrp_redistribute_maximum_prefix_delete(
+eigrp_result_t eigrp_redistribute_maximum_prefix_reset(
 	eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))

@@ -23,7 +23,8 @@
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_interface.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
@@ -101,7 +102,7 @@ void eigrp_neighbor_srtt_update(eigrp_neighbor_t *nbr,
 	    || packet->sent_msec == 0)
 		return;
 
-	now_msec = eigrp_southbound_monotime_msec();
+	now_msec = eigrp_sys_monotime_msec();
 	if (now_msec < packet->sent_msec)
 		return;
 
@@ -466,10 +467,10 @@ eigrp_result_t eigrp_neighbor_state_walk(
 			state.interface_name = name;
 			state.state_name = eigrp_nbr_state_str(nbr);
 			state.runtime_present = true;
-			state.hold_time = (uint16_t)eigrp_southbound_timer_remaining_seconds(
+			state.hold_time = (uint16_t)eigrp_sys_timer_remaining_seconds(
 				nbr->t_holddown);
 			if (nbr->up_since_msec) {
-				uint64_t now = eigrp_southbound_monotime_msec();
+				uint64_t now = eigrp_sys_monotime_msec();
 
 				if (now >= nbr->up_since_msec)
 					state.uptime_seconds =
@@ -674,13 +675,13 @@ void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 
 	/* Cancel neighbor-owned host runtime events before releasing queues/state. */
-	eigrp_southbound_event_cancel(&nbr->t_nbr_send_gr);
+	eigrp_sys_event_cancel(&nbr->t_nbr_send_gr);
 	if (nbr->nbr_gr_prefixes)
 		eigrp_list_delete(&nbr->nbr_gr_prefixes);
 	if (nbr->nbr_gr_prefixes_send)
 		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
 	eigrp_packet_queue_free(nbr->retrans_queue);
-	eigrp_southbound_event_cancel(&nbr->t_holddown);
+	eigrp_sys_event_cancel(&nbr->t_holddown);
 
 	if (nbr->ei)
 		eigrp_list_delete_data(nbr->ei->nbrs, nbr);
@@ -729,7 +730,7 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 
 	if (state == EIGRP_NEIGHBOR_UP && old_state != EIGRP_NEIGHBOR_UP) {
 		eigrp_interface_encoder_bind(nbr->ei, nbr->tlv_version);
-		nbr->up_since_msec = eigrp_southbound_monotime_msec();
+		nbr->up_since_msec = eigrp_sys_monotime_msec();
 		nbr->retransmissions = 0;
 	} else if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP) {
 		nbr->up_since_msec = 0;
@@ -754,7 +755,7 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 
 		// hold time..
 		nbr->v_holddown = EIGRP_HOLD_INTERVAL_DEFAULT;
-		eigrp_southbound_event_cancel(&nbr->t_holddown);
+		eigrp_sys_event_cancel(&nbr->t_holddown);
 
 		/* out with the old */
 		if (nbr->retrans_queue)
@@ -792,20 +793,20 @@ void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 {
 	switch (nbr->state) {
 	case EIGRP_NEIGHBOR_DOWN:
-		eigrp_southbound_event_cancel(&nbr->t_holddown);
+		eigrp_sys_event_cancel(&nbr->t_holddown);
 		break;
 	case EIGRP_NEIGHBOR_PENDING: {
 		/*Reset Hold Down Timer for neighbor*/
-		eigrp_southbound_event_cancel(&nbr->t_holddown);
-		eigrp_southbound_timer_add(&nbr->t_holddown,
+		eigrp_sys_event_cancel(&nbr->t_holddown);
+		eigrp_sys_timer_add(&nbr->t_holddown,
 				  eigrp_neighbor_holddown_expired, nbr,
 				  (uint32_t)nbr->v_holddown * 1000U);
 		break;
 	}
 	case EIGRP_NEIGHBOR_UP: {
 		/*Reset Hold Down Timer for neighbor*/
-		eigrp_southbound_event_cancel(&nbr->t_holddown);
-		eigrp_southbound_timer_add(&nbr->t_holddown,
+		eigrp_sys_event_cancel(&nbr->t_holddown);
+		eigrp_sys_timer_add(&nbr->t_holddown,
 				  eigrp_neighbor_holddown_expired, nbr,
 				  (uint32_t)nbr->v_holddown * 1000U);
 		break;
@@ -831,23 +832,26 @@ int eigrp_nbr_count_get(eigrp_instance_t *eigrp)
 	return counter;
 }
 
-static bool eigrp_neighbor_clear_address_valid(const eigrp_addr_t *address)
+static bool eigrp_neighbor_clear_address_valid(const eigrp_address_t *address)
 {
-	return address && (address->afi == AF_INET || address->afi == AF_INET6);
+	return address && (address->afi == EIGRP_ADDRESS_FAMILY_IPV4
+			   || address->afi == EIGRP_ADDRESS_FAMILY_IPV6);
 }
 
 static bool eigrp_neighbor_clear_address_match(const eigrp_neighbor_t *nbr,
-					       const eigrp_addr_t *address)
+				       const eigrp_address_t *address)
 {
-	if (!nbr || !address || nbr->src.afi != address->afi)
+	if (!nbr || !address)
 		return false;
 
-	if (address->afi == AF_INET6)
-		return memcmp(&nbr->src.ip.v6, &address->ip.v6,
-			      sizeof(address->ip.v6)) == 0;
-	if (address->afi == AF_INET)
-		return memcmp(&nbr->src.ip.v4, &address->ip.v4,
-			      sizeof(address->ip.v4)) == 0;
+	if (address->afi == EIGRP_ADDRESS_FAMILY_IPV6)
+		return nbr->src.afi == AF_INET6
+		       && memcmp(&nbr->src.ip.v6, address->bytes,
+				 sizeof(nbr->src.ip.v6)) == 0;
+	if (address->afi == EIGRP_ADDRESS_FAMILY_IPV4)
+		return nbr->src.afi == AF_INET
+		       && memcmp(&nbr->src.ip.v4, address->bytes,
+				 sizeof(nbr->src.ip.v4)) == 0;
 	return false;
 }
 
@@ -860,7 +864,13 @@ static void eigrp_neighbor_clear_report(const eigrp_neighbor_t *nbr, bool soft,
 	if (!callback)
 		return;
 	memset(&state, 0, sizeof(state));
-	state.address = nbr->src;
+	if (nbr->src.afi == AF_INET) {
+		state.address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		memcpy(state.address.bytes, &nbr->src.ip.v4, sizeof(nbr->src.ip.v4));
+	} else if (nbr->src.afi == AF_INET6) {
+		state.address.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		memcpy(state.address.bytes, &nbr->src.ip.v6, sizeof(nbr->src.ip.v6));
+	}
 	state.interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : NULL;
 	state.soft = soft;
 	callback(&state, arg);
@@ -1090,7 +1100,7 @@ static eigrp_result_t eigrp_neighbor_policy_context_validate(
  * Sets or removes retained descriptive text for a configured neighbor.
  * Description metadata does not own adjacency behavior.
  */
-eigrp_result_t eigrp_neighbor_description_update(
+eigrp_result_t eigrp_neighbor_description_set(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const char *description)
 {
@@ -1130,7 +1140,7 @@ eigrp_result_t eigrp_neighbor_description_update(
  * Sets or removes retained descriptive text for a configured neighbor.
  * Description metadata does not own adjacency behavior.
  */
-eigrp_result_t eigrp_neighbor_description_delete(
+eigrp_result_t eigrp_neighbor_description_reset(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
 	eigrp_neighbor_policy_state_t *state;
@@ -1164,7 +1174,7 @@ eigrp_result_t eigrp_neighbor_description_delete(
  * Sets or removes a per-neighbor maximum-prefix policy.
  * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_update(
+eigrp_result_t eigrp_neighbor_maximum_prefix_set(
 	eigrp_instance_context_t *context, const eigrp_address_t *address,
 	const eigrp_prefix_limit_t *limit)
 {
@@ -1198,7 +1208,7 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_update(
  * Sets or removes a per-neighbor maximum-prefix policy.
  * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
+eigrp_result_t eigrp_neighbor_maximum_prefix_reset(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
 	eigrp_neighbor_policy_state_t *state;
@@ -1236,7 +1246,7 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_delete(
  * Sets or removes the address-family default maximum-prefix policy for neighbors.
  * The target preserves configuration separately from future enforcement mechanics.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_set(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
 	eigrp_neighbor_policy_state_t *state;
@@ -1266,7 +1276,7 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(
  * Sets or removes the address-family default maximum-prefix policy for neighbors.
  * The target preserves configuration separately from future enforcement mechanics.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_delete(
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_reset(
 	eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))

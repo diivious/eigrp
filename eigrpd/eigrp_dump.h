@@ -14,7 +14,7 @@
 #ifndef _ZEBRA_EIGRPD_DUMP_H_
 #define _ZEBRA_EIGRPD_DUMP_H_
 
-#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp_cli.h"
 
 #define EIGRP_TIME_DUMP_SIZE 16
 
@@ -42,24 +42,9 @@ extern unsigned long conf_debug_eigrp_nei;
  * HELLO carrying a non-zero acknowledgment number (RFC 7868), and RETRY is
  * a local reliable-transport event.
  */
-typedef enum eigrp_debug_packet_category {
-	EIGRP_DEBUG_PACKET_UPDATE = 0,
-	EIGRP_DEBUG_PACKET_REQUEST,
-	EIGRP_DEBUG_PACKET_QUERY,
-	EIGRP_DEBUG_PACKET_REPLY,
-	EIGRP_DEBUG_PACKET_HELLO,
-	EIGRP_DEBUG_PACKET_PROBE,
-	EIGRP_DEBUG_PACKET_ACK,
-	EIGRP_DEBUG_PACKET_RETRY,
-	EIGRP_DEBUG_PACKET_SIAQUERY,
-	EIGRP_DEBUG_PACKET_SIAREPLY,
-	EIGRP_DEBUG_PACKET_CATEGORY_MAX
-} eigrp_debug_packet_category_t;
 
-typedef enum eigrp_debug_scope {
-	EIGRP_DEBUG_SCOPE_TERMINAL = 0,
-	EIGRP_DEBUG_SCOPE_CONFIG
-} eigrp_debug_scope_t;
+
+
 
 /* packet category selection masks */
 #define EIGRP_DEBUG_UPDATE (1U << EIGRP_DEBUG_PACKET_UPDATE)
@@ -192,36 +177,11 @@ extern unsigned long conf_debug_eigrp_zebra;
 
 
 /* Non-packet debug targets. */
-typedef enum eigrp_debug_target {
-	EIGRP_DEBUG_TARGET_GENERAL = 0,
-	EIGRP_DEBUG_TARGET_NEIGHBOR,
-	EIGRP_DEBUG_TARGET_NOTIFICATIONS,
-	EIGRP_DEBUG_TARGET_TRANSMIT
-} eigrp_debug_target_t;
 
-extern eigrp_result_t eigrp_debug_set(eigrp_debug_target_t target,
-				      unsigned long flags,
-				      eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_reset(eigrp_debug_target_t target,
-					unsigned long flags,
-					eigrp_debug_scope_t scope);
 
-typedef enum eigrp_debug_address_family_category {
-	EIGRP_DEBUG_AF_ROUTE = 0,
-	EIGRP_DEBUG_AF_NEIGHBOR,
-	EIGRP_DEBUG_AF_NOTIFICATIONS,
-	EIGRP_DEBUG_AF_SUMMARY,
-	EIGRP_DEBUG_AF_CATEGORY_MAX
-} eigrp_debug_address_family_category_t;
 
-extern eigrp_result_t eigrp_debug_address_family_set(
-	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
-	const eigrp_address_t *neighbor, eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_address_family_reset(
-	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
-	const eigrp_address_t *neighbor, eigrp_debug_scope_t scope);
+
+
 extern bool eigrp_debug_address_family_enabled(
 	eigrp_instance_t *eigrp, eigrp_debug_address_family_category_t category,
 	const eigrp_addr_t *neighbor);
@@ -237,15 +197,9 @@ extern void eigrp_debug_nsf_event(const eigrp_instance_t *eigrp,
 	const eigrp_neighbor_t *nbr, uint32_t flags, const char *event);
 extern void eigrp_debug_transmit_event(unsigned long category,
 	const eigrp_instance_t *eigrp, const eigrp_interface_t *ei,
-	const eigrp_neighbor_t *nbr, const char *format, ...) PRINTFRR(5, 6);
+	const eigrp_neighbor_t *nbr, const char *format, ...);
 
 /* Packet-debug targets and runtime hooks. */
-extern eigrp_result_t eigrp_debug_packet_set(uint32_t packet_mask,
-					 unsigned long flags,
-					 eigrp_debug_scope_t scope);
-extern eigrp_result_t eigrp_debug_packet_reset(uint32_t packet_mask,
-					 unsigned long flags,
-					 eigrp_debug_scope_t scope);
 extern bool eigrp_debug_packet_any_enabled(unsigned long direction);
 extern const char *eigrp_debug_packet_category_name(
 	eigrp_debug_packet_category_t category);
@@ -263,20 +217,5 @@ extern void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
 /* Prototypes. */
 extern void eigrp_header_dump(struct eigrp_header *);
 
-extern void show_ip_eigrp_interface_header(struct vty *, eigrp_instance_t *);
-extern void show_ip_eigrp_neighbor_header(struct vty *, eigrp_instance_t *);
-extern void show_ip_eigrp_topology_header(struct vty *, eigrp_instance_t *);
-extern void show_ip_eigrp_interface_detail(struct vty *, eigrp_instance_t *,
-				   eigrp_interface_t *);
-extern void show_ip_eigrp_interface_sub(struct vty *, eigrp_instance_t *,
-				eigrp_interface_t *);
-extern void show_ip_eigrp_neighbor_sub(struct vty *, eigrp_neighbor_t *, int);
-extern void show_ip_eigrp_prefix_descriptor(struct vty *,
-					    eigrp_prefix_descriptor_t *, bool);
-extern void show_ip_eigrp_route_descriptor(struct vty *vty, eigrp_instance_t *,
-					   eigrp_route_descriptor_t *,
-					   bool *first, bool include_serial);
-
-extern void eigrp_debug_init(void);
 
 #endif /* _ZEBRA_EIGRPD_DUMP_H_ */

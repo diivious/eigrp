@@ -17,7 +17,8 @@
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_types.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 
 #define EIGRP_IPV4_ADDRESS_BYTES 4U
 #define EIGRP_IPV4_PREFIX_LENGTH_BYTES 1U
@@ -64,15 +65,20 @@ static int eigrp_ipv4_packet_send(eigrp_instance_t *eigrp,
                                   eigrp_interface_t *ei,
                                   eigrp_packet_t *packet)
 {
+	eigrp_address_t destination;
+
 	if (!eigrp || !ei || !packet || !packet->s || packet->dst.afi != AF_INET)
 		return -1;
+	memset(&destination, 0, sizeof(destination));
+	destination.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	memcpy(destination.bytes, &packet->dst.ip.v4, sizeof(packet->dst.ip.v4));
 
-	return eigrp_southbound_ipv4_packet_send(
-		eigrp, ei, &packet->dst, eigrp_stream_data(packet->s),
+	return eigrp_sys_ipv4_packet_send(
+		eigrp, ei, &destination, eigrp_stream_data(packet->s),
 		packet->length);
 }
 
-static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
+static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp,
                                       eigrp_stream_t *stream,
                                       eigrp_interface_t **ei,
                                       eigrp_addr_t *source,
@@ -80,13 +86,30 @@ static bool eigrp_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
                                       eigrp_packet_rx_meta_t *meta)
 {
 	eigrp_ifindex_t ifindex = 0;
+	eigrp_address_t public_source;
+	eigrp_address_t public_destination;
+	size_t received_length = 0;
 
 	if (!eigrp || !stream || !ei || !source || !destination || !meta)
 		return false;
 	*ei = NULL;
-	if (!eigrp_southbound_ipv4_packet_receive(eigrp, fd, stream, &ifindex,
-	                                           source, destination, meta))
+	eigrp_stream_reset(stream);
+	if (!eigrp_sys_ipv4_packet_receive(
+		eigrp, eigrp_stream_data(stream), stream->size, &received_length,
+		&ifindex, &public_source, &public_destination, meta))
 		return false;
+	if (public_source.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || public_destination.afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || received_length > stream->size)
+		return false;
+	eigrp_stream_set_endp(stream, received_length);
+	memset(source, 0, sizeof(*source));
+	memset(destination, 0, sizeof(*destination));
+	source->afi = AF_INET;
+	destination->afi = AF_INET;
+	memcpy(&source->ip.v4, public_source.bytes, sizeof(source->ip.v4));
+	memcpy(&destination->ip.v4, public_destination.bytes,
+	       sizeof(destination->ip.v4));
 
 	*ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
 	if (!*ei) {

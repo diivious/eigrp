@@ -11,18 +11,19 @@ ROOT = Path(__file__).resolve().parents[4]
 PACKET = ROOT / "eigrpd" / "eigrp_packet.c"
 STRUCTS = ROOT / "eigrpd" / "eigrp_structs.h"
 INTERFACE_C = ROOT / "eigrpd" / "eigrp_interface.c"
-INTERFACE_H = ROOT / "eigrpd" / "eigrp_interface.h"
+MGNT_H = ROOT / "eigrpd" / "eigrp_mgnt.h"
 NEIGHBOR_C = ROOT / "eigrpd" / "eigrp_neighbor.c"
 NEIGHBOR_H = ROOT / "eigrpd" / "eigrp_neighbor.h"
+PUBLIC_H = ROOT / "eigrpd" / "eigrp.h"
 STATISTICS = ROOT / "eigrpd" / "eigrp_statistics.c"
 TIMER_C = ROOT / "eigrpd" / "eigrp_timer.c"
 TIMER_H = ROOT / "eigrpd" / "eigrp_timer.h"
 TYPES = ROOT / "eigrpd" / "eigrp_types.h"
 INSTANCE = ROOT / "eigrpd" / "eigrp_instance.c"
-SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_southbound.h"
+SOUTHBOUND_H = ROOT / "eigrpd" / "eigrp_sys.h"
 FRR_SOUTHBOUND = ROOT / "frr" / "eigrp_southbound.c"
 VTY = ROOT / "frr" / "eigrp_cli_named.c"
-CLI_SPEC = ROOT / "specs" / "cli-spec.md"
+CLI_SPEC = ROOT / "specs" / "design-spec.md"
 
 
 def read(path: Path) -> str:
@@ -66,7 +67,7 @@ def test_traffic_counters_are_owned_by_validated_packet_io():
 def test_interface_detail_uses_real_transport_counters():
     structs = read(STRUCTS)
     interface_c = read(INTERFACE_C)
-    interface_h = read(INTERFACE_H)
+    mgnt_h = read(MGNT_H)
     packet = read(PACKET)
     vty = read(VTY)
 
@@ -80,11 +81,11 @@ def test_interface_detail_uses_real_transport_counters():
         "retransmissions_sent",
     ):
         assert field in structs
-        assert field in interface_h
+        assert field in mgnt_h
         assert f"state.{field}" in interface_c or f"state->{field}" in interface_c
         assert f"stats.{field}" in packet
 
-    assert "eigrp_southbound_timer_remaining_seconds(ei->t_hello)" in interface_c
+    assert "eigrp_sys_timer_remaining_seconds(ei->t_hello)" in interface_c
     assert "Un/reliable mcasts:" in vty
     assert "Mcast exceptions:" in vty
     assert "Retransmissions sent:" in vty
@@ -100,21 +101,22 @@ def test_neighbor_detail_uses_live_hold_uptime_retry_and_prefix_state():
     frr_southbound = read(FRR_SOUTHBOUND)
     vty = read(VTY)
 
-    assert "eigrp_southbound_timer_remaining_seconds(" in neighbor_c
+    assert "eigrp_sys_timer_remaining_seconds(" in neighbor_c
     assert "nbr->t_holddown" in neighbor_c
-    assert "eigrp_southbound_monotime_msec" in neighbor_c
+    assert "eigrp_sys_monotime_msec" in neighbor_c
     assert "uint64_t up_since_msec;" in neighbor_h
-    assert "uint64_t uptime_seconds;" in neighbor_h
-    assert "uint32_t prefix_count;" in neighbor_h
-    assert "uint64_t retransmit_count;" in neighbor_h
-    assert "uint8_t retry_count;" in neighbor_h
+    mgnt_h = read(MGNT_H)
+    assert "uint64_t uptime_seconds;" in mgnt_h
+    assert "uint32_t prefix_count;" in mgnt_h
+    assert "uint64_t retransmit_count;" in mgnt_h
+    assert "uint8_t retry_count;" in mgnt_h
     assert "state.srtt_valid = nbr->srtt_valid" in neighbor_c
     assert "state.srtt_msec = nbr->srtt_msec" in neighbor_c
     assert "state.rto_msec = eigrp_neighbor_rto_get(nbr)" in neighbor_c
     assert "eigrp_neighbor_prefix_count(runtime, nbr)" in neighbor_c
     assert "nbr->retrans_queue->tail->retrans_counter" in neighbor_c
-    assert "uint64_t eigrp_southbound_monotime_msec(void);" in southbound_h
-    assert "uint64_t eigrp_southbound_monotime_msec(void)" in frr_southbound
+    assert "uint64_t eigrp_sys_monotime_msec(void);" in southbound_h
+    assert "uint64_t eigrp_sys_monotime_msec(void)" in frr_southbound
 
     for label in ("Hold", "Uptime", "SRTT", "RTO", "Retrans:", "Retries:", "Prefixes:"):
         assert label in vty
@@ -123,14 +125,14 @@ def test_neighbor_detail_uses_live_hold_uptime_retry_and_prefix_state():
 
 def test_timer_show_walks_actual_runtime_expirations():
     timer_c = read(TIMER_C)
-    timer_h = read(TIMER_H)
+    timer_h = read(MGNT_H)
     vty = read(VTY)
 
     assert "EIGRP_TIMER_STATE_HELLO" in timer_h
     assert "EIGRP_TIMER_STATE_PEER_HOLD" in timer_h
     assert "interface->t_hello" in timer_c
     assert "neighbor->t_holddown" in timer_c
-    assert timer_c.count("eigrp_southbound_timer_remaining_seconds") >= 2
+    assert timer_c.count("eigrp_sys_timer_remaining_seconds") >= 2
     assert "Hello interval" not in timer_c
     assert "hold_time_configured" not in timer_c
     assert "Peer holding" in vty
@@ -156,7 +158,7 @@ def test_accounting_and_traffic_have_real_ipv4_backend_data():
 
 
 def test_multicast_exec_selector_is_retained_as_maf_not_transport_multicast():
-    types = read(TYPES)
+    types = read(PUBLIC_H)
     instance = read(INSTANCE)
     vty = read(VTY)
     cli_spec = read(CLI_SPEC)

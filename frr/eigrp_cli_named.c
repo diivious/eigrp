@@ -1335,7 +1335,7 @@ DEFUN(eigrp_exit_address_family,
  * Syntax: `no shutdown`
  * Mode: Named parent / address-family / af-interface
  * XPath: parent is direct; address-family and af-interface use their local shutdown leaf
- * Target: parent -> eigrp_instance_parent_shutdown_update(); address-family -> eigrp_instance_address_family_shutdown_update(); af-interface -> eigrp_interface_shutdown_update()
+ * Target: parent -> eigrp_instance_parent_shutdown_set(); address-family -> eigrp_instance_address_family_shutdown_set(); af-interface -> eigrp_interface_shutdown_set()
  */
 DEFUN(eigrp_no_shutdown,
       eigrp_no_shutdown_cmd,
@@ -1359,8 +1359,8 @@ DEFUN(eigrp_no_shutdown,
 		eigrp_cli_current_name(vty, name, sizeof(name));
 		return eigrp_cli_result_render(
 			vty, "named process no shutdown",
-			eigrp_instance_parent_shutdown_update(
-				eigrp_instance_parent_read(name), false));
+			eigrp_instance_parent_shutdown_reset(
+				eigrp_instance_parent_read(name)));
 	}
 	return CMD_WARNING;
 }
@@ -1369,7 +1369,7 @@ DEFUN(eigrp_no_shutdown,
  * Syntax: `shutdown`
  * Mode: Named parent / address-family / af-interface
  * XPath: parent is direct; address-family and af-interface use their local shutdown leaf
- * Target: parent -> eigrp_instance_parent_shutdown_update(); address-family -> eigrp_instance_address_family_shutdown_update(); af-interface -> eigrp_interface_shutdown_update()
+ * Target: parent -> eigrp_instance_parent_shutdown_set(); address-family -> eigrp_instance_address_family_shutdown_set(); af-interface -> eigrp_interface_shutdown_set()
  */
 DEFUN(eigrp_shutdown,
       eigrp_shutdown_cmd,
@@ -1392,8 +1392,8 @@ DEFUN(eigrp_shutdown,
 		eigrp_cli_current_name(vty, name, sizeof(name));
 		return eigrp_cli_result_render(
 			vty, "named process shutdown",
-			eigrp_instance_parent_shutdown_update(
-				eigrp_instance_parent_read(name), true));
+			eigrp_instance_parent_shutdown_set(
+				eigrp_instance_parent_read(name)));
 	}
 	return CMD_WARNING;
 }
@@ -1637,7 +1637,7 @@ static int eigrp_cli_prefix_limit_set(struct vty *vty, int argc,
  * Syntax: `neighbor <A.B.C.D|X:X::X:X> description LINE`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description
- * Target: eigrp_neighbor_description_update()
+ * Target: eigrp_neighbor_description_set()
  */
 DEFUN(eigrp_neighbor_description,
       eigrp_neighbor_description_cmd,
@@ -1661,7 +1661,7 @@ DEFUN(eigrp_neighbor_description,
  * Syntax: `no neighbor <A.B.C.D|X:X::X:X> description [LINE]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description
- * Target: eigrp_neighbor_description_delete()
+ * Target: eigrp_neighbor_description_reset()
  */
 DEFUN(no_eigrp_neighbor_description,
       no_eigrp_neighbor_description_cmd,
@@ -1683,7 +1683,7 @@ DEFUN(no_eigrp_neighbor_description,
  * Syntax: `neighbor <A.B.C.D|X:X::X:X> maximum-prefix (1-4294967295) [(1-100)] [warning-only]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_update()
+ * Target: eigrp_neighbor_maximum_prefix_set()
  */
 DEFUN(eigrp_neighbor_maximum_prefix,
       eigrp_neighbor_maximum_prefix_cmd,
@@ -1706,7 +1706,7 @@ DEFUN(eigrp_neighbor_maximum_prefix,
  * Syntax: `no neighbor <A.B.C.D|X:X::X:X> maximum-prefix`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_delete()
+ * Target: eigrp_neighbor_maximum_prefix_reset()
  */
 DEFUN(no_eigrp_neighbor_maximum_prefix,
       no_eigrp_neighbor_maximum_prefix_cmd,
@@ -1727,7 +1727,7 @@ DEFUN(no_eigrp_neighbor_maximum_prefix,
  * Syntax: `neighbor maximum-prefix (1-4294967295) [(1-100)] [dampened] [reset-time (1-65535)] [restart (1-65535)] [restart-count (1-65535)] [warning-only]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_all_update()
+ * Target: eigrp_neighbor_maximum_prefix_all_set()
  */
 DEFUN(eigrp_neighbor_maximum_prefix_all,
       eigrp_neighbor_maximum_prefix_all_cmd,
@@ -1747,7 +1747,7 @@ DEFUN(eigrp_neighbor_maximum_prefix_all,
  * Syntax: `no neighbor maximum-prefix`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_all_delete()
+ * Target: eigrp_neighbor_maximum_prefix_all_reset()
  */
 DEFUN(no_eigrp_neighbor_maximum_prefix_all,
       no_eigrp_neighbor_maximum_prefix_all_cmd,
@@ -1940,7 +1940,7 @@ DEFUN(eigrp_exit_af_interface,
  * Syntax: `bandwidth-percent (1-999999)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent
- * Target: eigrp_interface_bandwidth_percent_update()
+ * Target: eigrp_interface_bandwidth_percent_set()
  */
 DEFUN(eigrp_af_interface_bandwidth_percent,
       eigrp_af_interface_bandwidth_percent_cmd,
@@ -1962,7 +1962,7 @@ DEFUN(eigrp_af_interface_bandwidth_percent,
  * Syntax: `no bandwidth-percent`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent
- * Target: eigrp_interface_bandwidth_percent_delete()
+ * Target: eigrp_interface_bandwidth_percent_reset()
  */
 DEFUN(no_eigrp_af_interface_bandwidth_percent,
       no_eigrp_af_interface_bandwidth_percent_cmd,
@@ -2071,7 +2071,7 @@ DEFUN(no_eigrp_af_interface_delay,
  * Syntax: `hello-interval (1-65535)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hello-interval
- * Target: eigrp_interface_hello_interval_update()
+ * Target: eigrp_interface_hello_interval_set()
  */
 DEFUN(eigrp_af_interface_hello_interval,
       eigrp_af_interface_hello_interval_cmd,
@@ -2093,7 +2093,7 @@ DEFUN(eigrp_af_interface_hello_interval,
  * Syntax: `no hello-interval`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hello-interval
- * Target: eigrp_interface_hello_interval_delete()
+ * Target: eigrp_interface_hello_interval_reset()
  */
 DEFUN(no_eigrp_af_interface_hello_interval,
       no_eigrp_af_interface_hello_interval_cmd,
@@ -2114,7 +2114,7 @@ DEFUN(no_eigrp_af_interface_hello_interval,
  * Syntax: `hold-time (1-65535)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hold-time
- * Target: eigrp_interface_hold_time_update()
+ * Target: eigrp_interface_hold_time_set()
  */
 DEFUN(eigrp_af_interface_hold_time,
       eigrp_af_interface_hold_time_cmd,
@@ -2136,7 +2136,7 @@ DEFUN(eigrp_af_interface_hold_time,
  * Syntax: `no hold-time`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hold-time
- * Target: eigrp_interface_hold_time_delete()
+ * Target: eigrp_interface_hold_time_reset()
  */
 DEFUN(no_eigrp_af_interface_hold_time,
       no_eigrp_af_interface_hold_time_cmd,
@@ -2157,7 +2157,7 @@ DEFUN(no_eigrp_af_interface_hold_time,
  * Syntax: `authentication mode <md5|hmac-sha-256 <0|7> WORD>`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
- * Target: eigrp_auth_mode_update()
+ * Target: eigrp_auth_mode_set()
  */
 DEFUN(eigrp_af_interface_authentication_mode,
       eigrp_af_interface_authentication_mode_cmd,
@@ -2210,7 +2210,7 @@ DEFUN(eigrp_af_interface_authentication_mode,
  * Syntax: `no authentication mode`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
- * Target: eigrp_auth_mode_delete()
+ * Target: eigrp_auth_mode_reset()
  */
 DEFUN(no_eigrp_af_interface_authentication_mode,
       no_eigrp_af_interface_authentication_mode_cmd,
@@ -2234,7 +2234,7 @@ DEFUN(no_eigrp_af_interface_authentication_mode,
  * Syntax: `authentication key-chain WORD`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain
- * Target: eigrp_auth_keychain_update()
+ * Target: eigrp_auth_keychain_set()
  */
 DEFUN(eigrp_af_interface_keychain,
       eigrp_af_interface_keychain_cmd,
@@ -2258,7 +2258,7 @@ DEFUN(eigrp_af_interface_keychain,
  * Syntax: `no authentication key-chain WORD`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain
- * Target: eigrp_auth_keychain_delete()
+ * Target: eigrp_auth_keychain_reset()
  */
 DEFUN(no_eigrp_af_interface_keychain,
       no_eigrp_af_interface_keychain_cmd,
@@ -2282,7 +2282,7 @@ DEFUN(no_eigrp_af_interface_keychain,
  * Syntax: `passive-interface`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/passive-interface
- * Target: eigrp_interface_passive_update()
+ * Target: eigrp_interface_passive_set()
  */
 DEFUN(eigrp_af_interface_passive,
       eigrp_af_interface_passive_cmd,
@@ -2302,7 +2302,7 @@ DEFUN(eigrp_af_interface_passive,
  * Syntax: `no passive-interface`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/passive-interface
- * Target: eigrp_interface_passive_update()
+ * Target: eigrp_interface_passive_set()
  */
 DEFUN(no_eigrp_af_interface_passive,
       no_eigrp_af_interface_passive_cmd,
@@ -2323,7 +2323,7 @@ DEFUN(no_eigrp_af_interface_passive,
  * Syntax: `next-hop-self`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/next-hop-self
- * Target: eigrp_interface_next_hop_self_update()
+ * Target: eigrp_interface_next_hop_self_set()
  */
 DEFUN(eigrp_af_interface_next_hop_self,
       eigrp_af_interface_next_hop_self_cmd,
@@ -2344,7 +2344,7 @@ DEFUN(eigrp_af_interface_next_hop_self,
  * Syntax: `no next-hop-self`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/next-hop-self
- * Target: eigrp_interface_next_hop_self_update()
+ * Target: eigrp_interface_next_hop_self_set()
  */
 DEFUN(no_eigrp_af_interface_next_hop_self,
       no_eigrp_af_interface_next_hop_self_cmd,
@@ -2365,7 +2365,7 @@ DEFUN(no_eigrp_af_interface_next_hop_self,
  * Syntax: `split-horizon`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/split-horizon
- * Target: eigrp_interface_split_horizon_update()
+ * Target: eigrp_interface_split_horizon_set()
  */
 DEFUN(eigrp_af_interface_split_horizon,
       eigrp_af_interface_split_horizon_cmd,
@@ -2386,7 +2386,7 @@ DEFUN(eigrp_af_interface_split_horizon,
  * Syntax: `no split-horizon`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/split-horizon
- * Target: eigrp_interface_split_horizon_update()
+ * Target: eigrp_interface_split_horizon_set()
  */
 DEFUN(no_eigrp_af_interface_split_horizon,
       no_eigrp_af_interface_split_horizon_cmd,
@@ -2704,7 +2704,7 @@ DEFUN(eigrp_exit_af_topology,
  * Syntax: `auto-summary`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/auto-summary
- * Target: eigrp_summary_auto_update()
+ * Target: eigrp_summary_auto_set()
  */
 DEFUN(eigrp_auto_summary,
       eigrp_auto_summary_cmd,
@@ -2728,7 +2728,7 @@ DEFUN(eigrp_auto_summary,
  * Syntax: `no auto-summary`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/auto-summary
- * Target: eigrp_summary_auto_update()
+ * Target: eigrp_summary_auto_set()
  */
 DEFUN(no_eigrp_auto_summary,
       no_eigrp_auto_summary_cmd,
@@ -2772,7 +2772,7 @@ static int eigrp_cli_default_information_set(struct vty *vty,
  * Syntax: `default-information <in|out> [WORD]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-{in|out}
- * Target: eigrp_topology_default_information_update()
+ * Target: eigrp_topology_default_information_set()
  */
 DEFUN(eigrp_default_information,
       eigrp_default_information_cmd,
@@ -2793,7 +2793,7 @@ DEFUN(eigrp_default_information,
  * Syntax: `no default-information <in|out> [WORD]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-{in|out}
- * Target: eigrp_topology_default_information_update()
+ * Target: eigrp_topology_default_information_set()
  */
 DEFUN(no_eigrp_default_information,
       no_eigrp_default_information_cmd,
@@ -2813,7 +2813,7 @@ DEFUN(no_eigrp_default_information,
  * Syntax: `default-metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric
- * Target: eigrp_metric_default_update()
+ * Target: eigrp_metric_default_set()
  */
 DEFUN(eigrp_default_metric,
       eigrp_default_metric_cmd,
@@ -2849,7 +2849,7 @@ DEFUN(eigrp_default_metric,
  * Syntax: `no default-metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric
- * Target: eigrp_metric_default_delete()
+ * Target: eigrp_metric_default_reset()
  */
 DEFUN(no_eigrp_default_metric,
       no_eigrp_default_metric_cmd,
@@ -2872,7 +2872,7 @@ DEFUN(no_eigrp_default_metric,
  * Syntax: `distance eigrp (1-255) (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
- * Target: eigrp_instance_distance_update()
+ * Target: eigrp_instance_distance_set()
  */
 DEFUN(eigrp_distance,
       eigrp_distance_cmd,
@@ -2898,7 +2898,7 @@ DEFUN(eigrp_distance,
  * Syntax: `no distance eigrp`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
- * Target: eigrp_instance_distance_delete()
+ * Target: eigrp_instance_distance_reset()
  */
 DEFUN(no_eigrp_distance,
       no_eigrp_distance_cmd,
@@ -3004,7 +3004,7 @@ static int eigrp_cli_prefix_limit_set(struct vty *vty, int argc,
  * Syntax: `maximum-prefix (1-4294967295) [(1-100)] [dampened] [reset-time (1-65535)] [restart (1-65535)] [restart-count (1-65535)] [warning-only]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
- * Target: eigrp_topology_maximum_prefix_update()
+ * Target: eigrp_topology_maximum_prefix_set()
  */
 DEFUN(eigrp_maximum_prefix,
       eigrp_maximum_prefix_cmd,
@@ -3025,7 +3025,7 @@ DEFUN(eigrp_maximum_prefix,
  * Syntax: `no maximum-prefix`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
- * Target: eigrp_topology_maximum_prefix_delete()
+ * Target: eigrp_topology_maximum_prefix_reset()
  */
 DEFUN(no_eigrp_maximum_prefix,
       no_eigrp_maximum_prefix_cmd,
@@ -3042,7 +3042,7 @@ DEFUN(no_eigrp_maximum_prefix,
  * Syntax: `metric maximum-hops (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops
- * Target: eigrp_metric_maximum_hops_update()
+ * Target: eigrp_metric_maximum_hops_set()
  */
 DEFUN(eigrp_metric_maximum_hops,
       eigrp_metric_maximum_hops_cmd,
@@ -3060,7 +3060,7 @@ DEFUN(eigrp_metric_maximum_hops,
  * Syntax: `no metric maximum-hops`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops
- * Target: eigrp_metric_maximum_hops_delete()
+ * Target: eigrp_metric_maximum_hops_reset()
  */
 DEFUN(no_eigrp_metric_maximum_hops,
       no_eigrp_metric_maximum_hops_cmd,
@@ -3077,7 +3077,7 @@ DEFUN(no_eigrp_metric_maximum_hops,
  * Syntax: `metric holddown`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Target: eigrp_metric_holddown_update()
+ * Target: eigrp_metric_holddown_set()
  */
 DEFUN(eigrp_metric_holddown,
       eigrp_metric_holddown_cmd,
@@ -3094,7 +3094,7 @@ DEFUN(eigrp_metric_holddown,
  * Syntax: `no metric holddown`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Target: eigrp_metric_holddown_delete()
+ * Target: eigrp_metric_holddown_reset()
  */
 DEFUN(no_eigrp_metric_holddown,
       no_eigrp_metric_holddown_cmd,
@@ -3111,7 +3111,7 @@ DEFUN(no_eigrp_metric_holddown,
  * Syntax: `eigrp event-log-size (0-4294967295)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
- * Target: eigrp_eventlog_size_update()
+ * Target: eigrp_eventlog_size_set()
  */
 DEFUN(eigrp_event_log_size,
       eigrp_event_log_size_cmd,
@@ -3130,7 +3130,7 @@ DEFUN(eigrp_event_log_size,
  * Syntax: `no eigrp event-log-size`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
- * Target: eigrp_eventlog_size_delete()
+ * Target: eigrp_eventlog_size_reset()
  */
 DEFUN(no_eigrp_event_log_size,
       no_eigrp_event_log_size_cmd,
@@ -3178,7 +3178,7 @@ static int eigrp_cli_offset_list_change(struct vty *vty, int argc,
  * Syntax: `offset-list WORD <in|out> (0-2147483647) [IFNAME]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/offset-list
- * Target: eigrp_offset_update()
+ * Target: eigrp_offset_add()
  */
 DEFUN(eigrp_offset_list,
       eigrp_offset_list_cmd,
@@ -3197,7 +3197,7 @@ DEFUN(eigrp_offset_list,
  * Syntax: `no offset-list WORD <in|out> (0-2147483647) [IFNAME]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/offset-list
- * Target: eigrp_offset_delete()
+ * Target: eigrp_offset_remove()
  */
 DEFUN(no_eigrp_offset_list,
       no_eigrp_offset_list_cmd,
@@ -3217,7 +3217,7 @@ DEFUN(no_eigrp_offset_list,
  * Syntax: `redistribute maximum-prefix (1-4294967295) [(1-100)] [dampened] [reset-time (1-65535)] [restart (1-65535)] [restart-count (1-65535)] [warning-only]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
- * Target: eigrp_redistribute_maximum_prefix_update()
+ * Target: eigrp_redistribute_maximum_prefix_set()
  */
 DEFUN(eigrp_redistribute_maximum_prefix,
       eigrp_redistribute_maximum_prefix_cmd,
@@ -3236,7 +3236,7 @@ DEFUN(eigrp_redistribute_maximum_prefix,
  * Syntax: `no redistribute maximum-prefix`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
- * Target: eigrp_redistribute_maximum_prefix_delete()
+ * Target: eigrp_redistribute_maximum_prefix_reset()
  */
 DEFUN(no_eigrp_redistribute_maximum_prefix,
       no_eigrp_redistribute_maximum_prefix_cmd,
@@ -3284,7 +3284,7 @@ static int eigrp_cli_summary_metric_set(struct vty *vty,
  * Syntax: `summary-metric A.B.C.D A.B.C.D (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535) [distance (1-255)]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_update()
+ * Target: eigrp_summary_metric_set()
  */
 DEFUN(eigrp_summary_metric,
       eigrp_summary_metric_cmd,
@@ -3315,7 +3315,7 @@ DEFUN(eigrp_summary_metric,
  * Syntax: `summary-metric X:X::X:X/M (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535) [distance (1-255)]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_update()
+ * Target: eigrp_summary_metric_set()
  */
 DEFUN(eigrp_summary_metric_ipv6,
       eigrp_summary_metric_ipv6_cmd,
@@ -3344,7 +3344,7 @@ DEFUN(eigrp_summary_metric_ipv6,
  * Syntax: `summary-metric A.B.C.D A.B.C.D distance (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_update()
+ * Target: eigrp_summary_metric_set()
  */
 DEFUN(eigrp_summary_metric_distance,
       eigrp_summary_metric_distance_cmd,
@@ -3366,7 +3366,7 @@ DEFUN(eigrp_summary_metric_distance,
  * Syntax: `summary-metric X:X::X:X/M distance (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_update()
+ * Target: eigrp_summary_metric_set()
  */
 DEFUN(eigrp_summary_metric_distance_ipv6,
       eigrp_summary_metric_distance_ipv6_cmd,
@@ -3386,7 +3386,7 @@ DEFUN(eigrp_summary_metric_distance_ipv6,
  * Syntax: `no summary-metric A.B.C.D A.B.C.D`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_delete()
+ * Target: eigrp_summary_metric_reset()
  */
 DEFUN(no_eigrp_summary_metric,
       no_eigrp_summary_metric_cmd,
@@ -3407,7 +3407,7 @@ DEFUN(no_eigrp_summary_metric,
  * Syntax: `no summary-metric X:X::X:X/M`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_delete()
+ * Target: eigrp_summary_metric_reset()
  */
 DEFUN(no_eigrp_summary_metric_ipv6,
       no_eigrp_summary_metric_ipv6_cmd,
@@ -3425,7 +3425,7 @@ DEFUN(no_eigrp_summary_metric_ipv6,
  * Syntax: `traffic-share balanced`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
- * Target: eigrp_metric_traffic_share_balanced_update()
+ * Target: eigrp_metric_traffic_share_balanced_set()
  */
 DEFUN(eigrp_traffic_share_balanced,
       eigrp_traffic_share_balanced_cmd,
@@ -3444,7 +3444,7 @@ DEFUN(eigrp_traffic_share_balanced,
  * Syntax: `no traffic-share balanced`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
- * Target: eigrp_metric_traffic_share_balanced_update()
+ * Target: eigrp_metric_traffic_share_balanced_set()
  */
 DEFUN(no_eigrp_traffic_share_balanced,
       no_eigrp_traffic_share_balanced_cmd,
@@ -3470,7 +3470,7 @@ bool eigrp_cli_named_context(struct vty *vty)
  * Syntax: `timers active-time <seconds|disabled>` / `no timers active-time`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
- * Target: eigrp_timer_active_time_update() / eigrp_timer_active_time_delete()
+ * Target: eigrp_timer_active_time_set() / eigrp_timer_active_time_reset()
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_active_time_apply(struct vty *vty, bool disabled,
@@ -3488,7 +3488,7 @@ int eigrp_cli_named_active_time_apply(struct vty *vty, bool disabled,
  * Syntax: `variance multiplier` / `no variance`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/variance
- * Target: eigrp_metric_variance_update() / eigrp_metric_variance_delete()
+ * Target: eigrp_metric_variance_set() / eigrp_metric_variance_reset()
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_variance_apply(struct vty *vty, const char *variance,
@@ -3506,7 +3506,7 @@ int eigrp_cli_named_variance_apply(struct vty *vty, const char *variance,
  * Syntax: `maximum-paths paths` / `no maximum-paths`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
- * Target: eigrp_topology_maximum_paths_update() / eigrp_topology_maximum_paths_delete()
+ * Target: eigrp_topology_maximum_paths_set() / eigrp_topology_maximum_paths_reset()
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_maximum_paths_apply(struct vty *vty,
@@ -3525,7 +3525,7 @@ int eigrp_cli_named_maximum_paths_apply(struct vty *vty,
  * Syntax: `metric weights tos K1 K2 K3 K4 K5 [K6]` / `no metric weights`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights
- * Target: eigrp_metric_weights_update() / eigrp_metric_weights_delete()
+ * Target: eigrp_metric_weights_set() / eigrp_metric_weights_reset()
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_metric_weights_apply(struct vty *vty,
@@ -3566,7 +3566,7 @@ int eigrp_cli_named_metric_weights_apply(struct vty *vty,
  * Syntax: `redistribute PROTOCOL [metric ...] [route-map NAME]` / `no redistribute PROTOCOL`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
- * Target: eigrp_redistribute_update() / eigrp_redistribute_delete()
+ * Target: eigrp_redistribute_add() / eigrp_redistribute_remove()
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_redistribute_apply(struct vty *vty,
@@ -3725,24 +3725,6 @@ static const char *eigrp_vty_address_string(const eigrp_address_t *address,
 		return "<invalid>";
 	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
 	if (!inet_ntop(family, address->bytes, buffer, length))
-		return "<invalid>";
-	return buffer;
-}
-
-static const char *eigrp_vty_runtime_address_string(const eigrp_addr_t *address,
-						    char *buffer, size_t length)
-{
-	const void *source;
-
-	if (!address || !buffer || length == 0)
-		return "<invalid>";
-	if (address->afi == AF_INET6)
-		source = &address->ip.v6;
-	else if (address->afi == AF_INET)
-		source = &address->ip.v4;
-	else
-		return "<invalid>";
-	if (!inet_ntop(address->afi, source, buffer, length))
 		return "<invalid>";
 	return buffer;
 }
@@ -5046,7 +5028,7 @@ static void clear_eigrp_neighbor_render(
 
 	vty_time_print(vty, 0);
 	vty_out(vty, "Neighbor %s (%s) is %s: manually cleared\n",
-		eigrp_vty_runtime_address_string(&state->address, address,
+		eigrp_vty_address_string(&state->address, address,
 					       sizeof(address)),
 		state->interface_name ? state->interface_name : "?",
 		state->soft ? "resync" : "down");

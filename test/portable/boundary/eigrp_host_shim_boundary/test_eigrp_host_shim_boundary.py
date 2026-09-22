@@ -80,16 +80,16 @@ def test_frr_southbound_does_not_own_common_eigrp_lifecycle_or_network_decisions
 def test_interface_adapter_reports_host_facts_and_common_code_decides_participation():
     adapter = read("frr/eigrp_frr.c")
     southbound = read("frr/eigrp_southbound.c")
-    types = read("eigrpd/eigrp_types.h")
+    system = read("eigrpd/eigrp_sys.h")
     network = read("eigrpd/eigrp_network.c")
     interface = read("eigrpd/eigrp_interface.c")
 
     imported = function_body(adapter, "eigrp_frr_interface_state_import")
-    walk = function_body(southbound, "eigrp_southbound_interface_walk")
+    walk = function_body(southbound, "eigrp_sys_interface_walk")
     matches = function_body(network, "eigrp_network_runtime_matches")
     refresh = function_body(interface, "eigrp_interface_runtime_refresh")
 
-    assert "bool secondary;" in types
+    assert "bool secondary;" in system
     assert "state->secondary = secondary;" in imported
     assert "state->operative = if_is_operative(ifp);" in imported
     assert "state->bandwidth = ifp->bandwidth;" in imported
@@ -118,9 +118,9 @@ def test_common_instance_code_owns_runtime_identity_and_address_family_operation
     )
     start = function_body(instance, "eigrp_instance_address_family_start")
     stop = function_body(instance, "eigrp_instance_address_family_stop")
-    vrf_resolve = function_body(southbound, "eigrp_southbound_vrf_resolve")
+    vrf_resolve = function_body(southbound, "eigrp_sys_vrf_resolve")
 
-    assert "eigrp_southbound_vrf_resolve" in runtime_create
+    assert "eigrp_sys_vrf_resolve" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf" in runtime_create
     assert "eigrp_get_by_af" in runtime_create
     assert "eigrp_name_set" in runtime_create
@@ -139,8 +139,8 @@ def test_frr_management_and_zebra_callbacks_delegate_instead_of_mutating_runtime
 
     assert "eigrp_interface_delay_set(" in northbound
     assert "eigrp_interface_bandwidth_set(" in northbound
-    assert "eigrp_auth_mode_update(" in northbound
-    assert "eigrp_auth_keychain_update(" in northbound
+    assert "eigrp_auth_mode_set(" in northbound
+    assert "eigrp_auth_keychain_set(" in northbound
     assert "eigrp_instance_classic_validate(" in northbound
     assert "eigrp_instance_classic_create(" in northbound
 
@@ -158,11 +158,11 @@ def test_frr_management_and_zebra_callbacks_delegate_instead_of_mutating_runtime
     address_add = function_body(zebra, "eigrp_zebra_interface_address_add")
     address_delete = function_body(zebra, "eigrp_zebra_interface_address_delete")
 
-    assert "eigrp_instance_router_id_refresh_vrf" in router_id
+    assert "eigrp_sys_router_id_refresh" in router_id
     assert "ALL_LIST_ELEMENTS" not in router_id
-    assert "eigrp_network_interface_refresh" in address_add
+    assert "eigrp_sys_interface_state_apply" in address_add
     assert "ALL_LIST_ELEMENTS" not in address_add
-    assert "eigrp_interface_runtime_address_remove" in address_delete
+    assert "eigrp_sys_interface_address_remove" in address_delete
     assert "ALL_LIST_ELEMENTS" not in address_delete
 
 
@@ -320,7 +320,7 @@ def test_frr_event_and_rib_ingress_logs_invalid_host_data_at_boundary():
 
     event_prepare = function_body(southbound, "eigrp_southbound_event_prepare")
     event_run = function_body(southbound, "eigrp_southbound_event_run")
-    work_new = function_body(southbound, "eigrp_work_queue_new")
+    work_new = function_body(southbound, "eigrp_sys_work_queue_new")
     work_run = function_body(southbound, "eigrp_work_queue_host_run")
     address_add = function_body(zebra, "eigrp_zebra_interface_address_add")
     address_delete = function_body(zebra, "eigrp_zebra_interface_address_delete")

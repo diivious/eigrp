@@ -95,7 +95,7 @@ def test_named_summary_adapter_uses_generic_prefix_boundary():
 
 def test_auto_summary_command_applicability_is_explicit_not_a_null_vector():
     summary = read(SUMMARY_C)
-    update = function_body(summary, "eigrp_summary_auto_update")
+    update = function_body(summary, "eigrp_summary_auto_apply")
     types = read(TYPES_H)
 
     assert "summary_auto_prefix" in types

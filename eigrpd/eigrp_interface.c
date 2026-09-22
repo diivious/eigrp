@@ -34,7 +34,8 @@
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_filter.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 static bool eigrp_interface_destination_get(const eigrp_interface_t *ei,
 					    eigrp_prefix_t *destination)
 {
@@ -133,7 +134,7 @@ static eigrp_result_t eigrp_interface_state_emit(
 		state.split_horizon = ei->split_horizon;
 		state.hello_timer_running = ei->t_hello != NULL;
 		state.hello_timer_remaining =
-			eigrp_southbound_timer_remaining_seconds(ei->t_hello);
+			eigrp_sys_timer_remaining_seconds(ei->t_hello);
 		state.unreliable_multicast_sent =
 			ei->stats.unreliable_multicast_sent;
 		state.reliable_multicast_sent = ei->stats.reliable_multicast_sent;
@@ -342,9 +343,9 @@ void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
 	 */
 	if (config->authentication_mode_configured
 	    && config->authentication_mode == EIGRP_AUTHENTICATION_MD5)
-		(void)eigrp_auth_mode_update(&context, EIGRP_AUTHENTICATION_MD5, NULL);
+		(void)eigrp_auth_mode_set(&context, EIGRP_AUTHENTICATION_MD5, NULL);
 	if (config->keychain)
-		(void)eigrp_auth_keychain_update(&context, config->keychain);
+		(void)eigrp_auth_keychain_set(&context, config->keychain);
 }
 
 static bool eigrp_interface_context_valid(const eigrp_interface_context_t *context)
@@ -362,7 +363,7 @@ static bool eigrp_interface_context_valid(const eigrp_interface_context_t *conte
  * Retains the configured EIGRP bandwidth percentage for interface pacing.
  * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
  */
-eigrp_result_t eigrp_interface_bandwidth_percent_update(
+eigrp_result_t eigrp_interface_bandwidth_percent_set(
 	eigrp_interface_context_t *context, uint32_t percent)
 {
 	if (percent == 0 || percent > 999999)
@@ -388,7 +389,7 @@ eigrp_result_t eigrp_interface_bandwidth_percent_update(
  * Retains the configured EIGRP bandwidth percentage for interface pacing.
  * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
  */
-eigrp_result_t eigrp_interface_bandwidth_percent_delete(
+eigrp_result_t eigrp_interface_bandwidth_percent_reset(
 	eigrp_interface_context_t *context)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -532,7 +533,7 @@ eigrp_result_t eigrp_interface_delay_reset(
  * Changes the EIGRP hello transmission interval or restores the default.
  * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
  */
-eigrp_result_t eigrp_interface_hello_interval_update(
+eigrp_result_t eigrp_interface_hello_interval_set(
 	eigrp_interface_context_t *context, uint16_t seconds)
 {
 	if (seconds == 0)
@@ -560,7 +561,7 @@ eigrp_result_t eigrp_interface_hello_interval_update(
  * Changes the EIGRP hello transmission interval or restores the default.
  * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
  */
-eigrp_result_t eigrp_interface_hello_interval_delete(
+eigrp_result_t eigrp_interface_hello_interval_reset(
 	eigrp_interface_context_t *context)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -586,7 +587,7 @@ eigrp_result_t eigrp_interface_hello_interval_delete(
  * Changes the advertised EIGRP neighbor hold time or restores the default.
  * Named mode uses the common interface state instead of a named-only timer implementation.
  */
-eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *context,
+eigrp_result_t eigrp_interface_hold_time_set(eigrp_interface_context_t *context,
 					       uint16_t seconds)
 {
 	if (seconds == 0)
@@ -614,7 +615,7 @@ eigrp_result_t eigrp_interface_hold_time_update(eigrp_interface_context_t *conte
  * Changes the advertised EIGRP neighbor hold time or restores the default.
  * Named mode uses the common interface state instead of a named-only timer implementation.
  */
-eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *context)
+eigrp_result_t eigrp_interface_hold_time_reset(eigrp_interface_context_t *context)
 {
 	if (!eigrp_interface_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -639,7 +640,7 @@ eigrp_result_t eigrp_interface_hold_time_delete(eigrp_interface_context_t *conte
  * Controls whether EIGRP forms adjacencies on the interface while retaining the connected prefix behavior required by the configuration.
  * The CLI placement differs, but the named path terminates in EIGRP-owned interface state.
  */
-eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context,
+static eigrp_result_t eigrp_interface_passive_apply(eigrp_interface_context_t *context,
 					      bool passive)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -654,6 +655,16 @@ eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context
 	return EIGRP_RESULT_SUCCESS;
 }
 
+eigrp_result_t eigrp_interface_passive_set(eigrp_interface_context_t *context)
+{
+	return eigrp_interface_passive_apply(context, true);
+}
+
+eigrp_result_t eigrp_interface_passive_reset(eigrp_interface_context_t *context)
+{
+	return eigrp_interface_passive_apply(context, false);
+}
+
 /*
  * Syntax:
  *   Named: `next-hop-self` / `no next-hop-self`
@@ -664,7 +675,7 @@ eigrp_result_t eigrp_interface_passive_update(eigrp_interface_context_t *context
  * Controls EIGRP next-hop-self behavior for the interface.
  * The target owns retained/runtime state and reports NOT_IMPLEMENTED if the live packet path cannot apply the setting yet.
  */
-eigrp_result_t eigrp_interface_next_hop_self_update(
+static eigrp_result_t eigrp_interface_next_hop_self_apply(
 	eigrp_interface_context_t *context, bool enabled)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -674,6 +685,18 @@ eigrp_result_t eigrp_interface_next_hop_self_update(
 	if (context->runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_next_hop_self_set(
+	eigrp_interface_context_t *context)
+{
+	return eigrp_interface_next_hop_self_apply(context, true);
+}
+
+eigrp_result_t eigrp_interface_next_hop_self_reset(
+	eigrp_interface_context_t *context)
+{
+	return eigrp_interface_next_hop_self_apply(context, false);
 }
 
 /*
@@ -688,7 +711,7 @@ eigrp_result_t eigrp_interface_next_hop_self_update(
  * Controls EIGRP split-horizon state on the interface.
  * The FRR reference carried only an unimplemented classic XPath marker, so named mode keeps a real EIGRP target without pretending a working classic runtime existed.
  */
-eigrp_result_t eigrp_interface_split_horizon_update(
+static eigrp_result_t eigrp_interface_split_horizon_apply(
 	eigrp_interface_context_t *context, bool enabled)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -698,6 +721,18 @@ eigrp_result_t eigrp_interface_split_horizon_update(
 	if (context->runtime)
 		context->runtime->split_horizon = enabled;
 	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_split_horizon_set(
+	eigrp_interface_context_t *context)
+{
+	return eigrp_interface_split_horizon_apply(context, true);
+}
+
+eigrp_result_t eigrp_interface_split_horizon_reset(
+	eigrp_interface_context_t *context)
+{
+	return eigrp_interface_split_horizon_apply(context, false);
 }
 
 /*
@@ -710,7 +745,7 @@ eigrp_result_t eigrp_interface_split_horizon_update(
  * Administratively disables or enables EIGRP on the selected named af-interface.
  * Interface runtime transitions remain owned by the common EIGRP interface layer.
  */
-eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *context,
+static eigrp_result_t eigrp_interface_shutdown_apply(eigrp_interface_context_t *context,
 					       bool shutdown)
 {
 	if (!eigrp_interface_context_valid(context))
@@ -729,6 +764,16 @@ eigrp_result_t eigrp_interface_shutdown_update(eigrp_interface_context_t *contex
 		}
 	}
 	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_interface_shutdown_set(eigrp_interface_context_t *context)
+{
+	return eigrp_interface_shutdown_apply(context, true);
+}
+
+eigrp_result_t eigrp_interface_shutdown_reset(eigrp_interface_context_t *context)
+{
+	return eigrp_interface_shutdown_apply(context, false);
 }
 
 
@@ -821,7 +866,7 @@ static void eigrp_intf_stream_unset(eigrp_interface_t *ei)
 	if (ei->on_write_q) {
 		eigrp_list_delete_data(eigrp->oi_write_q, ei);
 		if (eigrp_list_isempty(eigrp->oi_write_q))
-			eigrp_southbound_event_cancel(&eigrp->t_write);
+			eigrp_sys_event_cancel(&eigrp->t_write);
 		ei->on_write_q = 0;
 	}
 }
@@ -969,7 +1014,7 @@ void eigrp_interface_runtime_delete(
 	eigrp_intf_free(ei->eigrp, ei, reason);
 }
 
-void eigrp_interface_runtime_link_down(
+void eigrp_sys_interface_link_down(
 	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex, const char *interface_name,
 	uint8_t type, uint32_t bandwidth, uint32_t mtu)
 {
@@ -1001,7 +1046,7 @@ void eigrp_interface_runtime_link_down(
 	}
 }
 
-void eigrp_interface_runtime_link_remove(
+void eigrp_sys_interface_link_remove(
 	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
 	eigrp_interface_remove_reason_t reason)
 {
@@ -1021,7 +1066,7 @@ void eigrp_interface_runtime_link_remove(
 	}
 }
 
-void eigrp_interface_runtime_address_remove(
+void eigrp_sys_interface_address_remove(
 	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
 	const eigrp_prefix_t *address, eigrp_interface_remove_reason_t reason)
 {
@@ -1059,13 +1104,13 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	eigrp_route_descriptor_t *route;
 	eigrp_metrics_t metric;
 
-	eigrp_southbound_socket_send_buffer_ensure(eigrp, ei->curr_mtu);
+	eigrp_sys_socket_send_buffer_ensure(eigrp, ei->curr_mtu);
 	eigrp_intf_stream_set(ei);
 
 	/* Set multicast memberships appropriately for new state. */
 	eigrp_intf_set_multicast(ei);
 
-	eigrp_southbound_event_add(&ei->t_hello, eigrp_hello_timer, ei);
+	eigrp_sys_event_add(&ei->t_hello, eigrp_hello_timer, ei);
 
 	/*Prepare metrics*/
 	metric.bandwidth = eigrp_bandwidth_to_scaled(ei->params.bandwidth);
@@ -1146,7 +1191,7 @@ int eigrp_intf_down(eigrp_interface_t *ei)
 
 	/* Shutdown packet reception and sending */
 	if (ei->t_hello)
-		eigrp_southbound_event_cancel(&ei->t_hello);
+		eigrp_sys_event_cancel(&ei->t_hello);
 
 	eigrp_intf_stream_unset(ei);
 
@@ -1172,10 +1217,10 @@ void eigrp_intf_set_multicast(eigrp_interface_t *ei)
 
 	if (!eigrp_intf_is_passive(ei)) {
 		if (!ei->member_allrouters
-		    && eigrp_southbound_multicast_join(ei->eigrp, ei) >= 0)
+		    && eigrp_sys_multicast_join(ei->eigrp, ei) >= 0)
 			ei->member_allrouters = true;
 	} else if (ei->member_allrouters) {
-		(void)eigrp_southbound_multicast_leave(ei->eigrp, ei);
+		(void)eigrp_sys_multicast_leave(ei->eigrp, ei);
 		ei->member_allrouters = false;
 	}
 }
@@ -1187,7 +1232,7 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 	eigrp_prefix_descriptor_t *pe = NULL;
 
 	if (reason == EIGRP_INTERFACE_REMOVE_CONFIG) {
-		eigrp_southbound_event_cancel(&ei->t_hello);
+		eigrp_sys_event_cancel(&ei->t_hello);
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 	}
 
@@ -1292,4 +1337,24 @@ eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *eigrp,
 			return ei;
 
 	return NULL;
+}
+
+
+eigrp_ifindex_t eigrp_interface_ifindex(const eigrp_interface_t *ei)
+{
+	return ei ? ei->ifindex : 0;
+}
+
+const char *eigrp_interface_name(const eigrp_interface_t *ei)
+{
+	return ei ? ei->name : NULL;
+}
+
+eigrp_result_t eigrp_interface_address_read(const eigrp_interface_t *ei,
+					     eigrp_prefix_t *address)
+{
+	if (!ei || !address)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	*address = ei->address;
+	return EIGRP_RESULT_SUCCESS;
 }

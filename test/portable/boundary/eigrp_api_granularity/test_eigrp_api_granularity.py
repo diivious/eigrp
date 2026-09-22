@@ -42,7 +42,7 @@ def test_logging_uses_one_public_endpoint_with_a_level_selector():
 
 
 def test_nonpacket_debug_uses_target_selector_instead_of_category_endpoints():
-    header = read("eigrpd/eigrp_debug.h")
+    header = read("eigrpd/eigrp_cli.h")
     source = production_source()
 
     assert "typedef enum eigrp_debug_target" in header
@@ -77,16 +77,16 @@ def test_neighbor_codec_bind_uses_tlv_version_as_the_selector():
 
 
 def test_southbound_timer_add_has_one_canonical_millisecond_contract():
-    header = read("eigrpd/eigrp_southbound.h")
+    header = read("eigrpd/eigrp_sys.h")
     source = production_source()
 
-    assert "eigrp_southbound_timer_add" in header
+    assert "eigrp_sys_timer_add" in header
     assert "uint32_t delay_msec" in header
     assert "eigrp_southbound_timer_msec_add" not in source
 
 
 def test_neighbor_logging_uses_log_type_selector_and_set_reset_actions():
-    header = read("eigrpd/eigrp_neighbor.h")
+    header = read("eigrpd/eigrp_cli.h")
     source = production_source()
 
     assert "typedef enum eigrp_neighbor_log_type" in header
@@ -102,7 +102,7 @@ def test_neighbor_logging_uses_log_type_selector_and_set_reset_actions():
 
 
 def test_code_conventions_define_public_api_granularity_rule():
-    conventions = read("specs/code-conventions.md")
+    conventions = read("specs/design-spec.md")
 
     assert "Public API granularity" in conventions
     assert "semantic action" in conventions

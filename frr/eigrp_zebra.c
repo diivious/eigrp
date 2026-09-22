@@ -34,7 +34,8 @@
 #include "eigrpd/eigrp_vty.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_metric.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_frr.h"
 #include "eigrpd/eigrp_frr_memory.h"
 
@@ -117,7 +118,7 @@ static int eigrp_zebra_router_id_update(ZAPI_CALLBACK_ARGS)
 	zebra_router_id_update_read(zclient->ibuf, &router_id);
 
 	router_id_zebra = router_id.u.prefix4;
-	eigrp_instance_router_id_refresh_vrf((eigrp_vrf_id_t)vrf_id);
+	eigrp_sys_router_id_refresh((eigrp_vrf_id_t)vrf_id);
 	return 0;
 }
 
@@ -207,7 +208,7 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: interface %s address add %s", ifp->name,
 				eigrp_zebra_prefix_string(c->address));
 
-	eigrp_network_interface_refresh((eigrp_vrf_id_t)vrf_id, &state);
+	eigrp_sys_interface_state_apply((eigrp_vrf_id_t)vrf_id, &state);
 	return 0;
 }
 
@@ -256,7 +257,7 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: interface %s address delete %s", ifp->name,
 				eigrp_zebra_prefix_string(c->address));
 
-	eigrp_interface_runtime_address_remove((eigrp_vrf_id_t)vrf_id,
+	eigrp_sys_interface_address_remove((eigrp_vrf_id_t)vrf_id,
 					       ifp->ifindex, &removed,
 					       EIGRP_INTERFACE_REMOVE_HOST);
 
@@ -265,9 +266,7 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 }
 
 eigrp_result_t eigrp_zebra_route_install(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix,
-	const eigrp_southbound_nexthop_t *nexthops, size_t nexthop_count,
-	uint32_t distance)
+	eigrp_instance_t *eigrp, const eigrp_rib_route_t *route)
 {
 	struct zapi_route api;
 	struct zapi_nexthop *api_nh;
@@ -275,31 +274,33 @@ eigrp_result_t eigrp_zebra_route_install(
 	size_t i;
 	int count = 0;
 
-	if (!eigrp || !prefix || (!nexthops && nexthop_count != 0))
+	if (!eigrp || !route
+	    || (!route->nexthops && route->nexthop_count != 0))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_zclient)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 	if (!eigrp_zclient->redist[AFI_IP][ZEBRA_ROUTE_EIGRP])
 		return EIGRP_RESULT_SUCCESS;
-	if (eigrp_frr_prefix_export(prefix, &host_prefix) != EIGRP_RESULT_SUCCESS)
+	if (eigrp_frr_prefix_export(&route->prefix, &host_prefix)
+	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	zapi_route_init(&api);
-	api.vrf_id = eigrp->vrf_id;
+	api.vrf_id = eigrp_instance_vrf_id(eigrp);
 	api.type = ZEBRA_ROUTE_EIGRP;
 	api.safi = SAFI_UNICAST;
-	api.metric = distance;
+	api.metric = route->metric;
 	api.prefix = host_prefix;
 
 	SET_FLAG(api.message, ZAPI_MESSAGE_NEXTHOP);
 	SET_FLAG(api.message, ZAPI_MESSAGE_METRIC);
 
-	for (i = 0; i < nexthop_count && count < MULTIPATH_NUM; i++) {
-		const eigrp_southbound_nexthop_t *nexthop = &nexthops[i];
+	for (i = 0; i < route->nexthop_count && count < MULTIPATH_NUM; i++) {
+		const eigrp_rib_nexthop_t *nexthop = &route->nexthops[i];
 
 		api_nh = &api.nexthops[count];
 		zapi_nexthop_init(api_nh);
-		api_nh->vrf_id = eigrp->vrf_id;
+		api_nh->vrf_id = eigrp_instance_vrf_id(eigrp);
 		api_nh->ifindex = nexthop->ifindex;
 		if (nexthop->gateway_present
 		    && nexthop->gateway.afi == EIGRP_ADDRESS_FAMILY_IPV4) {
@@ -335,11 +336,12 @@ eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 	if (!eigrp_zclient->redist[AFI_IP][ZEBRA_ROUTE_EIGRP])
 		return EIGRP_RESULT_SUCCESS;
-	if (eigrp_frr_prefix_export(prefix, &host_prefix) != EIGRP_RESULT_SUCCESS)
+	if (eigrp_frr_prefix_export(prefix, &host_prefix)
+	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	zapi_route_init(&api);
-	api.vrf_id = eigrp->vrf_id;
+	api.vrf_id = eigrp_instance_vrf_id(eigrp);
 	api.type = ZEBRA_ROUTE_EIGRP;
 	api.safi = SAFI_UNICAST;
 	api.prefix = host_prefix;

@@ -65,9 +65,11 @@ eigrpd_eigrpd_SOURCES = \
 
 eigrpdheaderdir = $(pkgincludedir)/eigrpd
 eigrpdheader_HEADERS = \
-	eigrpd/eigrp_dump.h \
-	eigrpd/eigrp_topology.h \
-	eigrpd/eigrpd.h \
+	eigrpd/eigrp.h \
+	eigrpd/eigrp_cli.h \
+	eigrpd/eigrp_mgnt.h \
+	eigrpd/eigrp_rib.h \
+	eigrpd/eigrp_sys.h \
 	# end
 
 clippy_scan += \
@@ -96,7 +98,6 @@ noinst_HEADERS += \
 	eigrpd/eigrp_md5.h \
 	eigrpd/eigrp_memory.h \
 	eigrpd/eigrp_metric.h \
-	eigrpd/eigrp_result.h \
 	eigrpd/eigrp_neighbor.h \
 	eigrpd/eigrp_network.h \
 	eigrpd/eigrp_northbound.h \
@@ -112,7 +113,6 @@ noinst_HEADERS += \
 	eigrpd/eigrp_stream.h \
 	eigrpd/eigrp_summary.h \
 	eigrpd/eigrp_table.h \
-	eigrpd/eigrp_southbound.h \
 	eigrpd/eigrp_structs.h \
 	eigrpd/eigrp_tlv1.h \
 	eigrpd/eigrp_tlv2.h \

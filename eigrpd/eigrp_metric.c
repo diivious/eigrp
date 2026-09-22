@@ -199,7 +199,7 @@ static eigrp_metric_config_t *eigrp_metric_config_get(
  * Sets or resets the default seed metric used by redistribution when a source-specific metric is not supplied.
  * Runtime redistribution fallback remains owned by the metric/redistribution path.
  */
-eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context,
 					   const eigrp_metric_values_t *metric)
 {
 	eigrp_metric_config_t *config;
@@ -229,7 +229,7 @@ eigrp_result_t eigrp_metric_default_update(eigrp_instance_context_t *context,
  * Sets or resets the default seed metric used by redistribution when a source-specific metric is not supplied.
  * Runtime redistribution fallback remains owned by the metric/redistribution path.
  */
-eigrp_result_t eigrp_metric_default_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_metric_default_reset(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -254,7 +254,7 @@ eigrp_result_t eigrp_metric_default_delete(eigrp_instance_context_t *context)
  * Sets or restores the EIGRP metric coefficients after validating the coefficient set.
  * Named mode converges on the EIGRP-owned metric target used for protocol state instead of carrying metric behavior in the parser.
  */
-eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
 					   const eigrp_metric_weights_t *weights)
 {
 	eigrp_metric_config_t *config;
@@ -293,7 +293,7 @@ eigrp_result_t eigrp_metric_weights_update(eigrp_instance_context_t *context,
  * Sets or restores the EIGRP metric coefficients after validating the coefficient set.
  * Named mode converges on the EIGRP-owned metric target used for protocol state instead of carrying metric behavior in the parser.
  */
-eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_metric_weights_reset(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -325,7 +325,7 @@ eigrp_result_t eigrp_metric_weights_delete(eigrp_instance_context_t *context)
  * Sets or resets the unequal-cost load-sharing variance multiplier.
  * DUAL feasibility remains authoritative; variance does not make an infeasible path a successor.
  */
-eigrp_result_t eigrp_metric_variance_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_metric_variance_set(eigrp_instance_context_t *context,
 					    uint8_t variance)
 {
 	eigrp_metric_config_t *config;
@@ -358,7 +358,7 @@ eigrp_result_t eigrp_metric_variance_update(eigrp_instance_context_t *context,
  * Sets or resets the unequal-cost load-sharing variance multiplier.
  * DUAL feasibility remains authoritative; variance does not make an infeasible path a successor.
  */
-eigrp_result_t eigrp_metric_variance_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_metric_variance_reset(eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -381,7 +381,7 @@ eigrp_result_t eigrp_metric_variance_delete(eigrp_instance_context_t *context)
  * Selects retained balanced traffic-sharing behavior.
  * The target reports NOT_IMPLEMENTED until the forwarding/runtime application path exists.
  */
-eigrp_result_t eigrp_metric_traffic_share_balanced_update(
+static eigrp_result_t eigrp_metric_traffic_share_balanced_apply(
 	eigrp_instance_context_t *context, bool enabled)
 {
 	eigrp_metric_config_t *config;
@@ -398,6 +398,19 @@ eigrp_result_t eigrp_metric_traffic_share_balanced_update(
 				: EIGRP_RESULT_SUCCESS;
 }
 
+eigrp_result_t eigrp_metric_traffic_share_balanced_set(
+	eigrp_instance_context_t *context)
+{
+	return eigrp_metric_traffic_share_balanced_apply(context, true);
+}
+
+eigrp_result_t eigrp_metric_traffic_share_balanced_reset(
+	eigrp_instance_context_t *context)
+{
+	/* Balanced is the configured/default traffic-share behavior. */
+	return eigrp_metric_traffic_share_balanced_apply(context, true);
+}
+
 /*
  * Syntax:
  *   Named: `metric maximum-hops HOPS` / `no metric maximum-hops`
@@ -408,7 +421,7 @@ eigrp_result_t eigrp_metric_traffic_share_balanced_update(
  * Sets or resets the configured EIGRP maximum-hop metric constraint.
  * The target retains the real feature endpoint even while live enforcement is incomplete.
  */
-eigrp_result_t eigrp_metric_maximum_hops_update(
+eigrp_result_t eigrp_metric_maximum_hops_set(
 	eigrp_instance_context_t *context, uint8_t maximum_hops)
 {
 	eigrp_metric_config_t *config;
@@ -439,7 +452,7 @@ eigrp_result_t eigrp_metric_maximum_hops_update(
  * Sets or resets the configured EIGRP maximum-hop metric constraint.
  * The target retains the real feature endpoint even while live enforcement is incomplete.
  */
-eigrp_result_t eigrp_metric_maximum_hops_delete(
+eigrp_result_t eigrp_metric_maximum_hops_reset(
 	eigrp_instance_context_t *context)
 {
 	if (!eigrp_metric_context_valid(context))
@@ -463,7 +476,7 @@ eigrp_result_t eigrp_metric_maximum_hops_delete(
  * Sets or resets retained metric holddown configuration.
  * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
  */
-eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
 					    bool enabled)
 {
 	eigrp_metric_config_t *config;
@@ -490,9 +503,9 @@ eigrp_result_t eigrp_metric_holddown_update(eigrp_instance_context_t *context,
  * Sets or resets retained metric holddown configuration.
  * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
  */
-eigrp_result_t eigrp_metric_holddown_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context)
 {
-	return eigrp_metric_holddown_update(context, true);
+	return eigrp_metric_holddown_set(context, true);
 }
 
 void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af)

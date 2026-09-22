@@ -22,7 +22,8 @@
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_filter.h"
@@ -625,7 +626,7 @@ void eigrp_update_send_GR_event(void *arg)
 	/* if there is packet waiting in queue,
 	 * schedule this event again with small delay */
 	if (nbr->retrans_queue->count > 0) {
-		eigrp_southbound_timer_add(&nbr->t_nbr_send_gr,
+		eigrp_sys_timer_add(&nbr->t_nbr_send_gr,
 				       eigrp_update_send_GR_event, nbr, 10);
 		return;
 	}
@@ -635,7 +636,7 @@ void eigrp_update_send_GR_event(void *arg)
 
 	/* if it wasn't last chunk, schedule this event again */
 	if (nbr->nbr_gr_packet_type != EIGRP_PACKET_PART_LAST)
-		eigrp_southbound_event_add(&nbr->t_nbr_send_gr,
+		eigrp_sys_event_add(&nbr->t_nbr_send_gr,
 				       eigrp_update_send_GR_event, nbr);
 
 	return;
@@ -699,7 +700,7 @@ void eigrp_update_send_GR(eigrp_neighbor_t *nbr, enum GR_type gr_type)
 	nbr->nbr_gr_packet_type = EIGRP_PACKET_PART_FIRST;
 
 	/* Start packet sending through the host event abstraction. */
-	eigrp_southbound_event_add(&nbr->t_nbr_send_gr,
+	eigrp_sys_event_add(&nbr->t_nbr_send_gr,
 			       eigrp_update_send_GR_event, nbr);
 }
 

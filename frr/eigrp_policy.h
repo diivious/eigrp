@@ -7,7 +7,7 @@
 #define EIGRPD_EIGRP_POLICY_H_
 
 #include "distribute.h"
-#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp.h"
 #include "eigrpd/eigrp_types.h"
 
 void eigrp_policy_init(void);

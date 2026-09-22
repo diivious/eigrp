@@ -85,7 +85,7 @@ Do not perform a rename-only migration before that coordinated review.
 ## 3. Naming consistency pass
 
 Before production, perform one bounded navigation/naming review against
-`code-conventions.md`:
+`design-spec.md`:
 
 - module/file and public symbol prefixes normally align;
 - object/detail follows the module name;

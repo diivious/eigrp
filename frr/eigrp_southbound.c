@@ -5,6 +5,8 @@
  */
 #include <lib/version.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
@@ -13,7 +15,8 @@
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_packet.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrp_zebra.h"
 #include "eigrp_frr.h"
 #include "eigrp_frr_memory.h"
@@ -30,31 +33,67 @@ DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE, "EIGRP work queue");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_WORK_QUEUE_NAME, "EIGRP work queue name");
 DEFINE_MTYPE_STATIC(EIGRPD, EIGRP_EVENT, "EIGRP host event");
 
-void eigrp_southbound_rib_init(void)
+struct eigrp_frr_socket {
+	eigrp_instance_t *eigrp;
+	int fd;
+	uint32_t maxsndbuflen;
+	struct eigrp_frr_socket *next;
+};
+
+static struct eigrp_frr_socket *eigrp_frr_sockets;
+
+static struct eigrp_frr_socket *eigrp_frr_socket_find(
+	const eigrp_instance_t *eigrp)
+{
+	struct eigrp_frr_socket *socket;
+
+	for (socket = eigrp_frr_sockets; socket; socket = socket->next)
+		if (socket->eigrp == eigrp)
+			return socket;
+	return NULL;
+}
+
+static void eigrp_frr_socket_forget(eigrp_instance_t *eigrp)
+{
+	struct eigrp_frr_socket **cursor;
+	struct eigrp_frr_socket *socket;
+
+	for (cursor = &eigrp_frr_sockets; *cursor; cursor = &(*cursor)->next) {
+		if ((*cursor)->eigrp != eigrp)
+			continue;
+		socket = *cursor;
+		*cursor = socket->next;
+		if (socket->fd >= 0)
+			close(socket->fd);
+		free(socket);
+		return;
+	}
+}
+
+void eigrp_rib_init(void)
 {
 	eigrp_zebra_init();
 }
 
-void eigrp_southbound_rib_finish(void)
+void eigrp_rib_finish(void)
 {
 	eigrp_zebra_stop();
 }
 
-void eigrp_southbound_rib_instance_delete(eigrp_instance_t *eigrp)
+void eigrp_rib_instance_delete(eigrp_instance_t *eigrp)
 {
 	eigrp_zebra_instance_delete(eigrp);
 }
 
-eigrp_result_t eigrp_southbound_route_install(
-	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix,
-	const eigrp_southbound_nexthop_t *nexthops, size_t nexthop_count,
-	uint32_t distance)
+eigrp_result_t eigrp_rib_route_install(eigrp_instance_t *eigrp,
+					const eigrp_rib_route_t *route)
 {
-	return eigrp_zebra_route_install(eigrp, prefix, nexthops,
-				 nexthop_count, distance);
+	if (!route)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	return eigrp_zebra_route_install(eigrp, route);
 }
 
-eigrp_result_t eigrp_southbound_route_remove(
+eigrp_result_t eigrp_rib_route_remove(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix)
 {
 	return eigrp_zebra_route_remove(eigrp, prefix);
@@ -113,7 +152,7 @@ static eigrp_event_t *eigrp_southbound_event_prepare(
 		return NULL;
 	}
 
-	eigrp_southbound_event_cancel(owner);
+	eigrp_sys_event_cancel(owner);
 	event = XCALLOC(MTYPE_EIGRP_EVENT, sizeof(*event));
 	event->callback = callback;
 	event->arg = arg;
@@ -122,7 +161,7 @@ static eigrp_event_t *eigrp_southbound_event_prepare(
 	return event;
 }
 
-void eigrp_southbound_event_cancel(eigrp_event_t **owner)
+void eigrp_sys_event_cancel(eigrp_event_t **owner)
 {
 	eigrp_event_t *event;
 
@@ -136,7 +175,7 @@ void eigrp_southbound_event_cancel(eigrp_event_t **owner)
 	XFREE(MTYPE_EIGRP_EVENT, event);
 }
 
-void eigrp_southbound_event_add(eigrp_event_t **owner,
+void eigrp_sys_event_add(eigrp_event_t **owner,
 				eigrp_event_callback_t callback, void *arg)
 {
 	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
@@ -146,7 +185,7 @@ void eigrp_southbound_event_add(eigrp_event_t **owner,
 				&event->host_event);
 }
 
-void eigrp_southbound_timer_add(eigrp_event_t **owner,
+void eigrp_sys_timer_add(eigrp_event_t **owner,
 				eigrp_event_callback_t callback, void *arg,
 				uint32_t delay_msec)
 {
@@ -157,34 +196,42 @@ void eigrp_southbound_timer_add(eigrp_event_t **owner,
 				     delay_msec, &event->host_event);
 }
 
-void eigrp_southbound_read_add(eigrp_event_t **owner, int fd,
-			       eigrp_event_callback_t callback, void *arg)
+void eigrp_sys_read_add(eigrp_event_t **owner, eigrp_instance_t *eigrp,
+			eigrp_event_callback_t callback, void *arg)
 {
-	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
+	eigrp_event_t *event;
 
+	if (!socket || socket->fd < 0)
+		return;
+	event = eigrp_southbound_event_prepare(owner, callback, arg);
 	if (event)
-		event_add_read(eigrpd_event, eigrp_southbound_event_run, event, fd,
+		event_add_read(eigrpd_event, eigrp_southbound_event_run, event, socket->fd,
 			       &event->host_event);
 }
 
-void eigrp_southbound_write_add(eigrp_event_t **owner, int fd,
-				eigrp_event_callback_t callback, void *arg)
+void eigrp_sys_write_add(eigrp_event_t **owner, eigrp_instance_t *eigrp,
+			 eigrp_event_callback_t callback, void *arg)
 {
-	eigrp_event_t *event = eigrp_southbound_event_prepare(owner, callback, arg);
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
+	eigrp_event_t *event;
 
+	if (!socket || socket->fd < 0)
+		return;
+	event = eigrp_southbound_event_prepare(owner, callback, arg);
 	if (event)
-		event_add_write(eigrpd_event, eigrp_southbound_event_run, event, fd,
+		event_add_write(eigrpd_event, eigrp_southbound_event_run, event, socket->fd,
 				&event->host_event);
 }
 
-uint32_t eigrp_southbound_timer_remaining_seconds(const eigrp_event_t *event)
+uint32_t eigrp_sys_timer_remaining_seconds(const eigrp_event_t *event)
 {
 	if (!event || !event->host_event)
 		return 0;
 	return event_timer_remain_second(event->host_event);
 }
 
-uint64_t eigrp_southbound_monotime_msec(void)
+uint64_t eigrp_sys_monotime_msec(void)
 {
 	struct timeval now;
 
@@ -250,7 +297,7 @@ static void eigrp_work_queue_host_create(eigrp_work_queue_t *queue)
 	queue->host_queue->spec.del_item_data = eigrp_work_queue_host_delete;
 }
 
-eigrp_work_queue_t *eigrp_work_queue_new(eigrp_instance_t *eigrp,
+eigrp_work_queue_t *eigrp_sys_work_queue_new(eigrp_instance_t *eigrp,
 					 const char *name,
 					 eigrp_work_queue_func_t workfunc,
 					 eigrp_work_queue_delete_func_t deletefunc)
@@ -280,7 +327,7 @@ eigrp_work_queue_t *eigrp_work_queue_new(eigrp_instance_t *eigrp,
 	return queue;
 }
 
-void eigrp_work_queue_free(eigrp_work_queue_t *queue)
+void eigrp_sys_work_queue_free(eigrp_work_queue_t *queue)
 {
 	if (!queue)
 		return;
@@ -291,7 +338,7 @@ void eigrp_work_queue_free(eigrp_work_queue_t *queue)
 	XFREE(MTYPE_EIGRP_WORK_QUEUE, queue);
 }
 
-void eigrp_work_queue_reset(eigrp_work_queue_t *queue)
+void eigrp_sys_work_queue_reset(eigrp_work_queue_t *queue)
 {
 	if (!queue)
 		return;
@@ -301,7 +348,7 @@ void eigrp_work_queue_reset(eigrp_work_queue_t *queue)
 	eigrp_work_queue_host_create(queue);
 }
 
-void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data)
+void eigrp_sys_work_queue_enqueue(eigrp_work_queue_t *queue, void *data)
 {
 	if (!queue) {
 		eigrp_log(EIGRP_LOG_ERROR, "FRR work-queue enqueue has no EIGRP queue");
@@ -321,14 +368,15 @@ void eigrp_work_queue_enqueue(eigrp_work_queue_t *queue, void *data)
 	work_queue_add(queue->host_queue, data);
 }
 
-eigrp_instance_t *eigrp_work_queue_eigrp(eigrp_work_queue_t *queue)
+eigrp_instance_t *eigrp_sys_work_queue_instance(eigrp_work_queue_t *queue)
 {
 	return queue ? queue->eigrp : NULL;
 }
 
 
-eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp)
+eigrp_result_t eigrp_sys_socket_open(eigrp_instance_t *eigrp)
 {
+	struct eigrp_frr_socket *socket;
 	struct vrf *vrf;
 	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
 	int fd = -1;
@@ -339,8 +387,10 @@ eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp)
 
 	if (!eigrp)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (eigrp_frr_socket_find(eigrp))
+		return EIGRP_RESULT_SUCCESS;
 
-	vrf = vrf_lookup_by_id((vrf_id_t)eigrp->vrf_id);
+	vrf = vrf_lookup_by_id((vrf_id_t)eigrp_instance_vrf_id(eigrp));
 	if (!vrf)
 		return EIGRP_RESULT_NOT_FOUND;
 
@@ -352,8 +402,7 @@ eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp)
 			result = EIGRP_RESULT_INTERNAL_FAILURE;
 		} else {
 #ifdef IP_HDRINCL
-			ret = setsockopt(fd, IPPROTO_IP, IP_HDRINCL, &hincl,
-					 sizeof(hincl));
+			ret = setsockopt(fd, IPPROTO_IP, IP_HDRINCL, &hincl, sizeof(hincl));
 			if (ret < 0)
 				zlog_warn("Can't set IP_HDRINCL option for fd %d: %s", fd,
 					  safe_strerror(errno));
@@ -369,7 +418,6 @@ eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp)
 #else
 			zlog_warn("IP_HDRINCL option not available");
 #endif
-
 			if (result == EIGRP_RESULT_SUCCESS) {
 				ret = setsockopt_ifindex(AF_INET, fd, 1);
 				if (ret < 0)
@@ -377,127 +425,138 @@ eigrp_result_t eigrp_southbound_socket_open(eigrp_instance_t *eigrp)
 			}
 		}
 	}
-
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 
-	eigrp->fd = fd;
-	eigrp->maxsndbuflen = getsockopt_so_sendbuf(fd);
+	socket = calloc(1, sizeof(*socket));
+	if (!socket) {
+		close(fd);
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
+	socket->eigrp = eigrp;
+	socket->fd = fd;
+	socket->maxsndbuflen = (uint32_t)getsockopt_so_sendbuf(fd);
+	socket->next = eigrp_frr_sockets;
+	eigrp_frr_sockets = socket;
 	return EIGRP_RESULT_SUCCESS;
 }
 
-void eigrp_southbound_socket_close(eigrp_instance_t *eigrp)
+void eigrp_sys_socket_close(eigrp_instance_t *eigrp)
 {
-	if (!eigrp || eigrp->fd < 0)
-		return;
-	close(eigrp->fd);
-	eigrp->fd = -1;
+	if (eigrp)
+		eigrp_frr_socket_forget(eigrp);
 }
 
-void eigrp_southbound_socket_send_buffer_ensure(eigrp_instance_t *eigrp,
-						uint32_t minimum)
+void eigrp_sys_socket_send_buffer_ensure(eigrp_instance_t *eigrp,
+					uint32_t minimum)
 {
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
 	int new_size;
 
-	if (!eigrp || eigrp->fd < 0 || eigrp->maxsndbuflen >= minimum)
+	if (!socket || socket->fd < 0 || socket->maxsndbuflen >= minimum)
 		return;
-
-	setsockopt_so_sendbuf(eigrp->fd, minimum);
-	new_size = getsockopt_so_sendbuf(eigrp->fd);
+	setsockopt_so_sendbuf(socket->fd, minimum);
+	new_size = getsockopt_so_sendbuf(socket->fd);
 	if (new_size < 0 || new_size < (int)minimum)
 		zlog_warn("%s: tried to set SO_SNDBUF to %u, but got %d",
 			  __func__, minimum, new_size);
 	if (new_size >= 0)
-		eigrp->maxsndbuflen = (uint32_t)new_size;
-	else
-		zlog_warn("%s: failed to get SO_SNDBUF", __func__);
+		socket->maxsndbuflen = (uint32_t)new_size;
 }
 
-bool eigrp_southbound_router_id_get(eigrp_instance_t *eigrp,
-				    struct in_addr *router_id)
+bool eigrp_sys_router_id_get(eigrp_instance_t *eigrp, uint32_t *router_id)
 {
 	(void)eigrp;
 	if (!router_id)
 		return false;
-
-	*router_id = router_id_zebra;
-	return router_id->s_addr != INADDR_ANY;
+	*router_id = ntohl(router_id_zebra.s_addr);
+	return router_id_zebra.s_addr != INADDR_ANY;
 }
 
-static bool eigrp_southbound_interface_ipv4_address(
+static bool eigrp_frr_interface_ipv4_address(
 	const eigrp_interface_t *ei, struct in_addr *address)
 {
-	if (!ei || !address
-	    || ei->address.address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
-		return false;
+	eigrp_prefix_t prefix;
 
-	memcpy(address, ei->address.address.bytes, sizeof(*address));
+	if (!ei || !address
+	    || eigrp_interface_address_read(ei, &prefix) != EIGRP_RESULT_SUCCESS
+	    || prefix.address.afi != EIGRP_ADDRESS_FAMILY_IPV4)
+		return false;
+	memcpy(address, prefix.address.bytes, sizeof(*address));
 	return true;
 }
 
-int eigrp_southbound_multicast_interface_set(eigrp_instance_t *eigrp,
-				             eigrp_interface_t *ei)
+int eigrp_sys_multicast_interface_set(eigrp_instance_t *eigrp,
+				      eigrp_interface_t *ei)
 {
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
 	struct in_addr address;
+	eigrp_ifindex_t ifindex;
+	const char *name;
 	uint8_t val = 0;
 	int ret;
 
-	if (!eigrp || !eigrp_southbound_interface_ipv4_address(ei, &address))
+	if (!socket || !eigrp_frr_interface_ipv4_address(ei, &address))
 		return -1;
-
-	ret = setsockopt(eigrp->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &val, sizeof(val));
+	ifindex = eigrp_interface_ifindex(ei);
+	name = eigrp_interface_name(ei);
+	ret = setsockopt(socket->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &val, sizeof(val));
 	if (ret < 0)
 		zlog_warn("can't disable IP_MULTICAST_LOOP for fd %d: %s",
-			  eigrp->fd, safe_strerror(errno));
-
+			  socket->fd, safe_strerror(errno));
 	val = 1;
-	ret = setsockopt(eigrp->fd, IPPROTO_IP, IP_MULTICAST_TTL, &val, sizeof(val));
+	ret = setsockopt(socket->fd, IPPROTO_IP, IP_MULTICAST_TTL, &val, sizeof(val));
 	if (ret < 0)
 		zlog_warn("can't set IP_MULTICAST_TTL for fd %d: %s",
-			  eigrp->fd, safe_strerror(errno));
-
-	ret = setsockopt_ipv4_multicast_if(eigrp->fd, address, ei->ifindex);
+			  socket->fd, safe_strerror(errno));
+	ret = setsockopt_ipv4_multicast_if(socket->fd, address, ifindex);
 	if (ret < 0)
-		zlog_warn("can't set multicast interface %s[%u]: %s", ei->name,
-			  ei->ifindex, safe_strerror(errno));
+		zlog_warn("can't set multicast interface %s[%u]: %s",
+			  name ? name : "?", ifindex, safe_strerror(errno));
 	return ret;
 }
 
-int eigrp_southbound_multicast_join(eigrp_instance_t *eigrp,
-				    eigrp_interface_t *ei)
+int eigrp_sys_multicast_join(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 {
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
 	struct in_addr address;
+	eigrp_ifindex_t ifindex;
+	const char *name;
 	int ret;
 
-	if (!eigrp || !eigrp_southbound_interface_ipv4_address(ei, &address))
+	if (!socket || !eigrp_frr_interface_ipv4_address(ei, &address))
 		return -1;
-
-	ret = setsockopt_ipv4_multicast(eigrp->fd, IP_ADD_MEMBERSHIP, address,
-					htonl(EIGRP_MULTICAST_ADDRESS), ei->ifindex);
+	ifindex = eigrp_interface_ifindex(ei);
+	name = eigrp_interface_name(ei);
+	ret = setsockopt_ipv4_multicast(socket->fd, IP_ADD_MEMBERSHIP, address,
+					htonl(EIGRP_MULTICAST_ADDRESS), ifindex);
 	if (ret < 0)
 		zlog_warn("can't join EIGRP multicast group on %s[%u]: %s",
-			  ei->name, ei->ifindex, safe_strerror(errno));
+			  name ? name : "?", ifindex, safe_strerror(errno));
 	return ret;
 }
 
-int eigrp_southbound_multicast_leave(eigrp_instance_t *eigrp,
-				     eigrp_interface_t *ei)
+int eigrp_sys_multicast_leave(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 {
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
 	struct in_addr address;
+	eigrp_ifindex_t ifindex;
+	const char *name;
 	int ret;
 
-	if (!eigrp || !eigrp_southbound_interface_ipv4_address(ei, &address))
+	if (!socket || !eigrp_frr_interface_ipv4_address(ei, &address))
 		return -1;
-
-	ret = setsockopt_ipv4_multicast(eigrp->fd, IP_DROP_MEMBERSHIP, address,
-					htonl(EIGRP_MULTICAST_ADDRESS), ei->ifindex);
+	ifindex = eigrp_interface_ifindex(ei);
+	name = eigrp_interface_name(ei);
+	ret = setsockopt_ipv4_multicast(socket->fd, IP_DROP_MEMBERSHIP, address,
+					htonl(EIGRP_MULTICAST_ADDRESS), ifindex);
 	if (ret < 0)
 		zlog_warn("can't leave EIGRP multicast group on %s[%u]: %s",
-			  ei->name, ei->ifindex, safe_strerror(errno));
+			  name ? name : "?", ifindex, safe_strerror(errno));
 	return ret;
 }
 
-eigrp_result_t eigrp_southbound_vrf_resolve(const char *vrf_name,
+eigrp_result_t eigrp_sys_vrf_resolve(const char *vrf_name,
 					     eigrp_vrf_id_t *vrf_id)
 {
 	struct vrf *vrf;
@@ -512,8 +571,8 @@ eigrp_result_t eigrp_southbound_vrf_resolve(const char *vrf_name,
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_southbound_interface_walk(
-	eigrp_instance_t *eigrp, eigrp_southbound_interface_walk_cb callback,
+eigrp_result_t eigrp_sys_interface_walk(
+	eigrp_instance_t *eigrp, eigrp_sys_interface_walk_cb callback,
 	void *arg)
 {
 	eigrp_interface_runtime_state_t state;
@@ -584,7 +643,7 @@ static void eigrp_southbound_interface_notify(struct interface *ifp)
 				(unsigned)co->address->prefixlen);
 			continue;
 		}
-		eigrp_network_interface_refresh(vrf_id, &state);
+		eigrp_sys_interface_state_apply(vrf_id, &state);
 	}
 }
 
@@ -610,7 +669,7 @@ static int eigrp_southbound_if_down(struct interface *ifp)
 	}
 	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
 			     : EIGRP_VRF_DEFAULT;
-	eigrp_interface_runtime_link_down(
+	eigrp_sys_interface_link_down(
 		vrf_id, ifp->ifindex, ifp->name, eigrp_frr_interface_type(ifp),
 		ifp->bandwidth, ifp->mtu);
 	return 0;
@@ -627,12 +686,12 @@ static int eigrp_southbound_if_unreal(struct interface *ifp)
 	}
 	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
 			     : EIGRP_VRF_DEFAULT;
-	eigrp_interface_runtime_link_remove(
+	eigrp_sys_interface_link_remove(
 		vrf_id, ifp->ifindex, EIGRP_INTERFACE_REMOVE_HOST);
 	return 0;
 }
 
-void eigrp_southbound_runtime_init(void)
+void eigrp_sys_runtime_init(void)
 {
 	hook_register_prio(if_real, 0, eigrp_southbound_if_real);
 	hook_register_prio(if_up, 0, eigrp_southbound_if_up);
@@ -640,13 +699,13 @@ void eigrp_southbound_runtime_init(void)
 	hook_register_prio(if_unreal, 0, eigrp_southbound_if_unreal);
 }
 
-void eigrp_southbound_runtime_finish(void)
+void eigrp_sys_runtime_finish(void)
 {
 	vrf_terminate();
 	frr_fini();
 }
 
-eigrp_result_t eigrp_southbound_redistribute_update(
+eigrp_result_t eigrp_rib_redistribute_add(
 	eigrp_instance_t *eigrp, const char *protocol,
 	const eigrp_metric_values_t *metric, const char *route_map)
 {
@@ -655,7 +714,7 @@ eigrp_result_t eigrp_southbound_redistribute_update(
 	return eigrp_zebra_redistribute_update(eigrp, protocol, metric, route_map);
 }
 
-eigrp_result_t eigrp_southbound_redistribute_delete(
+eigrp_result_t eigrp_rib_redistribute_remove(
 	eigrp_instance_t *eigrp, const char *protocol)
 {
 	if (!eigrp)
@@ -663,27 +722,27 @@ eigrp_result_t eigrp_southbound_redistribute_delete(
 	return eigrp_zebra_redistribute_delete(eigrp, protocol);
 }
 
-void eigrp_southbound_policy_init(void)
+void eigrp_sys_policy_init(void)
 {
 	eigrp_policy_init();
 }
 
-void eigrp_southbound_policy_finish(void)
+void eigrp_sys_policy_finish(void)
 {
 	eigrp_policy_finish();
 }
 
-eigrp_result_t eigrp_southbound_policy_instance_create(eigrp_instance_t *eigrp)
+eigrp_result_t eigrp_sys_policy_instance_create(eigrp_instance_t *eigrp)
 {
 	return eigrp_policy_instance_create(eigrp);
 }
 
-void eigrp_southbound_policy_instance_delete(eigrp_instance_t *eigrp)
+void eigrp_sys_policy_instance_delete(eigrp_instance_t *eigrp)
 {
 	eigrp_policy_instance_delete(eigrp);
 }
 
-eigrp_result_t eigrp_southbound_filter_evaluate(
+eigrp_result_t eigrp_sys_filter_evaluate(
 	eigrp_instance_t *eigrp, eigrp_distribute_list_type_t type,
 	const char *name, const eigrp_prefix_t *prefix,
 	eigrp_filter_decision_t *decision)
@@ -691,28 +750,34 @@ eigrp_result_t eigrp_southbound_filter_evaluate(
 	return eigrp_policy_filter_evaluate(eigrp, type, name, prefix, decision);
 }
 
-int eigrp_southbound_ipv4_packet_send(eigrp_instance_t *eigrp,
-                                      eigrp_interface_t *ei,
-                                      const eigrp_addr_t *destination,
-                                      const uint8_t *payload, size_t length)
+int eigrp_sys_ipv4_packet_send(eigrp_instance_t *eigrp,
+			       eigrp_interface_t *ei,
+			       const eigrp_address_t *destination,
+			       const uint8_t *payload, size_t length)
 {
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
+	eigrp_prefix_t local;
 	struct sockaddr_in sa_dst;
+	struct in_addr dst;
 	struct ip iph;
 	struct msghdr msg;
 	struct iovec iov[2];
 	int flags = 0;
 	int ret;
 
-	if (!eigrp || !ei || !destination || !payload || destination->afi != AF_INET)
+	if (!socket || !ei || !destination || !payload
+	    || destination->afi != EIGRP_ADDRESS_FAMILY_IPV4
+	    || eigrp_interface_address_read(ei, &local) != EIGRP_RESULT_SUCCESS)
 		return -1;
-	if (destination->ip.v4.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
-		(void)eigrp_southbound_multicast_interface_set(eigrp, ei);
+	memcpy(&dst, destination->bytes, sizeof(dst));
+	if (dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
+		(void)eigrp_sys_multicast_interface_set(eigrp, ei);
 	memset(&iph, 0, sizeof(iph));
 	memset(&sa_dst, 0, sizeof(sa_dst));
 	memset(&msg, 0, sizeof(msg));
 	sa_dst.sin_family = AF_INET;
-	sa_dst.sin_addr = destination->ip.v4;
-	if (!IN_MULTICAST(ntohl(destination->ip.v4.s_addr)))
+	sa_dst.sin_addr = dst;
+	if (!IN_MULTICAST(ntohl(dst.s_addr)))
 		flags = MSG_DONTROUTE;
 	iph.ip_hl = sizeof(struct ip) / 4;
 	iph.ip_v = IPVERSION;
@@ -720,8 +785,8 @@ int eigrp_southbound_ipv4_packet_send(eigrp_instance_t *eigrp,
 	iph.ip_len = (uint16_t)(sizeof(struct ip) + length);
 	iph.ip_ttl = EIGRP_IP_TTL;
 	iph.ip_p = IPPROTO_EIGRPIGP;
-	memcpy(&iph.ip_src, ei->address.address.bytes, sizeof(iph.ip_src));
-	iph.ip_dst = destination->ip.v4;
+	memcpy(&iph.ip_src, local.address.bytes, sizeof(iph.ip_src));
+	iph.ip_dst = dst;
 	msg.msg_name = &sa_dst;
 	msg.msg_namelen = sizeof(sa_dst);
 	msg.msg_iov = iov;
@@ -731,37 +796,41 @@ int eigrp_southbound_ipv4_packet_send(eigrp_instance_t *eigrp,
 	iov[1].iov_base = (void *)payload;
 	iov[1].iov_len = length;
 	sockopt_iphdrincl_swab_htosys(&iph);
-	ret = sendmsg(eigrp->fd, &msg, flags);
+	ret = sendmsg(socket->fd, &msg, flags);
 	sockopt_iphdrincl_swab_systoh(&iph);
 	return ret;
 }
 
-bool eigrp_southbound_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
-                                           eigrp_stream_t *stream,
-                                           eigrp_ifindex_t *ifindex,
-                                           eigrp_addr_t *source,
-                                           eigrp_addr_t *destination,
-                                           eigrp_packet_rx_meta_t *meta)
+bool eigrp_sys_ipv4_packet_receive(eigrp_instance_t *eigrp,
+				   uint8_t *buffer, size_t capacity,
+				   size_t *received_length,
+				   eigrp_ifindex_t *ifindex,
+				   eigrp_address_t *source,
+				   eigrp_address_t *destination,
+				   eigrp_packet_rx_meta_t *meta)
 {
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
 	struct ip *iph;
 	struct iovec iov;
 	struct msghdr msgh;
 	uint16_t header_length, ip_length;
-	int ret;
+	ssize_t ret;
 	char control[CMSG_SPACE(SOPT_SIZE_CMSG_IFINDEX_IPV4())];
 
-	(void)eigrp;
-	if (!stream || !ifindex || !source || !destination || !meta)
+	if (!socket || !buffer || capacity == 0 || !received_length || !ifindex
+	    || !source || !destination || !meta)
 		return false;
 	memset(&msgh, 0, sizeof(msgh));
+	iov.iov_base = buffer;
+	iov.iov_len = capacity;
 	msgh.msg_iov = &iov;
 	msgh.msg_iovlen = 1;
 	msgh.msg_control = control;
 	msgh.msg_controllen = sizeof(control);
-	ret = eigrp_stream_recvmsg(stream, fd, &msgh, 0, EIGRP_PACKET_MAX_LEN + 1);
-	if (ret < (int)sizeof(struct ip))
+	ret = recvmsg(socket->fd, &msgh, 0);
+	if (ret < (ssize_t)sizeof(struct ip) || (size_t)ret > capacity)
 		return false;
-	iph = (struct ip *)eigrp_stream_data(stream);
+	iph = (struct ip *)buffer;
 	sockopt_iphdrincl_swab_systoh(iph);
 	if (iph->ip_v != 4 || iph->ip_hl < 5)
 		return false;
@@ -769,22 +838,25 @@ bool eigrp_southbound_ipv4_packet_receive(eigrp_instance_t *eigrp, int fd,
 	if (header_length > (uint16_t)ret)
 		return false;
 	ip_length = iph->ip_len;
-	if (ip_length != (uint16_t)ret || ip_length < header_length + EIGRP_HEADER_LEN)
+	if (ip_length != (uint16_t)ret
+	    || ip_length < header_length + EIGRP_HEADER_LEN)
 		return false;
 	memset(source, 0, sizeof(*source));
 	memset(destination, 0, sizeof(*destination));
-	source->afi = AF_INET;
-	source->ip.v4 = iph->ip_src;
-	destination->afi = AF_INET;
-	destination->ip.v4 = iph->ip_dst;
+	source->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	destination->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	memcpy(source->bytes, &iph->ip_src, sizeof(iph->ip_src));
+	memcpy(destination->bytes, &iph->ip_dst, sizeof(iph->ip_dst));
 	*ifindex = (eigrp_ifindex_t)getsockopt_ifindex(AF_INET, &msgh);
+	*received_length = (size_t)ret;
 	meta->network_header_length = header_length;
 	meta->eigrp_length = ip_length - header_length;
-	meta->destination_multicast = iph->ip_dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS);
+	meta->destination_multicast =
+		iph->ip_dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS);
 	return true;
 }
 
-bool eigrp_southbound_auth_key_lookup(const char *keychain_name,
+bool eigrp_sys_auth_key_lookup(const char *keychain_name,
                                       uint32_t *key_id, char *key_string,
                                       size_t key_string_size)
 {
@@ -805,7 +877,7 @@ bool eigrp_southbound_auth_key_lookup(const char *keychain_name,
 	return true;
 }
 
-void eigrp_southbound_software_version(uint8_t *major, uint8_t *minor)
+void eigrp_sys_software_version(uint8_t *major, uint8_t *minor)
 {
 	unsigned int maj = 0, min = 0;
 	if (major)

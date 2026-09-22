@@ -8,7 +8,7 @@
 
 #include "prefix.h"
 #include "if.h"
-#include "eigrpd/eigrp_result.h"
+#include "eigrpd/eigrp.h"
 #include "eigrpd/eigrp_types.h"
 
 /* FRR prefix objects stop at this adapter boundary. */

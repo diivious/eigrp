@@ -8,7 +8,8 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_packetizer.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_auth.h"
 #include "eigrpd/eigrp_topology.h"
@@ -440,7 +441,7 @@ static eigrp_work_queue_result_t eigrp_packetizer_work_queue_run(
 	eigrp_work_queue_t *queue, void *data)
 {
 	eigrp_packetizer_work_t *work = data;
-	eigrp_instance_t *eigrp = eigrp_work_queue_eigrp(queue);
+	eigrp_instance_t *eigrp = eigrp_sys_work_queue_instance(queue);
 
 	eigrp_packetizer_work_process(eigrp, work);
 	return EIGRP_WORK_QUEUE_SUCCESS;
@@ -458,7 +459,7 @@ void eigrp_packetizer_init(eigrp_instance_t *eigrp)
 	if (!eigrp || eigrp->packetizer_queue)
 		return;
 
-	eigrp->packetizer_queue = eigrp_work_queue_new(
+	eigrp->packetizer_queue = eigrp_sys_work_queue_new(
 		eigrp, "eigrp packetizer", eigrp_packetizer_work_queue_run,
 		eigrp_packetizer_work_queue_delete);
 }
@@ -468,7 +469,7 @@ void eigrp_packetizer_finish(eigrp_instance_t *eigrp)
 	if (!eigrp)
 		return;
 
-	eigrp_work_queue_free(eigrp->packetizer_queue);
+	eigrp_sys_work_queue_free(eigrp->packetizer_queue);
 	eigrp->packetizer_queue = NULL;
 }
 
@@ -513,7 +514,7 @@ void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,
 				   work->nbr ? work->nbr->ei : work->exception,
 				   work->nbr, "enqueue opcode %u%s", work->opcode,
 				   work->prefix ? " route work" : "");
-	eigrp_work_queue_enqueue(eigrp->packetizer_queue, work);
+	eigrp_sys_work_queue_enqueue(eigrp->packetizer_queue, work);
 }
 
 void eigrp_packetizer_prefix_defer_free(eigrp_instance_t *eigrp,

@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 CLI = ROOT / "frr" / "eigrp_cli_named.c"
 CLASSIC_CLI = ROOT / "frr" / "eigrp_cli_classic.c"
-SPEC = ROOT / "specs" / "cli-spec.md"
+SPEC = ROOT / "specs" / "design-spec.md"
 
 
 def read(path: Path) -> str:
@@ -109,10 +109,10 @@ def test_named_mode_feature_commands_are_present():
 def test_cli_spec_documents_named_mode_cli_direction():
     spec = read(SPEC)
 
-    assert "## 3. Classic and named entry forms" in spec
+    assert "## 9. CLI/configuration to core contract" in spec
     assert "router eigrp <name>" in spec
-    assert "address-family ipv4 unicast" in spec
-    assert "address-family ipv6 unicast" in spec
+    assert "address-family <afi> [vrf <vrf>] autonomous-system <asn>" in spec
+    assert "IPv6 named configuration uses the same" in spec
     assert "eigrp_cli_classic.[c|h]" in spec
     assert "eigrp_cli_named.[c|h]" in spec
     assert "eigrp_vty.[c|h]" in spec
@@ -223,13 +223,13 @@ def test_named_af_children_use_semantic_core_targets_and_writeback():
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     cli = read(CLI)
     modules = {
-        "eigrp_instance_router_id_update": read(ROOT / "eigrpd" / "eigrp_instance.h"),
-        "eigrp_instance_router_id_delete": read(ROOT / "eigrpd" / "eigrp_instance.h"),
+        "eigrp_instance_router_id_set": read(ROOT / "eigrpd" / "eigrp_instance.h"),
+        "eigrp_instance_router_id_reset": read(ROOT / "eigrpd" / "eigrp_instance.h"),
         "eigrp_network_create": read(ROOT / "eigrpd" / "eigrp_network.h"),
         "eigrp_network_delete": read(ROOT / "eigrpd" / "eigrp_network.h"),
         "eigrp_neighbor_static_create": read(ROOT / "eigrpd" / "eigrp_neighbor.h"),
         "eigrp_neighbor_static_delete": read(ROOT / "eigrpd" / "eigrp_neighbor.h"),
-        "eigrp_instance_address_family_shutdown_update": read(
+        "eigrp_instance_address_family_shutdown_set": read(
             ROOT / "eigrpd" / "eigrp_instance.h"
         ),
     }
@@ -296,26 +296,26 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
     targets = {
         "eigrp_interface_config_create": interface,
         "eigrp_interface_config_delete": interface,
-        "eigrp_interface_bandwidth_percent_update": interface,
-        "eigrp_interface_bandwidth_percent_delete": interface,
+        "eigrp_interface_bandwidth_percent_set": interface,
+        "eigrp_interface_bandwidth_percent_reset": interface,
         "eigrp_interface_bandwidth_set": interface,
         "eigrp_interface_bandwidth_reset": interface,
         "eigrp_interface_delay_set": interface,
         "eigrp_interface_delay_reset": interface,
-        "eigrp_interface_hello_interval_update": interface,
-        "eigrp_interface_hello_interval_delete": interface,
-        "eigrp_interface_hold_time_update": interface,
-        "eigrp_interface_hold_time_delete": interface,
-        "eigrp_interface_passive_update": interface,
-        "eigrp_auth_mode_update": auth,
-        "eigrp_auth_mode_delete": auth,
-        "eigrp_auth_keychain_update": auth,
-        "eigrp_auth_keychain_delete": auth,
-        "eigrp_interface_next_hop_self_update": interface,
-        "eigrp_interface_split_horizon_update": interface,
+        "eigrp_interface_hello_interval_set": interface,
+        "eigrp_interface_hello_interval_reset": interface,
+        "eigrp_interface_hold_time_set": interface,
+        "eigrp_interface_hold_time_reset": interface,
+        "eigrp_interface_passive_set": interface,
+        "eigrp_auth_mode_set": auth,
+        "eigrp_auth_mode_reset": auth,
+        "eigrp_auth_keychain_set": auth,
+        "eigrp_auth_keychain_reset": auth,
+        "eigrp_interface_next_hop_self_set": interface,
+        "eigrp_interface_split_horizon_set": interface,
         "eigrp_summary_create": summary,
         "eigrp_summary_delete": summary,
-        "eigrp_interface_shutdown_update": interface,
+        "eigrp_interface_shutdown_set": interface,
     }
     for target, header in targets.items():
         assert target in nb
@@ -358,10 +358,10 @@ def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api(
     assert "eigrp_summary_metric_stub" not in cli
 
     targets = {
-        "eigrp_instance_distance_update": ROOT / "eigrpd" / "eigrp_instance.c",
-        "eigrp_offset_update": ROOT / "eigrpd" / "eigrp_filter.c",
-        "eigrp_summary_metric_update": ROOT / "eigrpd" / "eigrp_summary.c",
-        "eigrp_instance_parent_shutdown_update": ROOT / "eigrpd" / "eigrp_instance.c",
+        "eigrp_instance_distance_set": ROOT / "eigrpd" / "eigrp_instance.c",
+        "eigrp_offset_add": ROOT / "eigrpd" / "eigrp_filter.c",
+        "eigrp_summary_metric_set": ROOT / "eigrpd" / "eigrp_summary.c",
+        "eigrp_instance_parent_shutdown_set": ROOT / "eigrpd" / "eigrp_instance.c",
     }
     for target, source in targets.items():
         assert target in adapter
@@ -606,7 +606,7 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
     cli = read(CLI)
     cli_surface = cli + "\n" + read(CLASSIC_CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
-    spec = read(ROOT / "specs" / "cli-spec.md")
+    spec = read(ROOT / "specs" / "design-spec.md")
     uut = read(ROOT / "tools" / "frr-named-uut.sh")
 
     assert "EIGRP_STEP1_CONFIG_COMPLETE" in patch
@@ -660,17 +660,17 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         assert f"/frr-eigrpd:eigrpd/named/address-family/{xpath}" in nb
 
     targets = (
-        "eigrp_eventlog_size_update",
-        "eigrp_neighbor_description_update",
-        "eigrp_neighbor_maximum_prefix_update",
-        "eigrp_neighbor_maximum_prefix_all_update",
+        "eigrp_eventlog_size_set",
+        "eigrp_neighbor_description_set",
+        "eigrp_neighbor_maximum_prefix_set",
+        "eigrp_neighbor_maximum_prefix_all_set",
         "eigrp_neighbor_log_set",
         "eigrp_neighbor_log_reset",
-        "eigrp_metric_maximum_hops_update",
-        "eigrp_metric_holddown_update",
-        "eigrp_topology_maximum_paths_update",
-        "eigrp_distribute_list_update",
-        "eigrp_redistribute_maximum_prefix_update",
+        "eigrp_metric_maximum_hops_set",
+        "eigrp_metric_holddown_set",
+        "eigrp_topology_maximum_paths_set",
+        "eigrp_distribute_add",
+        "eigrp_redistribute_maximum_prefix_set",
     )
     for target in targets:
         assert target in nb
@@ -741,7 +741,7 @@ def test_named_cli_grammar_matches_cisco_documented_forms():
     assert '"no variance"' in classic
 
     metric_c = read(ROOT / "eigrpd" / "eigrp_metric.c")
-    metric_h = read(ROOT / "eigrpd" / "eigrp_metric.h")
+    metric_h = read(ROOT / "eigrpd" / "eigrp.h")
     assert "uint8_t k6;" in metric_h
     assert "context->runtime->k_values[5] = weights->k6;" in metric_c
     assert "context->runtime->k_values[5] = EIGRP_K6_DEFAULT;" in metric_c
@@ -823,7 +823,7 @@ def test_classic_frr_cli_and_exec_surface_is_restored_without_named_mixing():
     classic_header = read(ROOT / "frr" / "eigrp_cli_classic.h")
     vty = read(ROOT / "frr" / "eigrp_vty.c")
     named = read(CLI)
-    spec = read(ROOT / "specs" / "cli-spec.md")
+    spec = read(ROOT / "specs" / "design-spec.md")
 
     # Every command object installed by the original FRR classic CLI remains
     # installed after the split.

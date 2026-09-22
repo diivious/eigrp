@@ -9,7 +9,7 @@
 #ifndef _EIGRP_CLI_NAMED_H_
 #define _EIGRP_CLI_NAMED_H_
 
-#include "eigrp_result.h"
+#include "eigrp.h"
 
 /* Named-mode FRR/YANG writeback. */
 extern void eigrp_cli_named_show_header(struct vty *vty,

@@ -8,7 +8,7 @@
 #define EIGRPD_EIGRP_INSTANCE_H_
 
 #include "eigrp_types.h"
-#include "eigrp_result.h"
+#include "eigrp_cli.h"
 
 /*
  * A named CLI parent is only a configuration container.  The address-family
@@ -51,12 +51,6 @@ struct eigrp_address_family_config {
 	eigrp_address_family_config_t *next;
 };
 
-typedef struct eigrp_instance_context {
-	eigrp_address_family_config_t *config;
-	eigrp_instance_t *runtime;
-	eigrp_topology_id_t topology_id;
-} eigrp_instance_context_t;
-
 typedef eigrp_result_t (*eigrp_instance_address_family_walk_cb)(
 	const char *instance_name, eigrp_address_family_config_t *af, void *arg);
 
@@ -89,22 +83,25 @@ eigrp_result_t eigrp_instance_address_family_walk(
 void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime);
 eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime);
 
-eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_instance_router_id_set(eigrp_instance_context_t *context,
 					       uint32_t router_id);
-eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_instance_address_family_shutdown_update(
-	eigrp_address_family_config_t *af, bool shutdown);
+eigrp_result_t eigrp_instance_router_id_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_instance_address_family_shutdown_set(
+	eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_instance_address_family_shutdown_reset(
+	eigrp_address_family_config_t *af);
 eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime);
 eigrp_result_t eigrp_instance_address_family_stop(eigrp_instance_t *runtime);
-void eigrp_instance_router_id_refresh_vrf(eigrp_vrf_id_t vrf_id);
 bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
 
-eigrp_result_t eigrp_instance_parent_shutdown_update(
-	eigrp_instance_parent_config_t *parent, bool shutdown);
-eigrp_result_t eigrp_instance_distance_update(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_instance_parent_shutdown_set(
+	eigrp_instance_parent_config_t *parent);
+eigrp_result_t eigrp_instance_parent_shutdown_reset(
+	eigrp_instance_parent_config_t *parent);
+eigrp_result_t eigrp_instance_distance_set(eigrp_address_family_config_t *af,
 					      uint8_t internal_distance,
 					      uint8_t external_distance);
-eigrp_result_t eigrp_instance_distance_delete(eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_instance_distance_reset(eigrp_address_family_config_t *af);
 
 void eigrp_instance_config_finish(void);
 

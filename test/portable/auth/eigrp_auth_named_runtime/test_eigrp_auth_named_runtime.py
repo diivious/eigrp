@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[4]
 AUTH_C = ROOT / "eigrpd" / "eigrp_auth.c"
 AUTH_H = ROOT / "eigrpd" / "eigrp_auth.h"
 NORTHBOUND = ROOT / "frr" / "eigrp_northbound.c"
-CONVENTIONS = ROOT / "specs" / "code-conventions.md"
+CONVENTIONS = ROOT / "specs" / "design-spec.md"
 
 
 def read(path: Path) -> str:
@@ -54,16 +54,16 @@ def test_named_authentication_callbacks_terminate_at_common_eigrp_targets():
         northbound, "eigrpd_named_af_interface_keychain_destroy"
     )
 
-    assert "eigrp_auth_mode_update(&context, mode, hmac_ptr)" in mode_apply
-    assert "eigrp_auth_mode_delete(&context)" in mode_destroy
-    assert "eigrp_auth_keychain_update(&context" in keychain_modify
-    assert "eigrp_auth_keychain_delete(&context)" in keychain_destroy
+    assert "eigrp_auth_mode_set(&context, mode, hmac_ptr)" in mode_apply
+    assert "eigrp_auth_mode_reset(&context)" in mode_destroy
+    assert "eigrp_auth_keychain_set(&context" in keychain_modify
+    assert "eigrp_auth_keychain_reset(&context)" in keychain_destroy
 
 
 def test_common_md5_authentication_target_updates_active_runtime_mode():
     auth = read(AUTH_C)
-    update = function_body(auth, "eigrp_auth_mode_update")
-    delete = function_body(auth, "eigrp_auth_mode_delete")
+    update = function_body(auth, "eigrp_auth_mode_set")
+    delete = function_body(auth, "eigrp_auth_mode_reset")
 
     assert "context->runtime->params.auth_type =" in update
     assert "EIGRP_AUTH_TYPE_MD5" in update
@@ -72,8 +72,8 @@ def test_common_md5_authentication_target_updates_active_runtime_mode():
 
 def test_common_keychain_target_updates_config_and_runtime_with_independent_ownership():
     auth = read(AUTH_C)
-    update = function_body(auth, "eigrp_auth_keychain_update")
-    delete = function_body(auth, "eigrp_auth_keychain_delete")
+    update = function_body(auth, "eigrp_auth_keychain_set")
+    delete = function_body(auth, "eigrp_auth_keychain_reset")
 
     assert "char *config_copy = NULL;" in update
     assert "char *runtime_copy = NULL;" in update
@@ -91,7 +91,7 @@ def test_common_keychain_target_updates_config_and_runtime_with_independent_owne
 
 def test_keychain_replacement_is_atomic_across_retained_and_runtime_state():
     auth = read(AUTH_C)
-    update = function_body(auth, "eigrp_auth_keychain_update")
+    update = function_body(auth, "eigrp_auth_keychain_set")
 
     config_allocate = update.index("config_copy = eigrp_auth_string_duplicate")
     runtime_allocate = update.index("runtime_copy = eigrp_auth_string_duplicate")
@@ -107,7 +107,7 @@ def test_keychain_replacement_is_atomic_across_retained_and_runtime_state():
 
 def test_named_hmac_direct_password_remains_explicitly_not_implemented_at_runtime():
     auth = read(AUTH_C)
-    update = function_body(auth, "eigrp_auth_mode_update")
+    update = function_body(auth, "eigrp_auth_mode_set")
 
     assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config" in update
     assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in update
@@ -127,19 +127,19 @@ def test_classic_authentication_converges_on_common_eigrp_targets():
         northbound, "lib_interface_eigrp_instance_keychain_destroy"
     )
 
-    assert "eigrp_auth_mode_update(&context, mode, NULL)" in classic_mode
-    assert "eigrp_auth_mode_delete(&context)" in classic_mode
+    assert "eigrp_auth_mode_set(&context, mode, NULL)" in classic_mode
+    assert "eigrp_auth_mode_reset(&context)" in classic_mode
     assert "intf->params.auth_type =" not in classic_mode
-    assert "eigrp_auth_keychain_update(" in classic_keychain
+    assert "eigrp_auth_keychain_set(" in classic_keychain
     assert "intf->params.auth_keychain =" not in classic_keychain
-    assert "eigrp_auth_keychain_delete(&context)" in classic_keychain_destroy
+    assert "eigrp_auth_keychain_reset(&context)" in classic_keychain_destroy
 
 
 def test_authentication_target_contract_is_documented():
     conventions = read(CONVENTIONS)
     auth_header = read(AUTH_H)
 
-    assert "Classic and named configuration surfaces converge" in conventions
+    assert "converge on the same EIGRP-owned" in conventions
     assert "EIGRP-owned" in conventions
-    assert "eigrp_auth_keychain_update" in auth_header
-    assert "eigrp_auth_keychain_delete" in auth_header
+    assert "eigrp_auth_keychain_set" in auth_header
+    assert "eigrp_auth_keychain_reset" in auth_header

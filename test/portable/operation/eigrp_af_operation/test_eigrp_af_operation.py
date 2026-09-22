@@ -35,7 +35,7 @@ def function_body(source: str, name: str) -> str:
 
 def test_address_family_shutdown_stops_and_restarts_runtime_interfaces():
     instance = read("eigrpd/eigrp_instance.c")
-    update = function_body(instance, "eigrp_instance_address_family_shutdown_update")
+    update = function_body(instance, "eigrp_instance_address_family_shutdown_apply")
     stop = function_body(instance, "eigrp_instance_address_family_stop")
     start = function_body(instance, "eigrp_instance_address_family_start")
 
@@ -48,7 +48,7 @@ def test_address_family_shutdown_stops_and_restarts_runtime_interfaces():
 
 def test_router_id_rejects_reserved_values_and_refreshes_runtime():
     instance = read("eigrpd/eigrp_instance.c")
-    update = function_body(instance, "eigrp_instance_router_id_update")
+    update = function_body(instance, "eigrp_instance_router_id_set")
 
     assert "router_id == 0" in update
     assert "router_id == UINT32_MAX" in update

@@ -14,7 +14,7 @@ eigrp/
   frr/            FRR-specific adapters and integration
     patch/        Managed changes required outside FRR/eigrpd/
     test/         FRR-native integration/UUT material
-  bird/           BIRD-specific adapters and integration
+  bsd/            BIRD/BSD-specific adapters and integration
   test/
     build/        Lightweight compile-smoke harness
     common/       Host-independent fixtures and packet samples
@@ -29,28 +29,25 @@ copy and then copy changes back.
 
 ## Design documents
 
-The normative project documents are:
+The project documents are:
 
-- `specs/design-spec.md` - architecture, portability, ownership boundaries, and
-  protocol implementation rules.
-- `specs/code-conventions.md` - human-navigation naming and public target rules.
-- `specs/cli-spec.md` - classic/named CLI scope, management flow, configuration
-  retention, and operational command rules.
-- `specs/process-spec.md` - named parent/address-family runtime ownership and
-  packet demultiplexing model.
-- `specs/packetizing-spec.md` - DUAL-to-packet pipeline, TLV dispatch, packet
-  queues, pacing, and reliable transport ownership.
+- `specs/design-spec.md` - core architecture, development rules, naming,
+  portability, instance ownership, and contributor requirements.
+- `specs/integration-spec.md` - public black-box contract for integrating EIGRP
+  with a routing platform.
+- `specs/EIGRP-Config-Guide.md` - operator configuration and EXEC guide.
+- `specs/dual.md` - DUAL state-machine use in this implementation.
+- `specs/rtp-spec.md` - packetization, pacing, Reliable Transport Protocol,
+  ACK/retransmission behavior, and packet lifetime.
+- `specs/rfc7868.md` - RFC 7868 protocol reference.
 - `specs/refactor-work.md` - deliberately deferred pre-production cleanup. Work
   listed there is not permission for unrelated rename-only churn.
-
-`specs/EIGRP-Config-Guide.md` and `specs/EIGRP-Named-Mode.md` are command/reference
-notes. They are not protocol or implementation authority.
 
 ## Development rules
 
 Portable protocol behavior belongs in `eigrpd/`. FRR-specific CLI/YANG,
 management, Zebra/RIB, event-loop, interface, and operating-system adaptation
-belongs under `frr/`. BIRD-specific integration belongs under `bird/`.
+belongs under `frr/`. BIRD/BSD-specific integration belongs under `bsd/`.
 
 Portable APIs use EIGRP-owned types and structured result codes. FRR VTY, YANG,
 Zebra, interface, event, stream, route-map, and equivalent BIRD objects must not
@@ -72,13 +69,13 @@ eigrp_<module>.c
 eigrp_<module>_<object>_<action>()
 ```
 
-See `specs/code-conventions.md` before adding or renaming public APIs.
+See `specs/design-spec.md` before adding or renaming public APIs.
 
 ## Normal development workflow
 
 ### 1. Work in the canonical project tree
 
-Make source changes in `eigrpd/`, `frr/`, or `bird/` according to ownership.
+Make source changes in `eigrpd/`, `frr/`, or `bsd/` according to ownership.
 Changes required outside FRR's `eigrpd/` directory are exceptional and are
 carried as managed patches under `frr/patch/`.
 

@@ -21,7 +21,8 @@
 #include "eigrpd/eigrp_redistribute.h"
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_timer.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 
 /* AF modules intentionally expose only their vector bind entry points. */
 
@@ -59,7 +60,7 @@ static eigrp_result_t eigrp_instance_address_family_runtime_create(
 	if (!name || !af)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	result = eigrp_southbound_vrf_resolve(af->vrf_name, &vrf_id);
+	result = eigrp_sys_vrf_resolve(af->vrf_name, &vrf_id);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 
@@ -514,7 +515,7 @@ bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime)
 	return runtime && runtime->data_path_ready;
 }
 
-void eigrp_instance_router_id_refresh_vrf(eigrp_vrf_id_t vrf_id)
+void eigrp_sys_router_id_refresh(eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *runtime;
 	eigrp_list_node_t *node;
@@ -590,7 +591,7 @@ eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime)
  * Sets or resets the 32-bit EIGRP router ID for the selected instance.
  * Named mode reaches the same EIGRP-owned router-ID behavior instead of duplicating protocol state in the FRR CLI.
  */
-eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_instance_router_id_set(eigrp_instance_context_t *context,
 					       uint32_t router_id)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -620,7 +621,7 @@ eigrp_result_t eigrp_instance_router_id_update(eigrp_instance_context_t *context
  * Sets or resets the 32-bit EIGRP router ID for the selected instance.
  * Named mode reaches the same EIGRP-owned router-ID behavior instead of duplicating protocol state in the FRR CLI.
  */
-eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_instance_router_id_reset(eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -645,7 +646,7 @@ eigrp_result_t eigrp_instance_router_id_delete(eigrp_instance_context_t *context
  * Changes the administrative state of one named address-family.
  * The common target owns retained state and runtime start/stop behavior.
  */
-eigrp_result_t eigrp_instance_address_family_shutdown_update(
+static eigrp_result_t eigrp_instance_address_family_shutdown_apply(
 	eigrp_address_family_config_t *af, bool shutdown)
 {
 	eigrp_result_t result;
@@ -671,6 +672,18 @@ eigrp_result_t eigrp_instance_address_family_shutdown_update(
 	return result;
 }
 
+eigrp_result_t eigrp_instance_address_family_shutdown_set(
+	eigrp_address_family_config_t *af)
+{
+	return eigrp_instance_address_family_shutdown_apply(af, true);
+}
+
+eigrp_result_t eigrp_instance_address_family_shutdown_reset(
+	eigrp_address_family_config_t *af)
+{
+	return eigrp_instance_address_family_shutdown_apply(af, false);
+}
+
 /*
  * Syntax:
  *   Named: `shutdown` / `no shutdown`
@@ -681,13 +694,25 @@ eigrp_result_t eigrp_instance_address_family_shutdown_update(
  * Represents administrative shutdown of the named parent rather than one address-family.
  * The real target remains in place and reports NOT_IMPLEMENTED until parent-wide runtime semantics are defined.
  */
-eigrp_result_t eigrp_instance_parent_shutdown_update(
+static eigrp_result_t eigrp_instance_parent_shutdown_apply(
 	eigrp_instance_parent_config_t *parent, bool shutdown)
 {
 	(void)shutdown;
 	if (!parent)
 		return EIGRP_RESULT_NOT_FOUND;
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
+}
+
+eigrp_result_t eigrp_instance_parent_shutdown_set(
+	eigrp_instance_parent_config_t *parent)
+{
+	return eigrp_instance_parent_shutdown_apply(parent, true);
+}
+
+eigrp_result_t eigrp_instance_parent_shutdown_reset(
+	eigrp_instance_parent_config_t *parent)
+{
+	return eigrp_instance_parent_shutdown_apply(parent, false);
 }
 
 /*
@@ -700,7 +725,7 @@ eigrp_result_t eigrp_instance_parent_shutdown_update(
  * Sets or resets internal and external EIGRP administrative distance.
  * RIB-side application remains owned by this target and reports NOT_IMPLEMENTED while that runtime path is incomplete.
  */
-eigrp_result_t eigrp_instance_distance_update(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_instance_distance_set(eigrp_address_family_config_t *af,
 					      uint8_t internal_distance,
 					      uint8_t external_distance)
 {
@@ -721,7 +746,7 @@ eigrp_result_t eigrp_instance_distance_update(eigrp_address_family_config_t *af,
  * Sets or resets internal and external EIGRP administrative distance.
  * RIB-side application remains owned by this target and reports NOT_IMPLEMENTED while that runtime path is incomplete.
  */
-eigrp_result_t eigrp_instance_distance_delete(eigrp_address_family_config_t *af)
+eigrp_result_t eigrp_instance_distance_reset(eigrp_address_family_config_t *af)
 {
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;

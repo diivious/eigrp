@@ -23,7 +23,8 @@
 
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_debug.h"
-#include "eigrpd/eigrp_southbound.h"
+#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/eigrp_rib.h"
 /* Packet Type String. */
 const eigrp_message_t eigrp_packet_type_str[] = {
 	{EIGRP_OPC_UPDATE, "Update"},
@@ -353,7 +354,7 @@ static void eigrp_packet_reliable_send_record(eigrp_interface_t *ei,
 	if (!ei || !packet || packet->sequence_number == 0 || packet->retransmission)
 		return;
 
-	now_msec = eigrp_southbound_monotime_msec();
+	now_msec = eigrp_sys_monotime_msec();
 	if (packet->nbr) {
 		eigrp_packet_reliable_neighbor_send_record(packet->nbr,
 						 packet->sequence_number, now_msec);
@@ -395,7 +396,7 @@ void eigrp_packet_write_schedule(eigrp_instance_t *eigrp)
 {
 	if (!eigrp || eigrp->t_write)
 		return;
-	eigrp_southbound_write_add(&eigrp->t_write, eigrp->fd,
+	eigrp_sys_write_add(&eigrp->t_write, eigrp,
 			     eigrp_packet_write, eigrp);
 }
 
@@ -488,13 +489,13 @@ void eigrp_packet_read(void *arg)
 	eigrp = arg;
 
 	/* Prepare for the next packet before processing this one. */
-	eigrp_southbound_read_add(&eigrp->t_read, eigrp->fd,
+	eigrp_sys_read_add(&eigrp->t_read, eigrp,
 			    eigrp_packet_read, eigrp);
 
 	eigrp_stream_reset(eigrp->ibuf);
 
 	ibuf = eigrp->ibuf;
-	if (!eigrp->af_vectors.packet_receive(eigrp, eigrp->fd, ibuf, &ei,
+	if (!eigrp->af_vectors.packet_receive(eigrp, ibuf, &ei,
 					      &src, &dst, &meta))
 		return;
 
@@ -813,7 +814,7 @@ void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *nbr)
 						  address, sizeof(address)),
 			   packet->sequence_number, rto_msec);
 	}
-	eigrp_southbound_timer_add(&packet->t_retrans_timer,
+	eigrp_sys_timer_add(&packet->t_retrans_timer,
 				 eigrp_packet_unack_retrans, nbr, rto_msec);
 }
 
@@ -932,7 +933,7 @@ void eigrp_packet_free(eigrp_packet_t *packet)
 	if (packet->s)
 		eigrp_stream_free(packet->s);
 
-	eigrp_southbound_event_cancel(&packet->t_retrans_timer);
+	eigrp_sys_event_cancel(&packet->t_retrans_timer);
 
 	free(packet);
 }
@@ -1216,7 +1217,7 @@ void eigrp_packet_unack_retrans(void *arg)
 	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
 
 	packet->retrans_counter++;
-	eigrp_southbound_timer_add(&packet->t_retrans_timer,
+	eigrp_sys_timer_add(&packet->t_retrans_timer,
 				 eigrp_packet_unack_retrans, nbr,
 				 eigrp_neighbor_rto_get(nbr));
 }

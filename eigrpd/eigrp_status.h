@@ -7,22 +7,9 @@
 #ifndef EIGRPD_EIGRP_STATUS_H_
 #define EIGRPD_EIGRP_STATUS_H_
 
+#include "eigrp_mgnt.h"
 #include "eigrp_instance.h"
-#include "eigrp_result.h"
-
-typedef struct eigrp_status_protocol_state {
-	const char *instance_name;
-	eigrp_address_family_config_t *config;
-	eigrp_address_family_t afi;
-	const char *vrf_name;
-	uint16_t asn;
-	bool shutdown;
-	bool router_id_configured;
-	uint32_t router_id;
-} eigrp_status_protocol_state_t;
-
-typedef eigrp_result_t (*eigrp_status_protocol_cb)(
-	const eigrp_status_protocol_state_t *state, void *arg);
+#include "eigrp.h"
 
 /*
  * Protocol summary and tech-support are intentionally aggregate operations:

@@ -15,7 +15,8 @@
 #include "eigrp_timer.h"
 #include "eigrp_interface.h"
 #include "eigrp_neighbor.h"
-#include "eigrp_southbound.h"
+#include "eigrp_sys.h"
+#include "eigrp_rib.h"
 
 struct eigrp_timer_config {
 	bool active_time_configured;
@@ -47,7 +48,7 @@ static void eigrp_timer_neighbor_address(const eigrp_neighbor_t *nbr,
  * Sets or resets the ACTIVE/SIA timer configuration.
  * The FRR reference callback did not implement live ACTIVE-time behavior, so this target retains configuration and returns NOT_IMPLEMENTED when runtime enforcement is requested.
  */
-eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
+eigrp_result_t eigrp_timer_active_time_set(eigrp_instance_context_t *context,
 					      uint16_t seconds)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -78,7 +79,7 @@ eigrp_result_t eigrp_timer_active_time_update(eigrp_instance_context_t *context,
  * Sets or resets the ACTIVE/SIA timer configuration.
  * The FRR reference callback did not implement live ACTIVE-time behavior, so this target retains configuration and returns NOT_IMPLEMENTED when runtime enforcement is requested.
  */
-eigrp_result_t eigrp_timer_active_time_delete(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_timer_active_time_reset(eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -133,7 +134,7 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 				.type = EIGRP_TIMER_STATE_HELLO,
 				.interface_name = eigrp_intf_name_string(interface),
 				.expiration_seconds =
-					eigrp_southbound_timer_remaining_seconds(
+					eigrp_sys_timer_remaining_seconds(
 						interface->t_hello),
 			};
 
@@ -153,7 +154,7 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 			state.neighbor_present = true;
 			eigrp_timer_neighbor_address(neighbor, &state.neighbor_address);
 			state.expiration_seconds =
-				eigrp_southbound_timer_remaining_seconds(
+				eigrp_sys_timer_remaining_seconds(
 					neighbor->t_holddown);
 			result = callback(&state, arg);
 			if (result != EIGRP_RESULT_SUCCESS)

@@ -1,4 +1,4 @@
-# EIGRP Packetizing Specification
+# EIGRP Packetization and Reliable Transport Specification
 
 Copyright (C) 2026 Donnie V. Savage
 
@@ -7,8 +7,7 @@ and author history.
 
 ## 1. Purpose
 
-This document defines the EIGRP route-packet production pipeline from DUAL and
-topology work through interface transmission and reliable transport.
+This document defines EIGRP packetization and Reliable Transport Protocol (RTP) behavior, from DUAL/topology work through interface pacing, ACK tracking, and retransmission.
 
 ```text
 DUAL/FSM/topology event
@@ -19,11 +18,11 @@ DUAL/FSM/topology event
   -> reliable transport / ACK / retransmission
 ```
 
-It extends `design-spec.md` and does not redefine RFC 7868 wire behavior.
+It extends `design-spec.md` and `dual.md` and does not redefine RFC 7868 wire behavior.
 
 ## 2. Authority and protocol invariants
 
-Packetizing follows the project authority in `design-spec.md`. Internal queues,
+Packetization and RTP follow the project authority in `design-spec.md`. Internal queues,
 work objects, and ownership mechanics are implementation details; emitted
 packets and reliable transport must follow RFC 7868.
 
@@ -509,7 +508,7 @@ Owns:
 The existing packet queue remains part of packet ownership; a separate queue
 module is not required merely for file symmetry.
 
-### 17.3 `eigrp_southbound.[c|h]`
+### 17.3 `eigrp_sys.h`
 
 Owns the portable host-runtime contract for work queue scheduling, events,
 timers, sockets, interfaces, and RIB services. Host-native queue/event objects
