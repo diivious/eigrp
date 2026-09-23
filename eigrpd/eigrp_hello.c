@@ -181,10 +181,13 @@ static void eigrp_sw_version_decode(eigrp_neighbor_t *nbr,
 	nbr->tlv_rel_minor = version->eigrp_minor;
 
 	/*
-	 * TLV major version 2 peers use multiprotocol/wide TLVs. Any other
-	 * currently supported peer uses classic TLV1 encoding.
+	 * The software TLV advertises the peer's highest TLV format, not the
+	 * format it must use with this neighbor.  Version 2 peers retain TLV1
+	 * compatibility and use it when talking to a Version 1 peer.  Bind the
+	 * codec to the highest route TLV format supported by both sides.
 	 */
-	if (nbr->tlv_rel_major == EIGRP_TLV_64B_VERSION)
+	if (EIGRP_MAJOR_VERSION >= EIGRP_TLV_64B_VERSION
+	    && nbr->tlv_rel_major >= EIGRP_TLV_64B_VERSION)
 		eigrp_neighbor_codec_bind(nbr, EIGRP_TLV_64B_VERSION);
 	else
 		eigrp_neighbor_codec_bind(nbr, EIGRP_TLV_32B_VERSION);

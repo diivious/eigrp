@@ -312,7 +312,6 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
 				eigrp_list_add(eigrp->topology_changes, prefix);
 			}
-			break;
 		}
 	}
 
