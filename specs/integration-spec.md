@@ -136,9 +136,10 @@ Order at process start:
 7. host interface/RIB callbacks start feeding eigrp_sys.h / eigrp_rib.h
 ```
 
-`eigrp_init()` is the current portable runtime constructor. It is not yet one
-of the five public headers. FRR `eigrp_main.c` calls it. A new host needs that
-call until a public runtime-init symbol is added to `eigrp.h`.
+`eigrp_init()` is the current portable runtime constructor. It is declared in
+`eigrpd/eigrpd.h`, not in the five public headers. FRR `eigrp_main.c` calls
+it. A new host needs that call until the symbol moves into `eigrp.h`. That
+gap is listed in `refactor-work.md`.
 
 Create protocol context through `eigrp_cli.h`:
 
@@ -573,7 +574,7 @@ state, prefix count, retransmit/retry state, SRTT/RTO, software version, and
 negotiated TLV capability. The host receives that snapshot through
 `eigrp_neighbor_state_walk()` and does not inspect `eigrp_neighbor_t`.
 
-The exact public management types and walkers are frozen in Section 11.4.
+The current public management types and walkers are listed in Section 11.4.
 
 ### CLI show relationship
 

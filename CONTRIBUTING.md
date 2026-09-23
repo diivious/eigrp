@@ -1,7 +1,5 @@
 # Contributing to EIGRP
 
-Copyright (C) 2026 Donnie V. Savage
-
 This is the process document. Architecture rules live in `specs/design-spec.md`.
 The public host contract lives in `specs/integration-spec.md`. Do not treat this
 file as a second design spec.
@@ -24,8 +22,10 @@ tools/    FRR stage/build/UUT helpers
 ```
 
 If the change is protocol behavior, it belongs in `eigrpd/`.
-If the change is a public host API, update `specs/integration-spec.md` in the same patch as the header.
-if the change is in a shim, then it belongs in the shim folder `eigrp/frr eigrp/bird, etc)`.
+If the change is FRR CLI, YANG, Zebra, vtysh, or FRR process wiring, it belongs
+in `frr/`.
+If the change is a public host API, update `specs/integration-spec.md` in the
+same patch as the header.
 
 ## 2. How work is delivered
 
@@ -70,19 +70,24 @@ Test
   What you could not run and why.
 ```
 
-A PR with no issue/change/test writeup will be sent back. We review the PR, ask questions, and merge it when it is accepted. Do not assume a green smoke run means it will be merged.
+A PR with no issue/change/test writeup will be sent back.
 
-If you used AI to draft code, say so in the PR and be ready to defend the diff. See Section 4.
+We review the PR, ask questions, and merge it when it is accepted. Do not
+assume a green smoke run means it will be merged.
+
+If you used AI to draft code, say so in the PR and be ready to defend the
+diff. See Section 4.
 
 ## 3. Talk to repo moderators first when
 
 Ask before you:
+
 - rename public or widely used internal symbols
 - add a compatibility wrapper or second code path
 - change whitespace, comment style, or include order across a file
 - add a new public header or public function
 - move code between `eigrpd/` and a host directory
-- take an item from `specs/refactor-work.md`
+- take a naming/architecture item from `specs/refactor-work.md` sections 1-3
 - change managed patches under `frr/patch/`
 
 Do the work first only when the change is local, obvious, and already covered by
@@ -90,7 +95,10 @@ an existing spec rule.
 
 ## 4. AI generated code
 
-AI generated code is allowed. The contributor still owns the result. If you use an assistant, you must:
+AI generated code is allowed.
+
+The contributor still owns the result. If you use an assistant, you must:
+
 - understand every line you submit
 - be able to explain why the change is correct
 - be able to defend the design against `specs/design-spec.md` and, for host
@@ -109,6 +117,7 @@ gratuitous diffs get into the tree.
 Core code changes must follow the style already used in the file you touch.
 
 Rules:
+
 - Match local indent, brace, comment, and naming style.
 - The repo `.clang-format` is the format reference. Do not invent a new one.
 - Do not reformat a file because a tool wants to.
@@ -130,8 +139,10 @@ Do not derive portable names from Cisco CLI nesting or from FRR YANG paths.
 
 ## 6. Copyright and history
 
-Keep existing copyright, SPDX, and author lines. Refactoring a file is not permission to erase prior authorship.
-New project files use Donnie V. Savage as copyright owner unless another author is the actual writer and is identified on purpose.
+Keep existing copyright, SPDX, and author lines. Refactoring a file is not
+permission to erase prior authorship.
+
+New files use the copyright of the person who wrote them.
 
 ## 7. Test gate
 
@@ -192,8 +203,12 @@ excuse to reach into DUAL or packet objects.
 EIGRP Stub routing is out of scope. Do not implement it, import it, or add
 tests for it.
 
-`specs/refactor-work.md` is a parking lot. Items there are not an invitation to
-start a rename sweep.
+`specs/refactor-work.md` sections 1-3 are naming/architecture parking. Do not
+start a rename sweep from those items.
+
+Section 4 in that file is different. Those are real feature targets that still
+return `NOT_IMPLEMENTED`. A contributor can pick one, implement the runtime
+path, and send a PR.
 
 ## 10. Security reports
 

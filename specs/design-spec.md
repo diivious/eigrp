@@ -35,7 +35,7 @@ Detailed protocol subsystems are described separately:
 - `rfc7868.md` identifies the protocol specification used by this project;
 - `integration-spec.md` defines the public black-box contract for host platforms;
 - `EIGRP-Config-Guide.md` is the operator configuration and EXEC guide;
-- `refactor-work.md` is the bounded pre-production parking lot.
+- `refactor-work.md` parks naming work and lists incomplete feature targets.
 
 ## 2. Authority
 
@@ -364,7 +364,11 @@ objects.
 Classic and named command surfaces may differ in syntax and placement, but when
 they represent the same protocol operation they converge on the same EIGRP-owned
 semantic behavior below the host boundary. Classic and named configuration surfaces
-therefore converge on the same EIGRP-owned semantic behavior below the host boundary. Named mode is the canonical surface for new configuration work. Named mode covers the complete applicable classic EIGRP protocol feature set except features explicitly excluded by this specification.
+therefore converge on the same EIGRP-owned semantic behavior below the host boundary. Named mode is the canonical surface for new configuration work. Named and
+classic fronts that represent the same operation share one EIGRP target.
+That does not mean every target has a finished runtime path. Incomplete
+targets keep the real API and return `NOT_IMPLEMENTED`. Those items live in
+`refactor-work.md`.
 
 ```text
 classic front end --\
@@ -569,14 +573,16 @@ When code and design differ, fix code when the design rule is intentional and
 the touched work makes that appropriate, or update the specification when the
 implementation demonstrates a better architecture.
 
-Deferred naming/ownership work belongs in `refactor-work.md`. That document is a
-parking lot, not authorization for broad unrelated cleanup.
+Deferred naming/ownership work belongs in `refactor-work.md` sections 1-3.
+Those items are not authorization for broad unrelated cleanup.
+
+Incomplete feature targets belong in `refactor-work.md` section 4. Those are
+fair contributor work.
 
 ## 19. Copyright and authorship
 
-New project files use Donnie V. Savage as copyright owner unless another author
-is intentionally identified. Existing source preserves prior copyright, SPDX,
-and author history.
+Existing source preserves prior copyright, SPDX, and author history. New files
+use the copyright of the person who wrote them.
 
 ## 20. Delivery
 

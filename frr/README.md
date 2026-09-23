@@ -1,7 +1,5 @@
 # FRR host adapter
 
-Copyright (C) 2026 Donnie V. Savage
-
 This directory is the FRR shim. It is not portable EIGRP.
 
 If you were told to add EIGRP to some other platform, do not copy this

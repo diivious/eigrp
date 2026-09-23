@@ -1,7 +1,5 @@
 # BIRD host adapter
 
-Copyright (C) 2026 Donnie V. Savage
-
 This directory is reserved for a BIRD shim.
 
 There is no BIRD implementation in this tree yet. Do not treat an empty

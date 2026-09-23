@@ -15,16 +15,17 @@ model, but the IPv6 packet path is still capability-gated.
 Pick the row that matches the job you were given. Read that spec before you
 open random source files.
 
-| If you are | Open first | Then | Stay out of |
-|---|---|---|---|
-| New contributor | `CONTRIBUTING.md` | this README, then `specs/design-spec.md` | `specs/refactor-work.md` |
-| Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md` for UUT and vtysh notes | DUAL, RTP, TLV source |
-| Platform integrator | `specs/integration-spec.md` and the five public headers in `eigrpd/` | `frr/README.md` and `specs/EIGRP-Config-Guide.md` | `eigrp_fsm.c`, TLV codecs, packetizer internals |
-| Portable protocol developer | `specs/design-spec.md` | support docs: `dual.md`, `rtp-spec.md`, `rfc7868.md`, config guide | host YANG and VTY files |
-| FRR adapter developer | this README workflow plus `frr/README.md` and `frr/patch/README.md` | `specs/integration-spec.md`, config guide, `specs/design-spec.md` | a second protocol core under `frr/` |
+| If you are | Open first | Then |
+|---|---|---|
+| New contributor | `CONTRIBUTING.md` | this README, `specs/design-spec.md`, and `specs/refactor-work.md` for open items |
+| Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md` for UUT and vtysh notes |
+| Platform integrator | `specs/integration-spec.md` and the five public headers in `eigrpd/` | `frr/README.md` and `specs/EIGRP-Config-Guide.md` |
+| Portable protocol developer | `specs/design-spec.md` | `dual.md`, `rtp-spec.md`, `rfc7868.md`, config guide, `refactor-work.md` |
+| FRR adapter developer | this README workflow plus `frr/README.md` and `frr/patch/README.md` | `specs/integration-spec.md`, config guide, `specs/design-spec.md` |
 
-`specs/refactor-work.md` is a parking lot for later cleanup. Do not start work
-from it unless a repo moderator told you to.
+`specs/refactor-work.md` has two kinds of items. Naming/architecture parked
+items need a review before a rename sweep. Incomplete feature targets that
+still return `NOT_IMPLEMENTED` are fair work for a PR.
 
 ## Repository layout
 
@@ -109,8 +110,8 @@ FRR's path through that shim is drawn in `frr/README.md`.
 - `specs/rtp-spec.md` - core support doc. Packetization and RTP.
 - `specs/rfc7868.md` - core support doc. Pointer to RFC 7868. No forked RFC
   text in this repo.
-- `specs/refactor-work.md` - deferred cleanup. Not a backlog for drive-by
-  renames.
+- `specs/refactor-work.md` - parked naming work, plus incomplete feature
+  targets a contributor can pick up.
 
 ## Development rules
 
@@ -320,8 +321,8 @@ See `CONTRIBUTING.md`.
 ## Copyright and contribution history
 
 Preserve existing copyright, SPDX, and author history in files derived from
-FRR or earlier EIGRP implementations. New project files use Donnie V. Savage as
-the copyright owner unless another author is intentionally identified.
+FRR or earlier EIGRP implementations. New files use the copyright of the
+person who wrote them.
 
 Small, reviewable changes are preferred. Do not add alias wrappers, duplicate
 old/new paths, or compatibility layers without an approved migration reason.
