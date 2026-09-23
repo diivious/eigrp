@@ -2,6 +2,9 @@
 /*
  * Public EIGRP runtime-state and instrumentation contract.
  *
+ * Host show/telemetry walks snapshots from this header.
+ * Do not walk private neighbor or topology objects.
+ *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_MGNT_H_

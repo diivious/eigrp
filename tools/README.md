@@ -6,6 +6,11 @@ into the FRR checkout. FRR-specific
 development tooling uses the `frr-` prefix so a future host can provide its own
 parallel driver, such as `bird.sh`.
 
+This file is the operator/developer cookbook for FRR stage, build, and UUT.
+Contribution rules are in `../CONTRIBUTING.md`. The FRR file map is in
+`../frr/README.md`. A new non-FRR host should not start here; start in
+`../specs/integration-spec.md`.
+
 ## Scripts
 
 ```text
@@ -139,13 +144,10 @@ To build the UUT without executing tests:
 tools/frr-uut.sh --build-only --frr-root ~/devel/frr
 ```
 
-## Project packaging
+## Local snapshot helper
 
-Create a clean project zip:
-
-```sh
-tools/backup.sh --zip eigrp.zip
-```
+`backup.sh` is a local snapshot tool for the maintainer. It is not how
+contributions are sent. Send a GitHub pull request. See `../CONTRIBUTING.md`.
 
 ## Local FRR service commands
 

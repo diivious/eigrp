@@ -2,6 +2,9 @@
 /*
  * Public EIGRP host runtime/system-service contract.
  *
+ * The host implements these services. Portable EIGRP calls them.
+ * Do not put FRR or BIRD types in this header.
+ *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_SYS_H_

@@ -2,6 +2,9 @@
 /*
  * Public EIGRP routing-table exchange contract.
  *
+ * Host implements install/remove and redistribute subscribe.
+ * Portable EIGRP implements source-route add/remove.
+ *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_RIB_H_

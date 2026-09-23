@@ -12,6 +12,10 @@ This document is the contributor specification for portable EIGRP core code.
 It answers one question: what does a developer need to know before changing
 `eigrpd/` or changing behavior that belongs to EIGRP itself?
 
+Process, style, AI use, and how to send a diff are in `../CONTRIBUTING.md`.
+Read that before you generate a patch. This file owns design rules. It does
+not own review process.
+
 It owns:
 
 - protocol and design authority;
@@ -56,7 +60,7 @@ eigrp/
   frr/            FRR-specific adapters/integration
     patch/        managed FRR-wide changes
     test/         FRR-native integration/UUT material
-  bsd/            BIRD/BSD-specific adapters/integration
+  bird/           reserved BIRD adapter location
   test/
     build/        lightweight compile-smoke harness
     common/       shared host-independent fixtures
@@ -504,6 +508,9 @@ and conditional receive.
 ## 14. Production code rule
 
 Do not add compatibility debt without an explicit migration requirement.
+Core changes follow the style already in the file. Do not land whitespace-only
+churn or gratuitous cleanup unless repo moderators asked for that cleanup.
+See `../CONTRIBUTING.md`.
 Forbidden examples include legacy/old replacement paths, alias wrappers for
 renamed internal APIs, parallel old/new protocol implementations, generic
 compatibility dispatchers, and temporary host-object leakage into portable APIs.
@@ -518,7 +525,7 @@ test/build/       lightweight compile/syntax/prototype smoke
 test/common/      host-independent fixtures
 test/portable/    host-independent behavior/source-boundary tests
 frr/test/         FRR-native integration/UUT tests
-bsd/...           BIRD/BSD-native integration/UUT tests
+bird/test/        reserved BIRD-native integration/UUT tests
 ```
 
 Normal source-change gate:
@@ -573,7 +580,11 @@ and author history.
 
 ## 20. Delivery
 
-Requested project changes are delivered as a ZIP rooted at `eigrp/` so they can
-be copied into another checkout with normal recursive copy tools. Delivery
-contains the complete changed project files and excludes local VCS/build/cache
-artifacts.
+Changes arrive as a GitHub pull request against
+https://github.com/diivious/eigrpd
+
+Fork, branch, PR. The PR text states the issue, the change, and the tests
+run. Review happens on the PR. Accepted work is merged to master.
+
+Do not send zip files or recursive copies as the contribution path.
+Process details are in `../CONTRIBUTING.md`.

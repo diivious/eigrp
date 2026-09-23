@@ -5,9 +5,16 @@ Copyright (C) 2026 Donnie V. Savage
 ## 1. Purpose
 
 This is the user guide for the EIGRP command surface provided by this project.
-It documents configuration, show, clear, and debug commands. Core architecture
-belongs in `design-spec.md`; platform integration belongs in
-`integration-spec.md`.
+It documents configuration, show, clear, and debug commands.
+
+If you operate or test the CLI, this is the spec you want.
+
+If you are adding EIGRP to a platform, `integration-spec.md` is the contract
+and this guide is the command list. Your YANG, CLI, or config store has to
+cover the same semantic surface FRR exposes here, then call `eigrp_cli.h`.
+
+If you are changing portable protocol code, open `design-spec.md` first. This
+file, `rfc7868.md`, `dual.md`, and `rtp-spec.md` are support docs for that work.
 
 Two configuration styles are available:
 

@@ -22,6 +22,214 @@ The public integration surface is intentionally small and organized around five 
 
 Optional capabilities may use feature-specific public headers, but they must not become dependencies of the base integration contract.
 
+If you are a platform owner or junior integrator, read this section, Section 2,
+Section 10, and the five public headers. Come back to the API inventory in
+Section 11 when you start writing function calls. You do not need `dual.md`
+or the TLV codecs to write a shim.
+
+### 1.1 Who this document is for
+
+This spec is the black-box contract. You were handed `eigrpd/` and told to make
+it run on a routing platform. You should be able to do that from:
+
+```text
+this file
+eigrpd/eigrp.h
+eigrpd/eigrp_cli.h
+eigrpd/eigrp_mgnt.h
+eigrpd/eigrp_rib.h
+eigrpd/eigrp_sys.h
+```
+
+FRR is one host. It is not the API. `frr/README.md` maps current FRR files onto
+these headers. Copy the job split from FRR, not the private includes.
+
+`EIGRP-Config-Guide.md` is the command surface you are binding to. If your
+platform has YANG, a CLI, or another config store, that guide is the semantic
+list you implement through `eigrp_cli.h`. You do not need `dual.md`,
+`rtp-spec.md`, or RFC 7868 internals to write the shim.
+
+```text
++------------------+     +------------------+     +------------------+
+| platform         |     | shim             |     | core             |
+|                  |     |                  |     |                  |
+| config store     +---->+ eigrp_cli.h      +---->+ instance/config  |
+| show/telemetry   +<----+ eigrp_mgnt.h     +<----+ neighbors/topo   |
+| RIB              +<--->+ eigrp_rib.h      +<--->+ route selection  |
+| sockets/timers   +<----+ eigrp_sys.h      +<----+ hello/RTP/DUAL   |
++------------------+     +------------------+     +------------------+
+```
+
+```mermaid
+flowchart LR
+  plat["Platform"]
+  shim["Shim"]
+  core["Core eigrpd/"]
+
+  plat -- "config / admin" --> shim
+  shim -- "eigrp_cli.h" --> core
+  core -- "eigrp_mgnt.h snapshots" --> shim
+  shim -- "show / telemetry" --> plat
+  core -- "eigrp_sys.h I/O timers" --> shim
+  shim -- "sockets / events" --> plat
+  core -- "eigrp_rib.h install" --> shim
+  shim -- "host RIB" --> plat
+  plat -- "redistribute candidates" --> shim
+  shim -- "eigrp_rib.h source routes" --> core
+```
+
+### 1.2 What you compile
+
+Portable protocol objects are the `.c` files under `eigrpd/`.
+
+Host adapter objects are written by you. They implement the host side of
+`eigrp_sys.h` and `eigrp_rib.h`, and they call `eigrp_cli.h` / `eigrp_mgnt.h`.
+
+Do not compile `frr/*.c` into a non-FRR product. Those files know FRR types.
+
+Include path:
+
+```text
+-I<path-to-eigrp-repo>
+```
+
+so this works:
+
+```c
+#include "eigrpd/eigrp.h"
+#include "eigrpd/eigrp_cli.h"
+#include "eigrpd/eigrp_mgnt.h"
+#include "eigrpd/eigrp_rib.h"
+#include "eigrpd/eigrp_sys.h"
+```
+
+Compile flags used by the in-tree smoke harness:
+
+```text
+-std=gnu11
+```
+
+Link portable `eigrpd/*.o` with your adapter `.o` files and the host libc.
+MD5 and SHA-256 used by EIGRP auth live in `eigrpd/`. You do not need an
+external crypto library for the current auth code.
+
+`eigrpd/eigrp_log.c` is a stderr fallback. A host may replace that one file
+with a log sink that still implements `eigrp_log()` from `eigrpd/eigrp_log.h`.
+FRR does that in `frr/eigrp_log.c`. If you keep the portable log file, do not
+also link the FRR one.
+
+Current packet I/O in `eigrp_sys.h` is an IPv4 envelope. Named IPv6 config uses
+the same CLI/semantic model. IPv6 send/receive is capability-gated and is not a
+second integration API.
+
+### 1.3 Host process start and stop
+
+Order at process start:
+
+```text
+1. host process and event loop exist
+2. eigrp_sys_runtime_init()     host implements
+3. eigrp_rib_init()             host implements
+4. eigrp_sys_policy_init()      host implements if policy is used
+5. eigrp_init()                 portable, declared in eigrpd/eigrpd.h
+6. host config/admin binds to eigrp_cli.h
+7. host interface/RIB callbacks start feeding eigrp_sys.h / eigrp_rib.h
+```
+
+`eigrp_init()` is the current portable runtime constructor. It is not yet one
+of the five public headers. FRR `eigrp_main.c` calls it. A new host needs that
+call until a public runtime-init symbol is added to `eigrp.h`.
+
+Create protocol context through `eigrp_cli.h`:
+
+```text
+named:
+  eigrp_instance_parent_create()
+  eigrp_instance_address_family_create()
+
+classic IPv4:
+  eigrp_instance_classic_create()
+```
+
+Do not invent a second instance constructor in host code.
+
+Order at process stop:
+
+```text
+1. stop accepting config and packet I/O
+2. delete address-family / instance context through eigrp_cli.h
+3. eigrp_rib_instance_delete() for each runtime, then eigrp_rib_finish()
+4. eigrp_sys_policy_finish()
+5. eigrp_sys_runtime_finish()
+```
+
+Cancel host timers and work queues before EIGRP state is freed. Do not leave a
+host callback pointing at a destroyed `eigrp_instance_t`.
+
+### 1.4 Minimum link set for a new host
+
+You need:
+
+```text
+all eigrpd/*.c except a file you replaced on purpose (today: eigrp_log.c)
+your eigrp_sys_* implementation
+your eigrp_rib_* host-side implementation
+your config/admin caller of eigrp_cli.h
+your show/state caller of eigrp_mgnt.h, if the product has show
+```
+
+Host implements these `eigrp_sys.h` / `eigrp_rib.h` entry points:
+
+```text
+eigrp_sys_runtime_init / finish
+eigrp_sys_event_* / timer / read / write / monotime
+eigrp_sys_work_queue_*
+eigrp_sys_socket_* / multicast_* / ipv4_packet_*
+eigrp_sys_vrf_resolve / router_id_get / interface_walk
+eigrp_sys_policy_* / filter_evaluate / auth_key_lookup
+eigrp_rib_init / finish / instance_delete
+eigrp_rib_route_install / eigrp_rib_route_remove
+eigrp_rib_redistribute_add / remove
+```
+
+Portable EIGRP implements the inbound notifications:
+
+```text
+eigrp_sys_interface_state_apply / link_down / link_remove / address_remove
+eigrp_sys_router_id_refresh
+eigrp_sys_policy_runtime_refresh
+eigrp_sys_filter_runtime_replace
+eigrp_rib_source_route_add / remove
+eigrp_init
+all eigrp_cli.h targets
+all eigrp_mgnt.h walkers
+```
+
+Exact prototypes are in Section 11. Ownership and result codes are in
+Section 11.1.
+
+### 1.5 FRR worked example
+
+`frr/` is the current host. Use it to see a full split, then write your own
+files.
+
+```text
+frr/eigrp_southbound.c   eigrp_sys.h services
+frr/eigrp_zebra.c        eigrp_rib.h host side
+frr/eigrp_northbound.c   committed config -> eigrp_cli.h
+frr/eigrp_cli_named.c    named parser only
+frr/eigrp_cli_classic.c  classic parser only
+frr/eigrp_vty.c          show surface, should consume eigrp_mgnt.h
+frr/eigrp_main.c         process lifecycle
+frr/eigrp_log.c          host log sink
+frr/patch/               host-tree edits outside the daemon directory
+```
+
+Some FRR files still include private portable headers. That is leftover host
+coupling. A new platform must not copy it. If show code walks
+`prefix_descriptor` or `eigrp_neighbor_t` fields, that is a contract miss,
+not a model to follow.
+
 ---
 
 ## 2. Integration model in five minutes
@@ -152,7 +360,7 @@ Public headers must not include internal module headers that expose private impl
 
 Private portable code may include public headers.
 
-Host integration code under `frr/` or `bsd/` must use only approved public integration headers, plus host-native headers.
+Host integration code under `frr/` or `bird/` must use only approved public integration headers, plus host-native headers.
 
 ---
 
@@ -365,7 +573,7 @@ state, prefix count, retransmit/retry state, SRTT/RTO, software version, and
 negotiated TLV capability. The host receives that snapshot through
 `eigrp_neighbor_state_walk()` and does not inspect `eigrp_neighbor_t`.
 
-The exact public management types and walkers are frozen in Section 14.5.
+The exact public management types and walkers are frozen in Section 11.4.
 
 ### CLI show relationship
 
@@ -623,7 +831,7 @@ packet I/O
 
 ## 5. Required integration flows
 
-The following flows define the boundary. Exact public function names and signatures are listed in Section 14.
+The following flows define the boundary. Exact public function names and signatures are listed in Section 11.
 
 ## 5.1 Packet receive flow
 
@@ -788,10 +996,10 @@ portable EIGRP module
 
 Every public API added to one of the integration headers must have a corresponding specification entry in this document before the public interface is considered stable.
 
-Each API entry uses the following schema. Section 14 may factor fields that are
+Each API entry uses the following schema. Section 11 may factor fields that are
 identical for a function family into one family contract. In that form, the
 family direction/requirement/lifetime/execution/ordering rules, the common
-argument conventions in Section 14.1, the exact prototype, and the per-function
+argument conventions in Section 11.1, the exact prototype, and the per-function
 purpose/return/status row together constitute the complete API entry. Any API
 whose argument ownership or ordering differs from the family rule must state
 the exception explicitly.
@@ -949,7 +1157,7 @@ Rules:
 2. An integrator must be able to build and run base EIGRP without implementing optional features.
 3. Optional host services must report unsupported capability cleanly when absent.
 4. Optional protocol features remain owned by their EIGRP feature module and must not become generic system-service dumping grounds.
-5. 
+5. Do not stuff optional feature types into `eigrp.h` or `eigrp_sys.h` just to avoid adding a header.
 ---
 
 

@@ -20,6 +20,10 @@ DUAL/FSM/topology event
 
 It extends `design-spec.md` and `dual.md` and does not redefine RFC 7868 wire behavior.
 
+This is a core support document, same class as `dual.md` and `rfc7868.md`.
+Platform integrators do not need packetizer or RTP internals to write a shim.
+Use `integration-spec.md` and `EIGRP-Config-Guide.md` for that job.
+
 ## 2. Authority and protocol invariants
 
 Packetization and RTP follow the project authority in `design-spec.md`. Internal queues,

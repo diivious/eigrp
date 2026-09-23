@@ -2,6 +2,8 @@
 /*
  * Public EIGRP semantic configuration and administrative API.
  *
+ * Host config/admin calls these targets. This header is not a parser.
+ *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_CLI_H_

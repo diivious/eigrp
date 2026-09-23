@@ -3,51 +3,120 @@
 Portable EIGRP implementation based on RFC 7868.
 
 RFC 7868 and Donnie V. Savage's protocol design decisions define EIGRP
-behavior. FRR and BIRD are host/integration frameworks; neither is the protocol
-authority.
+behavior. FRR and BIRD are host frameworks. Neither is the protocol authority.
+
+This tree is in active development. FRR is the working host integration. BIRD
+is a reserved layout, not a second implementation yet. IPv4 is the runtime data
+path that is being brought up. Named IPv6 configuration uses the same semantic
+model, but the IPv6 packet path is still capability-gated.
+
+## Start here by role
+
+Pick the row that matches the job you were given. Read that spec before you
+open random source files.
+
+| If you are | Open first | Then | Stay out of |
+|---|---|---|---|
+| New contributor | `CONTRIBUTING.md` | this README, then `specs/design-spec.md` | `specs/refactor-work.md` |
+| Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md` for UUT and vtysh notes | DUAL, RTP, TLV source |
+| Platform integrator | `specs/integration-spec.md` and the five public headers in `eigrpd/` | `frr/README.md` and `specs/EIGRP-Config-Guide.md` | `eigrp_fsm.c`, TLV codecs, packetizer internals |
+| Portable protocol developer | `specs/design-spec.md` | support docs: `dual.md`, `rtp-spec.md`, `rfc7868.md`, config guide | host YANG and VTY files |
+| FRR adapter developer | this README workflow plus `frr/README.md` and `frr/patch/README.md` | `specs/integration-spec.md`, config guide, `specs/design-spec.md` | a second protocol core under `frr/` |
+
+`specs/refactor-work.md` is a parking lot for later cleanup. Do not start work
+from it unless a repo moderator told you to.
 
 ## Repository layout
 
 ```text
 eigrp/
-  eigrpd/         Portable/common EIGRP protocol code
-  frr/            FRR-specific adapters and integration
+  eigrpd/         Portable EIGRP protocol code
+  frr/            FRR adapters and integration
     patch/        Managed changes required outside FRR/eigrpd/
-    test/         FRR shim integration
-  bird/           BIRD shim integration
+    test/         FRR shim integration tests
+  bird/           Reserved BIRD shim location
   test/
     build/        Lightweight compile-smoke harness
     common/       Host-independent fixtures and packet samples
     portable/     Host-independent source/behavior tests
-  specs/          Architecture, CLI, naming, process, and packetizing design
+  specs/          Architecture, CLI, integration, and protocol design
   tools/          Build, staging, patch, UUT, and packaging helpers
+  CONTRIBUTING.md Fork, pull request, style, AI, and test rules
 ```
 
-The canonical source tree is this repository. FRR staging creates a projection
-of `eigrpd/` plus the FRR adapter files; do not develop against the staged FRR
+This repository is the canonical source tree. FRR staging creates a projection
+of `eigrpd/` plus the FRR adapter files. Do not develop against the staged FRR
 copy and then copy changes back.
+
+## Architecture at a glance
+
+Three layers. Host objects stop in the shim. Protocol decisions stay in core.
+
+```text
++---------------------------+
+| platform                  |
+| CLI/YANG, sockets, RIB,   |
+| timers, interfaces        |
++-------------+-------------+
+              |
+              v
++-------------+-------------+
+| shim                      |
+| frr/ today                |
+| bird/ later               |
+|                           |
+| eigrp_cli.h   host -> core|
+| eigrp_mgnt.h  core -> host|
+| eigrp_rib.h   both ways   |
+| eigrp_sys.h   core -> host|
++-------------+-------------+
+              |
+              v
++-------------+-------------+
+| core                      |
+| eigrpd/                   |
+| DUAL, RTP, packets,       |
+| topology, neighbors       |
++---------------------------+
+```
+
+```mermaid
+flowchart TB
+  platform["Platform<br/>CLI / YANG / sockets / RIB / timers"]
+  shim["Shim<br/>frr/ or a new host adapter"]
+  core["Core<br/>eigrpd/ portable EIGRP"]
+
+  platform -->|"host objects and events"| shim
+  shim -->|"eigrp_cli.h config/admin"| core
+  core -->|"eigrp_mgnt.h snapshots"| shim
+  core -->|"eigrp_sys.h services"| shim
+  core -->|"eigrp_rib.h install"| shim
+  shim -->|"eigrp_rib.h source routes"| core
+  shim -->|"normalized values only"| platform
+```
+
+FRR's path through that shim is drawn in `frr/README.md`.
 
 ## Design documents
 
-The project documents are:
-
-- `specs/design-spec.md` - core architecture, development rules, naming,
-  portability, instance ownership, and contributor requirements.
-- `specs/integration-spec.md` - public black-box contract for integrating EIGRP
-  with a routing platform.
-- `specs/EIGRP-Config-Guide.md` - operator configuration and EXEC guide.
-- `specs/dual.md` - DUAL state-machine use in this implementation.
-- `specs/rtp-spec.md` - packetization, pacing, Reliable Transport Protocol,
-  ACK/retransmission behavior, and packet lifetime.
-- `specs/rfc7868.md` - RFC 7868 protocol reference.
-- `specs/refactor-work.md` - deliberately deferred pre-production cleanup. Work
-  listed there is not permission for unrelated rename-only churn.
+- `specs/design-spec.md` - contributor spec for portable core: ownership,
+  naming, instance model, testing.
+- `specs/integration-spec.md` - public black-box contract for a routing
+  platform that wants to host this code.
+- `specs/EIGRP-Config-Guide.md` - operator CLI/EXEC guide. Integrators use it
+  when they build the host equivalent of FRR YANG/CLI.
+- `specs/dual.md` - core support doc. DUAL state machine in this tree.
+- `specs/rtp-spec.md` - core support doc. Packetization and RTP.
+- `specs/rfc7868.md` - core support doc. Pointer to RFC 7868. No forked RFC
+  text in this repo.
+- `specs/refactor-work.md` - deferred cleanup. Not a backlog for drive-by
+  renames.
 
 ## Development rules
 
 Portable protocol behavior belongs in `eigrpd/`.
-FRR-specific CLI/YANG, management, Zebra/RIB, belongs under `frr/`.
-BIRD-specific integration belongs under `bird/`.
+FRR-specific CLI, YANG, management, and Zebra/RIB belong under `frr/`.
+BIRD-specific integration belongs under `bird/` when that work exists.
 
 Portable APIs use EIGRP-owned types and structured result codes. FRR VTY, YANG,
 Zebra, interface, event, stream, route-map, and equivalent BIRD objects must not
@@ -55,31 +124,30 @@ leak into portable protocol APIs.
 
 Every configuration or operational feature terminates at its own real EIGRP
 target. An incomplete feature keeps that target and returns the structured
-EIGRP `NOT_IMPLEMENTED` result where required; it is not routed through a
-generic CLI stub or unrelated dispatcher. Retained configuration must remain
-writeable even when its runtime behavior is incomplete.
+EIGRP `NOT_IMPLEMENTED` result where required. Do not route it through a
+generic CLI stub. Retained configuration stays writeable even when runtime
+behavior is incomplete.
 
-Function/module naming is optimized for human navigation. The normal form is:
+Function and module naming is for human navigation:
 
 ```text
 eigrp_<module>.c
 eigrp_<module>_<object>_<action>()
 ```
 
-See `specs/design-spec.md` before adding or renaming public APIs.
+Read `specs/design-spec.md` before adding or renaming public APIs.
+Read `CONTRIBUTING.md` before you open a pull request.
 
 ## Stub routing
 
-EIGRP Stub routing is outside project scope. I have no plans to
-implement, import, or add runtime tests for the EIGRP Stub feature
-
+EIGRP Stub routing is outside project scope. I have no plans to implement,
+import, or add runtime tests for the EIGRP Stub feature.
 
 The original Cisco patents on stub announcement and query suppression
-(US7042834, US7570582) expired in 2022–2023. A later patent on mixed
+(US7042834, US7570582) expired in 2022-2023. A later patent on mixed
 stub/non-stub neighbors on the same interface (US7898981) is still in
-force. RFC 7868 also leaves the stub TLV reserved. Stubs are therefore
-omitted to stay within the published, unencumbered protocol.
-
+force. RFC 7868 also leaves the stub TLV reserved. Stubs are omitted to stay
+inside the published, unencumbered protocol.
 
 ## Normal development workflow
 
@@ -111,8 +179,8 @@ make smoke
 make portable-test
 ```
 
-The smoke harness catches syntax/prototype drift but does not replace the full
-FRR build/link gate.
+The smoke harness catches syntax and prototype drift. It does not replace the
+full FRR build/link gate.
 
 ### 3. Stage into an FRR checkout
 
@@ -185,7 +253,7 @@ This stages the current EIGRP source, builds and installs FRR, restarts FRR,
 starts the just-built `eigrpd`, and drives the daemon with
 `sudo vtysh -d eigrpd`.
 
-Named-mode validation is intentionally ordered:
+Named-mode validation is ordered:
 
 1. `router eigrp savage`, IPv4 AF AS 4453 - applicable commands, mutation,
    writeback, and documented `no` forms.
@@ -194,8 +262,8 @@ Named-mode validation is intentionally ordered:
 3. Additional AS contexts under the same named parent.
 4. Case-sensitive named parents such as `savage` and `SAVAGE`.
 
-Do not attribute a parser/config-retention failure to runtime worker code until
-the command has actually crossed the CLI/northbound boundary.
+Do not blame runtime worker code for a parser or config-retention failure until
+the command has crossed the CLI/northbound boundary.
 
 Set `EIGRP_UUT_INTERFACE` when the UUT interface is not `enp0s8`.
 
@@ -225,14 +293,14 @@ Required managed FRR patches must already be present on the UUT checkout.
 
 ## Debugging
 
-For daemon debugging, stop any service-managed/manual EIGRP daemon before
+For daemon debugging, stop any service-managed or manual EIGRP daemon before
 starting another copy. From the FRR checkout, a typical GDB launch is:
 
 ```sh
 sudo gdb eigrpd/.libs/eigrpd
 ```
 
-Useful smoke commands include:
+Useful smoke commands:
 
 ```sh
 sudo vtysh -d eigrpd -c 'show running-config'
@@ -240,19 +308,14 @@ sudo vtysh -d eigrpd -c 'show ip eigrp topology'
 sudo vtysh -d eigrpd -c 'show ip eigrp neighbors'
 ```
 
-The UUT scripts contain the authoritative daemon-start and cleanup mechanics;
-prefer them over hand-maintained launch sequences when validating a change.
+The UUT scripts own daemon-start and cleanup. Prefer them over a hand-built
+launch sequence when you are validating a change.
 
-## Packaging
+## Sending changes
 
-Create a clean project ZIP with:
-
-```sh
-tools/backup.sh --zip eigrp.zip
-```
-
-Delivery ZIPs are rooted at `eigrp/` and omit local VCS/build/cache noise so
-they can be copied into another checkout with normal recursive copy tools.
+Fork https://github.com/diivious/eigrpd, push a branch, open a pull request.
+The PR must say what the issue was, what changed, and how it was tested.
+See `CONTRIBUTING.md`.
 
 ## Copyright and contribution history
 
@@ -261,8 +324,9 @@ FRR or earlier EIGRP implementations. New project files use Donnie V. Savage as
 the copyright owner unless another author is intentionally identified.
 
 Small, reviewable changes are preferred. Do not add alias wrappers, duplicate
-old/new paths, or compatibility layers without an explicit approved migration
-reason.
+old/new paths, or compatibility layers without an approved migration reason.
+
+See `CONTRIBUTING.md` for AI use, style, and diff hygiene.
 
 ## Security
 

@@ -13,6 +13,10 @@ feasibility testing, Passive/Active state transitions, QUERY/REPLY processing,
 SIA handling, and return to a stable successor set without first reverse
 engineering `eigrp_fsm.c`.
 
+This is a core support document, same class as `rtp-spec.md` and `rfc7868.md`.
+Platform integrators do not need it to write a shim. Use `integration-spec.md`
+and `EIGRP-Config-Guide.md` for that job.
+
 Protocol behavior follows RFC 7868 and the DUAL design decisions used by this
 project. Source ownership and naming rules are defined by `design-spec.md`.
 

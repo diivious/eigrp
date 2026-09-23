@@ -2,6 +2,9 @@
 /*
  * Public EIGRP integration values and opaque identities.
  *
+ * Host shims include this header. Read specs/integration-spec.md before
+ * adding a host adapter. Layouts of opaque types stay private.
+ *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_H_
