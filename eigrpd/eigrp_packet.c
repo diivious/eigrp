@@ -845,8 +845,9 @@ void eigrp_packet_checksum(eigrp_interface_t *ei, eigrp_stream_t *s,
 
 	eigrph = (struct eigrp_header *)eigrp_stream_data(s);
 
-	/* Calculate checksum. */
-	eigrph->checksum = eigrp_checksum(eigrph, length);
+	/* eigrp_checksum() returns a host-order numeric value.  The packed
+	 * header field is part of the wire image and must be network order. */
+	eigrph->checksum = htons(eigrp_checksum(eigrph, length));
 }
 
 
@@ -890,7 +891,7 @@ void eigrp_packet_header_init(int type, eigrp_instance_t *eigrp, eigrp_stream_t 
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, BUILD))
 		eigrp_log(EIGRP_LOG_DEBUG, "Packet Header Init Seq [%u] Ack [%u]",
-			   htonl(eigrph->sequence), htonl(eigrph->ack));
+			   ntohl(eigrph->sequence), ntohl(eigrph->ack));
 
 	eigrp_stream_forward_endp(s, EIGRP_HEADER_LEN);
 }

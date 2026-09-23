@@ -4,6 +4,7 @@
  * Authors:
  *   Donnie Savage
  */
+#include <arpa/inet.h>
 #include <assert.h>
 #include <string.h>
 
@@ -30,6 +31,14 @@
 #define EIGRP_TLV2_DEST_PREFIX_SIZE 1
 #define EIGRP_TLV2_EXTDATA_SIZE 16
 #define EIGRP_TLV2_INACCESSIBLE 0xffffffffffffULL
+
+/* eigrp_instance::router_id is stored as struct in_addr (network-order
+ * bytes), while eigrp_stream_putl() accepts a host-order integer.
+ */
+static uint32_t eigrp_tlv2_router_id_host(const eigrp_instance_t *eigrp)
+{
+	return ntohl(eigrp->router_id.s_addr);
+}
 
 #define EIGRP_TLV2_INT_MIN_TLV                                                \
 	(EIGRP_TLV_HDR_SIZE + EIGRP_TLV2_HEADER_EXT_SIZE                       \
@@ -167,7 +176,8 @@ static uint16_t eigrp_tlv2_external_encode(eigrp_instance_t *eigrp,
 					   eigrp_stream_t *pkt,
 					   eigrp_extdata_t *extdata)
 {
-	uint32_t rid = extdata->orig ? extdata->orig : eigrp->router_id.s_addr;
+	uint32_t rid = extdata->orig ? extdata->orig
+				     : eigrp_tlv2_router_id_host(eigrp);
 
 	eigrp_stream_putl(pkt, rid);
 	eigrp_stream_putl(pkt, extdata->as);
@@ -360,7 +370,7 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 	eigrp_stream_putw(pkt, 0);
 	eigrp_stream_putw(pkt, eigrp->af_vectors.multiprotocol_afi);
 	eigrp_stream_putw(pkt, EIGRP_TOPOLOGY_ID_BASE);
-	eigrp_stream_putl(pkt, eigrp->router_id.s_addr);
+	eigrp_stream_putl(pkt, eigrp_tlv2_router_id_host(eigrp));
 
 	eigrp_tlv2_metric_encode(pkt, &route->metric);
 

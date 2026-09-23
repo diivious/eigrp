@@ -199,3 +199,23 @@ def test_portable_runtime_does_not_depend_on_frr_qobj_registration():
     zebra_stub = read("test/build/include/zebra.h")
     for token in forbidden:
         assert token not in zebra_stub
+
+def test_runtime_interface_preserves_host_address_bits():
+    interface_c = read("eigrpd/eigrp_interface.c")
+
+    # Runtime interface state represents the actual local address, not the
+    # connected network prefix.  The packet envelope uses this value as the
+    # IPv4 source address and for multicast interface selection.
+    apply_start = interface_c.index("static void eigrp_interface_runtime_state_apply")
+    apply_end = interface_c.index("eigrp_interface_t *eigrp_interface_runtime_create", apply_start)
+    apply_body = interface_c[apply_start:apply_end]
+    assert "ei->address = state->address;" in apply_body
+    assert "eigrp_prefix_normalize(&ei->address)" not in apply_body
+
+    # Connected topology state still requires a normalized destination.
+    destination_start = interface_c.index("static bool eigrp_interface_destination_get")
+    destination_end = interface_c.index("static char *eigrp_interface_string_duplicate", destination_start)
+    destination_body = interface_c[destination_start:destination_end]
+    assert "*destination = ei->address;" in destination_body
+    assert "eigrp_prefix_normalize(destination);" in destination_body
+

@@ -899,8 +899,11 @@ static void eigrp_interface_runtime_state_apply(
 
 	ei->ifindex = state->ifindex;
 	if (eigrp_prefix_valid(&state->address)) {
+		/* Preserve the host address on the runtime interface.  Callers that
+		 * need the connected network prefix normalize a copy through
+		 * eigrp_interface_destination_get().
+		 */
 		ei->address = state->address;
-		eigrp_prefix_normalize(&ei->address);
 	}
 	ei->type = state->type;
 	ei->operative = state->operative;
