@@ -9,9 +9,10 @@ set -euo pipefail
 
 script_name="$(basename "$0")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-devel_root="$HOME/devel"
-frr_root="$devel_root/frr"
-frr_orig_root="$devel_root/frr-orig"
+invocation_dir="$(pwd -P)"
+devel_root="$(cd "$invocation_dir/.." && pwd -P)"
+frr_root=""
+frr_orig_root=""
 skip_clone=0
 skip_build=0
 
@@ -20,14 +21,15 @@ usage() {
 usage: $script_name [options]
 
 options:
-  --devel-root PATH    Development root. Default: ~/devel
-  --skip-clone         Do not clone missing repositories.
+  --devel-root PATH    Development root. Default: parent of the current
+                       working directory. Relative paths are resolved from CWD.
+  --skip-clone         Do not clone missing FRR repositories.
   --skip-build         Do not configure/build/install FRR.
   --help               Show this help.
 
-This script is intentionally Debian-focused. It installs FRR build packages,
-clones FRR if needed, stages this EIGRP tree into FRR, and creates basic local
-FRR config files.
+This script is intentionally Debian-focused. Run it from an existing EIGRP
+checkout. It installs FRR build packages, clones the FRR checkouts if needed,
+stages this EIGRP tree into FRR, and creates basic local FRR config files.
 USAGE
 }
 
@@ -41,8 +43,6 @@ while [[ "$#" -gt 0 ]]; do
 		--devel-root)
 			[[ "$#" -ge 2 ]] || fail "--devel-root requires a path"
 			devel_root="$2"
-			frr_root="$devel_root/frr"
-			frr_orig_root="$devel_root/frr-orig"
 			shift 2
 			;;
 		--skip-clone)
@@ -77,7 +77,15 @@ MSG
 	exit 1
 fi
 
+case "$devel_root" in
+	/*) ;;
+	*) devel_root="$invocation_dir/$devel_root" ;;
+esac
+
 mkdir -p "$devel_root"
+devel_root="$(cd "$devel_root" && pwd -P)"
+frr_root="$devel_root/frr"
+frr_orig_root="$devel_root/frr-orig"
 
 if ! grep -q '^/usr/local/lib$' /etc/ld.so.conf 2>/dev/null; then
 	echo "Adding /usr/local/lib to /etc/ld.so.conf"
@@ -130,10 +138,9 @@ sudo usermod -a -G frr "$USER"
 sudo usermod -a -G frrvty "$USER"
 
 if [[ "$skip_clone" -eq 0 ]]; then
-	echo "Cloning repositories if missing"
+	echo "Cloning FRR repositories if missing"
 	(
 		cd "$devel_root"
-		[[ -d eigrp ]] || git clone git@github.com:diivious/eigrp.git eigrp
 		[[ -d frr ]] || git clone https://github.com/frrouting/frr.git frr
 		[[ -d frr-orig ]] || git clone https://github.com/frrouting/frr.git frr-orig
 	)
@@ -146,7 +153,7 @@ fi
 "$script_dir/frr-install.sh" --frr-root "$frr_root"
 
 if [[ "$skip_build" -eq 0 ]]; then
-	"$script_dir/frr.sh" --all --frr-root "$frr_root" --no-install
+	"$script_dir/frr.sh" --all --frr-root "$frr_root"
 	sudo make -C "$frr_root" install
 fi
 
@@ -160,12 +167,8 @@ echo 'service integrated-vtysh-config' | sudo tee /etc/frr/vtysh.conf >/dev/null
 sudo chmod 640 /etc/frr/vtysh.conf
 sudo cp "$script_dir/etc.frr.frr.conf" /etc/frr/frr.conf
 
-if ! grep -qE '^eigrpd[[:space:]]+2613/tcp' /etc/services; then
-	echo "Patching /etc/services with FRR VTY ports"
-	sudo patch /etc/services < "$script_dir/etc.services"
-fi
-
-sudo cp "$script_dir/etc.frr.daemons" /etc/frr/daemons
+sudo install -m 640 -o frr -g frr \
+	"$frr_root/tools/etc/frr/daemons" /etc/frr/daemons
 if [[ -f "$frr_root/tools/frr.service" ]]; then
 	sudo cp "$frr_root/tools/frr.service" /etc/systemd/system/frr.service
 fi

@@ -3,6 +3,7 @@
  * EIGRP host southbound abstraction.
  * Copyright (C) 2026 Donnie V. Savage
  */
+#include <zebra.h>
 #include <lib/version.h>
 #include <stdio.h>
 #include <stdlib.h>
