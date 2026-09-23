@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: ISC
+# Copyright (C) 2026 Donnie V. Savage
+
 from pathlib import Path
 import re
 

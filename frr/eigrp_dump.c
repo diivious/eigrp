@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* FRR EIGRP debug/VTY presentation adapter. */
+/*
+ * FRR EIGRP debug/VTY presentation adapter.
+ * Copyright (C) 2013-2014
+ * Authors:
+ *   Donnie Savage
+ *   Jan Janovic
+ *   Matej Perina
+ *   Peter Orsag
+ *   Peter Paluch
+ * Copyright (C) 2026 Donnie V. Savage
+ */
 #include <zebra.h>
 #include "command.h"
 #include "vty.h"

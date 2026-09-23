@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRP host southbound abstraction.
+ * Copyright (C) 2013-2016
+ * Authors:
+ *   Donnie Savage
+ *   Jan Janovic
+ *   Matej Perina
+ *   Peter Orsag
+ *   Peter Paluch
+ *   Frantisek Gazo
+ *   Tomas Hvorkovy
+ *   Martin Kontsek
+ *   Lukas Koribsky
  * Copyright (C) 2026 Donnie V. Savage
  */
 #include <zebra.h>

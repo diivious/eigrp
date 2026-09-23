@@ -13,8 +13,8 @@ eigrp/
   eigrpd/         Portable/common EIGRP protocol code
   frr/            FRR-specific adapters and integration
     patch/        Managed changes required outside FRR/eigrpd/
-    test/         FRR-native integration/UUT material
-  bsd/            BIRD/BSD-specific adapters and integration
+    test/         FRR shim integration
+  bird/           BIRD shim integration
   test/
     build/        Lightweight compile-smoke harness
     common/       Host-independent fixtures and packet samples
@@ -45,9 +45,9 @@ The project documents are:
 
 ## Development rules
 
-Portable protocol behavior belongs in `eigrpd/`. FRR-specific CLI/YANG,
-management, Zebra/RIB, event-loop, interface, and operating-system adaptation
-belongs under `frr/`. BIRD/BSD-specific integration belongs under `bsd/`.
+Portable protocol behavior belongs in `eigrpd/`.
+FRR-specific CLI/YANG, management, Zebra/RIB, belongs under `frr/`.
+BIRD-specific integration belongs under `bird/`.
 
 Portable APIs use EIGRP-owned types and structured result codes. FRR VTY, YANG,
 Zebra, interface, event, stream, route-map, and equivalent BIRD objects must not
@@ -59,9 +59,6 @@ EIGRP `NOT_IMPLEMENTED` result where required; it is not routed through a
 generic CLI stub or unrelated dispatcher. Retained configuration must remain
 writeable even when its runtime behavior is incomplete.
 
-EIGRP Stub routing is outside project scope. Do not implement, import, or add
-runtime tests for the EIGRP Stub feature.
-
 Function/module naming is optimized for human navigation. The normal form is:
 
 ```text
@@ -71,11 +68,24 @@ eigrp_<module>_<object>_<action>()
 
 See `specs/design-spec.md` before adding or renaming public APIs.
 
+## Stub routing
+
+EIGRP Stub routing is outside project scope. I have no plans to
+implement, import, or add runtime tests for the EIGRP Stub feature
+
+
+The original Cisco patents on stub announcement and query suppression
+(US7042834, US7570582) expired in 2022–2023. A later patent on mixed
+stub/non-stub neighbors on the same interface (US7898981) is still in
+force. RFC 7868 also leaves the stub TLV reserved. Stubs are therefore
+omitted to stay within the published, unencumbered protocol.
+
+
 ## Normal development workflow
 
 ### 1. Work in the canonical project tree
 
-Make source changes in `eigrpd/`, `frr/`, or `bsd/` according to ownership.
+Make source changes in `eigrpd/`, `frr/`, or `bird/` according to ownership.
 Changes required outside FRR's `eigrpd/` directory are exceptional and are
 carried as managed patches under `frr/patch/`.
 

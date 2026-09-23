@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRP Metric Math Functions.
  * Copyright (C) 2013-2016

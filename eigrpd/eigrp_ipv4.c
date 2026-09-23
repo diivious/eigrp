@@ -2,6 +2,13 @@
 /*
  * EIGRP IPv4 address-family vector binding.
  *
+ * Copyright (C) 2013-2014
+ * Authors:
+ *   Donnie Savage
+ *   Jan Janovic
+ *   Matej Perina
+ *   Peter Orsag
+ *   Peter Paluch
  * Copyright (C) 2026 Donnie V. Savage
  */
 
