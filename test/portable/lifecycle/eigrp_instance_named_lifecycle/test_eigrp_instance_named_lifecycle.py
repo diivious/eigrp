@@ -243,3 +243,30 @@ def test_named_exec_state_walkers_consume_address_family_runtime_binding():
     assert "eigrp_interface_state_walk(" in named_cli
     assert "eigrp_neighbor_state_walk(" in named_cli
     assert "eigrp_topology_state_walk(" in named_cli
+
+
+
+def test_named_runtime_identity_and_start_stop_are_address_family_generic():
+    instance = read(INSTANCE_C)
+    create = function_body(
+        instance, "eigrp_instance_address_family_runtime_create"
+    )
+    start = function_body(instance, "eigrp_instance_address_family_start")
+    stop = function_body(instance, "eigrp_instance_address_family_stop")
+
+    assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in create
+    assert "eigrp_get_by_af(af->afi, af->asn, vrf_id, true)" in create
+    assert "EIGRP_ADDRESS_FAMILY_IPV4" not in create
+    assert "EIGRP_ADDRESS_FAMILY_IPV6" not in create
+    assert "EIGRP_ADDRESS_FAMILY_IPV4" not in start
+    assert "EIGRP_ADDRESS_FAMILY_IPV6" not in start
+    assert "EIGRP_ADDRESS_FAMILY_IPV4" not in stop
+    assert "EIGRP_ADDRESS_FAMILY_IPV6" not in stop
+
+
+def test_protocol_status_reports_runtime_and_datapath_capability():
+    status = read(ROOT / "eigrpd" / "eigrp_status.c")
+    snapshot = function_body(status, "eigrp_status_address_family")
+
+    assert ".runtime_present = af->runtime != NULL" in snapshot
+    assert ".data_path_ready = eigrp_instance_data_path_ready(af->runtime)" in snapshot

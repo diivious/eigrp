@@ -100,6 +100,8 @@ extern void eigrp_cli_named_show_metric_maximum_hops(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_named_show_metric_holddown(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
+extern void eigrp_cli_named_show_metric_version_32bit(struct vty *vty,
+	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_named_show_event_log_size(struct vty *vty,
 	const struct lyd_node *dnode, bool show_defaults);
 extern void eigrp_cli_named_show_redistribute_maximum_prefix(struct vty *vty,

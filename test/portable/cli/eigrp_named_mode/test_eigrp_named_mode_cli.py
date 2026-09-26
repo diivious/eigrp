@@ -113,7 +113,7 @@ def test_cli_spec_documents_named_mode_cli_direction():
     assert "## 9. CLI/configuration to core contract" in spec
     assert "router eigrp <name>" in spec
     assert "address-family <afi> [vrf <vrf>] autonomous-system <asn>" in spec
-    assert "IPv6 named configuration uses the same" in spec
+    assert "IPv4 and IPv6 named address families both create live runtimes" in spec
     assert "eigrp_cli_classic.[c|h]" in spec
     assert "eigrp_cli_named.[c|h]" in spec
     assert "eigrp_vty.[c|h]" in spec

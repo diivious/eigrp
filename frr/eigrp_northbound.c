@@ -2869,6 +2869,34 @@ static int eigrpd_named_metric_holddown_destroy(struct nb_cb_destroy_args *args)
     return eigrpd_named_config_result(eigrp_metric_holddown_reset(&context), true);
 }
 
+static int eigrpd_named_metric_version_32bit_create(struct nb_cb_create_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_metric_version_set(&context), false);
+}
+
+static int eigrpd_named_metric_version_32bit_destroy(struct nb_cb_destroy_args *args)
+{
+    const char *name, *vrf;
+    eigrp_address_family_t afi;
+    eigrp_instance_context_t context;
+    uint16_t asn;
+    if (args->event != NB_EV_APPLY)
+        return NB_OK;
+    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
+        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
+        return NB_ERR_INCONSISTENCY;
+    return eigrpd_named_config_result(eigrp_metric_version_reset(&context), true);
+}
+
 /*
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
  * Description:
@@ -6392,6 +6420,14 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.create = eigrpd_named_metric_holddown_create,
 				.destroy = eigrpd_named_metric_holddown_destroy,
 				.cli_show = eigrp_cli_named_show_metric_holddown,
+			}
+		},
+		{
+			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-version-32bit",
+			.cbs = {
+				.create = eigrpd_named_metric_version_32bit_create,
+				.destroy = eigrpd_named_metric_version_32bit_destroy,
+				.cli_show = eigrp_cli_named_show_metric_version_32bit,
 			}
 		},
 		{

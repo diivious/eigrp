@@ -113,8 +113,8 @@ These targets keep retained configuration and return
 `EIGRP_RESULT_NOT_IMPLEMENTED` when the live path is missing. That is
 intentional. Do not add a generic stub dispatcher. Finish the real target.
 
-IPv6 named config uses the same targets. IPv6 packet I/O is a separate
-capability gate, listed last.
+IPv6 named config uses the same targets. IPv6 now owns a live runtime and host
+packet-I/O foundation; adjacency completion remains separate protocol work.
 
 | Target | What works today | What is still missing |
 |---|---|---|
@@ -133,7 +133,7 @@ capability gate, listed last.
 | `eigrp_topology_default_information_set` / `_reset` | config retained | originate/accept default by that policy |
 | `eigrp_topology_maximum_prefix_set` / `_reset` | config retained | enforce the topology prefix limit |
 | `eigrp_rib_redistribute_add` / FRR `eigrp_zebra_redistribute_update` | Zebra subscribe happens | install source routes into topology and apply route-map |
-| IPv6 data path | named IPv6 config/writeback | proto-88 IPv6 socket, multicast, and packet I/O |
+| IPv6 adjacency | live IPv6 runtime, proto-88 socket, multicast, packet send/receive | AF-correct HELLO/adjacency bring-up and end-to-end neighbor validation |
 | `eigrp_init` / `eigrp_terminate` | FRR main calls them from `eigrpd.h` | move process init into the public `eigrp.h` contract |
 
 Rules for Section 4 work:
@@ -141,11 +141,11 @@ Rules for Section 4 work:
 - Keep the existing target. Do not invent a parallel API.
 - Keep valid retained config even while you fill in runtime.
 - Add or extend a test that fails if the path goes back to `NOT_IMPLEMENTED`.
-- IPv6 packet I/O is one item. Do not invent a second integration model for it.
+- IPv6 adjacency must continue through the shared runtime/packet model; do not invent a second integration model for it.
 - Stub routing stays out of scope. Do not add it here.
 
-Show/state walkers also return `NOT_IMPLEMENTED` when `data_path_ready` is
-false. That is the IPv6/capability gate, not a separate missing show API.
+Show/state walkers return `NOT_IMPLEMENTED` when `data_path_ready` is false.
+That remains a generic capability gate, not an IPv6-specific show API.
 
 ## 5. Packet-path and parser hardening
 

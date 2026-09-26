@@ -235,6 +235,7 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
 	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
 	eigrp->max_hops = EIGRP_MAX_HOPS;
+	eigrp->metric_version = EIGRP_MAJOR_VERSION;
 	eigrp->log_neighbor_changes = true;
 	eigrp->log_neighbor_warnings = true;
 	eigrp->log_neighbor_warning_interval = 10;

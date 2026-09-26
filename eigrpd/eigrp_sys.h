@@ -114,6 +114,20 @@ bool eigrp_sys_ipv4_packet_receive(eigrp_instance_t *eigrp,
 				   eigrp_address_t *destination,
 				   eigrp_packet_rx_meta_t *meta);
 
+/* IPv6 packet envelope.  Raw IPv6 sockets carry only the EIGRP payload;
+ * interface and destination context are supplied through IPv6 packet info. */
+int eigrp_sys_ipv6_packet_send(eigrp_instance_t *eigrp,
+			       eigrp_interface_t *ei,
+			       const eigrp_address_t *destination,
+			       const uint8_t *payload, size_t length);
+bool eigrp_sys_ipv6_packet_receive(eigrp_instance_t *eigrp,
+				   uint8_t *buffer, size_t capacity,
+				   size_t *received_length,
+				   eigrp_ifindex_t *ifindex,
+				   eigrp_address_t *source,
+				   eigrp_address_t *destination,
+				   eigrp_packet_rx_meta_t *meta);
+
 /* Host policy/key services. */
 void eigrp_sys_policy_init(void);
 void eigrp_sys_policy_finish(void);

@@ -329,8 +329,9 @@ when the data path is unavailable.
 
 When `data_path_ready` is false, retained configuration remains valid but packet,
 adjacency, interface-I/O, packetizer/RTP, multicast, and RIB data-path work does
-not start for that address family. IPv6 named configuration uses the same
-ownership model as IPv4 even when its runtime data path is capability-gated.
+not start for that address family. The gate is capability-based rather than an
+IPv6 policy: IPv4 and IPv6 named address families both create live runtimes when
+their required AF vectors and host packet services are available.
 
 ### 8.3 Lifecycle ordering
 

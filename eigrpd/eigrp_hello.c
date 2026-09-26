@@ -26,6 +26,7 @@
 #include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_sys.h"
 #include "eigrpd/eigrp_rib.h"
+#include "eigrpd/eigrp_metric.h"
 
 /*
  * @fn eigrp_hello_timer
@@ -186,11 +187,8 @@ static void eigrp_sw_version_decode(eigrp_neighbor_t *nbr,
 	 * compatibility and use it when talking to a Version 1 peer.  Bind the
 	 * codec to the highest route TLV format supported by both sides.
 	 */
-	if (EIGRP_MAJOR_VERSION >= EIGRP_TLV_64B_VERSION
-	    && nbr->tlv_rel_major >= EIGRP_TLV_64B_VERSION)
-		eigrp_neighbor_codec_bind(nbr, EIGRP_TLV_64B_VERSION);
-	else
-		eigrp_neighbor_codec_bind(nbr, EIGRP_TLV_32B_VERSION);
+	eigrp_neighbor_codec_bind(
+		nbr, eigrp_metric_version_select(ei->eigrp, nbr->tlv_rel_major));
 }
 
 /**
@@ -414,7 +412,7 @@ void eigrp_sw_version_init(void)
  * This consists of two bytes of OS version, and two bytes of EIGRP
  * revision number.
  */
-static uint16_t eigrp_sw_version_encode(eigrp_stream_t *s)
+static uint16_t eigrp_sw_version_encode(eigrp_instance_t *eigrp, eigrp_stream_t *s)
 {
 	uint16_t length = EIGRP_TLV_SW_VERSION_LEN;
 
@@ -426,7 +424,7 @@ static uint16_t eigrp_sw_version_encode(eigrp_stream_t *s)
 	eigrp_stream_putc(s, eigrp_host_minor); //!< minor os version
 
 	/* and the core eigrp version */
-	eigrp_stream_putc(s, EIGRP_MAJOR_VERSION);
+	eigrp_stream_putc(s, eigrp ? eigrp->metric_version : EIGRP_MAJOR_VERSION);
 	eigrp_stream_putc(s, EIGRP_MINOR_VERSION);
 
 	return (length);
@@ -619,7 +617,7 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_interface_t *ei, in_addr_t addr,
 				ei, packet->s, EIGRP_HELLO_NORMAL);
 
 		// figure out the version of code we're running
-		length += eigrp_sw_version_encode(packet->s);
+		length += eigrp_sw_version_encode(ei->eigrp, packet->s);
 
 		if (flags & EIGRP_HELLO_ADD_SEQUENCE) {
 			length += eigrp_sequence_encode(ei, packet->s);

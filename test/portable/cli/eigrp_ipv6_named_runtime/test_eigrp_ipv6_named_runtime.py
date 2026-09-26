@@ -40,7 +40,7 @@ def test_named_ipv6_creates_a_real_control_runtime():
     assert "eigrp_sys_vrf_resolve" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
     assert "eigrp_get_by_af(" in runtime_create
-    assert "af->afi == EIGRP_ADDRESS_FAMILY_IPV4" in runtime_create
+    assert "eigrp_get_by_af(af->afi, af->asn, vrf_id, true)" in runtime_create
     assert "af->runtime = runtime;" in runtime_create
 
 
@@ -53,45 +53,37 @@ def test_runtime_identity_is_af_vrf_as_and_legacy_lookup_stays_ipv4():
     assert "eigrp_get_by_af(EIGRP_ADDRESS_FAMILY_IPV4, as, vrf_id, true)" in eigrpd
 
 
-def test_ipv6_control_runtime_has_an_explicit_datapath_gate():
-    structs = read(STRUCTS)
+def test_ipv6_runtime_uses_the_normal_live_datapath_lifecycle():
+    eigrpd = read(EIGRPD)
+    ipv6 = read(ROOT / "eigrpd" / "eigrp_ipv6.c")
+    sys_header = read(ROOT / "eigrpd" / "eigrp_sys.h")
+
+    assert "eigrp_get_by_af(EIGRP_ADDRESS_FAMILY_IPV4, as, vrf_id, true)" in eigrpd
+    assert "vectors->packet_send = eigrp_ipv6_packet_send;" in ipv6
+    assert "vectors->packet_receive = eigrp_ipv6_packet_receive;" in ipv6
+    assert "eigrp_sys_ipv6_packet_send" in sys_header
+    assert "eigrp_sys_ipv6_packet_receive" in sys_header
+
+
+def test_capability_gate_remains_generic_not_ipv6_specific():
+    instance = read(INSTANCE)
     eigrpd = read(EIGRPD)
 
-    assert "bool data_path_ready;" in structs
-    gate = eigrpd.index("if (!data_path_ready)\n\t\treturn eigrp;")
-    for marker in (
-        "eigrp_sys_socket_open(eigrp)",
-        "eigrp_sys_read_add",
-        "eigrp_nbr_create(NULL, &src)",
-        "eigrp_packetizer_init(eigrp)",
-    ):
-        assert eigrpd.index(marker) > gate
+    assert "bool data_path_ready;" in read(STRUCTS)
+    assert "if (!runtime->data_path_ready)" in instance
+    assert "if (!data_path_ready)\n\t\treturn eigrp;" in eigrpd
+    runtime_create = instance[
+        instance.index("static eigrp_result_t eigrp_instance_address_family_runtime_create"):
+        instance.index("static eigrp_result_t eigrp_instance_address_family_runtime_delete")
+    ]
+    assert "EIGRP_ADDRESS_FAMILY_IPV4" not in runtime_create
 
 
-def test_ipv6_datapath_actions_return_structured_not_implemented():
+def test_router_id_refresh_uses_live_runtime_path_for_both_families():
     instance = read(INSTANCE)
-    redistribute = read(ROOT / "eigrpd" / "eigrp_redistribute.c")
-
-    assert instance.count("if (!runtime->data_path_ready)\n\t\treturn EIGRP_RESULT_NOT_IMPLEMENTED;") >= 2
-    assert "!eigrp_instance_data_path_ready(context->runtime)" in redistribute
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in redistribute
-
-
-def test_ipv6_operational_walks_are_blocked_at_real_targets():
-    for path in (INTERFACE, NEIGHBOR, TOPOLOGY, STATISTICS, TIMER):
-        source = read(path)
-        assert "data_path_ready" in source
-        assert "EIGRP_RESULT_NOT_IMPLEMENTED" in source
-
-
-def test_ipv6_router_id_is_control_state_without_host_interface_refresh():
-    instance = read(INSTANCE)
-
     start = instance.index("static void eigrp_instance_router_id_refresh")
     end = instance.index("bool eigrp_instance_data_path_ready", start)
     block = instance[start:end]
-    assert "if (!runtime->data_path_ready)" in block
-    assert "runtime->router_id = runtime->router_id_static;" in block
     assert "eigrp_router_id_update(runtime);" in block
 
 
@@ -156,4 +148,4 @@ def test_managed_patch_and_design_spec_record_ipv6_control_runtime_contract():
     assert "A BGP ASN or IS-IS area tag is a protocol" in yang_patch
     assert "When `data_path_ready` is false" in process
     assert "EIGRP Stub routing is explicitly outside project scope" in design
-    assert "IPv6 named configuration uses the same ownership model as IPv4" in process_words
+    assert "IPv4 and IPv6 named address families both create live runtimes" in process_words

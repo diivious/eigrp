@@ -67,6 +67,9 @@ eigrp_result_t eigrp_metric_maximum_hops_reset(
 eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
 					    bool enabled);
 eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_metric_version_set(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_metric_version_reset(eigrp_instance_context_t *context);
+uint8_t eigrp_metric_version_select(const eigrp_instance_t *eigrp, uint8_t peer_version);
 void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af);
 
 #endif /* _ZEBRA_EIGRP_METRIC_H_ */

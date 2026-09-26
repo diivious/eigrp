@@ -244,7 +244,7 @@ index 8491bfc103..b69ebcf1ae 100644
    }
  
    /*
-@@ -372,4 +577,281 @@ module frr-eigrpd {
+@@ -372,4 +577,282 @@ module frr-eigrpd {
         }
       }
     }
@@ -414,6 +414,7 @@ index 8491bfc103..b69ebcf1ae 100644
 +      leaf maximum-paths { type uint8 { range "1..32"; } }
 +      leaf metric-maximum-hops { type uint8 { range "1..255"; } }
 +      leaf metric-holddown { type empty; }
++      leaf metric-version-32bit { type empty; }
 +      leaf event-log-size { type uint32; }
 +
 +

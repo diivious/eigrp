@@ -29,6 +29,7 @@
 #include "eigrpd/eigrp_network.h"
 #include "eigrpd/eigrp_topology.h"
 #include "eigrpd/eigrp_debug.h"
+#include "eigrpd/eigrp_metric.h"
 
 #define EIGRP_NEIGHBOR_SRTT_ALPHA_SHIFT 3U /* alpha = 1/8 */
 #define EIGRP_NEIGHBOR_RTTVAR_BETA_SHIFT 2U /* beta = 1/4 */
@@ -518,6 +519,34 @@ void eigrp_neighbor_codec_bind(eigrp_neighbor_t *nbr, uint8_t tlv_version)
 	nbr->tlv_version = tlv_version;
 	nbr->decoder = codec->decoder;
 	nbr->encoder = codec->encoder;
+}
+
+void eigrp_neighbor_codec_refresh(eigrp_instance_t *eigrp)
+{
+	eigrp_list_node_t *if_node;
+	eigrp_list_node_t *nbr_node;
+	eigrp_interface_t *ei;
+	eigrp_neighbor_t *nbr;
+	uint8_t selected;
+
+	if (!eigrp || !eigrp->eiflist)
+		return;
+	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, if_node, ei)) {
+		if (!ei || !ei->nbrs)
+			continue;
+		for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+			if (!nbr || !nbr->tlv_rel_major)
+				continue;
+			selected = eigrp_metric_version_select(eigrp, nbr->tlv_rel_major);
+			if (selected == nbr->tlv_version)
+				continue;
+			if (nbr->state == EIGRP_NEIGHBOR_UP)
+				eigrp_interface_encoder_unbind(ei, nbr->tlv_version);
+			eigrp_neighbor_codec_bind(nbr, selected);
+			if (nbr->state == EIGRP_NEIGHBOR_UP)
+				eigrp_interface_encoder_bind(ei, nbr->tlv_version);
+		}
+	}
 }
 
 /**

@@ -26,11 +26,7 @@ struct eigrp_address_family_config {
 	eigrp_af_vectors_t af_vectors;
 	uint16_t asn;
 	char *vrf_name;
-	/*
-	 * Runtime/control binding owned by this named address-family context.
-	 * IPv6 has a real control context while runtime->data_path_ready remains
-	 * false until packet/socket support is implemented.
-	 */
+	/* Runtime binding owned by this named address-family context. */
 	eigrp_instance_t *runtime;
 	bool router_id_configured;
 	uint32_t router_id;

@@ -24,8 +24,8 @@
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_types.h"
 
-/* Set EIGRP version is "classic" - wide metrics comes next */
-#define EIGRP_MAJOR_VERSION 1
+/* Release 2 / Wide Metrics is the default local EIGRP capability. */
+#define EIGRP_MAJOR_VERSION 2
 #define EIGRP_MINOR_VERSION 2
 
 #define EIGRP_TLV_32B_VERSION 1 // Original 32bit scaled metrics

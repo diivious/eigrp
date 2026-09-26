@@ -118,9 +118,10 @@ with a log sink that still implements `eigrp_log()` from `eigrpd/eigrp_log.h`.
 FRR does that in `frr/eigrp_log.c`. If you keep the portable log file, do not
 also link the FRR one.
 
-Current packet I/O in `eigrp_sys.h` is an IPv4 envelope. Named IPv6 config uses
-the same CLI/semantic model. IPv6 send/receive is capability-gated and is not a
-second integration API.
+Packet I/O in `eigrp_sys.h` provides IPv4 and IPv6 envelopes behind the same
+AF-vector runtime model. Named IPv4 and IPv6 use the same CLI/semantic and
+lifecycle contracts; host-specific socket representation remains inside the
+platform implementation.
 
 ### 1.3 Host process start and stop
 

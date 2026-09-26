@@ -568,6 +568,15 @@ void eigrp_cli_named_show_metric_holddown(struct vty *vty,
     vty_out(vty, "   metric holddown\n");
 }
 
+void eigrp_cli_named_show_metric_version_32bit(struct vty *vty,
+                                                const struct lyd_node *dnode,
+                                                bool show_defaults)
+{
+    (void)dnode;
+    (void)show_defaults;
+    vty_out(vty, "   metric version 32bit\n");
+}
+
 void eigrp_cli_named_show_event_log_size(struct vty *vty,
                                           const struct lyd_node *dnode,
                                           bool show_defaults)
@@ -3111,6 +3120,36 @@ DEFUN(no_eigrp_metric_holddown,
 }
 
 /*
+ * Syntax: `metric version 32bit`
+ * Mode: Named topology
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-version-32bit
+ * Target: eigrp_metric_version_set()
+ */
+DEFUN(eigrp_metric_version_32bit,
+      eigrp_metric_version_32bit_cmd,
+      "metric version 32bit",
+      "Modify EIGRP metric behavior\n" "Select EIGRP metric version\n"
+      "Use classic 32-bit metrics\n")
+{
+    if (!eigrp_cli_named_topology_required(vty))
+        return CMD_WARNING;
+    nb_cli_enqueue_change(vty, "./metric-version-32bit", NB_OP_CREATE, NULL);
+    return nb_cli_apply_changes(vty, NULL);
+}
+
+DEFUN(no_eigrp_metric_version_32bit,
+      no_eigrp_metric_version_32bit_cmd,
+      "no metric version 32bit",
+      NO_STR "Modify EIGRP metric behavior\n" "Select EIGRP metric version\n"
+      "Use classic 32-bit metrics\n")
+{
+    if (!eigrp_cli_named_topology_required(vty))
+        return CMD_WARNING;
+    nb_cli_enqueue_change(vty, "./metric-version-32bit", NB_OP_DESTROY, NULL);
+    return nb_cli_apply_changes(vty, NULL);
+}
+
+/*
  * Syntax: `eigrp event-log-size (0-4294967295)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
@@ -5442,6 +5481,8 @@ void eigrp_cli_named_init(void)
     install_element(EIGRP_NODE, &no_eigrp_metric_maximum_hops_cmd);
     install_element(EIGRP_NODE, &eigrp_metric_holddown_cmd);
     install_element(EIGRP_NODE, &no_eigrp_metric_holddown_cmd);
+    install_element(EIGRP_NODE, &eigrp_metric_version_32bit_cmd);
+    install_element(EIGRP_NODE, &no_eigrp_metric_version_32bit_cmd);
     install_element(EIGRP_NODE, &eigrp_event_log_size_cmd);
     install_element(EIGRP_NODE, &no_eigrp_event_log_size_cmd);
     install_element(EIGRP_NODE, &eigrp_offset_list_cmd);

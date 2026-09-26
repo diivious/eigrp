@@ -107,6 +107,7 @@ extern int eigrp_neighborship_check(eigrp_neighbor_t *,
 extern void eigrp_nbr_state_update(eigrp_neighbor_t *);
 extern void eigrp_nbr_state_set(eigrp_neighbor_t *, uint8_t state);
 extern void eigrp_neighbor_codec_bind(eigrp_neighbor_t *, uint8_t tlv_version);
+extern void eigrp_neighbor_codec_refresh(eigrp_instance_t *);
 extern uint8_t eigrp_nbr_state_get(eigrp_neighbor_t *);
 extern int eigrp_nbr_count_get(eigrp_instance_t *);
 extern const char *eigrp_nbr_state_str(eigrp_neighbor_t *);

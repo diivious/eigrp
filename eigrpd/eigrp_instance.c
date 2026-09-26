@@ -72,9 +72,7 @@ static eigrp_result_t eigrp_instance_address_family_runtime_create(
 		if (!runtime->name || strcmp(runtime->name, name) != 0)
 			return EIGRP_RESULT_CONFLICT;
 	} else {
-		runtime = eigrp_get_by_af(
-			af->afi, af->asn, vrf_id,
-			af->afi == EIGRP_ADDRESS_FAMILY_IPV4);
+		runtime = eigrp_get_by_af(af->afi, af->asn, vrf_id, true);
 		if (!runtime)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		eigrp_name_set(runtime, name);

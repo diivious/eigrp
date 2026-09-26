@@ -236,6 +236,8 @@ eigrp_result_t eigrp_metric_maximum_hops_reset(
 eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
 					    bool enabled);
 eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_metric_version_set(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_metric_version_reset(eigrp_instance_context_t *context);
 eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context);
 eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context);
 eigrp_result_t eigrp_topology_default_information_set(

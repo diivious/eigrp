@@ -2,8 +2,8 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# Behavioral coverage for the IPv6 address-family vectors that do not depend
-# on the host IPv6 socket/data-path integration.
+# Behavioral coverage for IPv6 address-family vectors.  Host packet services
+# are stubbed so the AF module can be tested independently.
 
 from pathlib import Path
 import os
@@ -27,6 +27,36 @@ def test_ipv6_af_local_vectors(tmp_path):
             #include "eigrpd/eigrp_structs.h"
             #include "eigrpd/eigrp_prefix.h"
             #include "eigrpd/eigrp_types.h"
+            #include "eigrpd/eigrp_sys.h"
+
+            int eigrp_sys_ipv6_packet_send(eigrp_instance_t *eigrp,
+                                           eigrp_interface_t *ei,
+                                           const eigrp_address_t *destination,
+                                           const uint8_t *payload, size_t length)
+            {
+                (void)eigrp; (void)ei; (void)destination; (void)payload; (void)length;
+                return -1;
+            }
+
+            bool eigrp_sys_ipv6_packet_receive(eigrp_instance_t *eigrp,
+                                               uint8_t *buffer, size_t capacity,
+                                               size_t *received_length,
+                                               eigrp_ifindex_t *ifindex,
+                                               eigrp_address_t *source,
+                                               eigrp_address_t *destination,
+                                               eigrp_packet_rx_meta_t *meta)
+            {
+                (void)eigrp; (void)buffer; (void)capacity; (void)received_length;
+                (void)ifindex; (void)source; (void)destination; (void)meta;
+                return false;
+            }
+
+            eigrp_interface_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *eigrp,
+                                                            eigrp_ifindex_t ifindex)
+            {
+                (void)eigrp; (void)ifindex;
+                return NULL;
+            }
 
             int main(void)
             {
@@ -41,8 +71,8 @@ def test_ipv6_af_local_vectors(tmp_path):
 
                 eigrp_ipv6_init(&vectors);
                 assert(vectors.afi == EIGRP_ADDRESS_FAMILY_IPV6);
-                assert(vectors.packet_send == NULL);
-                assert(vectors.packet_receive == NULL);
+                assert(vectors.packet_send != NULL);
+                assert(vectors.packet_receive != NULL);
                 assert(vectors.packet_source_on_link != NULL);
                 assert(vectors.packet_address_bytes == 16);
                 assert(vectors.packet_address_encode != NULL);

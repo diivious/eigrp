@@ -407,14 +407,20 @@ eigrp_result_t eigrp_sys_socket_open(eigrp_instance_t *eigrp)
 		return EIGRP_RESULT_NOT_FOUND;
 
 	frr_with_privs (&eigrpd_privs) {
-		fd = vrf_socket(AF_INET, SOCK_RAW, IPPROTO_EIGRPIGP, vrf->vrf_id,
+		int family = eigrp_instance_address_family(eigrp) == EIGRP_ADDRESS_FAMILY_IPV6
+				     ? AF_INET6 : AF_INET;
+
+		fd = vrf_socket(family, SOCK_RAW, IPPROTO_EIGRPIGP, vrf->vrf_id,
 				vrf->vrf_id != VRF_DEFAULT ? vrf->name : NULL);
 		if (fd < 0) {
 			zlog_err("EIGRP socket: %s", safe_strerror(errno));
 			result = EIGRP_RESULT_INTERNAL_FAILURE;
 		} else {
 #ifdef IP_HDRINCL
-			ret = setsockopt(fd, IPPROTO_IP, IP_HDRINCL, &hincl, sizeof(hincl));
+			if (family == AF_INET)
+				ret = setsockopt(fd, IPPROTO_IP, IP_HDRINCL, &hincl, sizeof(hincl));
+			else
+				ret = 0;
 			if (ret < 0)
 				zlog_warn("Can't set IP_HDRINCL option for fd %d: %s", fd,
 					  safe_strerror(errno));
@@ -431,7 +437,7 @@ eigrp_result_t eigrp_sys_socket_open(eigrp_instance_t *eigrp)
 			zlog_warn("IP_HDRINCL option not available");
 #endif
 			if (result == EIGRP_RESULT_SUCCESS) {
-				ret = setsockopt_ifindex(AF_INET, fd, 1);
+				ret = setsockopt_ifindex(family, fd, 1);
 				if (ret < 0)
 					zlog_warn("Can't set pktinfo option for fd %d", fd);
 			}
@@ -508,9 +514,19 @@ int eigrp_sys_multicast_interface_set(eigrp_instance_t *eigrp,
 	uint8_t val = 0;
 	int ret;
 
-	if (!socket || !eigrp_frr_interface_ipv4_address(ei, &address))
+	if (!socket)
 		return -1;
 	ifindex = eigrp_interface_ifindex(ei);
+	if (eigrp_instance_address_family(eigrp) == EIGRP_ADDRESS_FAMILY_IPV6) {
+		int hops = 1;
+		ret = setsockopt(socket->fd, IPPROTO_IPV6, IPV6_MULTICAST_IF,
+				 &ifindex, sizeof(ifindex));
+		(void)setsockopt(socket->fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+				 &hops, sizeof(hops));
+		return ret;
+	}
+	if (!eigrp_frr_interface_ipv4_address(ei, &address))
+		return -1;
 	name = eigrp_interface_name(ei);
 	ret = setsockopt(socket->fd, IPPROTO_IP, IP_MULTICAST_LOOP, &val, sizeof(val));
 	if (ret < 0)
@@ -536,10 +552,20 @@ int eigrp_sys_multicast_join(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	const char *name;
 	int ret;
 
-	if (!socket || !eigrp_frr_interface_ipv4_address(ei, &address))
+	if (!socket)
 		return -1;
 	ifindex = eigrp_interface_ifindex(ei);
 	name = eigrp_interface_name(ei);
+	if (eigrp_instance_address_family(eigrp) == EIGRP_ADDRESS_FAMILY_IPV6) {
+		struct ipv6_mreq mreq = {0};
+		if (inet_pton(AF_INET6, "ff02::a", &mreq.ipv6mr_multiaddr) != 1)
+			return -1;
+		mreq.ipv6mr_interface = ifindex;
+		return setsockopt(socket->fd, IPPROTO_IPV6, IPV6_JOIN_GROUP,
+				  &mreq, sizeof(mreq));
+	}
+	if (!eigrp_frr_interface_ipv4_address(ei, &address))
+		return -1;
 	ret = setsockopt_ipv4_multicast(socket->fd, IP_ADD_MEMBERSHIP, address,
 					htonl(EIGRP_MULTICAST_ADDRESS), ifindex);
 	if (ret < 0)
@@ -556,10 +582,20 @@ int eigrp_sys_multicast_leave(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	const char *name;
 	int ret;
 
-	if (!socket || !eigrp_frr_interface_ipv4_address(ei, &address))
+	if (!socket)
 		return -1;
 	ifindex = eigrp_interface_ifindex(ei);
 	name = eigrp_interface_name(ei);
+	if (eigrp_instance_address_family(eigrp) == EIGRP_ADDRESS_FAMILY_IPV6) {
+		struct ipv6_mreq mreq = {0};
+		if (inet_pton(AF_INET6, "ff02::a", &mreq.ipv6mr_multiaddr) != 1)
+			return -1;
+		mreq.ipv6mr_interface = ifindex;
+		return setsockopt(socket->fd, IPPROTO_IPV6, IPV6_LEAVE_GROUP,
+				  &mreq, sizeof(mreq));
+	}
+	if (!eigrp_frr_interface_ipv4_address(ei, &address))
+		return -1;
 	ret = setsockopt_ipv4_multicast(socket->fd, IP_DROP_MEMBERSHIP, address,
 					htonl(EIGRP_MULTICAST_ADDRESS), ifindex);
 	if (ret < 0)
@@ -884,6 +920,104 @@ bool eigrp_sys_ipv4_packet_receive(eigrp_instance_t *eigrp,
 	meta->eigrp_length = ip_length - header_length;
 	meta->destination_multicast =
 		iph->ip_dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS);
+	return true;
+}
+
+int eigrp_sys_ipv6_packet_send(eigrp_instance_t *eigrp,
+                               eigrp_interface_t *ei,
+                               const eigrp_address_t *destination,
+                               const uint8_t *payload, size_t length)
+{
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
+	struct sockaddr_in6 sa = {0};
+	struct msghdr msg = {0};
+	struct iovec iov = {0};
+	struct cmsghdr *cmsg;
+	struct in6_pktinfo *pktinfo;
+	char control[CMSG_SPACE(sizeof(struct in6_pktinfo))] = {0};
+	eigrp_ifindex_t ifindex;
+
+	if (!socket || !ei || !destination || !payload
+	    || destination->afi != EIGRP_ADDRESS_FAMILY_IPV6)
+		return -1;
+	ifindex = eigrp_interface_ifindex(ei);
+	if (!ifindex)
+		return -1;
+	sa.sin6_family = AF_INET6;
+	sa.sin6_scope_id = ifindex;
+	memcpy(&sa.sin6_addr, destination->bytes, sizeof(sa.sin6_addr));
+	iov.iov_base = (void *)payload;
+	iov.iov_len = length;
+	msg.msg_name = &sa;
+	msg.msg_namelen = sizeof(sa);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = control;
+	msg.msg_controllen = sizeof(control);
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = IPPROTO_IPV6;
+	cmsg->cmsg_type = IPV6_PKTINFO;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(*pktinfo));
+	pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
+	pktinfo->ipi6_ifindex = ifindex;
+	return sendmsg(socket->fd, &msg, 0);
+}
+
+bool eigrp_sys_ipv6_packet_receive(eigrp_instance_t *eigrp,
+                                   uint8_t *buffer, size_t capacity,
+                                   size_t *received_length,
+                                   eigrp_ifindex_t *ifindex,
+                                   eigrp_address_t *source,
+                                   eigrp_address_t *destination,
+                                   eigrp_packet_rx_meta_t *meta)
+{
+	struct eigrp_frr_socket *socket = eigrp_frr_socket_find(eigrp);
+	struct sockaddr_in6 sa = {0};
+	struct msghdr msg = {0};
+	struct iovec iov = {0};
+	struct cmsghdr *cmsg;
+	char control[CMSG_SPACE(sizeof(struct in6_pktinfo))] = {0};
+	ssize_t ret;
+
+	if (!socket || !buffer || !capacity || !received_length || !ifindex
+	    || !source || !destination || !meta)
+		return false;
+	iov.iov_base = buffer;
+	iov.iov_len = capacity;
+	msg.msg_name = &sa;
+	msg.msg_namelen = sizeof(sa);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = control;
+	msg.msg_controllen = sizeof(control);
+	ret = recvmsg(socket->fd, &msg, 0);
+	if (ret < EIGRP_HEADER_LEN || (size_t)ret > capacity || sa.sin6_family != AF_INET6)
+		return false;
+	memset(source, 0, sizeof(*source));
+	memset(destination, 0, sizeof(*destination));
+	source->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+	destination->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+	memcpy(source->bytes, &sa.sin6_addr, sizeof(sa.sin6_addr));
+	*ifindex = 0;
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+		if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+			const struct in6_pktinfo *pktinfo = (const struct in6_pktinfo *)CMSG_DATA(cmsg);
+			*ifindex = pktinfo->ipi6_ifindex;
+			memcpy(destination->bytes, &pktinfo->ipi6_addr, sizeof(pktinfo->ipi6_addr));
+			break;
+		}
+	}
+	if (!*ifindex)
+		return false;
+	*received_length = (size_t)ret;
+	meta->network_header_length = 0;
+	meta->eigrp_length = (uint16_t)ret;
+	{
+		struct in6_addr group;
+		meta->destination_multicast =
+			inet_pton(AF_INET6, "ff02::a", &group) == 1
+			&& memcmp(destination->bytes, &group, sizeof(group)) == 0;
+	}
 	return true;
 }
 

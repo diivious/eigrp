@@ -11,6 +11,7 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_metric.h"
+#include "eigrpd/eigrp_neighbor.h"
 
 struct eigrp_metric_config {
 	bool default_metric_configured;
@@ -23,6 +24,7 @@ struct eigrp_metric_config {
 	bool maximum_hops_configured;
 	uint8_t maximum_hops;
 	bool holddown_enabled;
+	bool version_32bit;
 };
 
 
@@ -522,6 +524,53 @@ eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
 eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context)
 {
 	return eigrp_metric_holddown_set(context, true);
+}
+
+
+/* Select the highest route TLV version supported by both local policy and peer. */
+uint8_t eigrp_metric_version_select(const eigrp_instance_t *eigrp,
+				    uint8_t peer_version)
+{
+	uint8_t local_version = eigrp ? eigrp->metric_version : EIGRP_MAJOR_VERSION;
+
+	if (local_version >= EIGRP_TLV_64B_VERSION
+	    && peer_version >= EIGRP_TLV_64B_VERSION)
+		return EIGRP_TLV_64B_VERSION;
+	return EIGRP_TLV_32B_VERSION;
+}
+
+/* `metric version 32bit`: constrain this address family to classic metrics. */
+eigrp_result_t eigrp_metric_version_set(eigrp_instance_context_t *context)
+{
+	eigrp_metric_config_t *config;
+
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		config = eigrp_metric_config_get(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->version_32bit = true;
+	}
+	if (context->runtime) {
+		context->runtime->metric_version = EIGRP_TLV_32B_VERSION;
+		eigrp_neighbor_codec_refresh(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+}
+
+/* `no metric version 32bit`: restore Release 2 / Wide Metrics default. */
+eigrp_result_t eigrp_metric_version_reset(eigrp_instance_context_t *context)
+{
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->metric_config)
+		context->config->metric_config->version_32bit = false;
+	if (context->runtime) {
+		context->runtime->metric_version = EIGRP_MAJOR_VERSION;
+		eigrp_neighbor_codec_refresh(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
 }
 
 void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af)

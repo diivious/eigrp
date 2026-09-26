@@ -48,11 +48,7 @@ typedef struct eigrp_extdata {
 struct eigrp_instance {
 	eigrp_vrf_id_t vrf_id;
 	eigrp_af_vectors_t af_vectors;
-	/*
-	 * A named address family always has a control/runtime context.  The
-	 * data-path flag is false for address families whose packet/socket
-	 * machinery is not implemented yet (currently IPv6).
-	 */
+	/* Runtime packet/socket capability for this address family. */
 	bool data_path_ready;
 
 	uint16_t AS;	     /* Autonomous system number */
@@ -61,6 +57,7 @@ struct eigrp_instance {
 	uint8_t variance;    /*Metric variance multiplier*/
 	uint8_t max_paths;   /*Maximum allowed paths for 1 prefix*/
 	uint8_t max_hops;    /*Maximum accepted path hop count*/
+	uint8_t metric_version; /* Highest locally enabled route TLV version. */
 	bool log_neighbor_changes;
 	bool log_neighbor_warnings;
 	uint16_t log_neighbor_warning_interval;
