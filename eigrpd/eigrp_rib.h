@@ -2,9 +2,6 @@
 /*
  * Public EIGRP routing-table exchange contract.
  *
- * Host implements install/remove and redistribute subscribe.
- * Portable EIGRP implements source-route add/remove.
- *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_RIB_H_
@@ -38,9 +35,16 @@ typedef struct eigrp_rib_source_route {
 	eigrp_address_t gateway;
 	bool gateway_present;
 	eigrp_ifindex_t ifindex;
+	/* Host/RIB scalar metadata.  This is not an EIGRP seed vector. */
 	uint64_t metric;
 	uint32_t tag;
-	const char *source_protocol;
+	eigrp_redistribute_source_t source;
+	/* Optional native vector supplied only when the source protocol can
+	 * preserve EIGRP per-route metric state.  Keep the native vector intact;
+	 * do not reconstruct it from the scalar RIB metric above.
+	 */
+	bool eigrp_vector_present;
+	eigrp_metrics_t eigrp_vector;
 } eigrp_rib_source_route_t;
 
 void eigrp_rib_init(void);
@@ -53,10 +57,9 @@ eigrp_result_t eigrp_rib_route_remove(eigrp_instance_t *eigrp,
 
 /* Redistribution subscription/configuration at the host RIB boundary. */
 eigrp_result_t eigrp_rib_redistribute_add(
-	eigrp_instance_t *eigrp, const char *protocol,
-	const eigrp_metric_values_t *metric, const char *route_map);
-eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp,
-					      const char *protocol);
+	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
+eigrp_result_t eigrp_rib_redistribute_remove(
+	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
 
 /* Host-originated route lifecycle.  Runtime consumption may be capability-gated. */
 eigrp_result_t eigrp_rib_source_route_add(

@@ -23,6 +23,7 @@
 #include "eigrpd/eigrp_cli.h"
 #include "eigrpd/eigrp_mgnt.h"
 #include "eigrpd/eigrp_instance.h"
+#include "eigrpd/eigrp_rib.h"
 #include "eigrpd/eigrp.h"
 
 /* EIGRP Route Descriptor related functions. */
@@ -59,7 +60,11 @@ extern eigrp_list_t *
 eigrp_topology_get_successor_max(eigrp_prefix_descriptor_t *pe,
 				 unsigned int maxpaths);
 extern eigrp_route_descriptor_t *eigrp_prefix_descriptor_lookup(
-    eigrp_list_t *entries, eigrp_neighbor_t *neigh);
+    eigrp_prefix_descriptor_t *prefix, eigrp_neighbor_t *neigh);
+extern eigrp_route_descriptor_t *
+eigrp_topology_route_head(eigrp_prefix_descriptor_t *prefix);
+extern eigrp_route_descriptor_t *
+eigrp_topology_route_select(eigrp_prefix_descriptor_t *prefix);
 extern eigrp_list_t *eigrp_neighbor_prefixes_lookup(eigrp_instance_t *eigrp,
 						   eigrp_neighbor_t *n);
 extern void eigrp_topology_update_all_node_flags(eigrp_instance_t *eigrp);
@@ -74,6 +79,13 @@ extern void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
 					       eigrp_table_t *table,
 					       eigrp_prefix_descriptor_t *pe);
 
+/* Locally redistributed host-RIB candidates become EIGRP external paths. */
+eigrp_result_t eigrp_topology_redistributed_route_update(
+	eigrp_instance_t *eigrp, const eigrp_rib_source_route_t *source_route,
+	const eigrp_metrics_t *metric);
+eigrp_result_t eigrp_topology_redistributed_route_remove(
+	eigrp_instance_t *eigrp, const eigrp_rib_source_route_t *source_route);
+
 eigrp_result_t eigrp_topology_state_walk(
 	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
 	const eigrp_prefix_t *destination, bool all_links,
@@ -85,6 +97,26 @@ eigrp_result_t eigrp_topology_instance_walk(
 eigrp_result_t eigrp_topology_clear(
 	eigrp_instance_context_t *context,
 	const eigrp_topology_clear_request_t *request, size_t *affected_count);
+
+typedef struct eigrp_topology_route_iterator {
+	eigrp_prefix_descriptor_t *prefix;
+	unsigned int queue;
+	eigrp_list_node_t *node;
+} eigrp_topology_route_iterator_t;
+
+eigrp_route_descriptor_t *eigrp_topology_route_iterator_first(
+	eigrp_prefix_descriptor_t *prefix, eigrp_topology_route_iterator_t *iterator);
+eigrp_route_descriptor_t *eigrp_topology_route_iterator_next(
+	eigrp_topology_route_iterator_t *iterator);
+
+/* Route storage is split by EIGRP route class.  Both queues are CD sorted. */
+static inline eigrp_list_t *
+eigrp_topology_route_queue(eigrp_prefix_descriptor_t *prefix, unsigned int index)
+{
+	if (!prefix || index > 1)
+		return NULL;
+	return index == 0 ? prefix->internal_routes : prefix->external_routes;
+}
 
 /* Static inline functions */
 /* IPv4/IPv6 prefix and address management functions

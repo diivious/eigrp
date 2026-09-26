@@ -11,12 +11,11 @@
 #include "eigrp_metric.h"
 #include "eigrp.h"
 
-eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
-					 const char *protocol,
-					 const eigrp_metric_values_t *metric,
-					 const char *route_map);
-eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
-					 const char *protocol);
+eigrp_result_t eigrp_redistribute_add(
+	eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source,
+	const eigrp_metric_values_t *metric, const char *route_map);
+eigrp_result_t eigrp_redistribute_remove(
+	eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source);
 void eigrp_redistribute_config_delete_all(eigrp_address_family_config_t *af);
 
 eigrp_result_t eigrp_redistribute_maximum_prefix_set(

@@ -12,11 +12,11 @@
 #include "eigrp_network.h"
 #include "eigrp_neighbor.h"
 #include "eigrpd/eigrp_auth.h"
+#include "eigrpd/eigrp_cli.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_metric.h"
-#include "eigrpd/eigrp_redistribute.h"
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_sys.h"
 #include "eigrpd/eigrp_rib.h"
@@ -3149,30 +3149,87 @@ static int eigrpd_named_offset_list_destroy(struct nb_cb_destroy_args *args)
 		true);
 }
 
-static int eigrpd_named_redistribute_apply_options(const struct lyd_node *dnode,
-					     bool include_metrics,
-					     bool omit_route_map)
+static bool eigrpd_named_redistribute_source_get(
+	const struct lyd_node *dnode, eigrp_redistribute_source_t *source)
 {
-	const char *name, *vrf, *protocol;
+	const char *protocol;
+	eigrp_route_instance_t route_instance;
+
+	if (!dnode || !source)
+		return false;
+	protocol = yang_dnode_get_string(dnode, "protocol");
+	/*
+	 * The CLI omits route-instance for sources whose FRR identity is
+	 * unqualified (connected, static, RIP, IS-IS and BGP).  Do not call
+	 * the typed getter for an absent child: FRR's YANG accessor expects
+	 * the node to exist.  Zero is the EIGRP-owned normalized identity for
+	 * those sources and for unqualified OSPF.
+	 */
+	route_instance = yang_dnode_exists(dnode, "route-instance")
+			 ? yang_dnode_get_uint16(dnode, "route-instance")
+			 : 0;
+	if (!protocol)
+		return false;
+
+	if (strcmp(protocol, "eigrp") == 0) {
+		if (route_instance == 0 || route_instance > UINT16_MAX)
+			return false;
+		source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_EIGRP;
+	} else if (strcmp(protocol, "ospf") == 0) {
+		if (route_instance > UINT16_MAX)
+			return false;
+		source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_OSPF;
+	} else {
+		if (route_instance != 0)
+			return false;
+		if (strcmp(protocol, "connected") == 0)
+			source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED;
+		else if (strcmp(protocol, "static") == 0)
+			source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_STATIC;
+		else if (strcmp(protocol, "rip") == 0)
+			source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_RIP;
+		else if (strcmp(protocol, "isis") == 0)
+			source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_ISIS;
+		else if (strcmp(protocol, "bgp") == 0)
+			source->protocol = EIGRP_REDISTRIBUTE_PROTOCOL_BGP;
+		else
+			return false;
+	}
+
+	source->route_instance = route_instance;
+	return true;
+}
+
+static int eigrpd_named_redistribute_apply_options(const struct lyd_node *dnode,
+					     bool include_metrics)
+{
+	const char *name, *vrf;
 	eigrp_address_family_t afi;
 	eigrp_instance_context_t context;
 	eigrp_metric_values_t metric;
+	eigrp_redistribute_source_t source = {0};
 	eigrp_metric_values_t *metric_ptr = NULL;
 	uint16_t asn;
-
-	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)
-	    || !eigrpd_named_runtime_context_resolve(name, afi, vrf, asn,
-						      &context))
+	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn)) {
 		return NB_ERR_INCONSISTENCY;
-	protocol = yang_dnode_get_string(dnode, "protocol");
+	}
+
+	if (!eigrpd_named_runtime_context_resolve(name, afi, vrf, asn, &context)) {
+		return NB_ERR_INCONSISTENCY;
+	}
+
+	if (!eigrpd_named_redistribute_source_get(dnode, &source)) {
+		return NB_ERR_INCONSISTENCY;
+	}
+
 	if (include_metrics && yang_dnode_exists(dnode, "metrics")) {
 		eigrpd_named_metric_values_get(dnode, "metrics", &metric);
 		metric_ptr = &metric;
 	}
 	return eigrpd_named_config_result(
 		eigrp_redistribute_add(
-			&context, protocol, metric_ptr,
-			!omit_route_map && yang_dnode_exists(dnode, "route-map")
+			&context, &source, metric_ptr,
+			yang_dnode_exists(dnode, "route-map")
 				? yang_dnode_get_string(dnode, "route-map")
 				: NULL),
 		false);
@@ -3181,7 +3238,7 @@ static int eigrpd_named_redistribute_apply_options(const struct lyd_node *dnode,
 static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
 					     bool include_metrics)
 {
-	return eigrpd_named_redistribute_apply_options(dnode, include_metrics, false);
+	return eigrpd_named_redistribute_apply_options(dnode, include_metrics);
 }
 
 /*
@@ -3196,103 +3253,46 @@ static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
  */
 static int eigrpd_named_redistribute_create(struct nb_cb_create_args *args)
 {
-	return args->event == NB_EV_APPLY
-		       ? eigrpd_named_redistribute_apply(args->dnode, true)
-		       : NB_OK;
+	/*
+	 * One CLI command can create this list, its metrics container and five
+	 * metric leaves, and its route-map in one transaction.  Do not subscribe
+	 * or mutate EIGRP from an intermediate APPLY callback.  FRR guarantees
+	 * the list apply_finish callback runs once after all descendant changes.
+	 */
+	(void)args;
+	return NB_OK;
 }
 
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
 static int eigrpd_named_redistribute_metrics_create(struct nb_cb_create_args *args)
 {
-	return args->event == NB_EV_APPLY
-		       ? eigrpd_named_redistribute_apply(lyd_parent(args->dnode), true)
-		       : NB_OK;
+	(void)args;
+	return NB_OK;
 }
 
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/bandwidth
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/delay
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/reliability
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/load
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics/mtu
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
 static int eigrpd_named_redistribute_metrics_modify(struct nb_cb_modify_args *args)
 {
-	const struct lyd_node *redistribute = lyd_parent(lyd_parent(args->dnode));
-
-	return args->event == NB_EV_APPLY
-		       ? eigrpd_named_redistribute_apply(redistribute, true)
-		       : NB_OK;
+	(void)args;
+	return NB_OK;
 }
 
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/metrics
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
 static int eigrpd_named_redistribute_metrics_destroy(
 	struct nb_cb_destroy_args *args)
 {
-	return args->event == NB_EV_APPLY
-		       ? eigrpd_named_redistribute_apply(lyd_parent(args->dnode), false)
-		       : NB_OK;
+	(void)args;
+	return NB_OK;
 }
 
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/route-map
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
 static int eigrpd_named_redistribute_route_map_modify(struct nb_cb_modify_args *args)
 {
-    return args->event == NB_EV_APPLY
-               ? eigrpd_named_redistribute_apply(lyd_parent(args->dnode), true)
-               : NB_OK;
+	(void)args;
+	return NB_OK;
 }
 
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute/route-map
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback delegates to `eigrpd_named_redistribute_apply_options()`, which reaches the EIGRP-owned target for the command.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
 static int eigrpd_named_redistribute_route_map_destroy(
 	struct nb_cb_destroy_args *args)
 {
-	return args->event == NB_EV_APPLY
-		       ? eigrpd_named_redistribute_apply_options(
-			       lyd_parent(args->dnode), true, true)
-		       : NB_OK;
+	(void)args;
+	return NB_OK;
 }
 
 /*
@@ -3333,6 +3333,7 @@ static int eigrpd_named_redistribute_destroy(struct nb_cb_destroy_args *args)
 	const char *name, *vrf;
 	eigrp_address_family_t afi;
 	eigrp_instance_context_t context;
+	eigrp_redistribute_source_t source = {0};
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
@@ -3340,11 +3341,11 @@ static int eigrpd_named_redistribute_destroy(struct nb_cb_destroy_args *args)
 	if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf,
 						  &asn)
 	    || !eigrpd_named_runtime_context_resolve(name, afi, vrf, asn,
-						      &context))
+						      &context)
+	    || !eigrpd_named_redistribute_source_get(args->dnode, &source))
 		return NB_ERR_INCONSISTENCY;
 	return eigrpd_named_config_result(
-		eigrp_redistribute_remove(
-			&context, yang_dnode_get_string(args->dnode, "protocol")),
+		eigrp_redistribute_remove(&context, &source),
 		true);
 }
 

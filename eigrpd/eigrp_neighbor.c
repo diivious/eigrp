@@ -375,9 +375,7 @@ static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
 					    eigrp_neighbor_t *neighbor)
 {
 	eigrp_prefix_descriptor_t *prefix;
-	eigrp_route_descriptor_t *route;
 	eigrp_table_node_t *route_node;
-	eigrp_list_node_t *list_node;
 	uint32_t count = 0;
 
 	if (!runtime || !runtime->topology_table || !neighbor)
@@ -387,12 +385,8 @@ static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
 		prefix = route_node->info;
 		if (!prefix)
 			continue;
-		for (EIGRP_LIST_ELEMENTS_RO(prefix->entries, list_node, route)) {
-			if (route->adv_router == neighbor) {
-				count++;
-				break;
-			}
-		}
+		if (eigrp_prefix_descriptor_lookup(prefix, neighbor))
+			count++;
 	}
 	return count;
 }

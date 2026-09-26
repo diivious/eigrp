@@ -108,6 +108,24 @@ typedef enum eigrp_filter_decision {
 	EIGRP_FILTER_DECISION_DENY,
 } eigrp_filter_decision_t;
 
+typedef enum eigrp_redistribute_protocol {
+	EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED = 0,
+	EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED,
+	EIGRP_REDISTRIBUTE_PROTOCOL_STATIC,
+	EIGRP_REDISTRIBUTE_PROTOCOL_RIP,
+	EIGRP_REDISTRIBUTE_PROTOCOL_OSPF,
+	EIGRP_REDISTRIBUTE_PROTOCOL_ISIS,
+	EIGRP_REDISTRIBUTE_PROTOCOL_BGP,
+	EIGRP_REDISTRIBUTE_PROTOCOL_EIGRP,
+} eigrp_redistribute_protocol_t;
+
+typedef uint32_t eigrp_route_instance_t;
+
+typedef struct eigrp_redistribute_source {
+	eigrp_redistribute_protocol_t protocol;
+	eigrp_route_instance_t route_instance;
+} eigrp_redistribute_source_t;
+
 typedef struct eigrp_state_request {
 	eigrp_address_family_t afi;
 	const char *vrf_name;

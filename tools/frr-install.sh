@@ -180,9 +180,38 @@ install_test_tree() {
 eigrp_grammar_schema_current() {
 	local yang="$frr_root/yang/frr-eigrpd.yang"
 	local neighbor_policy
+	local redistribution_protocol
+	local redistribution_route_instance
+	local protocol
 	local topology
 
 	[[ -f "$yang" ]] || return 1
+	grep -Fq 'list named {' "$yang" || return 1
+	grep -Fq 'key "afi vrf asn";' "$yang" || return 1
+	grep -Fq 'list af-interface {' "$yang" || return 1
+	grep -Fq 'EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY' "$yang" || return 1
+	grep -Fq 'EIGRP_STEP1_CONFIG_COMPLETE' "$yang" || return 1
+	grep -Fq 'typedef eigrp-redistribution-protocol {' "$yang" || return 1
+	grep -Fq 'typedef eigrp-redistribution-route-instance {' "$yang" || return 1
+	grep -Fq 'key "protocol route-instance";' "$yang" || return 1
+	grep -Fq 'type eigrp-redistribution-protocol;' "$yang" || return 1
+	grep -Fq 'type eigrp-redistribution-route-instance;' "$yang" || return 1
+	grep -Fq "must \"../protocol != 'eigrp' or . != 0\" {" "$yang" || return 1
+	grep -Fq "must \"../protocol = 'eigrp' or ../protocol = 'ospf' or . = 0\" {" "$yang" || return 1
+	grep -Fq 'A BGP ASN or IS-IS area tag is a protocol' "$yang" || return 1
+
+	redistribution_protocol="$(sed -n '/^[[:space:]]*typedef eigrp-redistribution-protocol {/,/^[[:space:]]*typedef eigrp-redistribution-route-instance {/p' "$yang")"
+	[[ -n "$redistribution_protocol" ]] || return 1
+	for protocol in connected static rip ospf isis bgp eigrp; do
+		grep -Fq "enum $protocol;" <<<"$redistribution_protocol" || return 1
+	done
+	[[ "$(grep -Ec '^[[:space:]]*enum[[:space:]]+[a-z0-9-]+;' <<<"$redistribution_protocol")" -eq 7 ]] || return 1
+
+	redistribution_route_instance="$(sed -n '/^[[:space:]]*typedef eigrp-redistribution-route-instance {/,/^[[:space:]]*typedef authentication-type {/p' "$yang")"
+	[[ -n "$redistribution_route_instance" ]] || return 1
+	grep -Fq 'type uint16 {' <<<"$redistribution_route_instance" || return 1
+	grep -Fq 'range "0..65535";' <<<"$redistribution_route_instance" || return 1
+
 	grep -Fq "must \". != 'hmac-sha-256' or (../authentication-encryption-type and ../authentication-password)\";" "$yang" || return 1
 	grep -Fq 'when "../administrative-distance";' "$yang" || return 1
 	grep -Fq 'description "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6";' "$yang" || return 1
@@ -207,76 +236,13 @@ eigrp_grammar_schema_current() {
 	return 0
 }
 
-patch_semantically_applied() {
-	local patch_name="$1"
-	local yang="$frr_root/yang/frr-eigrpd.yang"
-
-	case "$patch_name" in
-		vtysh-named-eigrp.patch)
-			grep -Fq 'router eigrp <(1-65535)|WORD> [vrf NAME]' \
-				"$frr_root/vtysh/vtysh.c" &&
-			grep -Fq 'install_element(EIGRP_NODE, &router_eigrp_cmd);' \
-				"$frr_root/vtysh/vtysh.c"
-			;;
-		eigrp-multi-instance.patch)
-			! grep -Fq 'must "count(../instance[vrf =current()/vrf]) = 1";' "$yang"
-			;;
-		eigrp-named-yang.patch)
-			grep -Fq 'EIGRP named-mode configuration.' "$yang" &&
-			grep -Fq 'list named {' "$yang" &&
-			grep -Fq 'key "afi vrf asn";' "$yang"
-			;;
-		eigrp-named-af-config.patch)
-			grep -Fq 'Named-mode address-family configuration is augmented separately' "$yang" &&
-			grep -Fq 'leaf-list network {' "$yang" &&
-			grep -Fq 'list neighbor {' "$yang"
-			;;
-		eigrp-named-af-interface.patch)
-			grep -Fq 'Named-mode address-family interface configuration.' "$yang" &&
-			grep -Fq 'list af-interface {' "$yang" &&
-			grep -Fq 'leaf hello-interval {' "$yang"
-			;;
-		eigrp-named-topology.patch)
-			grep -Fq 'Named-mode base topology configuration.' "$yang" &&
-			grep -Fq 'container topology {' "$yang" &&
-			grep -Fq 'list redistribute {' "$yang" &&
-			grep -Fq 'leaf variance {' "$yang"
-			;;
-		eigrp-named-topology-callbacks.patch)
-			grep -Fq 'EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY' "$yang"
-			;;
-		frr-eigrp-yang.patch)
-			grep -Fq 'EIGRP_STEP1_CONFIG_COMPLETE' "$yang"
-			;;
-		eigrp-named-ipv6.patch)
-			grep -Fq 'description "IPv4 or IPv6 summary prefix";' "$yang" &&
-			grep -Fq 'description "Fixed metric for an IPv4 or IPv6 summary aggregate";' "$yang"
-			;;
-		*)
-			return 1
-			;;
-	esac
-}
-
 patch_state() {
 	local patch_file="$1"
-	local patch_name
 
-	patch_name="$(basename "$patch_file")"
-
-	# Check the reverse direction first.  Some insertion-only patches can still
-	# find another valid forward context after they have already been applied.
-	# Forward-first detection can therefore apply the same logical patch twice.
+	# Reverse first so an already-applied patch is never applied a second time.
+	# With one managed patch per upstream file, no later project patch can alter
+	# the same target and invalidate this reverse check.
 	if git -C "$frr_root" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
-		printf '%s\n' applied
-		return 0
-	fi
-
-	# Later managed patches may legitimately add schema text adjacent to an
-	# earlier insertion and make git's reverse context check too strict.  For
-	# known project patches, verify the complete feature marker/schema shape
-	# before deciding that the earlier patch is in conflict.
-	if patch_semantically_applied "$patch_name"; then
 		printf '%s\n' applied
 		return 0
 	fi
@@ -324,51 +290,24 @@ MSG
 
 invalidate_eigrp_yang_embed() {
 	local count
-	local previous_count
 	local yang_source="$frr_root/yang/frr-eigrpd.yang"
 	local yang_embed="$frr_root/yang/frr-eigrpd.yang.c"
-	local named_patch="$frr_patch_src/eigrp-named-yang.patch"
 
 	[[ -f "$yang_source" ]] || fail "FRR EIGRP YANG source not found: $yang_source"
-	[[ -f "$named_patch" ]] || fail "managed EIGRP named YANG patch not found: $named_patch"
 
-	# The .yang source is authoritative.  FRR generates frr-eigrpd.yang.c as a
-	# build artifact.  Keep duplicate-schema repair here, but never generate or
-	# copy the derived .yang.c file during installation.
-	count="$(grep -Ec '^[[:space:]]*list[[:space:]]+named[[:space:]]*\{' "$yang_source" || true)"
-
-	# Older versions of the installer checked forward applicability before the
-	# reverse/already-applied state.  Because this patch is insertion-only, a
-	# second valid context could be found and the named schema block could be
-	# inserted more than once.  Repair only duplicates that can be removed by
-	# reversing this exact managed patch; otherwise stop rather than edit an
-	# unknown FRR/YANG change.
-	while [[ "$count" -gt 1 ]]; do
-		if ! git -C "$frr_root" apply --reverse --check "$named_patch" >/dev/null 2>&1; then
-			fail "duplicate EIGRP named YANG nodes exist but the managed patch cannot safely remove one"
-		fi
-
-		if [[ "$dry_run" -eq 1 ]]; then
-			echo "would repair: remove one duplicate managed EIGRP named YANG schema block"
-			break
-		fi
-
-		previous_count="$count"
-		echo "repair: remove one duplicate managed EIGRP named YANG schema block"
-		git -C "$frr_root" apply --reverse "$named_patch"
-		count="$(grep -Ec '^[[:space:]]*list[[:space:]]+named[[:space:]]*\{' "$yang_source" || true)"
-		[[ "$count" -eq $((previous_count - 1)) ]] || \
-			fail "managed YANG duplicate repair did not remove exactly one named schema block"
-	done
-
-	if [[ "$dry_run" -eq 0 && "$count" -ne 1 ]]; then
-		fail "expected exactly one EIGRP named-mode schema node after patch installation; found $count"
-	fi
-
+	# The .yang source is authoritative. FRR generates frr-eigrpd.yang.c as a
+	# build artifact. With one managed patch owning this source file, duplicate
+	# or partial schema state is source drift and must fail rather than be repaired
+	# by reversing one layer of an overlapping patch stack.
 	if [[ "$dry_run" -eq 1 ]]; then
+		echo "would validate: exactly one EIGRP named-mode schema node"
 		echo "would remove generated: yang/frr-eigrpd.yang.c"
 		return 0
 	fi
+
+	count="$(grep -Ec '^[[:space:]]*list[[:space:]]+named[[:space:]]*\{' "$yang_source" || true)"
+	[[ "$count" -eq 1 ]] || \
+		fail "expected exactly one EIGRP named-mode schema node after patch installation; found $count"
 
 	rm -f "$yang_embed"
 	echo "invalidated generated: yang/frr-eigrpd.yang.c (FRR build will regenerate it)"
@@ -385,8 +324,8 @@ install_frr_patches() {
 		return 0
 	}
 
-	# Some integration patches depend on earlier schema/infrastructure patches.
-	# Prefer an explicit series file so patch order is stable and reviewable.
+	# Keep an explicit series even when the current per-file patches are
+	# independent so installation order remains stable and reviewable.
 	if [[ -f "$series_file" ]]; then
 		while IFS= read -r patch_name || [[ -n "$patch_name" ]]; do
 			patch_name="${patch_name%%#*}"

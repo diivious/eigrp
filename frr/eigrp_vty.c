@@ -73,9 +73,10 @@ static void eigrp_vty_display_prefix_entry(struct vty *vty, eigrp_instance_t *ei
 {
 	bool first = true;
 	struct eigrp_route_descriptor *te;
-	eigrp_list_node_t *node;
+	eigrp_topology_route_iterator_t iterator;
 
-	for (EIGRP_LIST_ELEMENTS_RO(pe->entries, node, te)) {
+	for (te = eigrp_topology_route_iterator_first(pe, &iterator); te;
+	     te = eigrp_topology_route_iterator_next(&iterator)) {
 		if (all
 		    || (((te->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)
 			 == EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)

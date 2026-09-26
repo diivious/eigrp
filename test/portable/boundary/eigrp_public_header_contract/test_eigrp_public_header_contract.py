@@ -80,3 +80,21 @@ def test_frr_installs_only_the_five_public_integration_headers():
         "eigrpd/eigrp_fsm.h",
     ):
         assert private not in installed
+
+
+def test_redistribution_public_identity_is_eigrp_owned_protocol_plus_route_instance():
+    common = read(EIGRPD / "eigrp.h")
+    cli = read(EIGRPD / "eigrp_cli.h")
+    rib = read(EIGRPD / "eigrp_rib.h")
+
+    assert "typedef enum eigrp_redistribute_protocol" in common
+    assert "typedef uint32_t eigrp_route_instance_t;" in common
+    assert "typedef struct eigrp_redistribute_source" in common
+    assert "eigrp_redistribute_protocol_t protocol;" in common
+    assert "eigrp_route_instance_t route_instance;" in common
+    assert "const eigrp_redistribute_source_t *source" in cli
+    assert "eigrp_redistribute_source_t source;" in rib
+    assert "bool eigrp_vector_present;" in rib
+    assert "eigrp_metrics_t eigrp_vector;" in rib
+    assert "source_protocol" not in rib
+    assert "source_instance" not in rib

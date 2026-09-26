@@ -389,7 +389,7 @@ enum GR_type { EIGRP_GR_MANUAL, EIGRP_GR_FILTER };
 
 /* EIGRP Topology table node structure */
 typedef struct eigrp_prefix_descriptor {
-	eigrp_list_t *entries, *rij;
+	eigrp_list_t *internal_routes, *external_routes, *rij;
 	eigrp_prefix_t destination;
 
 	eigrp_metrics_t reported_metric; // RD for sending

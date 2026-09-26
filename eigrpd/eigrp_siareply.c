@@ -54,7 +54,7 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		}
 		eigrp_route_descriptor_t *received_route = route;
 		eigrp_route_descriptor_t *topology_route =
-			eigrp_prefix_descriptor_lookup(prefix->entries, nbr);
+			eigrp_prefix_descriptor_lookup(prefix, nbr);
 		bool free_received_route = false;
 
 		if (topology_route) {

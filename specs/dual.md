@@ -59,6 +59,10 @@ neighbor RD < destination FD
 A path satisfying the condition is a feasible successor candidate. A successor
 is a feasible path selected as a least-cost path for the destination.
 
+Topology storage and I/E path ordering are defined in `route-selection-spec.md`.
+The queue split is an indexing/selection mechanism and does not alter the FSM
+or the Feasibility Condition.
+
 The condition is sufficient for loop freedom. A path can be loop free without
 meeting it, but DUAL will not adopt that path as a successor without the
 required diffusing computation.

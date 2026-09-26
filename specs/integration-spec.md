@@ -684,7 +684,9 @@ typedef struct eigrp_rib_source_route {
     eigrp_ifindex_t ifindex;
     uint64_t metric;
     uint32_t tag;
-    const char *source_protocol;
+    eigrp_redistribute_source_t source;
+    bool eigrp_vector_present;
+    eigrp_metrics_t eigrp_vector;
 } eigrp_rib_source_route_t;
 ```
 
@@ -692,6 +694,13 @@ These are the public field sets. `eigrp_rib_route_t` is the
 EIGRP-to-host installation snapshot. `eigrp_rib_source_route_t` is the
 host-to-EIGRP redistribution snapshot. Neither object contains a DUAL
 descriptor or host-native route object.
+
+`eigrp_rib_source_route_t::metric` is a host/RIB scalar and is not an EIGRP
+seed metric. The host must not invent bandwidth, delay, reliability, load, or
+MTU values from that scalar. When an EIGRP source can supply its native
+per-route vector, it sets `eigrp_vector_present` and supplies the complete
+`eigrp_metrics_t` vector without narrowing it into a configuration metric
+tuple.
 
 ### Separate outbound and redistribution types
 
@@ -1256,7 +1265,7 @@ Common argument conventions used by the function-family entries below:
 | `runtime` / `eigrp` | Borrowed opaque `eigrp_instance_t`. The caller does not inspect or free the runtime. |
 | `parent`, `af`, `config` | Borrowed opaque retained-configuration identity. EIGRP owns its lifetime. |
 | `prefix`, `destination`, `address`, `neighbor` | Borrowed normalized EIGRP value. A callee copies the value if it must retain it after return. |
-| `interface_name`, `vrf_name`, `protocol`, `route_map`, `keychain`, policy/list names | Borrowed NUL-terminated host-normalized text. Retained configuration targets copy strings they keep. |
+| `interface_name`, `vrf_name`, `route_map`, `keychain`, policy/list names | Borrowed NUL-terminated host-normalized text. Retained configuration targets copy strings they keep. |
 | `callback` | Synchronous callback unless the API family explicitly says otherwise. The callback and snapshot arguments are not retained after the call. |
 | `arg` | Opaque caller cookie passed back unchanged to the synchronous callback. |
 | `state`, `exists`, `affected_count`, scalar output pointers | Caller-owned output storage populated before return. |
@@ -1292,6 +1301,9 @@ Common argument conventions used by the function-family entries below:
 | `eigrp_offset_direction_t` | Filter/offset direction selector: IN or OUT. |
 | `eigrp_distribute_list_type_t` | Public distribute-list selector: access-list or prefix-list. |
 | `eigrp_filter_decision_t` | Normalized host policy result: PERMIT or DENY. |
+| `eigrp_redistribute_protocol_t` | EIGRP-owned redistribution source protocol selector: connected, static, RIP, OSPF, IS-IS, BGP, EIGRP, or unspecified for invalid/uninitialized state. |
+| `eigrp_route_instance_t` | 32-bit normalized route-instance value identifying one source-protocol process/instance where applicable. |
+| `eigrp_redistribute_source_t` | Exact redistribution source identity `{protocol, route_instance}`. Route instance zero is an ordinary identity value, not a wildcard. |
 | `eigrp_state_request_t` | Operational state selector carrying AF, optional VRF name, AS (0 means all), all_vrfs, and Cisco MAF multicast selector. |
 | `eigrp_instance_t` | Opaque portable EIGRP runtime instance identity. Host code may pass the handle but may not inspect its layout. |
 | `eigrp_interface_t` | Opaque portable EIGRP interface runtime identity. Host code may pass the handle only through documented APIs. |
@@ -1595,17 +1607,20 @@ eigrp_result_t eigrp_topology_clear( eigrp_instance_context_t *context, const ei
 **Direction:** Host -> EIGRP  
 **Requirement:** Required when filtering/redistribution features are configured  
 **Implemented by:** Portable EIGRP, with host policy/RIB services reached through the public integration contracts
-**Ownership/lifetime:** Context, normalized metric/limit values, and all names are borrowed. Retained portable configuration copies names/values that persist after the call.
+**Ownership/lifetime:** Context, normalized metric/limit values, redistribution source identity, and all names are borrowed inputs. `eigrp_redistribute_source_t` is an EIGRP-owned value object and is copied when retained. Retained portable configuration also copies metric values and route-map names that persist after the call.
 **Execution context:** Synchronous semantic targets. Host subscriptions/policy evaluation may be requested through `eigrp_rib.h`/`eigrp_sys.h`.
 **Ordering:** Requires an owning address-family context. Host policy/RIB objects never cross the public semantic boundary.
+
+**Current route-map capability boundary:** A redistribution route-map name is valid retained configuration and remains attached by name to the matching portable redistribution entry. Configuration parsing, commit, mutation, `no` handling, and running-config writeback do not depend on route-map evaluation being available. Route-map evaluation for redistributed source-route candidates is intentionally deferred at this development stage. When a candidate belongs to a redistribution entry with a configured route-map, portable redistribution returns `EIGRP_RESULT_NOT_IMPLEMENTED` for that import instead of admitting the route as though policy had permitted it. No partial or synthetic route-map evaluator is provided. Withdrawals may still remove matching redistributed topology state because removal does not require a policy permit decision.
+
 Exact prototypes:
 ```c
 eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context, const char *access_list, eigrp_offset_direction_t direction, uint32_t offset, const char *interface_name);
 eigrp_result_t eigrp_offset_remove(eigrp_instance_context_t *context, const char *access_list, eigrp_offset_direction_t direction, uint32_t offset, const char *interface_name);
 eigrp_result_t eigrp_distribute_add( eigrp_instance_context_t *context, eigrp_distribute_list_type_t type, const char *name, eigrp_offset_direction_t direction, const char *interface_name);
 eigrp_result_t eigrp_distribute_remove( eigrp_instance_context_t *context, eigrp_distribute_list_type_t type, const char *name, eigrp_offset_direction_t direction, const char *interface_name);
-eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context, const char *protocol, const eigrp_metric_values_t *metric, const char *route_map);
-eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context, const char *protocol);
+eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source, const eigrp_metric_values_t *metric, const char *route_map);
+eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source);
 eigrp_result_t eigrp_redistribute_maximum_prefix_set( eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
 eigrp_result_t eigrp_redistribute_maximum_prefix_reset( eigrp_instance_context_t *context);
 ```
@@ -1864,7 +1879,7 @@ bool eigrp_debug_address_family_state_get( eigrp_debug_scope_t scope, size_t ind
 | `eigrp_rib_route_t` | EIGRP-to-host route snapshot: prefix, borrowed nexthop array, metric, administrative distance, tag, and route type. |
 | `eigrp_rib_route_type_t` | Route installation selector: internal or external EIGRP route. |
 | `eigrp_rib_nexthop_t` | Normalized host-RIB nexthop: ifindex, optional gateway flag, and gateway address. |
-| `eigrp_rib_source_route_t` | Host-to-EIGRP redistribution snapshot: prefix, optional gateway, ifindex, metric, tag, and source-protocol name. |
+| `eigrp_rib_source_route_t` | Host-to-EIGRP redistribution snapshot: prefix, optional gateway, ifindex, scalar host metric, tag, exact source identity, and an optional native EIGRP per-route vector. |
 
 #### 11.5.3 RIB lifecycle
 
@@ -1916,17 +1931,17 @@ eigrp_result_t eigrp_rib_route_remove(eigrp_instance_t *eigrp, const eigrp_prefi
 **Requirement:** Required when redistribution is configured  
 **Implemented by:** Host adapter
 
-**Ownership/lifetime:** Runtime and strings/metric values are borrowed for the call. Host may copy subscription state as required.
+**Ownership/lifetime:** Runtime and source identity are borrowed for the call. The host may copy the EIGRP-owned source value into adapter subscription state as required. Metric configuration and route-map attachment remain owned by portable EIGRP configuration and are not host-subscription arguments.
 
 **Execution context:** Synchronous subscription update.
 
-**Ordering:** Add/remove occur after a runtime exists and before runtime teardown. Source-route events are meaningful only while the corresponding source is subscribed.
+**Ordering:** Add/remove occur after a runtime exists and before runtime teardown. Within one EIGRP runtime/VRF, the subscription identity is exactly `{source protocol, route-instance}`. Route instance zero is not a wildcard. A host adapter may use a broader native subscription internally when its RIB API requires that, but it must filter delivered source-route events back to the exact configured EIGRP source identity.
 
 Exact prototypes:
 
 ```c
-eigrp_result_t eigrp_rib_redistribute_add( eigrp_instance_t *eigrp, const char *protocol, const eigrp_metric_values_t *metric, const char *route_map);
-eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp, const char *protocol);
+eigrp_result_t eigrp_rib_redistribute_add(eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
+eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
 ```
 
 
@@ -1941,7 +1956,14 @@ eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp, const char
 
 **Execution context:** Synchronous ingress callback from the host RIB adapter.
 
-**Ordering:** Requires a live runtime and matching redistribution subscription. Add represents appearance/change; remove represents withdrawal.
+**Ordering:** Requires a live runtime and matching redistribution subscription. `route->source` carries the exact `{source protocol, route-instance}` identity of the originating host protocol/process within the runtime VRF. Add represents appearance/change; remove represents withdrawal. A source-route add for an entry carrying a route-map name reports `EIGRP_RESULT_NOT_IMPLEMENTED` until route-map evaluation is implemented; it must not be imported unfiltered.
+
+For an add/change, portable redistribution selects the EIGRP seed vector in
+this order: an explicit metric on the matching `redistribute` configuration;
+then a usable native `route->eigrp_vector` for an EIGRP source; then the
+configured EIGRP `default-metric`. If none is available, the candidate is a
+normal non-importable route and is ignored. `route->metric` is never expanded
+into synthetic EIGRP vector components.
 
 Exact prototypes:
 

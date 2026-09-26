@@ -60,8 +60,8 @@ def test_named_redistribution_target_owns_state_then_crosses_southbound_boundary
     delete = function_body(redist, "eigrp_redistribute_remove")
 
     assert "eigrp_redistribute_config_find" in update
-    assert "eigrp_rib_redistribute_add" in update
     assert "context->config->redistributions" in update
+    assert "eigrp_rib_redistribute_add" in update
     assert "eigrp_rib_redistribute_remove" in delete
     assert "zclient_redistribute" not in update
     assert "eigrp_redistribute_set" not in update
@@ -141,9 +141,9 @@ def test_frr_redistribution_adapter_delegates_to_named_zebra_operations():
 
     assert "eigrp_zebra_redistribute_update" in adapter_update
     assert "eigrp_zebra_redistribute_delete" in adapter_delete
-    assert "proto_redistnum(AFI_IP, protocol)" in zebra
+    assert "eigrp_zebra_redistribute_type(source->protocol)" in zebra
     assert "zclient_redistribute(ZEBRA_REDISTRIBUTE_ADD" in zebra_update
-    assert "state->dmetric[type] = runtime_metric;" in zebra_update
+    assert "redist->route_instance = params.instance;" in zebra_update
     assert "zclient_redistribute(ZEBRA_REDISTRIBUTE_DELETE" in zebra_delete
     assert "eigrp_redistribute_set" not in adapter_update
     assert "eigrp_redistribute_unset" not in adapter_delete
@@ -183,16 +183,6 @@ def test_classic_endpoints_remain_unmodified_and_separate():
     assert "group_distribute_list_create_helper" in classic_dist_create
     assert "eigrp_redistribute_add" not in classic_redist_create
     assert "eigrp_distribute_add" not in classic_dist_create
-
-
-def test_runtime_redistribution_incompleteness_is_explicit_after_zebra_subscription():
-    zebra = read(ZEBRA_C)
-    update = function_body(zebra, "eigrp_zebra_redistribute_update")
-
-    add = update.index("zclient_redistribute(ZEBRA_REDISTRIBUTE_ADD")
-    unsupported = update.index("(void)route_map;")
-    assert add < unsupported
-    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in update[unsupported:]
 
 
 def test_redistribution_filter_target_contract_is_documented():

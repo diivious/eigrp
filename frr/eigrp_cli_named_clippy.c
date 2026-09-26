@@ -1,3 +1,112 @@
+/* eigrp_named_redistribute_eigrp => "[no] redistribute eigrp (1-65535)$route_instance [metric (1-4294967295)$bw (0-4294967295)$delay (0-255)$rlbt (1-255)$load (1-65535)$mtu] [route-map WORD$route_map]" */
+DEFUN_CMD_FUNC_DECL(eigrp_named_redistribute_eigrp)
+#define funcdecl_eigrp_named_redistribute_eigrp static int eigrp_named_redistribute_eigrp_magic(\
+	const struct cmd_element *self __attribute__ ((unused)),\
+	struct vty *vty __attribute__ ((unused)),\
+	int argc __attribute__ ((unused)),\
+	struct cmd_token *argv[] __attribute__ ((unused)),\
+	const char * no,\
+	int64_t route_instance,\
+	const char * route_instance_str __attribute__ ((unused)),\
+	int64_t bw,\
+	const char * bw_str __attribute__ ((unused)),\
+	int64_t delay,\
+	const char * delay_str __attribute__ ((unused)),\
+	int64_t rlbt,\
+	const char * rlbt_str __attribute__ ((unused)),\
+	int64_t load,\
+	const char * load_str __attribute__ ((unused)),\
+	int64_t mtu,\
+	const char * mtu_str __attribute__ ((unused)),\
+	const char * route_map)
+funcdecl_eigrp_named_redistribute_eigrp;
+DEFUN_CMD_FUNC_TEXT(eigrp_named_redistribute_eigrp)
+{
+#if 8 /* anything to parse? */
+	int _i;
+#if 1 /* anything that can fail? */
+	unsigned _fail = 0, _failcnt = 0;
+#endif
+	const char *no = NULL;
+	int64_t route_instance = 0;
+	const char *route_instance_str = NULL;
+	int64_t bw = 0;
+	const char *bw_str = NULL;
+	int64_t delay = 0;
+	const char *delay_str = NULL;
+	int64_t rlbt = 0;
+	const char *rlbt_str = NULL;
+	int64_t load = 0;
+	const char *load_str = NULL;
+	int64_t mtu = 0;
+	const char *mtu_str = NULL;
+	const char *route_map = NULL;
+
+	for (_i = 0; _i < argc; _i++) {
+		if (!argv[_i]->varname)
+			continue;
+#if 1 /* anything that can fail? */
+		_fail = 0;
+#endif
+
+		if (!strcmp(argv[_i]->varname, "no")) {
+			no = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "route_instance")) {
+			route_instance_str = argv[_i]->arg;
+			char *_end;
+			route_instance = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "bw")) {
+			bw_str = argv[_i]->arg;
+			char *_end;
+			bw = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "delay")) {
+			delay_str = argv[_i]->arg;
+			char *_end;
+			delay = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "rlbt")) {
+			rlbt_str = argv[_i]->arg;
+			char *_end;
+			rlbt = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "load")) {
+			load_str = argv[_i]->arg;
+			char *_end;
+			load = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "mtu")) {
+			mtu_str = argv[_i]->arg;
+			char *_end;
+			mtu = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
+		}
+		if (!strcmp(argv[_i]->varname, "route_map")) {
+			route_map = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+#if 1 /* anything that can fail? */
+		if (_fail)
+			vty_out (vty, "%% invalid input for %s: %s\n",
+				   argv[_i]->varname, argv[_i]->arg);
+		_failcnt += _fail;
+#endif
+	}
+#if 1 /* anything that can fail? */
+	if (_failcnt)
+		return CMD_WARNING;
+#endif
+#endif
+
+	return eigrp_named_redistribute_eigrp_magic(self, vty, argc, argv, no, route_instance, route_instance_str, bw, bw_str, delay, delay_str, rlbt, rlbt_str, load, load_str, mtu, mtu_str, route_map);
+}
+
 /* show_eigrp_interface => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_interface)
 #define funcdecl_show_eigrp_interface static int show_eigrp_interface_magic(\

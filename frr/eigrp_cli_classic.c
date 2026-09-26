@@ -61,6 +61,7 @@ static const char *prefix_str = "0.0.0.0/0";
 static const char *dir = "in";
 static const char *name = "stub";
 static const char *proto = "connected";
+static int64_t route_instance = 0;
 static const char *route_map = NULL;
 static uint32_t bw = 1;
 static uint32_t delay = 1;
@@ -743,10 +744,11 @@ DEFPY_YANG(
 	eigrp_redistribute_source_metric,
 	eigrp_redistribute_source_metric_cmd,
 	"[no] redistribute " FRR_REDIST_STR_EIGRPD
-	"$proto [metric (1-4294967295)$bw (0-4294967295)$delay (0-255)$rlbt (1-255)$load (1-65535)$mtu] [route-map WORD$route_map]",
+	"$proto [(1-65535)$route_instance] [metric (1-4294967295)$bw (0-4294967295)$delay (0-255)$rlbt (1-255)$load (1-65535)$mtu] [route-map WORD$route_map]",
 	NO_STR
 	REDIST_STR
 	FRR_REDIST_HELP_STR_EIGRPD
+	"Source route instance (named EIGRP topology only)\n"
 	"Metric for redistributed routes\n"
 	"Bandwidth metric in Kbits per second\n"
 	"EIGRP delay metric, in 10 microsecond units\n"
@@ -760,8 +762,11 @@ DEFPY_YANG(
 
 	if (eigrp_cli_named_context(vty))
 		return eigrp_cli_named_redistribute_apply(
-			vty, proto, bw, bw_str, delay, delay_str, rlbt, rlbt_str,
-			load, load_str, mtu, mtu_str, route_map, no);
+			vty, proto, route_instance, bw, bw_str, delay, delay_str,
+			rlbt, rlbt_str, load, load_str, mtu, mtu_str, route_map,
+			no);
+	if (route_instance != 0)
+		return CMD_WARNING_CONFIG_FAILED;
 	if (route_map)
 		return CMD_WARNING_CONFIG_FAILED;
 

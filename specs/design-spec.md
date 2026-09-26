@@ -486,6 +486,7 @@ source/API naming decision is deferred to `refactor-work.md`.
 While Active, per-neighbor/path observations and reply/origin bookkeeping may change, but destination-level successor selection, Feasible Distance, destination reported distance, current destination distance, and destination reported metric stay frozen until the destination returns to Passive.
 
 `dual.md` defines the state-machine model and message interaction in detail.
+`route-selection-spec.md` defines the CD-sorted internal/external path queues and the topology selection rules used by DUAL.
 
 ## 13. Packet, TLV, packetizer, and RTP rules
 

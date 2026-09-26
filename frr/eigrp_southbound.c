@@ -718,20 +718,19 @@ void eigrp_sys_runtime_finish(void)
 }
 
 eigrp_result_t eigrp_rib_redistribute_add(
-	eigrp_instance_t *eigrp, const char *protocol,
-	const eigrp_metric_values_t *metric, const char *route_map)
+	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source)
 {
 	if (!eigrp)
 		return EIGRP_RESULT_NOT_FOUND;
-	return eigrp_zebra_redistribute_update(eigrp, protocol, metric, route_map);
+	return eigrp_zebra_redistribute_update(eigrp, source);
 }
 
 eigrp_result_t eigrp_rib_redistribute_remove(
-	eigrp_instance_t *eigrp, const char *protocol)
+	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source)
 {
 	if (!eigrp)
 		return EIGRP_RESULT_NOT_FOUND;
-	return eigrp_zebra_redistribute_delete(eigrp, protocol);
+	return eigrp_zebra_redistribute_delete(eigrp, source);
 }
 
 void eigrp_sys_policy_init(void)
@@ -774,6 +773,10 @@ int eigrp_sys_ipv4_packet_send(eigrp_instance_t *eigrp,
 	struct ip iph;
 	struct msghdr msg;
 	struct iovec iov[2];
+	struct cmsghdr *cmsg;
+	struct in_pktinfo *pktinfo;
+	eigrp_ifindex_t ifindex;
+	char control[CMSG_SPACE(sizeof(struct in_pktinfo))];
 	int flags = 0;
 	int ret;
 
@@ -781,12 +784,17 @@ int eigrp_sys_ipv4_packet_send(eigrp_instance_t *eigrp,
 	    || destination->afi != EIGRP_ADDRESS_FAMILY_IPV4
 	    || eigrp_interface_address_read(ei, &local) != EIGRP_RESULT_SUCCESS)
 		return -1;
+	ifindex = eigrp_interface_ifindex(ei);
+	if (!ifindex)
+		return -1;
 	memcpy(&dst, destination->bytes, sizeof(dst));
-	if (dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS))
-		(void)eigrp_sys_multicast_interface_set(eigrp, ei);
+	if (dst.s_addr == htonl(EIGRP_MULTICAST_ADDRESS)
+	    && eigrp_sys_multicast_interface_set(eigrp, ei) < 0)
+		return -1;
 	memset(&iph, 0, sizeof(iph));
 	memset(&sa_dst, 0, sizeof(sa_dst));
 	memset(&msg, 0, sizeof(msg));
+	memset(control, 0, sizeof(control));
 	sa_dst.sin_family = AF_INET;
 	sa_dst.sin_addr = dst;
 	if (!IN_MULTICAST(ntohl(dst.s_addr)))
@@ -803,6 +811,17 @@ int eigrp_sys_ipv4_packet_send(eigrp_instance_t *eigrp,
 	msg.msg_namelen = sizeof(sa_dst);
 	msg.msg_iov = iov;
 	msg.msg_iovlen = 2;
+	msg.msg_control = control;
+	msg.msg_controllen = sizeof(control);
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = IPPROTO_IP;
+	cmsg->cmsg_type = IP_PKTINFO;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+	pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
+	pktinfo->ipi_ifindex = ifindex;
+	memcpy(&pktinfo->ipi_spec_dst, local.address.bytes,
+	       sizeof(pktinfo->ipi_spec_dst));
+	msg.msg_controllen = CMSG_SPACE(sizeof(struct in_pktinfo));
 	iov[0].iov_base = &iph;
 	iov[0].iov_len = sizeof(iph);
 	iov[1].iov_base = (void *)payload;

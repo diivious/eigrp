@@ -84,6 +84,11 @@ vty_capture() {
 	set -e
 
 	printf '%s\n' "$output" >>"$log_file"
+	printf 'vtysh rc=%d\n' "$rc" >>"$log_file"
+
+	if [[ "$rc" -ne 0 ]]; then
+		diagnose_eigrpd_runtime "vtysh returned rc=$rc while executing: $*"
+	fi
 
 	# A valid but not-yet-implemented EIGRP target may return a warning after
 	# retaining configuration.  Storage checks below are authoritative for
@@ -134,8 +139,60 @@ vty_cleanup() {
 	return 0
 }
 
+diagnose_eigrpd_runtime() {
+	local reason="$1"
+	local pid state exe cmdline
+
+	{
+		echo
+		echo "===== EIGRPD RUNTIME DIAGNOSTIC: $reason ====="
+		date -Ins || true
+		echo "-- eigrpd processes --"
+		ps -C eigrpd -o pid=,ppid=,stat=,user=,etime=,lstart=,args= 2>&1 || true
+		echo "-- eigrpd proc details --"
+		while read -r pid; do
+			[[ -n "$pid" ]] || continue
+			state="$(ps -o stat= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+			exe="$(sudo readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+			cmdline="$(sudo tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+			printf 'pid=%s state=%s exe=%s cmdline=%s\n' "$pid" "$state" "$exe" "$cmdline"
+		done < <(pgrep -x eigrpd 2>/dev/null || true)
+		echo "-- vty show version --"
+		sudo vtysh -d eigrpd -c 'show version' 2>&1 || true
+		echo "-- vty show running-config --"
+		sudo vtysh -d eigrpd -c 'show running-config' 2>&1 || true
+		echo "-- recent FRR journal --"
+		sudo journalctl -u frr -n 200 --no-pager 2>&1 || true
+		echo "-- recent kernel messages mentioning eigrpd/crash/segfault --"
+		sudo journalctl -k -n 300 --no-pager 2>&1 | grep -Ei 'eigrpd|segfault|general protection|trap|oom|killed process' || true
+		echo "-- coredump metadata for eigrpd --"
+		if command -v coredumpctl >/dev/null 2>&1; then
+			sudo coredumpctl list eigrpd --no-pager 2>&1 | tail -20 || true
+			sudo coredumpctl info eigrpd --no-pager 2>&1 | tail -160 || true
+		else
+			echo "coredumpctl unavailable"
+		fi
+		echo "-- FRR log tails --"
+		for f in /var/log/frr/eigrpd.log /var/log/frr/frr.log /var/log/frr/*.log; do
+			[[ -f "$f" ]] || continue
+			echo "--- $f ---"
+			sudo tail -120 "$f" 2>&1 || true
+		done
+		echo "===== END EIGRPD RUNTIME DIAGNOSTIC ====="
+	} >>"$log_file" 2>&1
+}
+
 show_run() {
-	vty_capture "show running-config"
+	local output
+
+	output="$(vty_capture "show running-config")"
+	# A healthy eigrpd running-config contains FRR's version banner.  Its
+	# disappearance is a stronger signal than a later mode-specific assertion
+	# and has accompanied the redistribution failure under investigation.
+	if ! printf '%s\n' "$output" | grep -q '^frr version '; then
+		diagnose_eigrpd_runtime "show running-config lost FRR version banner"
+	fi
+	printf '%s' "$output"
 }
 
 assert_eigrpd_alive() {
@@ -373,7 +430,22 @@ set_topology_expect() {
 	local config
 
 	echo "set: $name $family/$asn topology base: $cmd"
+	if [[ "$cmd" == redistribute* ]]; then
+		{
+			echo "-- redistribution pre-apply runtime --"
+			date -Ins || true
+			ps -C eigrpd -o pid=,ppid=,stat=,etime=,args= 2>&1 || true
+		} >>"$log_file" 2>&1
+	fi
 	apply_topology "$name" "$family" "$asn" "$cmd"
+	if [[ "$cmd" == redistribute* ]]; then
+		{
+			echo "-- redistribution post-apply runtime --"
+			date -Ins || true
+			ps -C eigrpd -o pid=,ppid=,stat=,etime=,args= 2>&1 || true
+			sudo vtysh -d eigrpd -c 'show version' 2>&1 || true
+		} >>"$log_file" 2>&1
+	fi
 	config="$(show_run)"
 	assert_mode_line_in "$config" "$name" "$family" "$asn" \
 		"topology base" "exit-af-topology" "$expected"
@@ -562,6 +634,16 @@ set_topology_expect "$uut_name" ipv4 4453 "distribute-list STEP1-ACL-IN in"
 set_topology_expect "$uut_name" ipv4 4453 "distribute-list prefix STEP1-PFX-OUT out"
 set_topology_expect "$uut_name" ipv4 4453 "offset-list EIGRP-UUT in 100 $uut_if"
 set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 10000 100 255 1 1500 route-map STEP1-RM"
+# Redistribution identity is {protocol, route-instance}.  Protocols whose FRR
+# routes have no distinct instance retain zero implicitly; OSPF may have an
+# instance and EIGRP requires the source AS as a nonzero route-instance.
+set_topology_expect "$uut_name" ipv4 4453 "redistribute static route-map STEP1-STATIC"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute rip metric 11000 110 254 1 1490"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute isis route-map STEP1-ISIS"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute bgp route-map STEP1-BGP"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute ospf 101 metric 12000 120 253 1 1480 route-map STEP1-OSPF-101"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute ospf 102 route-map STEP1-OSPF-102"
+set_topology_expect "$uut_name" ipv4 4453 "redistribute eigrp 65001 metric 13000 130 252 1 1470 route-map STEP1-EIGRP-65001"
 set_topology_expect "$uut_name" ipv4 4453 "redistribute maximum-prefix 300 70 dampened reset-time 20 restart 6 restart-count 4"
 set_topology_expect "$uut_name" ipv4 4453 "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500 distance 20"
 set_topology_expect "$uut_name" ipv4 4453 "timers active-time 180"
@@ -640,6 +722,13 @@ set_topology_expect "$uut_name" ipv4 4453 "redistribute connected metric 20000 2
 config="$(show_run)"
 assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute connected metric 15000 150 252 2 1450 route-map STEP1-RM-2"
 
+# Updating one OSPF route-instance must replace only that keyed entry.  The
+# sibling OSPF instance proves protocol alone is not the retained identity.
+set_topology_expect "$uut_name" ipv4 4453 "redistribute ospf 101 metric 16000 160 251 2 1460 route-map STEP1-OSPF-101-UPDATED"
+config="$(show_run)"
+assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute ospf 101 metric 12000 120 253 1 1480 route-map STEP1-OSPF-101"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute ospf 102 route-map STEP1-OSPF-102"
+
 set_topology_expect "$uut_name" ipv4 4453 "timers active-time 240"
 config="$(show_run)"
 assert_mode_line_absent_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "timers active-time 180"
@@ -694,6 +783,15 @@ remove_topology_expect "$uut_name" ipv4 4453 "no distribute-list prefix STEP1-PF
 remove_topology_expect "$uut_name" ipv4 4453 "no offset-list EIGRP-UUT in 100 $uut_if" "offset-list EIGRP-UUT in 100 $uut_if"
 remove_topology_expect "$uut_name" ipv4 4453 "no redistribute maximum-prefix" "redistribute maximum-prefix 350 75 warning-only"
 remove_topology_expect "$uut_name" ipv4 4453 "no redistribute connected" "redistribute connected metric 20000 200 250 2 1400 route-map STEP1-RM-3"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute static" "redistribute static route-map STEP1-STATIC"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute rip" "redistribute rip metric 11000 110 254 1 1490"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute isis" "redistribute isis route-map STEP1-ISIS"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute bgp" "redistribute bgp route-map STEP1-BGP"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute ospf 101" "redistribute ospf 101 metric 16000 160 251 2 1460 route-map STEP1-OSPF-101-UPDATED"
+config="$(show_run)"
+assert_mode_line_in "$config" "$uut_name" ipv4 4453 "topology base" "exit-af-topology" "redistribute ospf 102 route-map STEP1-OSPF-102"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute ospf 102" "redistribute ospf 102 route-map STEP1-OSPF-102"
+remove_topology_expect "$uut_name" ipv4 4453 "no redistribute eigrp 65001" "redistribute eigrp 65001 metric 13000 130 252 1 1470 route-map STEP1-EIGRP-65001"
 remove_topology_expect "$uut_name" ipv4 4453 "no summary-metric 10.44.0.0 255.255.0.0" "summary-metric 10.44.0.0 255.255.0.0 distance 25"
 remove_topology_expect "$uut_name" ipv4 4453 "no timers active-time" "timers active-time 240"
 remove_topology_expect "$uut_name" ipv4 4453 "traffic-share balanced" "no traffic-share balanced"

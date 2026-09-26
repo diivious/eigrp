@@ -99,8 +99,8 @@ static eigrp_route_descriptor_t *eigrp_packetizer_route_select(
 			route = eigrp_list_node_data(eigrp_list_head(successors));
 		if (successors)
 			eigrp_list_delete(&successors);
-	} else if (prefix && prefix->entries) {
-		route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
+	} else if (prefix) {
+		route = eigrp_topology_route_head(prefix);
 	}
 
 	if (!route) {
@@ -375,8 +375,15 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 		if (!(prefix->req_action & action))
 			continue;
 		prefix->req_action &= ~action;
-		if (!prefix->req_action)
+		if (!prefix->req_action) {
 			eigrp_list_delete_data(eigrp->topology_changes, prefix);
+			/* Unreachable paths must remain topology-owned until their
+			 * withdrawal has been encoded for every interface. */
+			if (action == EIGRP_FSM_NEED_UPDATE
+			    && prefix->state == EIGRP_FSM_STATE_PASSIVE)
+				eigrp_update_topology_table_prefix(
+					eigrp, eigrp->topology_table, prefix);
+		}
 	}
 }
 

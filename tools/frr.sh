@@ -494,6 +494,12 @@ case "$action" in
 		fi
 		run_make
 		activate_frr_uut
+		# The staged FRR baseline contains classic AS 4453.  Named IPv4/4453
+		# owns the same {AF, VRF, AS} runtime identity, so run the navigation
+		# gate first; its cleanup removes the classic test instance before the
+		# named-mode gate creates savage/IPv4/4453.
+		"$script_dir/frr-cli-navigation-uut.sh"
+		assert_eigrpd_uut_alive
 		"$script_dir/frr-named-uut.sh"
 		assert_eigrpd_uut_alive
 		stop_eigrpd_uut

@@ -48,6 +48,8 @@ void eigrp_metric_values_convert(const eigrp_metric_values_t *values,
 eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context,
 					   const eigrp_metric_values_t *metric);
 eigrp_result_t eigrp_metric_default_reset(eigrp_instance_context_t *context);
+bool eigrp_metric_default_get(const eigrp_address_family_config_t *af,
+			      eigrp_metric_values_t *metric);
 eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
 					   const eigrp_metric_weights_t *weights);
 eigrp_result_t eigrp_metric_weights_reset(eigrp_instance_context_t *context);

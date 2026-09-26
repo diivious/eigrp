@@ -35,7 +35,11 @@ void eigrp_metric_values_convert(const eigrp_metric_values_t *values,
 	if (!values)
 		return;
 
-	metric->bandwidth = values->bandwidth;
+	/* CLI seed bandwidth is Kbit/s; the route metric stores the classic
+	 * inverse-bandwidth component used by the TLV codecs.  Delay stays in
+	 * the normalized 10-microsecond units consumed by the classic codec.
+	 */
+	metric->bandwidth = eigrp_bandwidth_to_scaled(values->bandwidth);
 	metric->delay = values->delay;
 	metric->reliability = values->reliability;
 	metric->load = values->load;
@@ -241,6 +245,17 @@ eigrp_result_t eigrp_metric_default_reset(eigrp_instance_context_t *context)
 	}
 	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
 				: EIGRP_RESULT_SUCCESS;
+}
+
+bool eigrp_metric_default_get(const eigrp_address_family_config_t *af,
+			      eigrp_metric_values_t *metric)
+{
+	if (!af || !metric || !af->metric_config
+	    || !af->metric_config->default_metric_configured)
+		return false;
+
+	*metric = af->metric_config->default_metric;
+	return true;
 }
 
 /*

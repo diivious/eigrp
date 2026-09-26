@@ -123,7 +123,8 @@ extern int eigrp_cli_named_metric_weights_apply(struct vty *vty,
     const char *tos, const char *k1, const char *k2, const char *k3,
     const char *k4, const char *k5, const char *k6, bool remove);
 extern int eigrp_cli_named_redistribute_apply(struct vty *vty,
-    const char *protocol, uint32_t bandwidth, const char *bandwidth_text,
+    const char *protocol, uint32_t route_instance, uint32_t bandwidth,
+    const char *bandwidth_text,
     uint32_t delay, const char *delay_text, uint8_t reliability,
     const char *reliability_text, uint8_t load, const char *load_text,
     uint32_t mtu, const char *mtu_text, const char *route_map, bool remove);

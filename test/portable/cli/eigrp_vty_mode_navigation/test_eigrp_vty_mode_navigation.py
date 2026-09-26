@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[4]
 CLASSIC = ROOT / "frr" / "eigrp_cli_classic.c"
 NAMED = ROOT / "frr" / "eigrp_cli_named.c"
 VTYSH_PATCH = ROOT / "frr" / "patch" / "vtysh-named-eigrp.patch"
-MULTI_INSTANCE_PATCH = ROOT / "frr" / "patch" / "eigrp-multi-instance.patch"
+YANG_PATCH = ROOT / "frr" / "patch" / "frr-eigrp-yang.patch"
 PATCH_SERIES = ROOT / "frr" / "patch" / "series"
 INSTALLER = ROOT / "tools" / "frr-install.sh"
 ZEBRA = ROOT / "frr" / "eigrp_zebra.c"
@@ -64,17 +64,20 @@ def test_named_mode_checks_do_not_dereference_empty_xpath_stack():
     assert "if (!vty || vty->xpath_index <= 0" in named
 
 
-def test_classic_multi_instance_constraint_is_removed_by_managed_patch():
-    patch = read(MULTI_INSTANCE_PATCH)
-    series = read(PATCH_SERIES).splitlines()
+def test_classic_multi_instance_constraint_is_removed_by_flattened_yang_patch():
+    patch = read(YANG_PATCH)
+    series = [
+        line.strip()
+        for line in read(PATCH_SERIES).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
     installer = read(INSTALLER)
 
     constraint = 'must "count(../instance[vrf =current()/vrf]) = 1";'
     assert f"-      {constraint}" in patch
-    assert "eigrp-multi-instance.patch" in series
-    assert series.index("eigrp-multi-instance.patch") < series.index("eigrp-named-yang.patch")
-    assert "eigrp-multi-instance.patch)" in installer
+    assert series == ["vtysh-named-eigrp.patch", "frr-eigrp-yang.patch"]
     assert constraint in installer
+    assert "eigrp-multi-instance.patch" not in installer
 
 
 def test_zebra_router_id_refresh_covers_all_instances_in_the_vrf():

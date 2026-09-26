@@ -9,11 +9,16 @@
 #include <string.h>
 
 #include "eigrp_redistribute.h"
-#include "eigrp_sys.h"
 #include "eigrp_rib.h"
 
+eigrp_result_t eigrp_topology_redistributed_route_update(
+	eigrp_instance_t *eigrp, const eigrp_rib_source_route_t *source_route,
+	const eigrp_metrics_t *metric);
+eigrp_result_t eigrp_topology_redistributed_route_remove(
+	eigrp_instance_t *eigrp, const eigrp_rib_source_route_t *source_route);
+
 struct eigrp_redistribute_config {
-	char *protocol;
+	eigrp_redistribute_source_t source;
 	bool metric_configured;
 	eigrp_metric_values_t metric;
 	char *route_map;
@@ -24,6 +29,13 @@ struct eigrp_redistribute_policy_config {
 	bool maximum_prefix_configured;
 	eigrp_prefix_limit_t maximum_prefix;
 };
+
+typedef enum eigrp_redistribute_metric_origin {
+	EIGRP_REDISTRIBUTE_METRIC_NONE = 0,
+	EIGRP_REDISTRIBUTE_METRIC_EXPLICIT,
+	EIGRP_REDISTRIBUTE_METRIC_SOURCE_EIGRP,
+	EIGRP_REDISTRIBUTE_METRIC_DEFAULT,
+} eigrp_redistribute_metric_origin_t;
 
 static char *eigrp_redistribute_string_duplicate(const char *value)
 {
@@ -40,11 +52,29 @@ static char *eigrp_redistribute_string_duplicate(const char *value)
 	return copy;
 }
 
+static bool eigrp_redistribute_source_valid(
+	const eigrp_redistribute_source_t *source)
+{
+	if (!source)
+		return false;
+	return source->protocol > EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED
+	       && source->protocol <= EIGRP_REDISTRIBUTE_PROTOCOL_EIGRP;
+}
+
+static bool eigrp_redistribute_source_equal(
+	const eigrp_redistribute_source_t *left,
+	const eigrp_redistribute_source_t *right)
+{
+	return left && right && left->protocol == right->protocol
+	       && left->route_instance == right->route_instance;
+}
+
 static eigrp_result_t eigrp_redistribute_validate(
-	eigrp_instance_context_t *context, const char *protocol,
+	eigrp_instance_context_t *context,
+	const eigrp_redistribute_source_t *source,
 	const eigrp_metric_values_t *metric, const char *route_map)
 {
-	if (!protocol || !protocol[0])
+	if (!eigrp_redistribute_source_valid(source))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (metric && (!metric->bandwidth || !metric->load || !metric->mtu))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -56,16 +86,16 @@ static eigrp_result_t eigrp_redistribute_validate(
 }
 
 static eigrp_redistribute_config_t *eigrp_redistribute_config_find(
-	eigrp_address_family_config_t *af, const char *protocol)
+	eigrp_address_family_config_t *af,
+	const eigrp_redistribute_source_t *source)
 {
 	eigrp_redistribute_config_t *config;
 
-	if (!af || !protocol)
+	if (!af || !source)
 		return NULL;
-	for (config = af->redistributions; config; config = config->next) {
-		if (strcmp(config->protocol, protocol) == 0)
+	for (config = af->redistributions; config; config = config->next)
+		if (eigrp_redistribute_source_equal(&config->source, source))
 			return config;
-	}
 	return NULL;
 }
 
@@ -75,33 +105,58 @@ static bool eigrp_redistribute_runtime_result_committable(eigrp_result_t result)
 	       || result == EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
+static bool eigrp_redistribute_native_vector_usable(
+	const eigrp_rib_source_route_t *route)
+{
+	return route && route->source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_EIGRP
+	       && route->eigrp_vector_present && route->eigrp_vector.bandwidth != 0;
+}
+
+static eigrp_redistribute_metric_origin_t eigrp_redistribute_metric_select(
+	const eigrp_address_family_config_t *af,
+	const eigrp_redistribute_config_t *config,
+	const eigrp_rib_source_route_t *route, eigrp_metrics_t *metric)
+{
+	eigrp_metric_values_t values;
+
+	if (!metric)
+		return EIGRP_REDISTRIBUTE_METRIC_NONE;
+	memset(metric, 0, sizeof(*metric));
+	if (!config || !route)
+		return EIGRP_REDISTRIBUTE_METRIC_NONE;
+
+	if (config->metric_configured) {
+		eigrp_metric_values_convert(&config->metric, metric);
+		return EIGRP_REDISTRIBUTE_METRIC_EXPLICIT;
+	}
+	if (eigrp_redistribute_native_vector_usable(route)) {
+		*metric = route->eigrp_vector;
+		return EIGRP_REDISTRIBUTE_METRIC_SOURCE_EIGRP;
+	}
+	if (eigrp_metric_default_get(af, &values)) {
+		eigrp_metric_values_convert(&values, metric);
+		return EIGRP_REDISTRIBUTE_METRIC_DEFAULT;
+	}
+	return EIGRP_REDISTRIBUTE_METRIC_NONE;
+}
+
 /*
- * Syntax:
- *   Classic: `redistribute PROTOCOL [metric ...] [route-map NAME]` / `no redistribute PROTOCOL`
- *   Named: same syntax under topology base
- * Supported: Classic / Named (separate public endpoints)
- * Placement:
- *   Classic: router mode through FRR classic redistribution callback
- *   Named: topology base mode through this EIGRP target
- * Description:
- * Creates, updates, or removes portable named-mode redistribution state and invokes the southbound subscription boundary.
- * The current Zebra receive/topology/route-map path is incomplete, so a live named update can report NOT_IMPLEMENTED after establishing the correct subscription.
+ * Named redistribution owns retained configuration.  Host subscription state
+ * is keyed only by the exact EIGRP-owned {protocol, route-instance} source.
  */
-eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
-					 const char *protocol,
-					 const eigrp_metric_values_t *metric,
-					 const char *route_map)
+eigrp_result_t eigrp_redistribute_add(
+	eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source,
+	const eigrp_metric_values_t *metric, const char *route_map)
 {
 	eigrp_redistribute_config_t *config = NULL;
 	eigrp_redistribute_config_t *new_config = NULL;
 	char *new_route_map = NULL;
 	eigrp_result_t result;
 
-	result = eigrp_redistribute_validate(context, protocol, metric, route_map);
+	result = eigrp_redistribute_validate(context, source, metric, route_map);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 
-	/* Allocate all retained configuration before changing runtime state. */
 	if (route_map) {
 		new_route_map = eigrp_redistribute_string_duplicate(route_map);
 		if (!new_route_map)
@@ -109,20 +164,14 @@ eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
 	}
 
 	if (context->config) {
-		config = eigrp_redistribute_config_find(context->config, protocol);
+		config = eigrp_redistribute_config_find(context->config, source);
 		if (!config) {
 			new_config = calloc(1, sizeof(*new_config));
 			if (!new_config) {
 				free(new_route_map);
 				return EIGRP_RESULT_INTERNAL_FAILURE;
 			}
-			new_config->protocol =
-				eigrp_redistribute_string_duplicate(protocol);
-			if (!new_config->protocol) {
-				free(new_route_map);
-				free(new_config);
-				return EIGRP_RESULT_INTERNAL_FAILURE;
-			}
+			new_config->source = *source;
 			new_config->route_map = new_route_map;
 			new_route_map = NULL;
 			new_config->metric_configured = metric != NULL;
@@ -135,13 +184,11 @@ eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
 	if (context->runtime && !eigrp_instance_data_path_ready(context->runtime))
 		result = EIGRP_RESULT_NOT_IMPLEMENTED;
 	else if (context->runtime)
-		result = eigrp_rib_redistribute_add(
-			context->runtime, protocol, metric, route_map);
+		result = eigrp_rib_redistribute_add(context->runtime, source);
 	if (!eigrp_redistribute_runtime_result_committable(result)) {
 		free(new_route_map);
 		if (new_config) {
 			free(new_config->route_map);
-			free(new_config->protocol);
 			free(new_config);
 		}
 		return result;
@@ -167,26 +214,14 @@ eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
 	return result;
 }
 
-/*
- * Syntax:
- *   Classic: `redistribute PROTOCOL [metric ...] [route-map NAME]` / `no redistribute PROTOCOL`
- *   Named: same syntax under topology base
- * Supported: Classic / Named (separate public endpoints)
- * Placement:
- *   Classic: router mode through FRR classic redistribution callback
- *   Named: topology base mode through this EIGRP target
- * Description:
- * Creates, updates, or removes portable named-mode redistribution state and invokes the southbound subscription boundary.
- * The current Zebra receive/topology/route-map path is incomplete, so a live named update can report NOT_IMPLEMENTED after establishing the correct subscription.
- */
-eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
-					 const char *protocol)
+eigrp_result_t eigrp_redistribute_remove(
+	eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source)
 {
 	eigrp_redistribute_config_t **cursor = NULL;
 	eigrp_redistribute_config_t *config = NULL;
 	eigrp_result_t result = EIGRP_RESULT_NOT_FOUND;
 
-	if (!protocol || !protocol[0])
+	if (!eigrp_redistribute_source_valid(source))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -194,15 +229,11 @@ eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
 	if (context->config) {
 		for (cursor = &context->config->redistributions; *cursor;
 		     cursor = &(*cursor)->next) {
-			if (strcmp((*cursor)->protocol, protocol) == 0) {
+			if (eigrp_redistribute_source_equal(&(*cursor)->source, source)) {
 				config = *cursor;
 				break;
 			}
 		}
-		/* Named retained state owns whether this command has a host
-		 * subscription to remove.  Do not tear down a subscription that may
-		 * belong to the unchanged classic surface.
-		 */
 		if (!config)
 			return EIGRP_RESULT_NOT_FOUND;
 	}
@@ -210,8 +241,7 @@ eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
 	if (context->runtime) {
 		result = !eigrp_instance_data_path_ready(context->runtime)
 			 ? EIGRP_RESULT_NOT_IMPLEMENTED
-			 : eigrp_rib_redistribute_remove(context->runtime,
-							       protocol);
+			 : eigrp_rib_redistribute_remove(context->runtime, source);
 		if (result != EIGRP_RESULT_SUCCESS
 		    && result != EIGRP_RESULT_NOT_FOUND
 		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
@@ -221,15 +251,54 @@ eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
 	if (config) {
 		*cursor = config->next;
 		free(config->route_map);
-		free(config->protocol);
 		free(config);
-		if (result == EIGRP_RESULT_NOT_FOUND)
-			result = EIGRP_RESULT_SUCCESS;
-		else if (!context->runtime)
+		if (result == EIGRP_RESULT_NOT_FOUND || !context->runtime)
 			result = EIGRP_RESULT_SUCCESS;
 	}
-
 	return result;
+}
+
+static eigrp_result_t eigrp_redistribute_source_route_receive(
+	eigrp_instance_t *runtime, const eigrp_rib_source_route_t *route,
+	bool importing)
+{
+	eigrp_address_family_config_t *af;
+	eigrp_redistribute_config_t *config;
+	eigrp_metrics_t metric;
+
+	if (!runtime || !route || !eigrp_redistribute_source_valid(&route->source))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_instance_data_path_ready(runtime))
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	af = eigrp_instance_runtime_config(runtime);
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+	config = eigrp_redistribute_config_find(af, &route->source);
+	if (!config)
+		return EIGRP_RESULT_SUCCESS;
+
+	if (!importing)
+		return eigrp_topology_redistributed_route_remove(runtime, route);
+
+	if (importing && config->route_map)
+		return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (eigrp_redistribute_metric_select(af, config, route, &metric)
+	    == EIGRP_REDISTRIBUTE_METRIC_NONE)
+		return EIGRP_RESULT_SUCCESS;
+	return eigrp_topology_redistributed_route_update(runtime, route, &metric);
+}
+
+/* Zebra uses ADD for both first appearance and changed route snapshots. */
+eigrp_result_t eigrp_rib_source_route_add(
+	eigrp_instance_t *runtime, const eigrp_rib_source_route_t *route)
+{
+	return eigrp_redistribute_source_route_receive(runtime, route, true);
+}
+
+eigrp_result_t eigrp_rib_source_route_remove(
+	eigrp_instance_t *runtime, const eigrp_rib_source_route_t *route)
+{
+	return eigrp_redistribute_source_route_receive(runtime, route, false);
 }
 
 void eigrp_redistribute_config_delete_all(eigrp_address_family_config_t *af)
@@ -242,11 +311,11 @@ void eigrp_redistribute_config_delete_all(eigrp_address_family_config_t *af)
 	for (config = af->redistributions; config; config = next) {
 		next = config->next;
 		free(config->route_map);
-		free(config->protocol);
 		free(config);
 	}
 	af->redistributions = NULL;
 }
+
 
 
 /*

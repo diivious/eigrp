@@ -859,6 +859,14 @@ void eigrp_debug_packet_send(eigrp_interface_t *ei,
 		return;
 
 	ifname = eigrp_intf_name_string(ei);
+	if (send_result < 0) {
+		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: Send failed for %s on %s: result %d",
+			  eigrp_debug_packet_category_name(category), ifname,
+			  send_result);
+		if (state & EIGRP_DEBUG_PACKET_DETAIL)
+			eigrp_debug_packet_detail_dump(header, packet->length);
+		return;
+	}
 	if (packet->nbr)
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: Sending %s on %s nbr %s",
 			   eigrp_debug_packet_category_name(category), ifname,

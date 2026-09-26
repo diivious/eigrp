@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[4]
 CLI = ROOT / "frr" / "eigrp_cli_named.c"
 CLASSIC_CLI = ROOT / "frr" / "eigrp_cli_classic.c"
 SPEC = ROOT / "specs" / "design-spec.md"
+YANG_PATCH = ROOT / "frr" / "patch" / "frr-eigrp-yang.patch"
 
 
 def read(path: Path) -> str:
@@ -128,7 +129,7 @@ def test_named_mode_uses_real_yang_parent_and_address_family_paths():
 
 
 def test_named_mode_yang_patch_defines_parent_and_af_keys():
-    patch = read(ROOT / "frr" / "patch" / "eigrp-named-yang.patch")
+    patch = read(YANG_PATCH)
     assert 'list named {' in patch
     assert 'key "name";' in patch
     assert 'list address-family {' in patch
@@ -136,7 +137,7 @@ def test_named_mode_yang_patch_defines_parent_and_af_keys():
 
 
 def test_named_af_config_yang_patch_defines_retained_af_children():
-    patch = read(ROOT / "frr" / "patch" / "eigrp-named-af-config.patch")
+    patch = read(YANG_PATCH)
     assert 'leaf router-id {' in patch
     assert 'leaf-list network {' in patch
     assert 'list neighbor {' in patch
@@ -145,7 +146,7 @@ def test_named_af_config_yang_patch_defines_retained_af_children():
 
 
 def test_named_yang_patch_updates_authoritative_schema_only():
-    patch = read(ROOT / "frr" / "patch" / "eigrp-named-yang.patch")
+    patch = read(YANG_PATCH)
 
     assert "diff --git a/yang/frr-eigrpd.yang b/yang/frr-eigrpd.yang" in patch
     assert "diff --git a/yang/frr-eigrpd.yang.c b/yang/frr-eigrpd.yang.c" not in patch
@@ -208,16 +209,21 @@ def test_aggregate_frr_uut_uses_same_stale_daemon_preflight():
 
 def test_frr_installer_prefers_already_applied_patch_state_and_leaves_generated_files_to_build():
     installer = read(ROOT / "tools" / "frr-install.sh")
-    patch_state = installer[installer.index("patch_state() {"):installer.index("\ninstall_patch_file() {", installer.index("patch_state() {"))]
+    patch_state = installer[
+        installer.index("patch_state() {") : installer.index(
+            "\ninstall_patch_file() {", installer.index("patch_state() {")
+        )
+    ]
 
     assert patch_state.index("apply --reverse --check") < patch_state.index("apply --check")
+    assert "patch_semantically_applied" not in installer
     assert "--exclude '*_clippy.c'" in installer
     assert "invalidate_eigrp_yang_embed" in installer
     assert 'rm -f "$yang_embed"' in installer
     assert "refresh_eigrp_yang_embed" not in installer
     assert 'python3 "$embed_tool"' not in installer
-    assert "repair: remove one duplicate managed EIGRP named YANG schema block" in installer
-
+    assert "repair: remove one duplicate managed EIGRP named YANG schema block" not in installer
+    assert "partial schema state is source drift" in installer
 
 def test_named_af_children_use_semantic_core_targets_and_writeback():
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
@@ -253,19 +259,49 @@ def test_named_af_children_use_semantic_core_targets_and_writeback():
     assert 'nb_cli_enqueue_change(vty, "./shutdown", NB_OP_CREATE, NULL);' in cli
 
 
-def test_frr_patch_series_orders_named_schema_before_af_children():
+def test_frr_patch_series_contains_only_flattened_patch_files():
+    patch_dir = ROOT / "frr" / "patch"
     series = [
         line.strip()
-        for line in read(ROOT / "frr" / "patch" / "series").splitlines()
+        for line in read(patch_dir / "series").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    assert series.index("eigrp-named-yang.patch") < series.index("eigrp-named-af-config.patch")
+
+    assert series == ["vtysh-named-eigrp.patch", "frr-eigrp-yang.patch"]
+    assert sorted(path.name for path in patch_dir.glob("*.patch")) == sorted(series)
+
+
+def test_frr_patch_targets_do_not_overlap():
+    patch_dir = ROOT / "frr" / "patch"
+    series = [
+        line.strip()
+        for line in read(patch_dir / "series").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    owners = {}
+    for patch_name in series:
+        for line in read(patch_dir / patch_name).splitlines():
+            if not line.startswith("diff --git a/"):
+                continue
+            target = line.split()[2][2:]
+            assert target not in owners, (
+                f"{target} is modified by multiple managed patches"
+            )
+            owners[target] = patch_name
+
+    assert owners == {
+        "vtysh/vtysh.c": "vtysh-named-eigrp.patch",
+        "yang/frr-eigrpd.yang": "frr-eigrp-yang.patch",
+    }
+
+
+def test_frr_patch_series_remains_installer_order_source():
     installer = read(ROOT / "tools" / "frr-install.sh")
     assert 'series_file="$frr_patch_src/series"' in installer
 
 
 def test_named_af_interface_schema_and_semantic_targets_are_real():
-    patch = read(ROOT / "frr" / "patch" / "eigrp-named-af-interface.patch")
+    patch = read(YANG_PATCH)
     cli = read(CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     interface = read(ROOT / "eigrpd" / "eigrp_interface.h")
@@ -334,17 +370,6 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
     assert '"summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
 
 
-def test_frr_patch_series_orders_af_interface_after_named_af_config():
-    series = [
-        line.strip()
-        for line in read(ROOT / "frr" / "patch" / "series").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-    assert series.index("eigrp-named-af-config.patch") < series.index(
-        "eigrp-named-af-interface.patch"
-    )
-
-
 def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api():
     cli = read(CLI)
     header = read(ROOT / "frr" / "eigrp_cli_named.h")
@@ -380,7 +405,7 @@ def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api(
 
 
 def test_named_topology_schema_and_stage1_commands_are_retained():
-    patch = read(ROOT / "frr" / "patch" / "eigrp-named-topology.patch")
+    patch = read(YANG_PATCH)
     cli = read(CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
     init = function_body(cli, "eigrp_cli_named_init")
@@ -423,6 +448,7 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
         "eigrp_offset_list_cmd",
         "no_eigrp_offset_list_cmd",
         "eigrp_redistribute_source_metric_cmd",
+        "eigrp_named_redistribute_eigrp_cmd",
         "eigrp_summary_metric_cmd",
         "no_eigrp_summary_metric_cmd",
         "eigrp_timers_active_cmd",
@@ -435,8 +461,10 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     ):
         assert f"install_element(EIGRP_NODE, &{cmd});" in all_init
 
-    # Identical classic/named grammars are installed once by the classic parser
-    # object and dispatch named semantics through helpers in eigrp_cli_named.c.
+    # The shared classic/named parser carries the optional FRR route-instance
+    # token and dispatches named semantics through the named helper. EIGRP is
+    # the one dedicated named parser because FRR's generic redistribution
+    # macro excludes the daemon's own protocol.
     for helper in (
         "eigrp_cli_named_active_time_apply",
         "eigrp_cli_named_variance_apply",
@@ -472,6 +500,7 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
     assert '"./maximum-prefix", true, false' in cli
     assert '"./offset-list[access-list=' in cli
     assert '"./redistribute[protocol=' in cli
+    assert "[route-instance='%u']" in cli
     assert '"./summary-metric[prefix=' in cli
     assert '"./traffic-share-balanced", NB_OP_MODIFY' in cli
     assert 'nb_cli_enqueue_change(vty, "./metric-weights", NB_OP_CREATE, NULL);' in cli
@@ -503,20 +532,9 @@ def test_named_topology_uses_generic_portable_lifecycle_api():
     assert "eigrp_network_runtime_delete_all(eigrp);" in eigrpd_c
 
 
-def test_frr_patch_series_orders_topology_after_named_af_interface():
-    series = [
-        line.strip()
-        for line in read(ROOT / "frr" / "patch" / "series").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-    assert series.index("eigrp-named-af-interface.patch") < series.index(
-        "eigrp-named-topology.patch"
-    )
-
-
 def test_named_topology_callbacks_match_compound_yang_shape():
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
-    patch = read(ROOT / "frr" / "patch" / "eigrp-named-topology-callbacks.patch")
+    patch = read(YANG_PATCH)
 
     # Compound CLI commands are represented by presence containers/lists whose
     # required value leaves are mandatory.  FRR therefore requires modify
@@ -573,36 +591,63 @@ def test_named_topology_callbacks_match_compound_yang_shape():
     assert "eigrpd_named_af_interface_split_horizon_destroy" not in nb
 
 
-def test_final_yang_patch_and_patch_detection_are_semantic():
+def test_flattened_yang_patch_and_patch_detection_are_strict():
     series = [
         line.strip()
         for line in read(ROOT / "frr" / "patch" / "series").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    assert series[-2:] == ["frr-eigrp-yang.patch", "eigrp-named-ipv6.patch"]
-    assert "eigrp-grammar-placement.patch" not in series
+    assert series == ["vtysh-named-eigrp.patch", "frr-eigrp-yang.patch"]
 
-    patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
+    patch = read(YANG_PATCH)
+    assert '-      must "count(../instance[vrf =current()/vrf]) = 1";' in patch
+    assert "EIGRP named-mode configuration." in patch
+    assert "Named-mode address-family interface configuration." in patch
+    assert "Named-mode base topology configuration." in patch
+    assert "EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY" in patch
+    assert "EIGRP_STEP1_CONFIG_COMPLETE" in patch
     assert "Address-family metric weights: TOS, K1 through K5, and optional RFC 7868 K6" in patch
+    assert 'description "IPv4 or IPv6 summary prefix";' in patch
+    assert 'typedef eigrp-redistribution-protocol {' in patch
+    assert 'typedef eigrp-redistribution-route-instance {' in patch
+    assert 'key "protocol route-instance";' in patch
+    assert 'type eigrp-redistribution-protocol;' in patch
+    assert 'type eigrp-redistribution-route-instance;' in patch
+    for protocol in ("connected", "static", "rip", "ospf", "isis", "bgp", "eigrp"):
+        assert f"enum {protocol};" in patch
+    assert "must \"../protocol != 'eigrp' or . != 0\" {" in patch
+    assert "must \"../protocol = 'eigrp' or ../protocol = 'ospf' or . = 0\" {" in patch
+    assert "A BGP ASN or IS-IS area tag is a protocol" in patch
     assert "+    container metric-weights {" in patch
-    assert "-      container metric-weights {" in patch
     assert "+      leaf K6 { type uint8; }" in patch
-    assert "+        leaf dampened { type empty; }" not in patch.split("container neighbor-maximum-prefix", 1)[0]
+    assert "+        leaf dampened { type empty; }" not in patch.split(
+        "container neighbor-maximum-prefix", 1
+    )[0]
 
     installer = read(ROOT / "tools" / "frr-install.sh")
-    assert "patch_semantically_applied()" in installer
-    assert "eigrp-named-topology-callbacks.patch)" in installer
-    assert "EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY" in installer
-    assert "frr-eigrp-yang.patch)" in installer
-    assert "EIGRP_STEP1_CONFIG_COMPLETE" in installer
-    assert "eigrp-named-ipv6.patch)" in installer
-    assert 'description "IPv4 or IPv6 summary prefix";' in installer
-    assert "eigrp-grammar-placement.patch)" not in installer
+    assert "patch_semantically_applied" not in installer
     assert "eigrp_grammar_schema_current" in installer
-
+    assert "EIGRP_STEP1_TOPOLOGY_COMPOUND_MANDATORY" in installer
+    assert "EIGRP_STEP1_CONFIG_COMPLETE" in installer
+    assert 'description "IPv4 or IPv6 summary prefix";' in installer
+    assert 'key "protocol route-instance";' in installer
+    assert 'typedef eigrp-redistribution-protocol {' in installer
+    assert 'typedef eigrp-redistribution-route-instance {' in installer
+    assert "A BGP ASN or IS-IS area tag is a protocol" in installer
+    for obsolete in (
+        "eigrp-multi-instance.patch",
+        "eigrp-named-yang.patch",
+        "eigrp-named-af-config.patch",
+        "eigrp-named-af-interface.patch",
+        "eigrp-named-topology.patch",
+        "eigrp-named-topology-callbacks.patch",
+        "eigrp-named-ipv6.patch",
+        "eigrp-redistribute-source-instance.patch",
+    ):
+        assert obsolete not in installer
 
 def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
-    patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
+    patch = read(YANG_PATCH)
     cli = read(CLI)
     cli_surface = cli + "\n" + read(CLASSIC_CLI)
     nb = read(ROOT / "frr" / "eigrp_northbound.c")
@@ -610,7 +655,7 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
     uut = read(ROOT / "tools" / "frr-named-uut.sh")
 
     assert "EIGRP_STEP1_CONFIG_COMPLETE" in patch
-    assert "Named mode covers the complete applicable classic EIGRP protocol feature set" in spec
+    assert "classic fronts that represent the same operation share one EIGRP target" in spec
     assert "Every supported configuration feature implements its applicable `no` form" in spec
 
     command_pairs = (
@@ -695,6 +740,16 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
         "distribute-list STEP1-ACL-IN in",
         "offset-list EIGRP-UUT in 100 $uut_if",
         "redistribute connected metric 10000 100 255 1 1500 route-map STEP1-RM",
+        "redistribute static route-map STEP1-STATIC",
+        "redistribute rip metric 11000 110 254 1 1490",
+        "redistribute isis route-map STEP1-ISIS",
+        "redistribute bgp route-map STEP1-BGP",
+        "redistribute ospf 101 metric 12000 120 253 1 1480 route-map STEP1-OSPF-101",
+        "redistribute ospf 102 route-map STEP1-OSPF-102",
+        "redistribute eigrp 65001 metric 13000 130 252 1 1470 route-map STEP1-EIGRP-65001",
+        "no redistribute ospf 101",
+        "no redistribute ospf 102",
+        "no redistribute eigrp 65001",
         "redistribute maximum-prefix 300 70 dampened",
         "summary-metric 10.44.0.0 255.255.0.0 10000 100 255 1 1500 distance 20",
     ):
@@ -705,13 +760,16 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
 def test_named_cli_grammar_matches_cisco_documented_forms():
     cli = read(CLI)
     classic = read(CLASSIC_CLI)
-    patch = read(ROOT / "frr" / "patch" / "frr-eigrp-yang.patch")
+    patch = read(YANG_PATCH)
 
     assert '"neighbor <A.B.C.D|X:X::X:X> maximum-prefix (1-4294967295) [(1-100)] [warning-only]"' in cli
     assert "neighbor-policy/maximum-prefix/dampened" not in read(ROOT / "frr" / "eigrp_northbound.c")
     assert '"authentication mode <md5|hmac-sha-256 <0|7> WORD>"' in cli
     assert '"summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
     assert 'when "../administrative-distance";' in patch
+    assert '"$proto [(1-65535)$route_instance] [metric ' in classic
+    assert '"[no] redistribute eigrp (1-65535)$route_instance ' in cli
+    assert '"./redistribute[protocol=\'%s\'][route-instance=\'%u\']"' in cli
 
     for grammar in (
         '"no neighbor <A.B.C.D|X:X::X:X> maximum-prefix"',

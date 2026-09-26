@@ -1076,7 +1076,7 @@ DEFUN_CMD_FUNC_TEXT(eigrp_no_distribute_list_prefix)
 	return eigrp_no_distribute_list_prefix_magic(self, vty, argc, argv, name, dir, ifname);
 }
 
-/* eigrp_redistribute_source_metric => "[no] redistribute <kernel|connected|local|static|rip|ospf|isis|bgp|nhrp|vnc|babel|openfabric>$proto [metric (1-4294967295)$bw (0-4294967295)$delay (0-255)$rlbt (1-255)$load (1-65535)$mtu] [route-map WORD$route_map]" */
+/* eigrp_redistribute_source_metric => "[no] redistribute <kernel|connected|local|static|rip|ospf|isis|bgp|nhrp|vnc|babel|openfabric>$proto [(1-65535)$route_instance] [metric (1-4294967295)$bw (0-4294967295)$delay (0-255)$rlbt (1-255)$load (1-65535)$mtu] [route-map WORD$route_map]" */
 DEFUN_CMD_FUNC_DECL(eigrp_redistribute_source_metric)
 #define funcdecl_eigrp_redistribute_source_metric static int eigrp_redistribute_source_metric_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -1085,6 +1085,8 @@ DEFUN_CMD_FUNC_DECL(eigrp_redistribute_source_metric)
 	struct cmd_token *argv[] __attribute__ ((unused)),\
 	const char * no,\
 	const char * proto,\
+	int64_t route_instance,\
+	const char * route_instance_str __attribute__ ((unused)),\
 	int64_t bw,\
 	const char * bw_str __attribute__ ((unused)),\
 	int64_t delay,\
@@ -1099,13 +1101,15 @@ DEFUN_CMD_FUNC_DECL(eigrp_redistribute_source_metric)
 funcdecl_eigrp_redistribute_source_metric;
 DEFUN_CMD_FUNC_TEXT(eigrp_redistribute_source_metric)
 {
-#if 8 /* anything to parse? */
+#if 9 /* anything to parse? */
 	int _i;
 #if 1 /* anything that can fail? */
 	unsigned _fail = 0, _failcnt = 0;
 #endif
 	const char *no = NULL;
 	const char *proto = NULL;
+	int64_t route_instance = 0;
+	const char *route_instance_str = NULL;
 	int64_t bw = 0;
 	const char *bw_str = NULL;
 	int64_t delay = 0;
@@ -1130,6 +1134,12 @@ DEFUN_CMD_FUNC_TEXT(eigrp_redistribute_source_metric)
 		}
 		if (!strcmp(argv[_i]->varname, "proto")) {
 			proto = (argv[_i]->type == WORD_TKN) ? argv[_i]->text : argv[_i]->arg;
+		}
+		if (!strcmp(argv[_i]->varname, "route_instance")) {
+			route_instance_str = argv[_i]->arg;
+			char *_end;
+			route_instance = strtoll(argv[_i]->arg, &_end, 10);
+			_fail = (_end == argv[_i]->arg) || (*_end != '\0');
 		}
 		if (!strcmp(argv[_i]->varname, "bw")) {
 			bw_str = argv[_i]->arg;
@@ -1181,7 +1191,7 @@ DEFUN_CMD_FUNC_TEXT(eigrp_redistribute_source_metric)
 		return CMD_WARNING;
 	}
 
-	return eigrp_redistribute_source_metric_magic(self, vty, argc, argv, no, proto, bw, bw_str, delay, delay_str, rlbt, rlbt_str, load, load_str, mtu, mtu_str, route_map);
+	return eigrp_redistribute_source_metric_magic(self, vty, argc, argv, no, proto, route_instance, route_instance_str, bw, bw_str, delay, delay_str, rlbt, rlbt_str, load, load_str, mtu, mtu_str, route_map);
 }
 
 /* eigrp_if_delay => "delay (1-16777215)$delay" */

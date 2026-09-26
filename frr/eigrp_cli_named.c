@@ -443,9 +443,12 @@ void eigrp_cli_named_show_redistribute(struct vty *vty,
 				       bool show_defaults)
 {
 	const char *protocol = yang_dnode_get_string(dnode, "protocol");
+	uint16_t route_instance = yang_dnode_get_uint16(dnode, "route-instance");
 
 	(void)show_defaults;
 	vty_out(vty, "   redistribute %s", protocol);
+	if (route_instance)
+		vty_out(vty, " %u", route_instance);
 	if (yang_dnode_exists(dnode, "metrics"))
 		vty_out(vty, " metric %u %u %u %u %u",
 			yang_dnode_get_uint32(dnode, "metrics/bandwidth"),
@@ -3563,7 +3566,8 @@ int eigrp_cli_named_metric_weights_apply(struct vty *vty,
 }
 
 /*
- * Syntax: `redistribute PROTOCOL [metric ...] [route-map NAME]` / `no redistribute PROTOCOL`
+ * Syntax: `redistribute PROTOCOL [ROUTE-INSTANCE] [metric ...] [route-map NAME]`
+ *         / `no redistribute PROTOCOL [ROUTE-INSTANCE]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
  * Target: eigrp_redistribute_add() / eigrp_redistribute_remove()
@@ -3571,6 +3575,7 @@ int eigrp_cli_named_metric_weights_apply(struct vty *vty,
  */
 int eigrp_cli_named_redistribute_apply(struct vty *vty,
                                        const char *protocol,
+                                       uint32_t route_instance,
                                        uint32_t bandwidth,
                                        const char *bandwidth_text,
                                        uint32_t delay,
@@ -3586,10 +3591,31 @@ int eigrp_cli_named_redistribute_apply(struct vty *vty,
 {
     char xpath[XPATH_MAXLEN];
     char child[XPATH_MAXLEN + 64];
+    bool route_instance_valid = false;
 
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
-    snprintf(xpath, sizeof(xpath), "./redistribute[protocol='%s']", protocol);
+
+    if (protocol && strcmp(protocol, "eigrp") == 0)
+        route_instance_valid = route_instance > 0 && route_instance <= UINT16_MAX;
+    else if (protocol && strcmp(protocol, "ospf") == 0)
+        route_instance_valid = route_instance <= UINT16_MAX;
+    else if (protocol
+             && (strcmp(protocol, "connected") == 0
+                 || strcmp(protocol, "static") == 0
+                 || strcmp(protocol, "rip") == 0
+                 || strcmp(protocol, "isis") == 0
+                 || strcmp(protocol, "bgp") == 0))
+        route_instance_valid = route_instance == 0;
+
+    if (!route_instance_valid) {
+        vty_out(vty, "%% Unsupported EIGRP redistribution source identity\n");
+        return CMD_WARNING_CONFIG_FAILED;
+    }
+
+    snprintf(xpath, sizeof(xpath),
+             "./redistribute[protocol='%s'][route-instance='%u']",
+             protocol, route_instance);
     if (remove) {
         nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
         return nb_cli_apply_changes(vty, NULL);
@@ -3597,7 +3623,7 @@ int eigrp_cli_named_redistribute_apply(struct vty *vty,
 
     nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
     snprintf(child, sizeof(child), "%s/metrics", xpath);
-    if (bandwidth == 0 || delay == 0 || reliability == 0 || load == 0 || mtu == 0) {
+    if (!bandwidth_text || !delay_text || !reliability_text || !load_text || !mtu_text) {
         nb_cli_enqueue_change(vty, child, NB_OP_DESTROY, NULL);
     } else {
         nb_cli_enqueue_change(vty, child, NB_OP_CREATE, NULL);
@@ -4288,7 +4314,48 @@ static struct in_addr ipv4_addr;
 static const char *ipv4_addr_str = NULL;
 static struct in6_addr ipv6_addr;
 static const char *ipv6_addr_str = NULL;
+static int64_t route_instance = 0;
+static int64_t bw = 0;
+static const char *bw_str = NULL;
+static int64_t delay = 0;
+static const char *delay_str = NULL;
+static int64_t rlbt = 0;
+static const char *rlbt_str = NULL;
+static int64_t load = 0;
+static const char *load_str = NULL;
+static int64_t mtu = 0;
+static const char *mtu_str = NULL;
+static const char *route_map = NULL;
+static const char *no = NULL;
 #endif
+
+/*
+ * Syntax: `[no] redistribute eigrp AS [metric ...] [route-map NAME]`
+ * Mode: Named topology
+ * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
+ * Target: eigrp_redistribute_add() / eigrp_redistribute_remove()
+ */
+DEFPY(eigrp_named_redistribute_eigrp,
+      eigrp_named_redistribute_eigrp_cmd,
+      "[no] redistribute eigrp (1-65535)$route_instance [metric (1-4294967295)$bw (0-4294967295)$delay (0-255)$rlbt (1-255)$load (1-65535)$mtu] [route-map WORD$route_map]",
+      NO_STR
+      REDIST_STR
+      "Enhanced Interior Gateway Routing Protocol (EIGRP)\n"
+      "Source EIGRP autonomous system\n"
+      "Metric for redistributed routes\n"
+      "Bandwidth metric in Kbits per second\n"
+      "EIGRP delay metric, in 10 microsecond units\n"
+      "EIGRP reliability metric where 255 is 100% reliable\n"
+      "EIGRP effective bandwidth metric where 255 is 100% loaded\n"
+      "EIGRP MTU of the path\n"
+      "Route-map\n"
+      "Route-map name\n")
+{
+    return eigrp_cli_named_redistribute_apply(
+        vty, "eigrp", route_instance, bw, bw_str, delay, delay_str, rlbt,
+        rlbt_str, load, load_str, mtu, mtu_str, route_map, no);
+}
+
 
 /*
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail`
@@ -5379,6 +5446,7 @@ void eigrp_cli_named_init(void)
     install_element(EIGRP_NODE, &no_eigrp_event_log_size_cmd);
     install_element(EIGRP_NODE, &eigrp_offset_list_cmd);
     install_element(EIGRP_NODE, &no_eigrp_offset_list_cmd);
+    install_element(EIGRP_NODE, &eigrp_named_redistribute_eigrp_cmd);
     install_element(EIGRP_NODE, &eigrp_redistribute_maximum_prefix_cmd);
     install_element(EIGRP_NODE, &no_eigrp_redistribute_maximum_prefix_cmd);
     install_element(EIGRP_NODE, &eigrp_summary_metric_cmd);

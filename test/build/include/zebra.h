@@ -62,6 +62,10 @@
 #define ZEBRA_ROUTE_CONNECT 1
 #define ZEBRA_ROUTE_STATIC 2
 #define ZEBRA_ROUTE_KERNEL 3
+#define ZEBRA_ROUTE_RIP 4
+#define ZEBRA_ROUTE_OSPF 5
+#define ZEBRA_ROUTE_ISIS 6
+#define ZEBRA_ROUTE_BGP 7
 #define ZEBRA_ROUTE_MAX 256
 #define DPLANE_OP_ROUTE_INSTALL 1
 #define DPLANE_OP_ROUTE_UPDATE 2
@@ -151,7 +155,7 @@ typedef int zclient_handler();
 union g_addr { struct in_addr ipv4; struct in6_addr ipv6; };
 struct zclient { void (*zebra_connected)(struct zclient *); void *context; int sock; struct stream *ibuf; int redist[3][ZEBRA_ROUTE_MAX + 1]; int default_information[3]; };
 struct zapi_nexthop { int type; vrf_id_t vrf_id; ifindex_t ifindex; union g_addr gate; };
-struct zapi_route { int type; int safi; int vrf_id; struct prefix prefix; uint8_t distance; uint32_t metric; uint32_t mtu; uint32_t tag; uint32_t message; struct zapi_nexthop nexthops[8]; int nexthop_num; };
+struct zapi_route { int type; unsigned short instance; int safi; int vrf_id; struct prefix prefix; uint8_t distance; uint32_t metric; uint32_t mtu; uint32_t tag; uint32_t message; struct zapi_nexthop nexthops[8]; int nexthop_num; };
 struct zebra_dplane_ctx { int dummy; };
 struct nexthop { int dummy; };
 struct bfd_session_params { int dummy; };
@@ -349,8 +353,12 @@ extern struct running_config_stub { struct lyd_node *dnode; } *running_config;
 #define ZEBRA_INTERFACE_ADDRESS_ADD 8
 #define ZEBRA_INTERFACE_ADDRESS_DELETE 9
 #define ZEBRA_ROUTE_NOTIFY_OWNER 10
-#define NEXTHOP_TYPE_IPV4_IFINDEX 1
-#define NEXTHOP_TYPE_IFINDEX 2
+#define NEXTHOP_TYPE_IFINDEX 1
+#define NEXTHOP_TYPE_IPV4 2
+#define NEXTHOP_TYPE_IPV4_IFINDEX 3
+#define NEXTHOP_TYPE_IPV6 4
+#define NEXTHOP_TYPE_IPV6_IFINDEX 5
+#define NEXTHOP_TYPE_BLACKHOLE 6
 #define IPVERSION 4
 #define IPTOS_PREC_INTERNETCONTROL 0xc0
 #define IPV4_NET127(a) (((a) & 0xff000000U) == 0x7f000000U)

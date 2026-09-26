@@ -99,7 +99,7 @@ static void eigrp_update_receive_GR_ask(eigrp_instance_t *eigrp,
 		fsm_msg.metrics.delay = EIGRP_MAX_METRIC;
 
 		eigrp_route_descriptor_t *route =
-			eigrp_prefix_descriptor_lookup(prefix->entries, nbr);
+			eigrp_prefix_descriptor_lookup(prefix, nbr);
 
 		fsm_msg.packet_type = EIGRP_OPC_UPDATE;
 		fsm_msg.eigrp = eigrp;
@@ -239,7 +239,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 				struct eigrp_fsm_action_message msg;
 				eigrp_route_descriptor_t *received_route = route;
 				eigrp_route_descriptor_t *topology_route =
-					eigrp_prefix_descriptor_lookup(prefix->entries, nbr);
+					eigrp_prefix_descriptor_lookup(prefix, nbr);
 				bool free_received_route = false;
 
 				if (topology_route) {
@@ -447,7 +447,9 @@ void eigrp_update_send_EOT(eigrp_neighbor_t *nbr)
 			continue;
 
 		prefix = rn->info;
-		for (EIGRP_LIST_ELEMENTS(prefix->entries, node, nnode, route)) {
+		for (unsigned int q = 0; q < 2; q++) {
+			eigrp_list_t *routes = eigrp_topology_route_queue(prefix, q);
+			for (EIGRP_LIST_ELEMENTS(routes, node, nnode, route)) {
 			int encoded;
 
 			if (eigrp_nbr_split_horizon_check(route, ei)
@@ -473,6 +475,7 @@ void eigrp_update_send_EOT(eigrp_neighbor_t *nbr)
 			else if (encoded < 0)
 				eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 					  ei->name, packet_limit);
+			}
 		}
 	}
 
@@ -577,7 +580,7 @@ static void eigrp_update_send_GR_part(eigrp_neighbor_t *nbr)
 					      &prefix->destination)) {
 			eigrp_fsm_action_message_t fsm_msg;
 			eigrp_route_descriptor_t *fsm_route =
-				eigrp_prefix_descriptor_lookup(prefix->entries, nbr);
+				eigrp_prefix_descriptor_lookup(prefix, nbr);
 
 			memset(&fsm_msg, 0, sizeof(fsm_msg));
 			fsm_msg.packet_type = EIGRP_OPC_UPDATE;

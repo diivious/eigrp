@@ -239,6 +239,11 @@ printf '%s\n' "$output" | grep -Fq "Enter named EIGRP router mode first" \
 	|| fail "address-family under classic EIGRP did not reject the missing named parent"
 assertions=$((assertions + 1))
 
+# Classic AS 4453 and named IPv4 AS 4453 cannot simultaneously own the
+# same {AF, VRF, AS} protocol runtime.  The classic navigation checks above
+# are complete, so remove their temporary state before exercising named mode.
+cleanup
+
 phase "named sibling mode navigation"
 vty_apply \
 	"configure terminal" \

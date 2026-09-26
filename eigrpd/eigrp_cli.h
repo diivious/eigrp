@@ -2,8 +2,6 @@
 /*
  * Public EIGRP semantic configuration and administrative API.
  *
- * Host config/admin calls these targets. This header is not a parser.
- *
  * Copyright (C) 2026 Donnie V. Savage
  */
 #ifndef EIGRPD_EIGRP_CLI_H_
@@ -277,12 +275,11 @@ eigrp_result_t eigrp_distribute_remove(
 	eigrp_instance_context_t *context, eigrp_distribute_list_type_t type,
 	const char *name, eigrp_offset_direction_t direction,
 	const char *interface_name);
-eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context,
-					 const char *protocol,
-					 const eigrp_metric_values_t *metric,
-					 const char *route_map);
-eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context,
-					 const char *protocol);
+eigrp_result_t eigrp_redistribute_add(
+	eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source,
+	const eigrp_metric_values_t *metric, const char *route_map);
+eigrp_result_t eigrp_redistribute_remove(
+	eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source);
 eigrp_result_t eigrp_redistribute_maximum_prefix_set(
 	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
 eigrp_result_t eigrp_redistribute_maximum_prefix_reset(

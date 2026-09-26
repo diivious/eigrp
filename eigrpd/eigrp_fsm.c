@@ -258,7 +258,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 
 	switch (actual_state) {
 	case EIGRP_FSM_STATE_PASSIVE: {
-		eigrp_route_descriptor_t *head = eigrp_list_node_data(eigrp_list_head(prefix->entries));
+		eigrp_route_descriptor_t *head = eigrp_topology_route_head(prefix);
 
 		if (head->reported_distance < prefix->fdistance) {
 			return EIGRP_FSM_KEEP_STATE;
@@ -279,7 +279,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_ACTIVE_0: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
 			eigrp_route_descriptor_t *head =
-				eigrp_list_node_data(eigrp_list_head(prefix->entries));
+				eigrp_topology_route_head(prefix);
 
 			eigrp_list_delete_data(prefix->rij, route->adv_router);
 			if (prefix->rij->count)
@@ -331,7 +331,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_ACTIVE_2: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
 			eigrp_route_descriptor_t *head =
-				eigrp_list_node_data(eigrp_list_head(prefix->entries));
+				eigrp_topology_route_head(prefix);
 
 			eigrp_list_delete_data(prefix->rij, route->adv_router);
 			if (prefix->rij->count) {
@@ -462,7 +462,7 @@ int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
+	eigrp_route_descriptor_t *route = eigrp_topology_route_head(prefix);
 
 	if (prefix->state == EIGRP_FSM_STATE_PASSIVE) {
 		if (!eigrp_metrics_is_same(prefix->reported_metric,
@@ -490,7 +490,7 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
+	eigrp_route_descriptor_t *route = eigrp_topology_route_head(prefix);
 
 	prefix->fdistance = prefix->distance = prefix->rdistance =
 		route->distance;
@@ -538,7 +538,7 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_list_node_data(eigrp_list_head(prefix->entries));
+	eigrp_route_descriptor_t *route = eigrp_topology_route_head(prefix);
 
 	prefix->state = EIGRP_FSM_STATE_PASSIVE;
 	prefix->distance = prefix->rdistance = route->distance;

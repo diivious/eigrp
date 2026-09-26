@@ -21,7 +21,7 @@ STATISTICS = ROOT / "eigrpd" / "eigrp_statistics.c"
 TIMER = ROOT / "eigrpd" / "eigrp_timer.c"
 UUT = ROOT / "tools" / "frr-named-uut.sh"
 SERIES = ROOT / "frr" / "patch" / "series"
-IPV6_PATCH = ROOT / "frr" / "patch" / "eigrp-named-ipv6.patch"
+YANG_PATCH = ROOT / "frr" / "patch" / "frr-eigrp-yang.patch"
 DESIGN = ROOT / "specs" / "design-spec.md"
 PROCESS = ROOT / "specs" / "design-spec.md"
 
@@ -98,7 +98,7 @@ def test_ipv6_router_id_is_control_state_without_host_interface_refresh():
 def test_ipv4_and_ipv6_summaries_share_generic_prefix_storage_and_targets():
     vty = read(VTY)
     northbound = read(NORTHBOUND)
-    patch = read(IPV6_PATCH)
+    patch = read(YANG_PATCH)
 
     assert '"summary-address X:X::X:X/M' in vty
     assert '"summary-metric X:X::X:X/M' in vty
@@ -141,7 +141,19 @@ def test_managed_patch_and_design_spec_record_ipv6_control_runtime_contract():
     process = read(PROCESS)
     process_words = " ".join(process.split())
 
-    assert series.rstrip().endswith("eigrp-named-ipv6.patch")
+    patches = [
+        line.strip()
+        for line in series.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert patches == ["vtysh-named-eigrp.patch", "frr-eigrp-yang.patch"]
+    yang_patch = read(YANG_PATCH)
+    assert 'description "IPv4 or IPv6 summary prefix";' in yang_patch
+    assert 'description "Fixed metric for an IPv4 or IPv6 summary aggregate";' in yang_patch
+    assert 'key "protocol route-instance";' in yang_patch
+    assert 'type eigrp-redistribution-protocol;' in yang_patch
+    assert 'type eigrp-redistribution-route-instance;' in yang_patch
+    assert "A BGP ASN or IS-IS area tag is a protocol" in yang_patch
     assert "When `data_path_ready` is false" in process
     assert "EIGRP Stub routing is explicitly outside project scope" in design
     assert "IPv6 named configuration uses the same ownership model as IPv4" in process_words
