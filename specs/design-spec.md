@@ -203,8 +203,8 @@ eigrp_interface_shutdown_set();
 eigrp_interface_shutdown_reset();
 eigrp_instance_parent_create();
 eigrp_instance_address_family_delete();
-eigrp_metric_variance_set();
-eigrp_metric_variance_reset();
+eigrp_metric_variance_update();
+eigrp_metric_variance_update();
 ```
 
 The module/function prefix normally aligns. Object/detail follows the module
@@ -407,7 +407,7 @@ For FRR, the normal ownership is:
 frr/eigrp_cli_classic.[c|h]  classic configuration front end
 frr/eigrp_cli_named.[c|h]    named configuration and named EXEC front end
 frr/eigrp_vty.[c|h]          classic operational VTY surface
-frr/eigrp_northbound.c       committed FRR configuration -> EIGRP adapter
+frr/eigrp_northbound.c + eigrp_northbound_ipv4.c + eigrp_northbound_ipv6.c      committed FRR configuration -> EIGRP adapter
 ```
 
 ### 9.1 Operational output conventions
@@ -527,11 +527,11 @@ portable protocol implementations.
 ## 15. Testing contract
 
 ```text
-test/build/       lightweight compile/syntax/prototype smoke
-test/common/      host-independent fixtures
-test/portable/    host-independent behavior/source-boundary tests
-frr/test/         FRR-native integration/UUT tests
-bird/test/        reserved BIRD-native integration/UUT tests
+test/build/           lightweight compile/syntax/prototype smoke
+test/common/          portable EIGRP behavior; IPv4/IPv6 specifics live below it
+test/platform/frr/    FRR adapter/boundary tests runnable from the project tree
+frr/test/             FRR-native integration/UUT tests, family-grouped where useful
+bird/test/            BIRD-native integration/UUT tests
 ```
 
 Normal source-change gate:
@@ -546,8 +546,14 @@ CLI/configuration changes validate parsing, mutation, writeback, and applicable
 `no` forms. Packet changes validate encode/decode, bounds, endian behavior, and
 reliable-transport effects appropriate to the changed path.
 
-Portable tests must not depend on FRR/BIRD types when the behavior under test is
-protocol-owned.
+Portable tests under `test/common/` must run without FRR or BIRD and must not
+depend on host types when the behavior under test is protocol-owned. Shared
+behavior stays directly under `test/common/`; address-family-specific behavior
+lives under `test/common/ipv4/` or `test/common/ipv6/`. Tests that inspect or
+exercise an adapter live under `test/platform/<host>/`. Host-native integration
+and UUT tests remain in the owning integration tree. A future standalone Unix
+adapter and smoke harness must consume EIGRP-owned APIs rather than introducing
+NETCONF/YANG or other management-framework dependencies into portable code.
 
 ## 16. Development order for named mode
 

@@ -38,7 +38,7 @@ typedef struct eigrp_rib_source_route {
 	/* Host/RIB scalar metadata.  This is not an EIGRP seed vector. */
 	uint64_t metric;
 	uint32_t tag;
-	eigrp_redistribute_source_t source;
+	eigrp_redist_source_t source;
 	/* Optional native vector supplied only when the source protocol can
 	 * preserve EIGRP per-route metric state.  Keep the native vector intact;
 	 * do not reconstruct it from the scalar RIB metric above.
@@ -54,12 +54,15 @@ eigrp_result_t eigrp_rib_route_install(eigrp_instance_t *eigrp,
 					const eigrp_rib_route_t *route);
 eigrp_result_t eigrp_rib_route_remove(eigrp_instance_t *eigrp,
 				       const eigrp_prefix_t *prefix);
+/* Replay currently installed EIGRP routes after host-RIB reconnect. */
+eigrp_result_t eigrp_rib_routes_replay_instance(eigrp_instance_t *eigrp);
+eigrp_result_t eigrp_rib_routes_replay(void);
 
 /* Redistribution subscription/configuration at the host RIB boundary. */
 eigrp_result_t eigrp_rib_redistribute_add(
-	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
+	eigrp_instance_t *eigrp, const eigrp_redist_source_t *source);
 eigrp_result_t eigrp_rib_redistribute_remove(
-	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
+	eigrp_instance_t *eigrp, const eigrp_redist_source_t *source);
 
 /* Host-originated route lifecycle.  Runtime consumption may be capability-gated. */
 eigrp_result_t eigrp_rib_source_route_add(

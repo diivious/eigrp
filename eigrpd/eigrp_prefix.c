@@ -10,12 +10,12 @@
 
 #include "eigrpd/eigrp_prefix.h"
 
-static size_t eigrp_prefix_address_bytes(eigrp_address_family_t afi)
+static size_t eigrp_prefix_address_bytes(eigrp_afi_t afi)
 {
 	switch (afi) {
-	case EIGRP_ADDRESS_FAMILY_IPV4:
+	case EIGRP_AFI_IPV4:
 		return 4;
-	case EIGRP_ADDRESS_FAMILY_IPV6:
+	case EIGRP_AFI_IPV6:
 		return 16;
 	default:
 		return 0;
@@ -28,9 +28,9 @@ bool eigrp_prefix_valid(const eigrp_prefix_t *prefix)
 		return false;
 
 	switch (prefix->address.afi) {
-	case EIGRP_ADDRESS_FAMILY_IPV4:
+	case EIGRP_AFI_IPV4:
 		return prefix->prefix_length <= 32;
-	case EIGRP_ADDRESS_FAMILY_IPV6:
+	case EIGRP_AFI_IPV6:
 		return prefix->prefix_length <= 128;
 	default:
 		return false;
@@ -102,7 +102,7 @@ int eigrp_prefix_snprintf(char *buf, size_t len, const eigrp_prefix_t *prefix)
 	if (!buf || !len || !eigrp_prefix_valid(prefix))
 		return -1;
 
-	family = prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? AF_INET
+	family = prefix->address.afi == EIGRP_AFI_IPV4 ? AF_INET
 								     : AF_INET6;
 	if (!inet_ntop(family, prefix->address.bytes, address, sizeof(address))) {
 		buf[0] = '\0';

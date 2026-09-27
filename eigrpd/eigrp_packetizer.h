@@ -11,21 +11,22 @@
 #define EIGRP_PACKETIZER_WORK_F_OWN_PREFIX 0x00000001U
 #define EIGRP_PACKETIZER_WORK_F_OWN_ROUTE  0x00000002U
 #define EIGRP_PACKETIZER_WORK_F_DEFER_FREE 0x00000004U
+#define EIGRP_PACKETIZER_WORK_F_ROUTE_ACTIVE 0x00000008U
 
 typedef struct eigrp_packetizer_work {
 	uint8_t opcode;
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
-	eigrp_interface_t *exception;
-	eigrp_neighbor_t *nbr;
+	eigrp_intf_t *exception;
+	eigrp_nbr_t *nbr;
 	void *owner;
 	uint32_t flags;
 } eigrp_packetizer_work_t;
 
 void eigrp_packetizer_init(eigrp_instance_t *eigrp);
-void eigrp_packetizer_finish(eigrp_instance_t *eigrp);
+void eigrp_packetizer_delete(eigrp_instance_t *eigrp);
 
-eigrp_packetizer_work_t *eigrp_packetizer_work_new(uint8_t opcode);
+eigrp_packetizer_work_t *eigrp_packetizer_work_create(uint8_t opcode);
 void eigrp_packetizer_work_free(eigrp_packetizer_work_t *work);
 void eigrp_packetizer_enqueue(eigrp_instance_t *eigrp,
 			      eigrp_packetizer_work_t *work);

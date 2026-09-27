@@ -6,16 +6,37 @@
  */
 
 #include "eigrp_status.h"
+#include "eigrpd/eigrp_features.h"
 
-struct eigrp_status_walk_context {
+
+eigrp_result_t eigrp_status_capability_state_read(
+	eigrp_status_capability_state_t *state)
+{
+	if (!state)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	*state = (eigrp_status_capability_state_t) {
+		.release = EIGRP_RELEASE,
+		.tlv1 = true,
+		.tlv2 = true,
+		.wide_metrics = true,
+		.ipv4 = eigrp_feature_supported(EIGRP_FEATURE_AFI_IPV4),
+		.ipv6 = eigrp_feature_supported(EIGRP_FEATURE_AFI_IPV6),
+		.bfd = eigrp_feature_supported(EIGRP_FEATURE_BFD),
+		.snmp = eigrp_feature_supported(EIGRP_FEATURE_SNMP),
+	};
+	return EIGRP_RESULT_SUCCESS;
+}
+
+struct eigrp_status_iterate_context {
 	eigrp_status_protocol_cb callback;
 	void *arg;
 };
 
-static eigrp_result_t eigrp_status_address_family(
-	const char *instance_name, eigrp_address_family_config_t *af, void *arg)
+static eigrp_result_t eigrp_status_af(
+	const char *instance_name, eigrp_af_instance_t *af, void *arg)
 {
-	struct eigrp_status_walk_context *context = arg;
+	struct eigrp_status_iterate_context *context = arg;
 	eigrp_status_protocol_state_t state = {
 		.instance_name = instance_name,
 		.config = af,
@@ -32,35 +53,39 @@ static eigrp_result_t eigrp_status_address_family(
 	return context->callback(&state, context->arg);
 }
 
-static eigrp_result_t eigrp_status_walk(eigrp_status_protocol_cb callback,
+static eigrp_result_t eigrp_status_iterate(eigrp_status_protocol_cb callback,
 					void *arg)
 {
-	struct eigrp_status_walk_context context = {
+	struct eigrp_status_iterate_context context = {
 		.callback = callback,
 		.arg = arg,
 	};
 	eigrp_state_request_t request = {
 		.all_vrfs = true,
 	};
-	eigrp_result_t ipv4_result;
-	eigrp_result_t ipv6_result;
+	eigrp_result_t ipv4_result = EIGRP_RESULT_NOT_FOUND;
+	eigrp_result_t ipv6_result = EIGRP_RESULT_NOT_FOUND;
 
 	if (!callback)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	request.afi = EIGRP_ADDRESS_FAMILY_IPV4;
-	ipv4_result = eigrp_instance_address_family_walk(
-		&request, eigrp_status_address_family, &context);
-	if (ipv4_result != EIGRP_RESULT_SUCCESS
-	    && ipv4_result != EIGRP_RESULT_NOT_FOUND)
-		return ipv4_result;
+	if (eigrp_afi_supported(EIGRP_AFI_IPV4)) {
+		request.afi = EIGRP_AFI_IPV4;
+		ipv4_result = eigrp_af_instance_iterate(
+			&request, eigrp_status_af, &context);
+		if (ipv4_result != EIGRP_RESULT_SUCCESS
+		    && ipv4_result != EIGRP_RESULT_NOT_FOUND)
+			return ipv4_result;
+	}
 
-	request.afi = EIGRP_ADDRESS_FAMILY_IPV6;
-	ipv6_result = eigrp_instance_address_family_walk(
-		&request, eigrp_status_address_family, &context);
-	if (ipv6_result != EIGRP_RESULT_SUCCESS
-	    && ipv6_result != EIGRP_RESULT_NOT_FOUND)
-		return ipv6_result;
+	if (eigrp_afi_supported(EIGRP_AFI_IPV6)) {
+		request.afi = EIGRP_AFI_IPV6;
+		ipv6_result = eigrp_af_instance_iterate(
+			&request, eigrp_status_af, &context);
+		if (ipv6_result != EIGRP_RESULT_SUCCESS
+		    && ipv6_result != EIGRP_RESULT_NOT_FOUND)
+			return ipv6_result;
+	}
 
 	if (ipv4_result == EIGRP_RESULT_NOT_FOUND
 	    && ipv6_result == EIGRP_RESULT_NOT_FOUND)
@@ -78,10 +103,10 @@ static eigrp_result_t eigrp_status_walk(eigrp_status_protocol_cb callback,
  * Aggregates configured/running EIGRP protocol instances for display.
  * The target walks common address-family state and leaves VTY formatting to FRR.
  */
-eigrp_result_t eigrp_status_protocol_show(eigrp_status_protocol_cb callback,
+eigrp_result_t eigrp_status_protocol_iterate(eigrp_status_protocol_cb callback,
 					  void *arg)
 {
-	return eigrp_status_walk(callback, arg);
+	return eigrp_status_iterate(callback, arg);
 }
 
 /*
@@ -94,8 +119,8 @@ eigrp_result_t eigrp_status_protocol_show(eigrp_status_protocol_cb callback,
  * Exports EIGRP protocol state used by the technical-support display.
  * The portable target remains independent of FRR VTY formatting.
  */
-eigrp_result_t eigrp_status_tech_support_show(eigrp_status_protocol_cb callback,
+eigrp_result_t eigrp_status_tech_support_iterate(eigrp_status_protocol_cb callback,
 					      void *arg)
 {
-	return eigrp_status_walk(callback, arg);
+	return eigrp_status_iterate(callback, arg);
 }

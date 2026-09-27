@@ -35,6 +35,8 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_neighbor.c \
 	eigrpd/eigrp_network.c \
 	eigrpd/eigrp_northbound.c \
+	eigrpd/eigrp_northbound_ipv4.c \
+	eigrpd/eigrp_northbound_ipv6.c \
 	eigrpd/eigrp_packet.c \
 	eigrpd/eigrp_packetizer.c \
 	eigrpd/eigrp_policy.c \
@@ -42,13 +44,17 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_query.c \
 	eigrpd/eigrp_redistribute.c \
 	eigrpd/eigrp_reply.c \
+	eigrpd/eigrp_rib.c \
 	eigrpd/eigrp_sha256.c \
 	eigrpd/eigrp_siaquery.c \
 	eigrpd/eigrp_siareply.c \
 	eigrpd/eigrp_southbound.c \
+	eigrpd/eigrp_southbound_ipv4.c \
+	eigrpd/eigrp_southbound_ipv6.c \
 	eigrpd/eigrp_snmp.c \
 	eigrpd/eigrp_statistics.c \
 	eigrpd/eigrp_status.c \
+	eigrpd/eigrp_features.c \
 	eigrpd/eigrp_stream.c \
 	eigrpd/eigrp_summary.c \
 	eigrpd/eigrp_table.c \
@@ -101,12 +107,14 @@ noinst_HEADERS += \
 	eigrpd/eigrp_neighbor.h \
 	eigrpd/eigrp_network.h \
 	eigrpd/eigrp_northbound.h \
+	eigrpd/eigrp_northbound_internal.h \
 	eigrpd/eigrp_packet.h \
 	eigrpd/eigrp_packetizer.h \
 	eigrpd/eigrp_policy.h \
 	eigrpd/eigrp_prefix.h \
 	eigrpd/eigrp_redistribute.h \
 	eigrpd/eigrp_sha256.h \
+	eigrpd/eigrp_southbound_internal.h \
 	eigrpd/eigrp_snmp.h \
 	eigrpd/eigrp_statistics.h \
 	eigrpd/eigrp_status.h \

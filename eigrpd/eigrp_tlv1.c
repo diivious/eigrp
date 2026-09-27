@@ -180,7 +180,7 @@ static uint16_t eigrp_tlv1_route_tlv_type(
  * decode an incoming TLV into a topology route and return it for processing
  */
 static eigrp_route_descriptor_t *eigrp_tlv1_decoder(eigrp_instance_t *eigrp,
-						    eigrp_neighbor_t *nbr,
+						    eigrp_nbr_t *nbr,
 						    eigrp_stream_t *pkt,
 						    uint16_t pktlen)
 {
@@ -300,8 +300,8 @@ malformed:
 }
 
 static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
-				   eigrp_interface_t *ei,
-				   eigrp_neighbor_t *nbr,
+				   eigrp_intf_t *ei,
+				   eigrp_nbr_t *nbr,
 				   eigrp_stream_t *pkt,
 				   eigrp_route_descriptor_t *route)
 {
@@ -320,7 +320,7 @@ static uint16_t eigrp_tlv1_encoder(eigrp_instance_t *eigrp,
 
 	filter_prefix = route->prefix ? &route->prefix->destination : &route->dest;
 	if (ei && filter_prefix
-	    && eigrp_filter_prefix_apply(eigrp, ei, EIGRP_FILTER_OUT,
+	    && eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
 					filter_prefix)) {
 		eigrp_log(EIGRP_LOG_INFO, "Prefix Filtered:  Setting Metric to EIGRP_MAX_METRIC");
 		route->metric.delay = EIGRP_MAX_METRIC;

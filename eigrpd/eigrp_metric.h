@@ -38,38 +38,35 @@ extern eigrp_bandwidth_t eigrp_scaled_to_bandwidth(eigrp_scaled_t);
 extern eigrp_scaled_t eigrp_delay_to_scaled(eigrp_delay_t);
 extern eigrp_delay_t eigrp_scaled_to_delay(eigrp_scaled_t);
 
-extern eigrp_metric_t eigrp_calculate_metrics(eigrp_instance_t *, eigrp_metrics_t);
-extern eigrp_metric_t eigrp_calculate_total_metrics(eigrp_instance_t *,
+extern eigrp_metric_t eigrp_metric_calculate(eigrp_instance_t *, eigrp_metrics_t);
+extern eigrp_metric_t eigrp_metric_total_calculate(eigrp_instance_t *,
 						    eigrp_route_descriptor_t *);
-extern bool eigrp_metrics_is_same(eigrp_metrics_t, eigrp_metrics_t);
+extern bool eigrp_metrics_match(eigrp_metrics_t, eigrp_metrics_t);
 void eigrp_metric_values_convert(const eigrp_metric_values_t *values,
 				eigrp_metrics_t *metric);
 
-eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context,
-					   const eigrp_metric_values_t *metric);
-eigrp_result_t eigrp_metric_default_reset(eigrp_instance_context_t *context);
-bool eigrp_metric_default_get(const eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_metric_default_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	const eigrp_metric_values_t *metric);
+bool eigrp_metric_default(const eigrp_af_instance_t *af,
 			      eigrp_metric_values_t *metric);
-eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
-					   const eigrp_metric_weights_t *weights);
-eigrp_result_t eigrp_metric_weights_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_variance_set(eigrp_instance_context_t *context,
-					    uint8_t variance);
-eigrp_result_t eigrp_metric_variance_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_traffic_share_balanced_set(
+eigrp_result_t eigrp_metric_weights_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	const eigrp_metric_weights_t *weights);
+eigrp_result_t eigrp_metric_variance_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	uint8_t variance);
+eigrp_result_t eigrp_traffic_share_balanced_update(eigrp_operation_t operation,
 	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_traffic_share_balanced_reset(
+eigrp_result_t eigrp_metric_maximum_hops_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	uint8_t maximum_hops);
+eigrp_result_t eigrp_metric_holddown_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	bool enabled);
+eigrp_result_t eigrp_metric_version_update(eigrp_operation_t operation,
 	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_maximum_hops_set(
-	eigrp_instance_context_t *context, uint8_t maximum_hops);
-eigrp_result_t eigrp_metric_maximum_hops_reset(
-	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
-					    bool enabled);
-eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_version_set(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_version_reset(eigrp_instance_context_t *context);
 uint8_t eigrp_metric_version_select(const eigrp_instance_t *eigrp, uint8_t peer_version);
-void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af);
+void eigrp_metric_config_delete_all(eigrp_af_instance_t *af);
 
 #endif /* _ZEBRA_EIGRP_METRIC_H_ */

@@ -8,24 +8,24 @@
 
 #include "eigrp_frr.h"
 
-static eigrp_address_family_t eigrp_frr_address_family_import(uint8_t family)
+static eigrp_afi_t eigrp_frr_address_family_import(uint8_t family)
 {
 	switch (family) {
 	case AF_INET:
-		return EIGRP_ADDRESS_FAMILY_IPV4;
+		return EIGRP_AFI_IPV4;
 	case AF_INET6:
-		return EIGRP_ADDRESS_FAMILY_IPV6;
+		return EIGRP_AFI_IPV6;
 	default:
 		return 0;
 	}
 }
 
-static uint8_t eigrp_frr_address_family_export(eigrp_address_family_t afi)
+static uint8_t eigrp_frr_address_family_export(eigrp_afi_t afi)
 {
 	switch (afi) {
-	case EIGRP_ADDRESS_FAMILY_IPV4:
+	case EIGRP_AFI_IPV4:
 		return AF_INET;
-	case EIGRP_ADDRESS_FAMILY_IPV6:
+	case EIGRP_AFI_IPV6:
 		return AF_INET6;
 	default:
 		return AF_UNSPEC;
@@ -35,7 +35,7 @@ static uint8_t eigrp_frr_address_family_export(eigrp_address_family_t afi)
 eigrp_result_t eigrp_frr_prefix_import(const struct prefix *host,
 				       eigrp_prefix_t *prefix)
 {
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 	size_t address_bytes;
 	uint8_t max_prefix_length;
 
@@ -46,7 +46,7 @@ eigrp_result_t eigrp_frr_prefix_import(const struct prefix *host,
 	if (!afi)
 		return EIGRP_RESULT_UNSUPPORTED;
 
-	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+	if (afi == EIGRP_AFI_IPV4) {
 		address_bytes = sizeof(host->u.prefix4);
 		max_prefix_length = EIGRP_IPV4_MAX_BITLEN;
 	} else {
@@ -59,7 +59,7 @@ eigrp_result_t eigrp_frr_prefix_import(const struct prefix *host,
 	memset(prefix, 0, sizeof(*prefix));
 	prefix->address.afi = afi;
 	prefix->prefix_length = host->prefixlen;
-	if (afi == EIGRP_ADDRESS_FAMILY_IPV4)
+	if (afi == EIGRP_AFI_IPV4)
 		memcpy(prefix->address.bytes, &host->u.prefix4, address_bytes);
 	else
 		memcpy(prefix->address.bytes, &host->u.prefix6, address_bytes);
@@ -81,7 +81,7 @@ eigrp_result_t eigrp_frr_prefix_export(const eigrp_prefix_t *prefix,
 	if (family == AF_UNSPEC)
 		return EIGRP_RESULT_UNSUPPORTED;
 
-	if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+	if (prefix->address.afi == EIGRP_AFI_IPV4) {
 		address_bytes = sizeof(host->u.prefix4);
 		max_prefix_length = EIGRP_IPV4_MAX_BITLEN;
 	} else {
@@ -94,7 +94,7 @@ eigrp_result_t eigrp_frr_prefix_export(const eigrp_prefix_t *prefix,
 	memset(host, 0, sizeof(*host));
 	host->family = family;
 	host->prefixlen = prefix->prefix_length;
-	if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4)
+	if (prefix->address.afi == EIGRP_AFI_IPV4)
 		memcpy(&host->u.prefix4, prefix->address.bytes, address_bytes);
 	else
 		memcpy(&host->u.prefix6, prefix->address.bytes, address_bytes);
@@ -115,7 +115,7 @@ uint8_t eigrp_frr_interface_type(const struct interface *ifp)
 
 eigrp_result_t eigrp_frr_interface_state_import(
 	const struct interface *ifp, const struct prefix *address, bool secondary,
-	eigrp_interface_runtime_state_t *state)
+	eigrp_intf_runtime_state_t *state)
 {
 	eigrp_result_t result;
 

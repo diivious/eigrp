@@ -19,6 +19,6 @@ eigrp_result_t eigrp_frr_prefix_export(const eigrp_prefix_t *prefix,
 uint8_t eigrp_frr_interface_type(const struct interface *ifp);
 eigrp_result_t eigrp_frr_interface_state_import(
 	const struct interface *ifp, const struct prefix *address, bool secondary,
-	eigrp_interface_runtime_state_t *state);
+	eigrp_intf_runtime_state_t *state);
 
 #endif /* _ZEBRA_EIGRP_FRR_H_ */

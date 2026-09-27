@@ -216,9 +216,9 @@ Section 11.1.
 files.
 
 ```text
-frr/eigrp_southbound.c   eigrp_sys.h services
+frr/eigrp_southbound.c + eigrp_southbound_ipv4.c + eigrp_southbound_ipv6.c  eigrp_sys.h services
 frr/eigrp_zebra.c        eigrp_rib.h host side
-frr/eigrp_northbound.c   committed config -> eigrp_cli.h
+frr/eigrp_northbound.c + eigrp_northbound_ipv4.c + eigrp_northbound_ipv6.c  committed config -> eigrp_cli.h
 frr/eigrp_cli_named.c    named parser only
 frr/eigrp_cli_classic.c  classic parser only
 frr/eigrp_vty.c          show surface, should consume eigrp_mgnt.h
@@ -518,6 +518,12 @@ The host configuration layer expresses intent. Portable EIGRP decides what runti
 
 ---
 
+## 4.2a `eigrp_features.h`
+
+### Purpose
+
+`eigrp_features.h` is the EIGRP image feature contract. Features are enabled unless explicitly disabled with an `EIGRP_DISABLE_*` definition. For an enabled integration feature the header declares a real `eigrp_*_supported()` function, so omission of the corresponding implementation is a link-time error. For a disabled feature the same call surface resolves to `false` and no integration symbol is required. `eigrp_feature_supported()` and `eigrp_afi_supported()` provide the common dispatch used by startup/configuration gating and technical-support reporting.
+
 ## 4.3 `eigrp_mgnt.h`
 
 ### Purpose
@@ -735,6 +741,33 @@ private DUAL/topology objects
 ```
 
 The host never receives `eigrp_route_descriptor_t` or `eigrp_prefix_descriptor_t`.
+
+### Host-RIB reconnect replay
+
+```c
+eigrp_result_t eigrp_rib_routes_replay_instance(eigrp_instance_t *eigrp);
+eigrp_result_t eigrp_rib_routes_replay(void);
+```
+
+**Header:** `eigrp_rib.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required when the host RIB can discard protocol-owned routes across a routing-service reconnect.
+
+**Purpose:** Replay only routes that EIGRP currently marks installed, either for one runtime instance or for all runtime instances. This lets an adapter restore host-RIB state after reconnect without inspecting topology descriptors.
+
+**Arguments:** `eigrp` is a borrowed runtime identity for the duration of the call. The all-instance form has no arguments.
+
+**Return value:** `EIGRP_RESULT_SUCCESS` when replay completes or no eligible routes exist; the instance form returns `EIGRP_RESULT_INVALID_ARGUMENT` for a null runtime.
+
+**Lifetime:** Route snapshots passed to the host during replay follow the normal `eigrp_rib_route_install()` call lifetime and are not retained by portable EIGRP.
+
+**Execution context:** Call from the host routing-service reconnect callback after host registration is restored.
+
+**Ordering requirements:** Runtime/topology state must still be valid. Replay does not recreate withdrawn routes and does not replace normal EIGRP teardown removal.
+
+**Error handling:** Host route-send failures retain the normal route-install semantics; a later reconnect or topology change may replay/update the route again.
+
+**Notes:** The adapter must not walk DUAL/topology objects to perform replay.
 
 ---
 
@@ -1282,7 +1315,7 @@ Common argument conventions used by the function-family entries below:
 | Type | Contract |
 |---|---|
 | `eigrp_result_t` | Structured semantic result used by portable/public APIs: SUCCESS, NOT_IMPLEMENTED, INVALID_ARGUMENT, NOT_FOUND, CONFLICT, UNSUPPORTED, or INTERNAL_FAILURE. |
-| `eigrp_address_family_t` | Normalized EIGRP address-family selector. Public values are IPv4 (4) and IPv6 (6). |
+| `eigrp_afi_t` | Normalized EIGRP address-family selector. Public values are IPv4 (4) and IPv6 (6). |
 | `eigrp_topology_id_t` | Public topology/VRID-style identifier. Base topology is EIGRP_TOPOLOGY_ID_BASE. |
 | `eigrp_vrf_id_t` | Stable host VRF/context identifier normalized to a 32-bit public value. Default VRF is EIGRP_VRF_DEFAULT. |
 | `eigrp_ifindex_t` | Stable host interface index normalized to a 32-bit public value. |
@@ -1312,7 +1345,7 @@ Common argument conventions used by the function-family entries below:
 | `eigrp_event_t` | Opaque scheduled-event handle owned by the system-service contract. |
 | `eigrp_work_queue_t` | Opaque work-queue handle owned by the system-service contract. |
 | `eigrp_instance_parent_config_t` | Opaque retained named-parent configuration identity. |
-| `eigrp_address_family_config_t` | Opaque retained named address-family configuration identity. |
+| `eigrp_af_instance_t` | Opaque retained named address-family configuration identity. |
 | `eigrp_interface_config_t` | Opaque retained af-interface configuration identity. |
 | `eigrp_instance_context_t` | Small public semantic context binding retained AF config, optional runtime, and topology ID. Callers borrow the referenced objects. |
 | `eigrp_debug_scope_t` | Debug ownership scope: terminal/runtime scope or retained configuration scope. |
@@ -1327,9 +1360,9 @@ Common argument conventions used by the function-family entries below:
 
 #### 11.2.3 Identity and capability accessors
 
-**Header:** `eigrp.h`  
-**Direction:** Host -> EIGRP read-only access  
-**Requirement:** Required  
+**Header:** `eigrp.h`
+**Direction:** Host -> EIGRP read-only access
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Opaque EIGRP object arguments are borrowed. Returned strings are borrowed from the owning object and must not be freed. Value outputs are copied to caller storage.
@@ -1342,7 +1375,7 @@ Exact prototypes:
 
 ```c
 eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp);
-eigrp_address_family_t eigrp_instance_address_family(const eigrp_instance_t *eigrp);
+eigrp_afi_t eigrp_instance_address_family(const eigrp_instance_t *eigrp);
 uint16_t eigrp_instance_asn(const eigrp_instance_t *eigrp);
 const char *eigrp_instance_name(const eigrp_instance_t *eigrp);
 bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
@@ -1423,9 +1456,9 @@ eigrp_result_t eigrp_interface_address_read(const eigrp_interface_t *ei, eigrp_p
 | `EIGRP_DEBUG_NOTIFICATIONS` | `0x03` | Mask containing all notification debug flags. |
 
 #### 11.3.3 Instance and address-family lifecycle/configuration
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Names/scalars are borrowed for the call and copied when retained. Returned parent/AF/runtime pointers and `owner_name` are borrowed EIGRP-owned identities/strings. Output pointer storage belongs to the caller.
 **Execution context:** Synchronous semantic target calls from the host configuration path.
@@ -1439,23 +1472,19 @@ eigrp_result_t eigrp_instance_classic_delete(eigrp_instance_t *runtime);
 eigrp_result_t eigrp_instance_parent_create(const char *name);
 eigrp_instance_parent_config_t *eigrp_instance_parent_read(const char *name);
 eigrp_result_t eigrp_instance_parent_delete(const char *name);
-eigrp_result_t eigrp_instance_address_family_create( const char *name, eigrp_address_family_t afi, const char *vrf_name, uint16_t asn);
-eigrp_address_family_config_t *eigrp_instance_address_family_read( const char *name, eigrp_address_family_t afi, const char *vrf_name, uint16_t asn);
-eigrp_result_t eigrp_instance_address_family_delete( const char *name, eigrp_address_family_t afi, const char *vrf_name, uint16_t asn);
-eigrp_result_t eigrp_instance_router_id_set( eigrp_instance_context_t *context, uint32_t router_id);
-eigrp_result_t eigrp_instance_router_id_reset( eigrp_instance_context_t *context);
-eigrp_result_t eigrp_instance_address_family_shutdown_set( eigrp_address_family_config_t *af);
-eigrp_result_t eigrp_instance_address_family_shutdown_reset( eigrp_address_family_config_t *af);
-eigrp_result_t eigrp_instance_parent_shutdown_set( eigrp_instance_parent_config_t *parent);
-eigrp_result_t eigrp_instance_parent_shutdown_reset( eigrp_instance_parent_config_t *parent);
-eigrp_result_t eigrp_instance_distance_set( eigrp_address_family_config_t *af, uint8_t internal_distance, uint8_t external_distance);
-eigrp_result_t eigrp_instance_distance_reset( eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_instance_address_family_create( const char *name, eigrp_afi_t afi, const char *vrf_name, uint16_t asn);
+eigrp_af_instance_t *eigrp_instance_address_family_read( const char *name, eigrp_afi_t afi, const char *vrf_name, uint16_t asn);
+eigrp_result_t eigrp_instance_address_family_delete( const char *name, eigrp_afi_t afi, const char *vrf_name, uint16_t asn);
+eigrp_result_t eigrp_instance_router_id_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint32_t router_id);
+eigrp_result_t eigrp_instance_address_family_shutdown_update(eigrp_operation_t operation, eigrp_af_instance_t *af);
+eigrp_result_t eigrp_instance_parent_shutdown_update(eigrp_operation_t operation, eigrp_instance_parent_config_t *parent);
+eigrp_result_t eigrp_instance_distance_update(eigrp_operation_t operation, eigrp_af_instance_t *af, uint8_t internal_distance, uint8_t external_distance);
 ```
 
 #### 11.3.4 Network participation
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required for IPv4 network-statement configuration  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required for IPv4 network-statement configuration
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context/prefix inputs are borrowed. The create target copies retained prefix state. `exists` is caller-owned output storage.
 **Execution context:** Synchronous.
@@ -1468,82 +1497,67 @@ eigrp_result_t eigrp_network_runtime_exists( eigrp_instance_t *eigrp, const eigr
 ```
 
 #### 11.3.5 Interface configuration
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Address-family/context/name inputs are borrowed. Interface configuration targets copy retained values. Returned config/runtime pointers are borrowed opaque identities.
 **Execution context:** Synchronous. Set/reset operations may immediately refresh a bound runtime when that runtime capability exists.
 **Ordering:** Create/read the af-interface configuration beneath its owning address family before applying retained interface attributes. Delete retained/runtime bindings before the owning AF is freed.
 Exact prototypes:
 ```c
-eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af, const char *interface_name);
-eigrp_interface_config_t *eigrp_interface_config_read( eigrp_address_family_config_t *af, const char *interface_name);
-eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af, const char *interface_name);
+eigrp_result_t eigrp_interface_config_create(eigrp_af_instance_t *af, const char *interface_name);
+eigrp_interface_config_t *eigrp_interface_config_read( eigrp_af_instance_t *af, const char *interface_name);
+eigrp_result_t eigrp_interface_config_delete(eigrp_af_instance_t *af, const char *interface_name);
 eigrp_interface_t *eigrp_interface_runtime_lookup( eigrp_instance_t *runtime, const char *interface_name);
-eigrp_result_t eigrp_interface_bandwidth_percent_set( eigrp_interface_context_t *context, uint32_t percent);
-eigrp_result_t eigrp_interface_bandwidth_percent_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_bandwidth_set( eigrp_interface_context_t *context, uint32_t bandwidth);
-eigrp_result_t eigrp_interface_bandwidth_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_delay_set(eigrp_interface_context_t *context, uint32_t delay);
-eigrp_result_t eigrp_interface_delay_reset(eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_hello_interval_set( eigrp_interface_context_t *context, uint16_t seconds);
-eigrp_result_t eigrp_interface_hello_interval_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_hold_time_set( eigrp_interface_context_t *context, uint16_t seconds);
-eigrp_result_t eigrp_interface_hold_time_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_passive_set( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_passive_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_next_hop_self_set( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_next_hop_self_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_split_horizon_set( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_split_horizon_reset( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_shutdown_set( eigrp_interface_context_t *context);
-eigrp_result_t eigrp_interface_shutdown_reset( eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_bandwidth_percent_update(eigrp_operation_t operation, eigrp_interface_context_t *context, uint32_t percent);
+eigrp_result_t eigrp_interface_bandwidth_update(eigrp_operation_t operation, eigrp_interface_context_t *context, uint32_t bandwidth);
+eigrp_result_t eigrp_interface_delay_update(eigrp_operation_t operation, eigrp_interface_context_t *context, uint32_t delay);
+eigrp_result_t eigrp_interface_hello_interval_update(eigrp_operation_t operation, eigrp_interface_context_t *context, uint16_t seconds);
+eigrp_result_t eigrp_interface_hold_time_update(eigrp_operation_t operation, eigrp_interface_context_t *context, uint16_t seconds);
+eigrp_result_t eigrp_interface_passive_update(eigrp_operation_t operation, eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_next_hop_self_update(eigrp_operation_t operation, eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_split_horizon_update(eigrp_operation_t operation, eigrp_interface_context_t *context);
+eigrp_result_t eigrp_interface_shutdown_update(eigrp_operation_t operation, eigrp_interface_context_t *context);
 ```
 
 #### 11.3.6 Neighbor configuration and clear
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Addresses, strings, limits, and clear requests are borrowed for the call. Retained configuration copies required values. Clear callback snapshots/strings are borrowed only during the callback.
 **Execution context:** Configuration operations are synchronous. `eigrp_neighbor_clear()` synchronously walks matching runtime neighbors and invokes the optional callback.
 **Ordering:** Static/configuration operations require the owning address-family configuration/context. Clear requires a live runtime and does not change retained configuration.
 Exact prototypes:
 ```c
-eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af, const eigrp_address_t *address, const char *interface_name);
-eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af, const eigrp_address_t *address, const char *interface_name);
-eigrp_result_t eigrp_neighbor_description_set( eigrp_instance_context_t *context, const eigrp_address_t *address, const char *description);
-eigrp_result_t eigrp_neighbor_description_reset( eigrp_instance_context_t *context, const eigrp_address_t *address);
-eigrp_result_t eigrp_neighbor_maximum_prefix_set( eigrp_instance_context_t *context, const eigrp_address_t *address, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_neighbor_maximum_prefix_reset( eigrp_instance_context_t *context, const eigrp_address_t *address);
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_set( eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_reset( eigrp_instance_context_t *context);
-eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context, eigrp_neighbor_log_type_t type, bool enabled, uint16_t seconds);
-eigrp_result_t eigrp_neighbor_log_reset(eigrp_instance_context_t *context, eigrp_neighbor_log_type_t type);
+eigrp_result_t eigrp_neighbor_static_create(eigrp_af_instance_t *af, const eigrp_address_t *address, const char *interface_name);
+eigrp_result_t eigrp_neighbor_static_delete(eigrp_af_instance_t *af, const eigrp_address_t *address, const char *interface_name);
+eigrp_result_t eigrp_neighbor_description_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_address_t *address, const char *description);
+eigrp_result_t eigrp_neighbor_maximum_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_address_t *address, const eigrp_prefix_limit_t *limit);
+eigrp_result_t eigrp_neighbor_maximum_prefix_all_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
+eigrp_result_t eigrp_neighbor_log_update(eigrp_operation_t operation, eigrp_instance_context_t *context, eigrp_neighbor_log_type_t type, bool enabled, uint16_t seconds);
 eigrp_result_t eigrp_neighbor_clear( eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request, eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count);
 ```
 
 #### 11.3.7 Authentication
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required when authentication is configured  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required when authentication is configured
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context/HMAC/key-chain inputs are borrowed for the call. Retained authentication state copies required values.
 **Execution context:** Synchronous.
 **Ordering:** Applies beneath one af-interface context. Host key-chain resolution remains a host service in `eigrp_sys.h`.
 Exact prototypes:
 ```c
-eigrp_result_t eigrp_auth_mode_set( eigrp_interface_context_t *context, eigrp_authentication_mode_t mode, const eigrp_auth_hmac_config_t *hmac);
-eigrp_result_t eigrp_auth_mode_reset(eigrp_interface_context_t *context);
-eigrp_result_t eigrp_auth_keychain_set(eigrp_interface_context_t *context, const char *keychain);
-eigrp_result_t eigrp_auth_keychain_reset(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_interface_context_t *context, eigrp_authentication_mode_t mode, const eigrp_auth_hmac_config_t *hmac);
+eigrp_result_t eigrp_auth_keychain_update(eigrp_operation_t operation, eigrp_interface_context_t *context, const char *keychain);
 ```
 
 #### 11.3.8 Summary configuration
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context, prefix, options, metric configuration, and strings are borrowed for the call. Retained summary state copies required values.
 **Execution context:** Synchronous.
@@ -1552,40 +1566,32 @@ Exact prototypes:
 ```c
 eigrp_result_t eigrp_summary_create( eigrp_interface_context_t *context, const eigrp_prefix_t *prefix, const eigrp_summary_options_t *options);
 eigrp_result_t eigrp_summary_delete( eigrp_interface_context_t *context, const eigrp_prefix_t *prefix);
-eigrp_result_t eigrp_summary_auto_set(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_summary_auto_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_summary_metric_set( eigrp_instance_context_t *context, const eigrp_prefix_t *prefix, const eigrp_summary_metric_config_t *config);
-eigrp_result_t eigrp_summary_metric_reset( eigrp_instance_context_t *context, const eigrp_prefix_t *prefix);
+eigrp_result_t eigrp_summary_auto_update(eigrp_operation_t operation, eigrp_instance_context_t *context);
+eigrp_result_t eigrp_summary_metric_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_t *prefix, const eigrp_summary_metric_config_t *config);
 ```
 
 #### 11.3.9 Metric configuration
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context and metric/weight inputs are borrowed. Retained values are copied.
 **Execution context:** Synchronous. Targets update retained state and, where implemented, the bound runtime.
 **Ordering:** Applies to the selected address-family/topology context. Runtime-dependent effects remain capability-gated without discarding valid retained configuration.
 Exact prototypes:
 ```c
-eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context, const eigrp_metric_values_t *metric);
-eigrp_result_t eigrp_metric_default_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context, const eigrp_metric_weights_t *weights);
-eigrp_result_t eigrp_metric_weights_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_variance_set(eigrp_instance_context_t *context, uint8_t variance);
-eigrp_result_t eigrp_metric_variance_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_traffic_share_balanced_set( eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_traffic_share_balanced_reset( eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_maximum_hops_set( eigrp_instance_context_t *context, uint8_t maximum_hops);
-eigrp_result_t eigrp_metric_maximum_hops_reset( eigrp_instance_context_t *context);
-eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context, bool enabled);
-eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_metric_default_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_metric_values_t *metric);
+eigrp_result_t eigrp_metric_weights_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_metric_weights_t *weights);
+eigrp_result_t eigrp_metric_variance_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t variance);
+eigrp_result_t eigrp_metric_traffic_share_balanced_update(eigrp_operation_t operation, eigrp_instance_context_t *context);
+eigrp_result_t eigrp_metric_maximum_hops_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t maximum_hops);
+eigrp_result_t eigrp_metric_holddown_update(eigrp_operation_t operation, eigrp_instance_context_t *context, bool enabled);
 ```
 
 #### 11.3.10 Topology configuration and clear
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context, list names, prefix-limit values, and clear request are borrowed. Retained state copies required values. `affected_count` is caller-owned output storage.
 **Execution context:** Configuration and clear operations are synchronous.
@@ -1594,25 +1600,22 @@ Exact prototypes:
 ```c
 eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context);
 eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_topology_default_information_set( eigrp_instance_context_t *context, eigrp_default_information_direction_t direction, const char *access_list);
-eigrp_result_t eigrp_topology_default_information_reset( eigrp_instance_context_t *context, eigrp_default_information_direction_t direction, const char *access_list);
-eigrp_result_t eigrp_topology_maximum_prefix_set( eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_topology_maximum_prefix_reset( eigrp_instance_context_t *context);
-eigrp_result_t eigrp_topology_maximum_paths_set( eigrp_instance_context_t *context, uint8_t maximum_paths);
-eigrp_result_t eigrp_topology_maximum_paths_reset( eigrp_instance_context_t *context);
+eigrp_result_t eigrp_topology_default_information_update(eigrp_operation_t operation, eigrp_instance_context_t *context, eigrp_default_information_direction_t direction, const char *access_list);
+eigrp_result_t eigrp_topology_maximum_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
+eigrp_result_t eigrp_topology_maximum_paths_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t maximum_paths);
 eigrp_result_t eigrp_topology_clear( eigrp_instance_context_t *context, const eigrp_topology_clear_request_t *request, size_t *affected_count);
 ```
 
 #### 11.3.11 Filtering and redistribution
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required when filtering/redistribution features are configured  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required when filtering/redistribution features are configured
 **Implemented by:** Portable EIGRP, with host policy/RIB services reached through the public integration contracts
 **Ownership/lifetime:** Context, normalized metric/limit values, redistribution source identity, and all names are borrowed inputs. `eigrp_redistribute_source_t` is an EIGRP-owned value object and is copied when retained. Retained portable configuration also copies metric values and route-map names that persist after the call.
 **Execution context:** Synchronous semantic targets. Host subscriptions/policy evaluation may be requested through `eigrp_rib.h`/`eigrp_sys.h`.
 **Ordering:** Requires an owning address-family context. Host policy/RIB objects never cross the public semantic boundary.
 
-**Current route-map capability boundary:** A redistribution route-map name is valid retained configuration and remains attached by name to the matching portable redistribution entry. Configuration parsing, commit, mutation, `no` handling, and running-config writeback do not depend on route-map evaluation being available. Route-map evaluation for redistributed source-route candidates is intentionally deferred at this development stage. When a candidate belongs to a redistribution entry with a configured route-map, portable redistribution returns `EIGRP_RESULT_NOT_IMPLEMENTED` for that import instead of admitting the route as though policy had permitted it. No partial or synthetic route-map evaluator is provided. Withdrawals may still remove matching redistributed topology state because removal does not require a policy permit decision.
+**Redistribution route-map boundary:** A redistribution route-map name is valid retained configuration and remains attached by name to the matching portable redistribution entry. For each host route candidate, portable redistribution passes the normalized redistribution candidate and route-map name through the host policy service. FRR owns route-map lookup and execution; FRR route-map objects do not cross into portable EIGRP. A permit returns the possibly updated normalized candidate (for supported set actions such as route tag) to redistribution. A deny, or a configured route-map that is absent, suppresses the candidate and withdraws any previously admitted matching external path. Withdrawals do not require a fresh policy permit decision.
 
 Exact prototypes:
 ```c
@@ -1622,43 +1625,37 @@ eigrp_result_t eigrp_distribute_add( eigrp_instance_context_t *context, eigrp_di
 eigrp_result_t eigrp_distribute_remove( eigrp_instance_context_t *context, eigrp_distribute_list_type_t type, const char *name, eigrp_offset_direction_t direction, const char *interface_name);
 eigrp_result_t eigrp_redistribute_add(eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source, const eigrp_metric_values_t *metric, const char *route_map);
 eigrp_result_t eigrp_redistribute_remove(eigrp_instance_context_t *context, const eigrp_redistribute_source_t *source);
-eigrp_result_t eigrp_redistribute_maximum_prefix_set( eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_redistribute_maximum_prefix_reset( eigrp_instance_context_t *context);
+eigrp_result_t eigrp_redistribute_maximum_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
 ```
 
 #### 11.3.12 Timers and event log
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required for the corresponding configured/administrative features  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required for the corresponding configured/administrative features
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context and scalar inputs are borrowed. Retained values are copied; event-log clear mutates only runtime operational state.
 **Execution context:** Synchronous.
 **Ordering:** Active-time configuration belongs to the address-family/topology context. Event-log size applies retained state and resizes a live log when runtime state exists; clear does not change configured size.
 Exact prototypes:
 ```c
-eigrp_result_t eigrp_timer_active_time_set(eigrp_instance_context_t *context, uint16_t seconds);
-eigrp_result_t eigrp_timer_active_time_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_timer_active_time_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint16_t seconds);
 eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_eventlog_size_set(eigrp_instance_context_t *context, uint32_t size);
-eigrp_result_t eigrp_eventlog_size_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_eventlog_size_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint32_t size);
 ```
 
 #### 11.3.13 Debug controls
-**Header:** `eigrp_cli.h`  
-**Direction:** Host -> EIGRP  
-**Requirement:** Required for supported debug command surfaces  
+**Header:** `eigrp_cli.h`
+**Direction:** Host -> EIGRP
+**Requirement:** Required for supported debug command surfaces
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Requests/addresses are borrowed. Debug selectors are stored by value. Category-name helpers return borrowed static strings.
 **Execution context:** Synchronous.
 **Ordering:** `scope` selects terminal/runtime or retained configuration debug state. Packet masks and flags must be valid for their target/category before state is changed.
 Exact prototypes:
 ```c
-eigrp_result_t eigrp_debug_set(eigrp_debug_target_t target, unsigned long flags, eigrp_debug_scope_t scope);
-eigrp_result_t eigrp_debug_reset(eigrp_debug_target_t target, unsigned long flags, eigrp_debug_scope_t scope);
-eigrp_result_t eigrp_debug_address_family_set( const eigrp_state_request_t *request, eigrp_debug_address_family_category_t category, const eigrp_address_t *neighbor, eigrp_debug_scope_t scope);
-eigrp_result_t eigrp_debug_address_family_reset( const eigrp_state_request_t *request, eigrp_debug_address_family_category_t category, const eigrp_address_t *neighbor, eigrp_debug_scope_t scope);
-eigrp_result_t eigrp_debug_packet_set(uint32_t packet_mask, unsigned long flags, eigrp_debug_scope_t scope);
-eigrp_result_t eigrp_debug_packet_reset(uint32_t packet_mask, unsigned long flags, eigrp_debug_scope_t scope);
+eigrp_result_t eigrp_debug_update(eigrp_operation_t operation, eigrp_debug_target_t target, unsigned long flags, eigrp_debug_scope_t scope);
+eigrp_result_t eigrp_debug_address_family_update(eigrp_operation_t operation, const eigrp_state_request_t *request, eigrp_debug_address_family_category_t category, const eigrp_address_t *neighbor, eigrp_debug_scope_t scope);
+eigrp_result_t eigrp_debug_packet_update(eigrp_operation_t operation, uint32_t packet_mask, unsigned long flags, eigrp_debug_scope_t scope);
 const char *eigrp_debug_packet_category_name(eigrp_debug_packet_category_t category);
 const char *eigrp_debug_packet_category_cli_name(eigrp_debug_packet_category_t category);
 ```
@@ -1687,6 +1684,7 @@ const char *eigrp_debug_packet_category_cli_name(eigrp_debug_packet_category_t c
 | `eigrp_statistics_traffic_state_t` | Packet traffic counters plus validity bitmasks for sent/received ACK, HELLO, QUERY, REPLY, UPDATE, SIA-QUERY, and SIA-REPLY counts. |
 | `eigrp_statistics_accounting_state_t` | Per-neighbor accounting snapshot: neighbor address, interface, neighbor state string, and prefix count. |
 | `eigrp_statistics_accounting_cb` | Synchronous callback for one accounting snapshot. |
+| `eigrp_status_capability_state_t` | Read-only image capability snapshot used by technical-support: release, TLV/wide-metric support, address-family support, and optional BFD/MANET/MTR/EVN/SNMP capabilities. |
 | `eigrp_status_protocol_state_t` | Protocol summary snapshot for one configured AF: local instance name, opaque config identity, AF/VRF/AS, shutdown/router-ID state, runtime presence, and data-path capability. |
 | `eigrp_status_protocol_cb` | Synchronous callback for one protocol summary/tech-support snapshot. |
 | `eigrp_debug_address_family_state_t` | Stored address-family debug selector snapshot: used flag, AF/AS/VRF scope, category, and optional neighbor. |
@@ -1704,11 +1702,26 @@ const char *eigrp_debug_packet_category_cli_name(eigrp_debug_packet_category_t c
 | `EIGRP_STATISTICS_TRAFFIC_SIA_QUERY` | `(1U << 5)` | Traffic-validity bit for SIA-QUERY counters. |
 | `EIGRP_STATISTICS_TRAFFIC_SIA_REPLY` | `(1U << 6)` | Traffic-validity bit for SIA-REPLY counters. |
 
+#### 11.4.2a Image capability state
+
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for technical-support capability reporting
+**Implemented by:** Portable EIGRP
+
+`eigrp_status_capability_state_read()` returns the capabilities of the image that is actually built. Address-family and optional integration capabilities are obtained through the EIGRP feature contract rather than inferred from source presence. An enabled feature requires its real `eigrp_*_supported()` symbol at link time; a feature explicitly disabled by `EIGRP_DISABLE_*` resolves to false without requiring that symbol.
+
+Exact prototype:
+
+```c
+eigrp_result_t eigrp_status_capability_state_read(eigrp_status_capability_state_t *state);
+```
+
 #### 11.4.3 Interface state
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for interface show/state consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for interface show/state consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Config/runtime inputs are borrowed. Callback snapshot and embedded strings are borrowed only for the callback.
@@ -1720,15 +1733,15 @@ const char *eigrp_debug_packet_category_cli_name(eigrp_debug_packet_category_t c
 Exact prototypes:
 
 ```c
-eigrp_result_t eigrp_interface_state_walk( eigrp_address_family_config_t *config, eigrp_instance_t *runtime, const char *interface_name, eigrp_interface_state_walk_cb callback, void *arg);
+eigrp_result_t eigrp_interface_state_walk( eigrp_af_instance_t *config, eigrp_instance_t *runtime, const char *interface_name, eigrp_interface_state_walk_cb callback, void *arg);
 ```
 
 
 #### 11.4.4 Neighbor state
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for neighbor show/state consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for neighbor show/state consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Config/runtime inputs are borrowed. Callback snapshot and embedded strings are borrowed only for the callback.
@@ -1740,15 +1753,15 @@ eigrp_result_t eigrp_interface_state_walk( eigrp_address_family_config_t *config
 Exact prototypes:
 
 ```c
-eigrp_result_t eigrp_neighbor_state_walk( eigrp_address_family_config_t *config, eigrp_instance_t *runtime, const char *interface_name, bool static_only, eigrp_neighbor_state_walk_cb callback, void *arg);
+eigrp_result_t eigrp_neighbor_state_walk( eigrp_af_instance_t *config, eigrp_instance_t *runtime, const char *interface_name, bool static_only, eigrp_neighbor_state_walk_cb callback, void *arg);
 ```
 
 
 #### 11.4.5 Topology state
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for topology show/state consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for topology show/state consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Inputs are borrowed. Prefix/route snapshots are borrowed only for callbacks. Runtime handles passed to instance callbacks remain EIGRP-owned.
@@ -1760,16 +1773,16 @@ eigrp_result_t eigrp_neighbor_state_walk( eigrp_address_family_config_t *config,
 Exact prototypes:
 
 ```c
-eigrp_result_t eigrp_topology_state_walk( eigrp_address_family_config_t *config, eigrp_instance_t *runtime, const eigrp_prefix_t *destination, bool all_links, eigrp_topology_prefix_state_cb prefix_callback, eigrp_topology_route_state_cb route_callback, void *arg);
-eigrp_result_t eigrp_topology_instance_walk( eigrp_address_family_t afi, eigrp_vrf_id_t vrf_id, uint16_t asn, eigrp_topology_instance_walk_cb callback, void *arg);
+eigrp_result_t eigrp_topology_state_walk( eigrp_af_instance_t *config, eigrp_instance_t *runtime, const eigrp_prefix_t *destination, bool all_links, eigrp_topology_prefix_state_cb prefix_callback, eigrp_topology_route_state_cb route_callback, void *arg);
+eigrp_result_t eigrp_topology_instance_walk( eigrp_afi_t afi, eigrp_vrf_id_t vrf_id, uint16_t asn, eigrp_topology_instance_walk_cb callback, void *arg);
 ```
 
 
 #### 11.4.6 Timer state
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for timer show/state consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for timer show/state consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Context is borrowed. Callback snapshot and strings are borrowed for the callback.
@@ -1787,9 +1800,9 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context, eigrp_t
 
 #### 11.4.7 Event log
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for event-log show/state consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for event-log show/state consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Context/entry arguments are borrowed. show callback data and format strings are borrowed. entry_format writes only to caller-owned buffer.
@@ -1810,9 +1823,9 @@ eigrp_result_t eigrp_eventlog_entry_format( const eigrp_eventlog_entry_t *entry,
 
 #### 11.4.8 Statistics
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for traffic/accounting consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for traffic/accounting consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Context is borrowed. Output structures/counts are copied to caller storage; accounting callback snapshots are borrowed for the callback.
@@ -1831,9 +1844,9 @@ eigrp_result_t eigrp_statistics_traffic_show( const eigrp_instance_context_t *co
 
 #### 11.4.9 Protocol/status
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for protocol summary and tech-support consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for protocol summary and tech-support consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Callback snapshot and strings are borrowed for the callback. config is an opaque borrowed identity only for use with other public management walkers.
@@ -1852,9 +1865,9 @@ eigrp_result_t eigrp_status_tech_support_show( eigrp_status_protocol_cb callback
 
 #### 11.4.10 Debug state
 
-**Header:** `eigrp_mgnt.h`  
-**Direction:** EIGRP -> Host management consumer  
-**Requirement:** Required for debug show/writeback consumers  
+**Header:** `eigrp_mgnt.h`
+**Direction:** EIGRP -> Host management consumer
+**Requirement:** Required for debug show/writeback consumers
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** state_get copies one public value into caller storage.
@@ -1884,9 +1897,9 @@ bool eigrp_debug_address_family_state_get( eigrp_debug_scope_t scope, size_t ind
 
 #### 11.5.3 RIB lifecycle
 
-**Header:** `eigrp_rib.h`  
-**Direction:** EIGRP -> Host RIB  
-**Requirement:** Required  
+**Header:** `eigrp_rib.h`
+**Direction:** EIGRP -> Host RIB
+**Requirement:** Required
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** Runtime handles are borrowed and remain owned by portable EIGRP.
@@ -1906,9 +1919,9 @@ void eigrp_rib_instance_delete(eigrp_instance_t *eigrp);
 
 #### 11.5.4 EIGRP route installation
 
-**Header:** `eigrp_rib.h`  
-**Direction:** EIGRP -> Host RIB  
-**Requirement:** Required  
+**Header:** `eigrp_rib.h`
+**Direction:** EIGRP -> Host RIB
+**Requirement:** Required
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** Runtime, route/prefix, and route->nexthops are borrowed only for the call. The host must copy anything it needs after return.
@@ -1927,9 +1940,9 @@ eigrp_result_t eigrp_rib_route_remove(eigrp_instance_t *eigrp, const eigrp_prefi
 
 #### 11.5.5 Redistribution subscription
 
-**Header:** `eigrp_rib.h`  
-**Direction:** EIGRP -> Host RIB  
-**Requirement:** Required when redistribution is configured  
+**Header:** `eigrp_rib.h`
+**Direction:** EIGRP -> Host RIB
+**Requirement:** Required when redistribution is configured
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** Runtime and source identity are borrowed for the call. The host may copy the EIGRP-owned source value into adapter subscription state as required. Metric configuration and route-map attachment remain owned by portable EIGRP configuration and are not host-subscription arguments.
@@ -1948,9 +1961,9 @@ eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp, const eigr
 
 #### 11.5.6 Host source-route ingress
 
-**Header:** `eigrp_rib.h`  
-**Direction:** Host RIB -> EIGRP  
-**Requirement:** Required for redistribution data-path support  
+**Header:** `eigrp_rib.h`
+**Direction:** Host RIB -> EIGRP
+**Requirement:** Required for redistribution data-path support
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Runtime and source-route snapshot are borrowed for the call. Portable EIGRP copies any state it retains.
@@ -1998,9 +2011,9 @@ eigrp_result_t eigrp_rib_source_route_remove( eigrp_instance_t *eigrp, const eig
 
 #### 11.6.3 Platform lifecycle
 
-**Header:** `eigrp_sys.h`  
-**Direction:** EIGRP -> Host runtime  
-**Requirement:** Required  
+**Header:** `eigrp_sys.h`
+**Direction:** EIGRP -> Host runtime
+**Requirement:** Required
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** No cross-call object ownership beyond host-global service state.
@@ -2019,9 +2032,9 @@ void eigrp_sys_runtime_finish(void);
 
 #### 11.6.4 Scheduling and time
 
-**Header:** `eigrp_sys.h`  
-**Direction:** EIGRP -> Host runtime  
-**Requirement:** Required  
+**Header:** `eigrp_sys.h`
+**Direction:** EIGRP -> Host runtime
+**Requirement:** Required
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** event points to caller-owned opaque-handle storage. Scheduling replaces/cancels any existing handle. callback/arg are retained by the host until event fire/cancel. On callback execution the handle is cleared before invoking callback.
@@ -2046,9 +2059,9 @@ void eigrp_sys_software_version(uint8_t *major, uint8_t *minor);
 
 #### 11.6.5 Work queues
 
-**Header:** `eigrp_sys.h`  
-**Direction:** EIGRP -> Host runtime  
-**Requirement:** Required  
+**Header:** `eigrp_sys.h`
+**Direction:** EIGRP -> Host runtime
+**Requirement:** Required
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** The returned queue wrapper is host allocated and freed by eigrp_sys_work_queue_free(). workfunc/deletefunc are retained for queue lifetime. Enqueued data pointers remain opaque to the host and are delivered to callbacks.
@@ -2062,7 +2075,7 @@ Exact prototypes:
 ```c
 eigrp_work_queue_t *eigrp_sys_work_queue_new( eigrp_instance_t *eigrp, const char *name, eigrp_work_queue_func_t workfunc, eigrp_work_queue_delete_func_t deletefunc);
 void eigrp_sys_work_queue_free(eigrp_work_queue_t *queue);
-void eigrp_sys_work_queue_reset(eigrp_work_queue_t *queue);
+void eigrp_sys_work_queue_clear(eigrp_work_queue_t *queue);
 void eigrp_sys_work_queue_enqueue(eigrp_work_queue_t *queue, void *data);
 eigrp_instance_t *eigrp_sys_work_queue_instance(eigrp_work_queue_t *queue);
 ```
@@ -2070,9 +2083,9 @@ eigrp_instance_t *eigrp_sys_work_queue_instance(eigrp_work_queue_t *queue);
 
 #### 11.6.6 Socket, VRF, and interface discovery
 
-**Header:** `eigrp_sys.h`  
-**Direction:** EIGRP -> Host runtime  
-**Requirement:** Required  
+**Header:** `eigrp_sys.h`
+**Direction:** EIGRP -> Host runtime
+**Requirement:** Required
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** Runtime handles/names are borrowed. VRF/router-ID outputs and interface walk snapshots are copied/borrowed as documented. Interface-walk snapshot is valid only for callback.
@@ -2095,9 +2108,9 @@ eigrp_result_t eigrp_sys_interface_walk(eigrp_instance_t *eigrp, eigrp_sys_inter
 
 #### 11.6.7 Multicast and IPv4 packet I/O
 
-**Header:** `eigrp_sys.h`  
-**Direction:** EIGRP -> Host runtime  
-**Requirement:** Required for IPv4 data path  
+**Header:** `eigrp_sys.h`
+**Direction:** EIGRP -> Host runtime
+**Requirement:** Required for IPv4 data path
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** Runtime/interface/destination/payload inputs are borrowed for the call. Receive writes into caller-owned buffer/output objects and does not retain them.
@@ -2109,7 +2122,8 @@ eigrp_result_t eigrp_sys_interface_walk(eigrp_instance_t *eigrp, eigrp_sys_inter
 Exact prototypes:
 
 ```c
-int eigrp_sys_multicast_interface_set(eigrp_instance_t *eigrp, eigrp_interface_t *ei);
+int eigrp_sys_multicast_interface_update(eigrp_operation_t operation,
+                                      eigrp_instance_t *eigrp, eigrp_interface_t *ei);
 int eigrp_sys_multicast_join(eigrp_instance_t *eigrp, eigrp_interface_t *ei);
 int eigrp_sys_multicast_leave(eigrp_instance_t *eigrp, eigrp_interface_t *ei);
 int eigrp_sys_ipv4_packet_send(eigrp_instance_t *eigrp, eigrp_interface_t *ei, const eigrp_address_t *destination, const uint8_t *payload, size_t length);
@@ -2119,9 +2133,9 @@ bool eigrp_sys_ipv4_packet_receive(eigrp_instance_t *eigrp, uint8_t *buffer, siz
 
 #### 11.6.8 Policy and authentication services
 
-**Header:** `eigrp_sys.h`  
-**Direction:** EIGRP -> Host runtime  
-**Requirement:** Required when policy/authentication features are used  
+**Header:** `eigrp_sys.h`
+**Direction:** EIGRP -> Host runtime
+**Requirement:** Required when policy/authentication features are used
 **Implemented by:** Host adapter
 
 **Ownership/lifetime:** Inputs are borrowed. filter_evaluate writes caller-owned decision. auth_key_lookup copies key ID/string into caller storage.
@@ -2144,9 +2158,9 @@ bool eigrp_sys_auth_key_lookup(const char *keychain_name, uint32_t *key_id, char
 
 #### 11.6.9 Host lifecycle notifications into portable EIGRP
 
-**Header:** `eigrp_sys.h`  
-**Direction:** Host runtime -> EIGRP  
-**Requirement:** Required  
+**Header:** `eigrp_sys.h`
+**Direction:** Host runtime -> EIGRP
+**Requirement:** Required
 **Implemented by:** Portable EIGRP
 
 **Ownership/lifetime:** Host snapshots, names, addresses, and filter strings are borrowed only for the call. Portable EIGRP copies any state it retains.

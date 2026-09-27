@@ -446,16 +446,16 @@ struct variable eigrp_variables[] = {
 	 4,
 	 {5, 1, 1, 23}}};
 
-static eigrp_neighbor_t *eigrp_snmp_nbr_lookup(eigrp_instance_t *eigrp,
+static eigrp_nbr_t *eigrp_snmp_nbr_lookup(eigrp_instance_t *eigrp,
 					       struct in_addr *nbr_addr,
 					       unsigned int *ifindex)
 {
-	eigrp_list_node_t *node, *nnode, *node2, *nnode2;
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
+	eigrp_list_item_t *node, *nnode, *node2, *nnode2;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
 
-	for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+	for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode, ei)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
 			if (IPV4_ADDR_SAME(&nbr->src, nbr_addr)) {
 				return nbr;
 			}
@@ -464,18 +464,18 @@ static eigrp_neighbor_t *eigrp_snmp_nbr_lookup(eigrp_instance_t *eigrp,
 	return NULL;
 }
 
-static eigrp_neighbor_t *eigrp_snmp_nbr_lookup_next(eigrp_instance_t *eigrp,
+static eigrp_nbr_t *eigrp_snmp_nbr_lookup_next(eigrp_instance_t *eigrp,
 						    struct in_addr *nbr_addr,
 						    unsigned int *ifindex,
 						    int first)
 {
-	eigrp_list_node_t *node, *nnode, *node2, *nnode2;
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
-	eigrp_neighbor_t *min = NULL;
+	eigrp_list_item_t *node, *nnode, *node2, *nnode2;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
+	eigrp_nbr_t *min = NULL;
 
-	for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+	for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode, ei)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
 			if (first) {
 				if (!min)
 					min = nbr;
@@ -500,14 +500,14 @@ static eigrp_neighbor_t *eigrp_snmp_nbr_lookup_next(eigrp_instance_t *eigrp,
 	return NULL;
 }
 
-static eigrp_neighbor_t *eigrpNbrLookup(eigrp_instance_t *eigrp, struct variable *v,
+static eigrp_nbr_t *eigrpNbrLookup(eigrp_instance_t *eigrp, struct variable *v,
 					oid *name, size_t *length,
 					struct in_addr *nbr_addr,
 					unsigned int *ifindex, int exact)
 {
 	unsigned int len;
 	int first;
-	eigrp_neighbor_t *nbr;
+	eigrp_nbr_t *nbr;
 	eigrp_instance_t *eigrp;
 
 	if (exact) {
@@ -585,17 +585,17 @@ static uint8_t *eigrpVpnEntry(struct variable *v, oid *name, size_t *length,
 static uint32_t eigrp_neighbor_count(eigrp_instance_t *eigrp)
 {
 	uint32_t count;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node, *node2, *nnode2;
-	eigrp_neighbor_t *nbr;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node, *node2, *nnode2;
+	eigrp_nbr_t *nbr;
 
 	if (eigrp == NULL) {
 		return 0;
 	}
 
 	count = 0;
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
 			if (nbr->state == EIGRP_NEIGHBOR_UP)
 				count++;
 		}
@@ -610,8 +610,8 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 				     WriteMethod **write_method)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node, *nnode;
 	int counter;
 
 	eigrp = eigrp_lookup();
@@ -639,7 +639,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Hello packets output count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->hello_out;
 			}
@@ -650,7 +650,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Hello packets input count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->hello_in;
 			}
@@ -661,7 +661,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Update packets output count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->update_out;
 			}
@@ -672,7 +672,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Update packets input count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->update_in;
 			}
@@ -683,7 +683,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Querry packets output count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->query_out;
 			}
@@ -694,7 +694,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Querry packets input count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->query_in;
 			}
@@ -705,7 +705,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Reply packets output count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->reply_out;
 			}
@@ -716,7 +716,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Reply packets input count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->reply_in;
 			}
@@ -727,7 +727,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Acknowledgement packets output count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->ack_out;
 			}
@@ -738,7 +738,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* Acknowledgement packets input count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->ack_in;
 			}
@@ -761,7 +761,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* SIA querry packets output count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->siaQuery_out;
 			}
@@ -772,7 +772,7 @@ static uint8_t *eigrpTraffStatsEntry(struct variable *v, oid *name,
 		/* SIA querry packets input count */
 		if (eigrp) {
 			counter = 0;
-			for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode,
+			for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode,
 					       ei)) {
 				counter += ei->siaQuery_in;
 			}
@@ -974,8 +974,8 @@ static uint8_t *eigrpPeerEntry(struct variable *v, oid *name, size_t *length,
 			       WriteMethod **write_method)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
 	struct in_addr nbr_addr;
 	unsigned int ifindex;
 
@@ -1095,7 +1095,7 @@ static uint8_t *eigrpInterfaceEntry(struct variable *v, oid *name,
 				    WriteMethod **write_method)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_list_item_t *node, *nnode;
 	struct keychain *keychain;
 	eigrp_list_t *keylist;
 
@@ -1256,7 +1256,7 @@ static uint8_t *eigrpInterfaceEntry(struct variable *v, oid *name,
 		/* The name of the authentication key-chain configured
 		   on this interface. */
 		keylist = keychain_list_get();
-		for (EIGRP_LIST_ELEMENTS(keylist, node, nnode, keychain)) {
+		for (EIGRP_LIST_ITERATE(keylist, node, nnode, keychain)) {
 			return (uint8_t *)keychain->name;
 		}
 		if (eigrp && keychain) {
@@ -1274,7 +1274,7 @@ static uint8_t *eigrpInterfaceEntry(struct variable *v, oid *name,
 /* Register EIGRP-MIB. */
 void eigrp_snmp_init()
 {
-	eigrp_snmp_iflist = eigrp_list_new();
+	eigrp_snmp_iflist = eigrp_list_create();
 	smux_init(eigrpd_event);
 	REGISTER_MIB("ciscoEigrpMIB", eigrp_variables, variable, eigrp_oid);
 }

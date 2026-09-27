@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdlib.h>
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRPd Finite State Machine (DUAL).
@@ -61,6 +62,8 @@
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_fsm.h"
 #include "eigrpd/eigrp_debug.h"
+#include "eigrpd/eigrp_timer.h"
+#include "eigrpd/eigrp_sys.h"
 
 /*
  * Prototypes
@@ -75,6 +78,170 @@ int eigrp_fsm_event_lr_fcn(eigrp_fsm_action_message_t *);
 int eigrp_fsm_event_qact(eigrp_fsm_action_message_t *);
 
 //---------------------------------------------------------------------
+
+static eigrp_reply_status_t *
+eigrp_fsm_reply_status_lookup(const eigrp_prefix_descriptor_t *prefix,
+                            const eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status;
+	eigrp_list_item_t *node;
+
+	if (!prefix || !prefix->rij || !nbr)
+		return NULL;
+	for (EIGRP_LIST_ITERATE_RO(prefix->rij, node, status))
+		if (status->neighbor == nbr)
+			return status;
+	return NULL;
+}
+
+void eigrp_fsm_reply_status_add(eigrp_prefix_descriptor_t *prefix,
+                                eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status;
+
+	if (!prefix || !prefix->rij || !nbr
+	    || eigrp_fsm_reply_status_lookup(prefix, nbr))
+		return;
+	status = calloc(1, sizeof(*status));
+	if (!status)
+		return;
+	status->neighbor = nbr;
+	status->sia_response_received = true;
+	eigrp_list_add(prefix->rij, status);
+}
+
+bool eigrp_fsm_reply_status_remove(eigrp_prefix_descriptor_t *prefix,
+                                   eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status = eigrp_fsm_reply_status_lookup(prefix, nbr);
+
+	if (status)
+		eigrp_list_delete_data(prefix->rij, status);
+	return prefix && prefix->rij && prefix->rij->count != 0;
+}
+
+bool eigrp_fsm_reply_status_pending(const eigrp_prefix_descriptor_t *prefix,
+                                    const eigrp_nbr_t *nbr)
+{
+	return eigrp_fsm_reply_status_lookup(prefix, nbr) != NULL;
+}
+
+void eigrp_fsm_sia_reply_received(eigrp_prefix_descriptor_t *prefix,
+                                  eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status = eigrp_fsm_reply_status_lookup(prefix, nbr);
+
+	if (status)
+		status->sia_response_received = true;
+}
+
+static void eigrp_fsm_reply_status_clear(eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_list_item_t *node, *next;
+	void *status;
+
+	if (!prefix || !prefix->rij)
+		return;
+	for (EIGRP_LIST_ITERATE(prefix->rij, node, next, status)) {
+		(void)status;
+		eigrp_list_remove(prefix->rij, node);
+	}
+}
+
+void eigrp_fsm_active_timer_stop(eigrp_prefix_descriptor_t *prefix)
+{
+	if (!prefix)
+		return;
+	eigrp_sys_event_cancel(&prefix->t_active);
+	prefix->active_eigrp = NULL;
+}
+
+static void eigrp_fsm_active_timer_expired(void *arg)
+{
+	eigrp_prefix_descriptor_t *prefix = arg;
+	eigrp_instance_t *eigrp;
+	eigrp_reply_status_t *status;
+	eigrp_list_item_t *node;
+	uint16_t active_time;
+
+	if (!prefix || prefix->state == EIGRP_FSM_STATE_PASSIVE || !prefix->rij
+	    || !prefix->rij->count)
+		return;
+	eigrp = prefix->active_eigrp;
+	if (!eigrp)
+		return;
+
+	/* A missing response to the preceding SIA-QUERY, or a fourth busy
+	 * interval after three successful SIA exchanges, declares this peer SIA.
+	 * Neighbor teardown feeds an unreachable REPLY into this computation. */
+	for (EIGRP_LIST_ITERATE_RO(prefix->rij, node, status)) {
+		if (!status->sia_response_received || status->sia_queries >= 3) {
+			eigrp_nbr_t *stuck = status->neighbor;
+			eigrp_debug_neighbor_sia(stuck, "SIA active timer expired");
+			eigrp_nbr_delete(stuck);
+			return;
+		}
+	}
+
+	for (EIGRP_LIST_ITERATE_RO(prefix->rij, node, status)) {
+		status->sia_response_received = false;
+		status->sia_queries++;
+		eigrp_siaquery_send(eigrp, status->neighbor, prefix);
+	}
+
+	active_time = eigrp_timer_active_time_seconds(eigrp);
+	if (active_time)
+		eigrp_sys_timer_add(&prefix->t_active, eigrp_fsm_active_timer_expired,
+				    prefix, (uint32_t)active_time * 500U);
+}
+
+void eigrp_fsm_active_timer_start(eigrp_instance_t *eigrp,
+                                  eigrp_prefix_descriptor_t *prefix)
+{
+	uint16_t active_time;
+
+	if (!eigrp || !prefix || prefix->state == EIGRP_FSM_STATE_PASSIVE
+	    || !prefix->rij || !prefix->rij->count)
+		return;
+	active_time = eigrp_timer_active_time_seconds(eigrp);
+	if (!active_time)
+		return;
+	prefix->active_eigrp = eigrp;
+	eigrp_sys_event_cancel(&prefix->t_active);
+	eigrp_sys_timer_add(&prefix->t_active, eigrp_fsm_active_timer_expired,
+			    prefix, (uint32_t)active_time * 500U);
+}
+
+void eigrp_fsm_query_sent(eigrp_instance_t *eigrp,
+                          eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_fsm_action_message_t msg = {0};
+	eigrp_route_descriptor_t *route;
+
+	if (!eigrp || !prefix || prefix->state == EIGRP_FSM_STATE_PASSIVE)
+		return;
+	if (prefix->rij && prefix->rij->count) {
+		eigrp_fsm_active_timer_start(eigrp, prefix);
+		return;
+	}
+
+	/* Split horizon or neighbor churn can leave a diffusing computation with
+	 * no eligible peers after QUERY target selection.  That is already the
+	 * last-reply condition; do not strand the destination ACTIVE. */
+	route = eigrp_topology_route_read(prefix);
+	if (!route)
+		return;
+	msg.packet_type = EIGRP_OPC_REPLY;
+	msg.eigrp = eigrp;
+	msg.adv_router = route->adv_router;
+	msg.route = route;
+	msg.prefix = prefix;
+	msg.data_type = (route->type == EIGRP_TLV_IPv4_EXT
+			 || route->type == EIGRP_TLV_IPv6_EXT
+			 || route->type == EIGRP_TLV_MP_EXT) ? EIGRP_EXT : EIGRP_INT;
+	msg.metrics = route->reported_metric;
+	eigrp_fsm_event_lr(&msg);
+}
 
 /*
  * NSM - field of fields of struct containing one function each.
@@ -231,7 +398,7 @@ static const char *change2str(enum metric_change change)
  *
  */
 static enum eigrp_fsm_events
-eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
+eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 {
 	// Loading base information from message
 	// eigrp_instance_t *eigrp = msg->eigrp;
@@ -258,7 +425,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 
 	switch (actual_state) {
 	case EIGRP_FSM_STATE_PASSIVE: {
-		eigrp_route_descriptor_t *head = eigrp_topology_route_head(prefix);
+		eigrp_route_descriptor_t *head = eigrp_topology_route_read(prefix);
 
 		if (head->reported_distance < prefix->fdistance) {
 			return EIGRP_FSM_KEEP_STATE;
@@ -279,9 +446,9 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_ACTIVE_0: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
 			eigrp_route_descriptor_t *head =
-				eigrp_topology_route_head(prefix);
+				eigrp_topology_route_read(prefix);
 
-			eigrp_list_delete_data(prefix->rij, route->adv_router);
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
 			if (prefix->rij->count)
 				return EIGRP_FSM_KEEP_STATE;
 
@@ -306,7 +473,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 		    && (route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
 			return EIGRP_FSM_EVENT_QACT;
 		} else if (msg->packet_type == EIGRP_OPC_REPLY) {
-			eigrp_list_delete_data(prefix->rij, route->adv_router);
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
 
 			if (change == METRIC_INCREASE
 			    && (route->flags
@@ -331,9 +498,9 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_ACTIVE_2: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
 			eigrp_route_descriptor_t *head =
-				eigrp_topology_route_head(prefix);
+				eigrp_topology_route_read(prefix);
 
-			eigrp_list_delete_data(prefix->rij, route->adv_router);
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
 			if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
@@ -352,7 +519,7 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
 	}
 	case EIGRP_FSM_STATE_ACTIVE_3: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
-			eigrp_list_delete_data(prefix->rij, route->adv_router);
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
 
 			if (change == METRIC_INCREASE
 			    && (route->flags
@@ -385,10 +552,10 @@ eigrp_get_fsm_event(eigrp_fsm_action_message_t *msg)
  */
 int eigrp_fsm_event(eigrp_fsm_action_message_t *msg)
 {
-	enum eigrp_fsm_events event = eigrp_get_fsm_event(msg);
+	enum eigrp_fsm_events event = eigrp_fsm_event_select(msg);
 
 	if (IS_DEBUG_EIGRP(0, FSM)
-	    || eigrp_debug_address_family_enabled(
+	    || eigrp_debug_af_enabled(
 		    msg->eigrp, EIGRP_DEBUG_AF_ROUTE,
 		    msg->adv_router ? &msg->adv_router->src : NULL)) {
 		char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
@@ -424,8 +591,10 @@ int eigrp_fsm_event_nq_fcn(eigrp_fsm_action_message_t *msg)
 	 * eigrp_topology_update_distance().
 	 */
 	prefix->state = EIGRP_FSM_STATE_ACTIVE_1;
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
 
-	if (eigrp_nbr_count_get(eigrp)) {
+	if (eigrp_nbr_count(eigrp)) {
 		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
 		eigrp_list_add(eigrp->topology_changes, prefix);
 	} else {
@@ -447,7 +616,9 @@ int eigrp_fsm_event_q_fcn(eigrp_fsm_action_message_t *msg)
 	 * current distance, and advertised metric remain frozen until PASSIVE.
 	 */
 	prefix->state = EIGRP_FSM_STATE_ACTIVE_3;
-	if (eigrp_nbr_count_get(eigrp)) {
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
+	if (eigrp_nbr_count(eigrp)) {
 		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
 		eigrp_list_add(eigrp->topology_changes, prefix);
 	} else {
@@ -462,13 +633,19 @@ int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_topology_route_head(prefix);
+	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
 
 	if (prefix->state == EIGRP_FSM_STATE_PASSIVE) {
-		if (!eigrp_metrics_is_same(prefix->reported_metric,
+		if (!eigrp_metrics_match(prefix->reported_metric,
 					   route->total_metric)) {
-			prefix->rdistance = prefix->fdistance =
-				prefix->distance = route->distance;
+			/* While PASSIVE, FD is the least distance observed since the
+			 * last ACTIVE -> PASSIVE transition.  Current distance/RD may
+			 * increase without moving that feasibility anchor upward.
+			 */
+			prefix->distance = route->distance;
+			prefix->rdistance = route->distance;
+			if (route->distance < prefix->fdistance)
+				prefix->fdistance = route->distance;
 			prefix->reported_metric = route->total_metric;
 			if (msg->packet_type == EIGRP_OPC_QUERY)
 				eigrp_reply_send(eigrp, msg->adv_router,
@@ -490,22 +667,24 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_topology_route_head(prefix);
+	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
 
 	prefix->fdistance = prefix->distance = prefix->rdistance =
 		route->distance;
 	prefix->reported_metric = route->total_metric;
 
 	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_3) {
-		eigrp_list_t *successors = eigrp_topology_get_successor(prefix);
+		eigrp_list_t *successors = eigrp_topology_successors_read(prefix);
 
 		assert(successors); // It's like Napolean and Waterloo
 
-		route = eigrp_list_node_data(eigrp_list_head(successors));
+		route = eigrp_list_item_data(eigrp_list_first(successors));
 		eigrp_reply_send(eigrp, route->adv_router, prefix);
 		eigrp_list_delete(&successors);
 	}
 
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
 	prefix->state = EIGRP_FSM_STATE_PASSIVE;
 	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
 	eigrp_list_add(eigrp->topology_changes, prefix);
@@ -528,7 +707,7 @@ int eigrp_fsm_event_dinc(eigrp_fsm_action_message_t *msg)
 				     ? EIGRP_FSM_STATE_ACTIVE_0
 				     : EIGRP_FSM_STATE_ACTIVE_2;
 	if (!msg->prefix->rij->count)
-		(*(NSM[msg->prefix->state][eigrp_get_fsm_event(msg)].func))(
+		(*(NSM[msg->prefix->state][eigrp_fsm_event_select(msg)].func))(
 			msg);
 
 	return 1;
@@ -538,20 +717,24 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_topology_route_head(prefix);
+	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
 
+	uint8_t old_state = prefix->state;
+
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
 	prefix->state = EIGRP_FSM_STATE_PASSIVE;
 	prefix->distance = prefix->rdistance = route->distance;
 	prefix->reported_metric = route->total_metric;
 	prefix->fdistance = prefix->fdistance > prefix->distance
 				    ? prefix->distance
 				    : prefix->fdistance;
-	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_2) {
-		eigrp_list_t *successors = eigrp_topology_get_successor(prefix);
+	if (old_state == EIGRP_FSM_STATE_ACTIVE_2) {
+		eigrp_list_t *successors = eigrp_topology_successors_read(prefix);
 
 		assert(successors); // Having a spoon and all you need is a
 		// knife
-		route = eigrp_list_node_data(eigrp_list_head(successors));
+		route = eigrp_list_item_data(eigrp_list_first(successors));
 		eigrp_reply_send(eigrp, route->adv_router, prefix);
 
 		eigrp_list_delete(&successors);
@@ -579,8 +762,10 @@ int eigrp_fsm_event_lr_fcn(eigrp_fsm_action_message_t *msg)
 	prefix->state = (prefix->state == EIGRP_FSM_STATE_ACTIVE_0)
 				? EIGRP_FSM_STATE_ACTIVE_1
 				: EIGRP_FSM_STATE_ACTIVE_3;
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
 
-	if (eigrp_nbr_count_get(eigrp)) {
+	if (eigrp_nbr_count(eigrp)) {
 		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
 		eigrp_list_add(eigrp->topology_changes, prefix);
 	} else {

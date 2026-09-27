@@ -336,13 +336,17 @@ extern struct running_config_stub { struct lyd_node *dnode; } *running_config;
 #define MTYPE_EIGRP_EVENT 1021
 #define MTYPE_EIGRP_ZEBRA_INSTANCE 1022
 #define DISTRIBUTE_V4_IN 0
+#define DISTRIBUTE_V6_IN 2
+#define DISTRIBUTE_V6_OUT 3
 #define DISTRIBUTE_V4_OUT 1
 #define ZCAP_NET_RAW 1
 #define ZCAP_BIND 2
 #define ZCAP_NET_ADMIN 3
 #define MULTIPATH_NUM 8
 #define ZAPI_MESSAGE_NEXTHOP 0x01
-#define ZAPI_MESSAGE_METRIC 0x02
+#define ZAPI_MESSAGE_DISTANCE 0x02
+#define ZAPI_MESSAGE_METRIC 0x04
+#define ZAPI_MESSAGE_TAG 0x08
 #define ZEBRA_ROUTE_ADD 1
 #define ZEBRA_ROUTE_DELETE 2
 #define ZEBRA_REDISTRIBUTE_ADD 3
@@ -382,7 +386,13 @@ struct work_queue { struct work_queue_spec spec; const char *name; int max_retri
 #define WQ_SUCCESS 0
 #define WQ_REQUEUE 1
 #define WQ_QUEUE_BLOCKED 2
-struct route_map_rule_cmd { const char *str; enum route_map_cmd_result_t (*func_apply)(void *, struct prefix *, route_map_object_t, void *); void *(*func_compile)(const char *); void (*func_free)(void *); };
+struct route_map_rule_cmd { const char *str; enum route_map_cmd_result_t (*func_apply)(void *, const struct prefix *, void *); void *(*func_compile)(const char *); void (*func_free)(void *); void *(*func_get_rmap_rule_key)(void *); };
+typedef enum { RMAP_DENYMATCH = 0, RMAP_PERMITMATCH = 1 } route_map_result_t;
+#define route_map_install_match(c) do { (void)(c); } while (0)
+#define route_map_install_set(c) do { (void)(c); } while (0)
+static inline void *route_map_rule_tag_compile(const char *arg) { static route_tag_t tag; tag = arg ? (route_tag_t)strtoul(arg, NULL, 10) : 0; return &tag; }
+static inline void route_map_rule_tag_free(void *rule) { (void)rule; }
+static inline route_map_result_t route_map_apply(struct route_map *map, const struct prefix *prefix, void *object) { (void)map; (void)prefix; (void)object; return RMAP_PERMITMATCH; }
 #ifndef EIGRP_TEST_STRUCT_OPTION
 #define EIGRP_TEST_STRUCT_OPTION
 struct option { const char *name; int has_arg; int *flag; int val; };

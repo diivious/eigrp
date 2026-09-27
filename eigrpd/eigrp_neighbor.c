@@ -34,7 +34,7 @@
 #define EIGRP_NEIGHBOR_SRTT_ALPHA_SHIFT 3U /* alpha = 1/8 */
 #define EIGRP_NEIGHBOR_RTTVAR_BETA_SHIFT 2U /* beta = 1/4 */
 
-static uint32_t eigrp_neighbor_rto_calculate(uint32_t srtt_msec)
+static uint32_t eigrp_nbr_rto_calculate(uint32_t srtt_msec)
 {
 	uint64_t rto = (uint64_t)srtt_msec * EIGRP_TRANSPORT_RTO_SRTT_MULTIPLIER;
 
@@ -45,7 +45,7 @@ static uint32_t eigrp_neighbor_rto_calculate(uint32_t srtt_msec)
 	return (uint32_t)rto;
 }
 
-void eigrp_neighbor_rtt_reset(eigrp_neighbor_t *nbr)
+void eigrp_nbr_rtt_clear(eigrp_nbr_t *nbr)
 {
 	if (!nbr)
 		return;
@@ -56,7 +56,7 @@ void eigrp_neighbor_rtt_reset(eigrp_neighbor_t *nbr)
 	nbr->rto_msec = EIGRP_TRANSPORT_RTO_INITIAL_MSEC;
 }
 
-static void eigrp_neighbor_rtt_sample(eigrp_neighbor_t *nbr,
+static void eigrp_nbr_rtt_sample(eigrp_nbr_t *nbr,
 				      uint32_t sample_msec)
 {
 	int64_t error;
@@ -71,7 +71,7 @@ static void eigrp_neighbor_rtt_sample(eigrp_neighbor_t *nbr,
 		nbr->srtt_valid = true;
 		nbr->srtt_msec = sample_msec;
 		nbr->rttvar_msec = sample_msec / 2U;
-		nbr->rto_msec = eigrp_neighbor_rto_calculate(nbr->srtt_msec);
+		nbr->rto_msec = eigrp_nbr_rto_calculate(nbr->srtt_msec);
 		return;
 	}
 
@@ -90,10 +90,10 @@ static void eigrp_neighbor_rtt_sample(eigrp_neighbor_t *nbr,
 	if (srtt < 0)
 		srtt = 0;
 	nbr->srtt_msec = (uint32_t)srtt;
-	nbr->rto_msec = eigrp_neighbor_rto_calculate(nbr->srtt_msec);
+	nbr->rto_msec = eigrp_nbr_rto_calculate(nbr->srtt_msec);
 }
 
-void eigrp_neighbor_srtt_update(eigrp_neighbor_t *nbr,
+void eigrp_nbr_srtt_update(eigrp_nbr_t *nbr,
 				const eigrp_packet_t *packet)
 {
 	uint64_t now_msec;
@@ -110,46 +110,46 @@ void eigrp_neighbor_srtt_update(eigrp_neighbor_t *nbr,
 	sample_msec = now_msec - packet->sent_msec;
 	if (sample_msec > UINT32_MAX)
 		sample_msec = UINT32_MAX;
-	eigrp_neighbor_rtt_sample(nbr, (uint32_t)sample_msec);
+	eigrp_nbr_rtt_sample(nbr, (uint32_t)sample_msec);
 }
 
-void eigrp_neighbor_rto_backoff(eigrp_neighbor_t *nbr)
+void eigrp_nbr_rto_backoff(eigrp_nbr_t *nbr)
 {
 	uint64_t rto;
 
 	if (!nbr)
 		return;
 
-	rto = eigrp_neighbor_rto_get(nbr);
+	rto = eigrp_nbr_rto(nbr);
 	rto *= 2U;
 	if (rto > EIGRP_TRANSPORT_RTO_MAX_MSEC)
 		rto = EIGRP_TRANSPORT_RTO_MAX_MSEC;
 	nbr->rto_msec = (uint32_t)rto;
 }
 
-uint32_t eigrp_neighbor_rto_get(const eigrp_neighbor_t *nbr)
+uint32_t eigrp_nbr_rto(const eigrp_nbr_t *nbr)
 {
 	if (!nbr || nbr->rto_msec == 0)
 		return EIGRP_TRANSPORT_RTO_INITIAL_MSEC;
 	return nbr->rto_msec;
 }
 
-struct eigrp_neighbor_config {
+struct eigrp_nbr_config {
 	eigrp_address_t address;
 	char *interface_name;
-	eigrp_neighbor_config_t *next;
+	eigrp_nbr_config_t *next;
 };
 
-struct eigrp_neighbor_policy_entry {
+struct eigrp_nbr_policy_entry {
 	eigrp_address_t address;
 	char *description;
 	bool maximum_prefix_configured;
 	eigrp_prefix_limit_t maximum_prefix;
-	struct eigrp_neighbor_policy_entry *next;
+	struct eigrp_nbr_policy_entry *next;
 };
 
-struct eigrp_neighbor_policy_state {
-	struct eigrp_neighbor_policy_entry *entries;
+struct eigrp_nbr_policy_state {
+	struct eigrp_nbr_policy_entry *entries;
 	bool maximum_prefix_all_configured;
 	eigrp_prefix_limit_t maximum_prefix_all;
 	bool log_changes_configured;
@@ -159,7 +159,7 @@ struct eigrp_neighbor_policy_state {
 	uint16_t log_warning_interval;
 };
 
-static char *eigrp_neighbor_string_duplicate(const char *value)
+static char *eigrp_nbr_string_dup(const char *value)
 {
 	size_t len;
 	char *copy;
@@ -174,19 +174,19 @@ static char *eigrp_neighbor_string_duplicate(const char *value)
 	return copy;
 }
 
-static bool eigrp_neighbor_address_equal(const eigrp_address_t *a,
+static bool eigrp_nbr_address_match(const eigrp_address_t *a,
 					 const eigrp_address_t *b)
 {
 	size_t len;
 
 	if (!a || !b || a->afi != b->afi)
 		return false;
-	len = a->afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16;
+	len = a->afi == EIGRP_AFI_IPV4 ? 4 : 16;
 	return memcmp(a->bytes, b->bytes, len) == 0;
 }
 
-static void eigrp_neighbor_static_debug(const char *action,
-					const eigrp_address_family_config_t *af,
+static void eigrp_nbr_static_debug(const char *action,
+					const eigrp_af_instance_t *af,
 					const eigrp_address_t *address,
 					const char *interface_name)
 {
@@ -195,7 +195,7 @@ static void eigrp_neighbor_static_debug(const char *action,
 
 	if (!(term_debug_eigrp_nei & EIGRP_DEBUG_NEI_STATIC) || !address)
 		return;
-	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
+	family = address->afi == EIGRP_AFI_IPV6 ? AF_INET6 : AF_INET;
 	if (!inet_ntop(family, address->bytes, address_text, sizeof(address_text)))
 		memcpy(address_text, "<invalid>", sizeof("<invalid>"));
 	eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: %s static neighbor %s AS %u interface %s", action,
@@ -215,11 +215,11 @@ static void eigrp_neighbor_static_debug(const char *action,
  * Creates or removes a static EIGRP neighbor definition.
  * Named mode terminates at EIGRP-owned neighbor state instead of invoking the classic FRR command callback.
  */
-eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_nbr_static_create(eigrp_af_instance_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name)
 {
-	eigrp_neighbor_config_t *neighbor;
+	eigrp_nbr_config_t *neighbor;
 
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
@@ -228,14 +228,14 @@ eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	for (neighbor = af->neighbors; neighbor; neighbor = neighbor->next)
-		if (eigrp_neighbor_address_equal(&neighbor->address, address)
+		if (eigrp_nbr_address_match(&neighbor->address, address)
 		    && strcmp(neighbor->interface_name, interface_name) == 0)
 			return EIGRP_RESULT_SUCCESS;
 
 	neighbor = calloc(1, sizeof(*neighbor));
 	if (!neighbor)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	neighbor->interface_name = eigrp_neighbor_string_duplicate(interface_name);
+	neighbor->interface_name = eigrp_nbr_string_dup(interface_name);
 	if (!neighbor->interface_name) {
 		free(neighbor);
 		return EIGRP_RESULT_INTERNAL_FAILURE;
@@ -243,12 +243,12 @@ eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
 	neighbor->address = *address;
 	neighbor->next = af->neighbors;
 	af->neighbors = neighbor;
-	eigrp_neighbor_static_debug("add", af, address, interface_name);
+	eigrp_nbr_static_debug("add", af, address, interface_name);
 	if (af->runtime) {
-		eigrp_interface_t *ei =
+		eigrp_intf_t *ei =
 			eigrp_intf_lookup_by_name(af->runtime, interface_name);
 		if (ei)
-			(void)eigrp_neighbor_static_hello_send(ei);
+			(void)eigrp_nbr_static_hello_send(ei);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -265,12 +265,12 @@ eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
  * Creates or removes a static EIGRP neighbor definition.
  * Named mode terminates at EIGRP-owned neighbor state instead of invoking the classic FRR command callback.
  */
-eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_nbr_static_delete(eigrp_af_instance_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name)
 {
-	eigrp_neighbor_config_t **cursor;
-	eigrp_neighbor_config_t *neighbor;
+	eigrp_nbr_config_t **cursor;
+	eigrp_nbr_config_t *neighbor;
 
 	if (!address || !interface_name)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -279,11 +279,11 @@ eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 
 	for (cursor = &af->neighbors; *cursor; cursor = &(*cursor)->next) {
 		neighbor = *cursor;
-		if (!eigrp_neighbor_address_equal(&neighbor->address, address)
+		if (!eigrp_nbr_address_match(&neighbor->address, address)
 		    || strcmp(neighbor->interface_name, interface_name) != 0)
 			continue;
 		*cursor = neighbor->next;
-		eigrp_neighbor_static_debug("remove", af, address, interface_name);
+		eigrp_nbr_static_debug("remove", af, address, interface_name);
 		free(neighbor->interface_name);
 		free(neighbor);
 		return EIGRP_RESULT_SUCCESS;
@@ -291,36 +291,43 @@ eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
-bool eigrp_neighbor_static_source_allowed(eigrp_interface_t *ei,
+bool eigrp_nbr_static_source_allowed(eigrp_intf_t *ei,
                                           const eigrp_addr_t *src)
 {
-	eigrp_address_family_config_t *af;
-	eigrp_neighbor_config_t *neighbor;
+	eigrp_af_instance_t *af;
+	eigrp_nbr_config_t *neighbor;
 	const char *interface_name;
+	const void *source_bytes;
+	size_t address_length;
 	bool has_static = false;
 
-	if (!ei || !ei->eigrp || !src || src->afi != AF_INET)
+	if (!ei || !ei->eigrp || !src)
 		return false;
 	af = eigrp_instance_runtime_config(ei->eigrp);
-	if (!af || af->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (!af)
 		return true;
+	if ((af->afi == EIGRP_AFI_IPV4 && src->afi != AF_INET)
+	    || (af->afi == EIGRP_AFI_IPV6 && src->afi != AF_INET6))
+		return false;
+	address_length = ei->eigrp->af_vectors.packet_address_bytes;
+	source_bytes = src->afi == AF_INET6 ? (const void *)&src->ip.v6
+					      : (const void *)&src->ip.v4;
 	interface_name = eigrp_intf_name_string(ei);
 
 	for (neighbor = af->neighbors; neighbor; neighbor = neighbor->next) {
 		if (strcmp(neighbor->interface_name, interface_name) != 0)
 			continue;
 		has_static = true;
-		if (memcmp(neighbor->address.bytes, &src->ip.v4,
-			   sizeof(src->ip.v4)) == 0)
+		if (memcmp(neighbor->address.bytes, source_bytes, address_length) == 0)
 			return true;
 	}
 	return !has_static;
 }
 
-bool eigrp_neighbor_static_hello_send(eigrp_interface_t *ei)
+bool eigrp_nbr_static_hello_send(eigrp_intf_t *ei)
 {
-	eigrp_address_family_config_t *af;
-	eigrp_neighbor_config_t *neighbor;
+	eigrp_af_instance_t *af;
+	eigrp_nbr_config_t *neighbor;
 	eigrp_addr_t dst;
 	const char *interface_name;
 	bool configured = false;
@@ -328,7 +335,7 @@ bool eigrp_neighbor_static_hello_send(eigrp_interface_t *ei)
 	if (!ei || !ei->eigrp)
 		return false;
 	af = eigrp_instance_runtime_config(ei->eigrp);
-	if (!af || af->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (!af)
 		return false;
 	interface_name = eigrp_intf_name_string(ei);
 
@@ -337,17 +344,22 @@ bool eigrp_neighbor_static_hello_send(eigrp_interface_t *ei)
 			continue;
 		configured = true;
 		memset(&dst, 0, sizeof(dst));
-		dst.afi = AF_INET;
-		memcpy(&dst.ip.v4, neighbor->address.bytes, sizeof(dst.ip.v4));
+		if (af->afi == EIGRP_AFI_IPV6) {
+			dst.afi = AF_INET6;
+			memcpy(&dst.ip.v6, neighbor->address.bytes, sizeof(dst.ip.v6));
+		} else {
+			dst.afi = AF_INET;
+			memcpy(&dst.ip.v4, neighbor->address.bytes, sizeof(dst.ip.v4));
+		}
 		eigrp_hello_send_unicast(ei, &dst);
 	}
 	return configured;
 }
 
-void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af)
+void eigrp_nbr_static_delete_all(eigrp_af_instance_t *af)
 {
-	eigrp_neighbor_config_t *neighbor;
-	eigrp_neighbor_config_t *next;
+	eigrp_nbr_config_t *neighbor;
+	eigrp_nbr_config_t *next;
 
 	if (!af)
 		return;
@@ -359,21 +371,21 @@ void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af)
 	af->neighbors = NULL;
 }
 
-static void eigrp_neighbor_runtime_address(const eigrp_neighbor_t *nbr,
+static void eigrp_nbr_runtime_address(const eigrp_nbr_t *nbr,
 					   eigrp_address_t *address)
 {
 	memset(address, 0, sizeof(*address));
 	if (nbr->src.afi == AF_INET6) {
-		address->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		address->afi = EIGRP_AFI_IPV6;
 		memcpy(address->bytes, &nbr->src.ip.v6, 16);
 		return;
 	}
-	address->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	address->afi = EIGRP_AFI_IPV4;
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
-static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
-					    eigrp_neighbor_t *neighbor)
+static uint32_t eigrp_nbr_prefix_count(eigrp_instance_t *runtime,
+					    eigrp_nbr_t *neighbor)
 {
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_table_node_t *route_node;
@@ -402,17 +414,17 @@ static uint32_t eigrp_neighbor_prefix_count(eigrp_instance_t *runtime,
  * Walks EIGRP neighbor state for operational display.
  * The common API exposes protocol state without FRR VTY objects.
  */
-eigrp_result_t eigrp_neighbor_state_walk(
-	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+eigrp_result_t eigrp_nbr_state_iterate(
+	eigrp_af_instance_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,
-	eigrp_neighbor_state_walk_cb callback, void *arg)
+	eigrp_nbr_state_iterate_cb callback, void *arg)
 {
-	eigrp_neighbor_config_t *configured;
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
-	eigrp_list_node_t *if_node;
-	eigrp_list_node_t *nbr_node;
-	eigrp_neighbor_state_t state;
+	eigrp_nbr_config_t *configured;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
+	eigrp_list_item_t *if_node;
+	eigrp_list_item_t *nbr_node;
+	eigrp_nbr_state_t state;
 	eigrp_result_t result;
 	bool matched = false;
 
@@ -441,24 +453,24 @@ eigrp_result_t eigrp_neighbor_state_walk(
 	}
 
 	if (!runtime) {
-		if (config && config->afi == EIGRP_ADDRESS_FAMILY_IPV6)
+		if (config && config->afi == EIGRP_AFI_IPV6)
 			return EIGRP_RESULT_NOT_IMPLEMENTED;
 		return EIGRP_RESULT_NOT_FOUND;
 	}
 	if (!runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
-	for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, ei)) {
 		const char *name = eigrp_intf_name_string(ei);
 
 		if (interface_name && strcmp(name, interface_name) != 0)
 			continue;
-		for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+		for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
 			/* Normal neighbor output contains established adjacencies only. */
 			if (nbr->state != EIGRP_NEIGHBOR_UP)
 				continue;
 			memset(&state, 0, sizeof(state));
-			eigrp_neighbor_runtime_address(nbr, &state.address);
+			eigrp_nbr_runtime_address(nbr, &state.address);
 			state.interface_name = name;
 			state.state_name = eigrp_nbr_state_str(nbr);
 			state.runtime_present = true;
@@ -474,13 +486,13 @@ eigrp_result_t eigrp_neighbor_state_walk(
 			state.reliable_queue_count =
 				nbr->retrans_queue ? nbr->retrans_queue->count : 0;
 			state.sequence_number = nbr->recv_sequence_number;
-			state.prefix_count = eigrp_neighbor_prefix_count(runtime, nbr);
+			state.prefix_count = eigrp_nbr_prefix_count(runtime, nbr);
 			state.retransmit_count = nbr->retransmissions;
 			if (nbr->retrans_queue && nbr->retrans_queue->tail)
 				state.retry_count = nbr->retrans_queue->tail->retrans_counter;
 			state.srtt_valid = nbr->srtt_valid;
 			state.srtt_msec = nbr->srtt_msec;
-			state.rto_msec = eigrp_neighbor_rto_get(nbr);
+			state.rto_msec = eigrp_nbr_rto(nbr);
 			state.os_major = nbr->os_rel_major;
 			state.os_minor = nbr->os_rel_minor;
 			state.tlv_major = nbr->tlv_rel_major;
@@ -495,7 +507,7 @@ eigrp_result_t eigrp_neighbor_state_walk(
 
 	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
-void eigrp_neighbor_codec_bind(eigrp_neighbor_t *nbr, uint8_t tlv_version)
+void eigrp_nbr_codec_select(eigrp_nbr_t *nbr, uint8_t tlv_version)
 {
 	const eigrp_tlv_codec_t *codec;
 
@@ -521,30 +533,30 @@ void eigrp_neighbor_codec_bind(eigrp_neighbor_t *nbr, uint8_t tlv_version)
 	nbr->encoder = codec->encoder;
 }
 
-void eigrp_neighbor_codec_refresh(eigrp_instance_t *eigrp)
+void eigrp_nbr_codec_update(eigrp_instance_t *eigrp)
 {
-	eigrp_list_node_t *if_node;
-	eigrp_list_node_t *nbr_node;
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
+	eigrp_list_item_t *if_node;
+	eigrp_list_item_t *nbr_node;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
 	uint8_t selected;
 
 	if (!eigrp || !eigrp->eiflist)
 		return;
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, if_node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, if_node, ei)) {
 		if (!ei || !ei->nbrs)
 			continue;
-		for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
+		for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
 			if (!nbr || !nbr->tlv_rel_major)
 				continue;
 			selected = eigrp_metric_version_select(eigrp, nbr->tlv_rel_major);
 			if (selected == nbr->tlv_version)
 				continue;
 			if (nbr->state == EIGRP_NEIGHBOR_UP)
-				eigrp_interface_encoder_unbind(ei, nbr->tlv_version);
-			eigrp_neighbor_codec_bind(nbr, selected);
+				eigrp_intf_encoder_peer_remove(ei, nbr->tlv_version);
+			eigrp_nbr_codec_select(nbr, selected);
 			if (nbr->state == EIGRP_NEIGHBOR_UP)
-				eigrp_interface_encoder_bind(ei, nbr->tlv_version);
+				eigrp_intf_encoder_peer_add(ei, nbr->tlv_version);
 		}
 	}
 }
@@ -552,9 +564,9 @@ void eigrp_neighbor_codec_refresh(eigrp_instance_t *eigrp)
 /**
  * initalize neighbor
  */
-static void eigrp_nbr_init(eigrp_neighbor_t *nbr, eigrp_addr_t *src)
+static void eigrp_nbr_init(eigrp_nbr_t *nbr, eigrp_addr_t *src)
 {
-	eigrp_addr_copy(&nbr->src, src);
+	eigrp_addr_cpy(&nbr->src, src);
 
 	/* copy over the values passed in by the neighbor */
 	nbr->K1 = EIGRP_K1_DEFAULT;
@@ -577,19 +589,19 @@ static void eigrp_nbr_init(eigrp_neighbor_t *nbr, eigrp_addr_t *src)
 /**
  * Create a new neighbor structure and initalize it.
  */
-eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *ei, eigrp_addr_t *src)
+eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *ei, eigrp_addr_t *src)
 {
-	eigrp_neighbor_t *nbr;
+	eigrp_nbr_t *nbr;
 
 	/* Allcate new neighbor. */
-	nbr = calloc(1, sizeof(eigrp_neighbor_t));
+	nbr = calloc(1, sizeof(eigrp_nbr_t));
 
 	/* Relate neighbor to the interface. */
 	nbr->ei = ei;
 
 	/* Set default values. */
 	eigrp_nbr_init(nbr, src);
-	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 
 	// If this is the 'self' neighbor, then you dont have an interface
 	if (ei) {
@@ -606,14 +618,14 @@ eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *ei, eigrp_addr_t *src)
 	return nbr;
 }
 
-eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *ei, eigrp_header_t *eigrph,
+eigrp_nbr_t *eigrp_nbr_lookup(eigrp_intf_t *ei, eigrp_header_t *eigrph,
 				   eigrp_addr_t *src)
 {
-	eigrp_neighbor_t *nbr;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_nbr_t *nbr;
+	eigrp_list_item_t *node, *nnode;
 
-	for (EIGRP_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
-	    if (eigrp_addr_same(src, &nbr->src)) {
+	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
+	    if (eigrp_addr_match(src, &nbr->src)) {
 		    return nbr;
 		}
 	}
@@ -633,13 +645,13 @@ eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *ei, eigrp_header_t *eigrph
  * Function is used for neighbor lookup by address
  * in specified interface.
  */
-eigrp_neighbor_t *eigrp_nbr_lookup_by_addr(eigrp_interface_t *ei,
+eigrp_nbr_t *eigrp_nbr_lookup_by_addr(eigrp_intf_t *ei,
 					   struct in_addr *addr)
 {
-	eigrp_neighbor_t *nbr;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_nbr_t *nbr;
+	eigrp_list_item_t *node, *nnode;
 
-	for (EIGRP_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
+	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
 		if (addr->s_addr == nbr->src.ip.v4.s_addr) {
 			return nbr;
 		}
@@ -660,17 +672,17 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr(eigrp_interface_t *ei,
  * Function is used for neighbor lookup by address
  * in whole EIGRP process.
  */
-eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
+eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 						   struct in_addr nbr_addr)
 {
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node, *node2, *nnode2;
-	eigrp_neighbor_t *nbr;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node, *node2, *nnode2;
+	eigrp_nbr_t *nbr;
 
 	/* iterate over all eigrp interfaces */
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
 		/* iterate over all neighbors on eigrp interface */
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
 			/* compare if neighbor address is same as arg address */
 			if (nbr->src.ip.v4.s_addr == nbr_addr.s_addr) {
 				return nbr;
@@ -683,7 +695,7 @@ eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 
 
 /* Delete specified EIGRP neighbor from interface. */
-void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
+void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 {
 	if (nbr && IS_DEBUG_EIGRP_EVENT) {
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: neighbor %s delete%s%s",
@@ -693,7 +705,7 @@ void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event detail: AS %u state %u retrans %u",
 				   nbr->ei->eigrp->AS, nbr->state, nbr->retrans_counter);
 	}
-	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	if (nbr->ei)
 		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 
@@ -711,9 +723,9 @@ void eigrp_nbr_delete(eigrp_neighbor_t *nbr)
 	free(nbr);
 }
 
-void eigrp_neighbor_holddown_expired(void *arg)
+void eigrp_nbr_holddown_expired(void *arg)
 {
-	eigrp_neighbor_t *nbr = arg;
+	eigrp_nbr_t *nbr = arg;
 	if (IS_DEBUG_EIGRP(0, TIMERS))
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: hold timer expired for neighbor %s",
 			   eigrp_print_addr(&nbr->src));
@@ -721,28 +733,28 @@ void eigrp_neighbor_holddown_expired(void *arg)
 		eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: holding time expired",
 			  eigrp_print_addr(&nbr->src),
 			  nbr->ei->name);
-	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	eigrp_nbr_delete(nbr);
 
 	return;
 }
 
-uint8_t eigrp_nbr_state_get(eigrp_neighbor_t *nbr)
+uint8_t eigrp_nbr_state(eigrp_nbr_t *nbr)
 {
 	return (nbr->state);
 }
 
-void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
+void eigrp_nbr_state_update(eigrp_operation_t operation, eigrp_nbr_t *nbr, uint8_t state)
 {
 	uint8_t old_state;
 
-	if (!nbr)
+	if (operation != EIGRP_SET || !nbr)
 		return;
 
 	old_state = nbr->state;
 
 	if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP)
-		eigrp_interface_encoder_unbind(nbr->ei, nbr->tlv_version);
+		eigrp_intf_encoder_peer_remove(nbr->ei, nbr->tlv_version);
 
 	nbr->state = state;
 	eigrp_debug_neighbor_state(nbr, old_state, state);
@@ -752,21 +764,21 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 				   "neighbor left UP state");
 
 	if (state == EIGRP_NEIGHBOR_UP && old_state != EIGRP_NEIGHBOR_UP) {
-		eigrp_interface_encoder_bind(nbr->ei, nbr->tlv_version);
+		eigrp_intf_encoder_peer_add(nbr->ei, nbr->tlv_version);
 		nbr->up_since_msec = eigrp_sys_monotime_msec();
 		nbr->retransmissions = 0;
 	} else if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP) {
 		nbr->up_since_msec = 0;
 	}
 
-	if (eigrp_nbr_state_get(nbr) == EIGRP_NEIGHBOR_DOWN) {
+	if (eigrp_nbr_state(nbr) == EIGRP_NEIGHBOR_DOWN) {
 		// reset all the seq/ack counters
 		nbr->recv_sequence_number = 0;
 		nbr->init_sequence_number = 0;
 		nbr->retrans_counter = 0;
 		nbr->cr_mode = false;
 		nbr->cr_sequence = 0;
-		eigrp_neighbor_rtt_reset(nbr);
+		eigrp_nbr_rtt_clear(nbr);
 
 		// Kvalues
 		nbr->K1 = EIGRP_K1_DEFAULT;
@@ -785,13 +797,13 @@ void eigrp_nbr_state_set(eigrp_neighbor_t *nbr, uint8_t state)
 			eigrp_packet_queue_free(nbr->retrans_queue);
 
 		/* in with the new */
-		nbr->retrans_queue = eigrp_packet_queue_new();
+		nbr->retrans_queue = eigrp_packet_queue_create();
 
 		nbr->crypt_seqnum = 0;
 	}
 }
 
-const char *eigrp_nbr_state_str(eigrp_neighbor_t *nbr)
+const char *eigrp_nbr_state_str(eigrp_nbr_t *nbr)
 {
 	const char *state;
 	switch (nbr->state) {
@@ -812,7 +824,7 @@ const char *eigrp_nbr_state_str(eigrp_neighbor_t *nbr)
 	return (state);
 }
 
-void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
+void eigrp_nbr_holddown_update(eigrp_nbr_t *nbr)
 {
 	switch (nbr->state) {
 	case EIGRP_NEIGHBOR_DOWN:
@@ -822,7 +834,7 @@ void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 		/*Reset Hold Down Timer for neighbor*/
 		eigrp_sys_event_cancel(&nbr->t_holddown);
 		eigrp_sys_timer_add(&nbr->t_holddown,
-				  eigrp_neighbor_holddown_expired, nbr,
+				  eigrp_nbr_holddown_expired, nbr,
 				  (uint32_t)nbr->v_holddown * 1000U);
 		break;
 	}
@@ -830,23 +842,23 @@ void eigrp_nbr_state_update(eigrp_neighbor_t *nbr)
 		/*Reset Hold Down Timer for neighbor*/
 		eigrp_sys_event_cancel(&nbr->t_holddown);
 		eigrp_sys_timer_add(&nbr->t_holddown,
-				  eigrp_neighbor_holddown_expired, nbr,
+				  eigrp_nbr_holddown_expired, nbr,
 				  (uint32_t)nbr->v_holddown * 1000U);
 		break;
 	}
 	}
 }
 
-int eigrp_nbr_count_get(eigrp_instance_t *eigrp)
+int eigrp_nbr_count(eigrp_instance_t *eigrp)
 {
-	eigrp_interface_t *iface;
-	eigrp_list_node_t *node, *node2, *nnode2;
-	eigrp_neighbor_t *nbr;
+	eigrp_intf_t *iface;
+	eigrp_list_item_t *node, *node2, *nnode2;
+	eigrp_nbr_t *nbr;
 	uint32_t counter;
 
 	counter = 0;
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, iface)) {
-		for (EIGRP_LIST_ELEMENTS(iface->nbrs, node2, nnode2, nbr)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, iface)) {
+		for (EIGRP_LIST_ITERATE(iface->nbrs, node2, nnode2, nbr)) {
 			if (nbr->state == EIGRP_NEIGHBOR_UP) {
 				counter++;
 			}
@@ -855,43 +867,43 @@ int eigrp_nbr_count_get(eigrp_instance_t *eigrp)
 	return counter;
 }
 
-static bool eigrp_neighbor_clear_address_valid(const eigrp_address_t *address)
+static bool eigrp_nbr_clear_address_valid(const eigrp_address_t *address)
 {
-	return address && (address->afi == EIGRP_ADDRESS_FAMILY_IPV4
-			   || address->afi == EIGRP_ADDRESS_FAMILY_IPV6);
+	return address && (address->afi == EIGRP_AFI_IPV4
+			   || address->afi == EIGRP_AFI_IPV6);
 }
 
-static bool eigrp_neighbor_clear_address_match(const eigrp_neighbor_t *nbr,
+static bool eigrp_nbr_clear_address_match(const eigrp_nbr_t *nbr,
 				       const eigrp_address_t *address)
 {
 	if (!nbr || !address)
 		return false;
 
-	if (address->afi == EIGRP_ADDRESS_FAMILY_IPV6)
+	if (address->afi == EIGRP_AFI_IPV6)
 		return nbr->src.afi == AF_INET6
 		       && memcmp(&nbr->src.ip.v6, address->bytes,
 				 sizeof(nbr->src.ip.v6)) == 0;
-	if (address->afi == EIGRP_ADDRESS_FAMILY_IPV4)
+	if (address->afi == EIGRP_AFI_IPV4)
 		return nbr->src.afi == AF_INET
 		       && memcmp(&nbr->src.ip.v4, address->bytes,
 				 sizeof(nbr->src.ip.v4)) == 0;
 	return false;
 }
 
-static void eigrp_neighbor_clear_report(const eigrp_neighbor_t *nbr, bool soft,
-					eigrp_neighbor_clear_cb callback,
+static void eigrp_nbr_clear_report(const eigrp_nbr_t *nbr, bool soft,
+					eigrp_nbr_clear_cb callback,
 					void *arg)
 {
-	eigrp_neighbor_clear_state_t state;
+	eigrp_nbr_clear_state_t state;
 
 	if (!callback)
 		return;
 	memset(&state, 0, sizeof(state));
 	if (nbr->src.afi == AF_INET) {
-		state.address.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		state.address.afi = EIGRP_AFI_IPV4;
 		memcpy(state.address.bytes, &nbr->src.ip.v4, sizeof(nbr->src.ip.v4));
 	} else if (nbr->src.afi == AF_INET6) {
-		state.address.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		state.address.afi = EIGRP_AFI_IPV6;
 		memcpy(state.address.bytes, &nbr->src.ip.v6, sizeof(nbr->src.ip.v6));
 	}
 	state.interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : NULL;
@@ -899,28 +911,28 @@ static void eigrp_neighbor_clear_report(const eigrp_neighbor_t *nbr, bool soft,
 	callback(&state, arg);
 }
 
-static void eigrp_neighbor_clear_hard(eigrp_neighbor_t *nbr,
+static void eigrp_nbr_clear_hard(eigrp_nbr_t *nbr,
 				      bool peer_termination,
-				      eigrp_neighbor_clear_cb callback, void *arg)
+				      eigrp_nbr_clear_cb callback, void *arg)
 {
 	const char *interface_name = nbr->ei ? eigrp_intf_name_string(nbr->ei) : "?";
 
 	eigrp_log(EIGRP_LOG_DEBUG, "Neighbor %s (%s) is down: manually cleared",
 		   eigrp_print_addr(&nbr->src), interface_name);
-	eigrp_neighbor_clear_report(nbr, false, callback, arg);
+	eigrp_nbr_clear_report(nbr, false, callback, arg);
 
 	if (peer_termination)
 		eigrp_hello_send(nbr->ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN_NBR,
 				 &nbr->src);
 
-	eigrp_nbr_state_set(nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	eigrp_nbr_delete(nbr);
 }
 
-static void eigrp_neighbor_clear_soft(eigrp_neighbor_t *nbr,
-				      eigrp_neighbor_clear_cb callback, void *arg)
+static void eigrp_nbr_clear_soft(eigrp_nbr_t *nbr,
+				      eigrp_nbr_clear_cb callback, void *arg)
 {
-	eigrp_neighbor_clear_report(nbr, true, callback, arg);
+	eigrp_nbr_clear_report(nbr, true, callback, arg);
 	eigrp_update_send_GR(nbr, EIGRP_GR_MANUAL);
 }
 
@@ -934,15 +946,15 @@ static void eigrp_neighbor_clear_soft(eigrp_neighbor_t *nbr,
  * Clears selected neighbor adjacency state without changing retained configuration.
  * Selection is normalized before the portable neighbor target executes.
  */
-eigrp_result_t eigrp_neighbor_clear(
-	eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request,
-	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count)
+eigrp_result_t eigrp_nbr_clear(
+	eigrp_instance_t *runtime, const eigrp_nbr_clear_request_t *request,
+	eigrp_nbr_clear_cb callback, void *arg, size_t *affected_count)
 {
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
-	eigrp_list_node_t *if_node;
-	eigrp_list_node_t *nbr_node;
-	eigrp_list_node_t *next_node;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
+	eigrp_list_item_t *if_node;
+	eigrp_list_item_t *nbr_node;
+	eigrp_list_item_t *next_node;
 	size_t affected = 0;
 
 	if (affected_count)
@@ -954,19 +966,19 @@ eigrp_result_t eigrp_neighbor_clear(
 	if (request->interface_name && request->address)
 		return EIGRP_RESULT_CONFLICT;
 	if (request->address
-	    && !eigrp_neighbor_clear_address_valid(request->address))
+	    && !eigrp_nbr_clear_address_valid(request->address))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	if (request->address) {
-		for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
-			for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, nbr_node, nbr)) {
-				if (!eigrp_neighbor_clear_address_match(nbr,
+		for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, ei)) {
+			for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
+				if (!eigrp_nbr_clear_address_match(nbr,
 								request->address))
 					continue;
 				if (request->soft)
-					eigrp_neighbor_clear_soft(nbr, callback, arg);
+					eigrp_nbr_clear_soft(nbr, callback, arg);
 				else
-					eigrp_neighbor_clear_hard(nbr, true,
+					eigrp_nbr_clear_hard(nbr, true,
 							  callback, arg);
 				affected = 1;
 				if (affected_count)
@@ -985,13 +997,13 @@ eigrp_result_t eigrp_neighbor_clear(
 		if (!request->soft)
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, nbr_node, next_node, nbr)) {
 			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
 				continue;
 			if (request->soft)
-				eigrp_neighbor_clear_soft(nbr, callback, arg);
+				eigrp_nbr_clear_soft(nbr, callback, arg);
 			else
-				eigrp_neighbor_clear_hard(nbr, false,
+				eigrp_nbr_clear_hard(nbr, false,
 							  callback, arg);
 			affected++;
 		}
@@ -1000,17 +1012,17 @@ eigrp_result_t eigrp_neighbor_clear(
 		return EIGRP_RESULT_SUCCESS;
 	}
 
-	for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, if_node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, ei)) {
 		if (!request->soft)
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, nbr_node, next_node, nbr)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, nbr_node, next_node, nbr)) {
 			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
 				continue;
 			if (request->soft)
-				eigrp_neighbor_clear_soft(nbr, callback, arg);
+				eigrp_nbr_clear_soft(nbr, callback, arg);
 			else
-				eigrp_neighbor_clear_hard(nbr, false,
+				eigrp_nbr_clear_hard(nbr, false,
 							  callback, arg);
 			affected++;
 		}
@@ -1020,8 +1032,8 @@ eigrp_result_t eigrp_neighbor_clear(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *erd,
-				  eigrp_interface_t *ei)
+int eigrp_nbr_split_horizon(eigrp_route_descriptor_t *erd,
+				  eigrp_intf_t *ei)
 {
 	if (!ei || !ei->split_horizon || erd->distance == EIGRP_MAX_METRIC)
 		return 0;
@@ -1029,14 +1041,14 @@ int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *erd,
 	return (erd->ei == ei);
 }
 
-static bool eigrp_neighbor_config_address_valid(const eigrp_address_t *address)
+static bool eigrp_nbr_config_address_valid(const eigrp_address_t *address)
 {
-	return address && (address->afi == EIGRP_ADDRESS_FAMILY_IPV4
-			   || address->afi == EIGRP_ADDRESS_FAMILY_IPV6);
+	return address && (address->afi == EIGRP_AFI_IPV4
+			   || address->afi == EIGRP_AFI_IPV6);
 }
 
-static eigrp_neighbor_policy_state_t *eigrp_neighbor_policy_state_get(
-	eigrp_address_family_config_t *af)
+static eigrp_nbr_policy_state_t *eigrp_nbr_policy_state_create(
+	eigrp_af_instance_t *af)
 {
 	if (!af)
 		return NULL;
@@ -1051,29 +1063,29 @@ static eigrp_neighbor_policy_state_t *eigrp_neighbor_policy_state_get(
 	return af->neighbor_policy;
 }
 
-static struct eigrp_neighbor_policy_entry *eigrp_neighbor_policy_entry_find(
-	eigrp_neighbor_policy_state_t *state, const eigrp_address_t *address)
+static struct eigrp_nbr_policy_entry *eigrp_nbr_policy_entry_lookup(
+	eigrp_nbr_policy_state_t *state, const eigrp_address_t *address)
 {
-	struct eigrp_neighbor_policy_entry *entry;
+	struct eigrp_nbr_policy_entry *entry;
 
 	if (!state)
 		return NULL;
 	for (entry = state->entries; entry; entry = entry->next)
-		if (eigrp_neighbor_address_equal(&entry->address, address))
+		if (eigrp_nbr_address_match(&entry->address, address))
 			return entry;
 	return NULL;
 }
 
-static struct eigrp_neighbor_policy_entry *eigrp_neighbor_policy_entry_get(
-	eigrp_address_family_config_t *af, const eigrp_address_t *address)
+static struct eigrp_nbr_policy_entry *eigrp_nbr_policy_entry_create(
+	eigrp_af_instance_t *af, const eigrp_address_t *address)
 {
-	eigrp_neighbor_policy_state_t *state;
-	struct eigrp_neighbor_policy_entry *entry;
+	eigrp_nbr_policy_state_t *state;
+	struct eigrp_nbr_policy_entry *entry;
 
-	state = eigrp_neighbor_policy_state_get(af);
+	state = eigrp_nbr_policy_state_create(af);
 	if (!state)
 		return NULL;
-	entry = eigrp_neighbor_policy_entry_find(state, address);
+	entry = eigrp_nbr_policy_entry_lookup(state, address);
 	if (entry)
 		return entry;
 	entry = calloc(1, sizeof(*entry));
@@ -1085,11 +1097,11 @@ static struct eigrp_neighbor_policy_entry *eigrp_neighbor_policy_entry_get(
 	return entry;
 }
 
-static void eigrp_neighbor_policy_entry_prune(
-	eigrp_neighbor_policy_state_t *state,
-	struct eigrp_neighbor_policy_entry *entry)
+static void eigrp_nbr_policy_entry_prune(
+	eigrp_nbr_policy_state_t *state,
+	struct eigrp_nbr_policy_entry *entry)
 {
-	struct eigrp_neighbor_policy_entry **cursor;
+	struct eigrp_nbr_policy_entry **cursor;
 
 	if (!state || !entry || entry->description
 	    || entry->maximum_prefix_configured)
@@ -1103,7 +1115,7 @@ static void eigrp_neighbor_policy_entry_prune(
 	}
 }
 
-static eigrp_result_t eigrp_neighbor_policy_context_validate(
+static eigrp_result_t eigrp_nbr_policy_context_validate(
 	eigrp_instance_context_t *context, const eigrp_address_t *address)
 {
 	if (!context || (!context->config && !context->runtime))
@@ -1123,27 +1135,50 @@ static eigrp_result_t eigrp_neighbor_policy_context_validate(
  * Sets or removes retained descriptive text for a configured neighbor.
  * Description metadata does not own adjacency behavior.
  */
-eigrp_result_t eigrp_neighbor_description_set(
-	eigrp_instance_context_t *context, const eigrp_address_t *address,
-	const char *description)
+eigrp_result_t eigrp_nbr_description_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_address_t *address, const char *description)
 {
-	struct eigrp_neighbor_policy_entry *entry;
+	if (operation == EIGRP_RESET) {
+	eigrp_nbr_policy_state_t *state;
+	struct eigrp_nbr_policy_entry *entry;
+	eigrp_result_t result;
+
+	if (!eigrp_nbr_config_address_valid(address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	result = eigrp_nbr_policy_context_validate(context, address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (!context->config || !context->config->neighbor_policy)
+		return EIGRP_RESULT_NOT_FOUND;
+	state = context->config->neighbor_policy;
+	entry = eigrp_nbr_policy_entry_lookup(state, address);
+	if (!entry || !entry->description)
+		return EIGRP_RESULT_NOT_FOUND;
+	free(entry->description);
+	entry->description = NULL;
+	eigrp_nbr_policy_entry_prune(state, entry);
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	struct eigrp_nbr_policy_entry *entry;
 	char *copy;
 	eigrp_result_t result;
 
-	if (!eigrp_neighbor_config_address_valid(address) || !description
+	if (!eigrp_nbr_config_address_valid(address) || !description
 	    || !description[0] || strlen(description) > 80)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_neighbor_policy_context_validate(context, address);
+	result = eigrp_nbr_policy_context_validate(context, address);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	if (!context->config)
 		return EIGRP_RESULT_SUCCESS;
 
-	copy = eigrp_neighbor_string_duplicate(description);
+	copy = eigrp_nbr_string_dup(description);
 	if (!copy)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	entry = eigrp_neighbor_policy_entry_get(context->config, address);
+	entry = eigrp_nbr_policy_entry_create(context->config, address);
 	if (!entry) {
 		free(copy);
 		return EIGRP_RESULT_INTERNAL_FAILURE;
@@ -1163,29 +1198,7 @@ eigrp_result_t eigrp_neighbor_description_set(
  * Sets or removes retained descriptive text for a configured neighbor.
  * Description metadata does not own adjacency behavior.
  */
-eigrp_result_t eigrp_neighbor_description_reset(
-	eigrp_instance_context_t *context, const eigrp_address_t *address)
-{
-	eigrp_neighbor_policy_state_t *state;
-	struct eigrp_neighbor_policy_entry *entry;
-	eigrp_result_t result;
 
-	if (!eigrp_neighbor_config_address_valid(address))
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_neighbor_policy_context_validate(context, address);
-	if (result != EIGRP_RESULT_SUCCESS)
-		return result;
-	if (!context->config || !context->config->neighbor_policy)
-		return EIGRP_RESULT_NOT_FOUND;
-	state = context->config->neighbor_policy;
-	entry = eigrp_neighbor_policy_entry_find(state, address);
-	if (!entry || !entry->description)
-		return EIGRP_RESULT_NOT_FOUND;
-	free(entry->description);
-	entry->description = NULL;
-	eigrp_neighbor_policy_entry_prune(state, entry);
-	return EIGRP_RESULT_SUCCESS;
-}
 
 /*
  * Syntax:
@@ -1197,21 +1210,48 @@ eigrp_result_t eigrp_neighbor_description_reset(
  * Sets or removes a per-neighbor maximum-prefix policy.
  * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_set(
-	eigrp_instance_context_t *context, const eigrp_address_t *address,
-	const eigrp_prefix_limit_t *limit)
+eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_address_t *address, const eigrp_prefix_limit_t *limit)
 {
-	struct eigrp_neighbor_policy_entry *entry;
+	if (operation == EIGRP_RESET) {
+	eigrp_nbr_policy_state_t *state;
+	struct eigrp_nbr_policy_entry *entry;
 	eigrp_result_t result;
 
-	if (!eigrp_neighbor_config_address_valid(address) || !limit
+	if (!eigrp_nbr_config_address_valid(address))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	result = eigrp_nbr_policy_context_validate(context, address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (context->config && context->config->neighbor_policy) {
+		state = context->config->neighbor_policy;
+		entry = eigrp_nbr_policy_entry_lookup(state, address);
+		if (entry && entry->maximum_prefix_configured) {
+			entry->maximum_prefix_configured = false;
+			memset(&entry->maximum_prefix, 0,
+			       sizeof(entry->maximum_prefix));
+			eigrp_nbr_policy_entry_prune(state, entry);
+			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+						: EIGRP_RESULT_SUCCESS;
+		}
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_NOT_FOUND;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	struct eigrp_nbr_policy_entry *entry;
+	eigrp_result_t result;
+
+	if (!eigrp_nbr_config_address_valid(address) || !limit
 	    || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_neighbor_policy_context_validate(context, address);
+	result = eigrp_nbr_policy_context_validate(context, address);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	if (context->config) {
-		entry = eigrp_neighbor_policy_entry_get(context->config, address);
+		entry = eigrp_nbr_policy_entry_create(context->config, address);
 		if (!entry)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		entry->maximum_prefix = *limit;
@@ -1231,33 +1271,7 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_set(
  * Sets or removes a per-neighbor maximum-prefix policy.
  * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_reset(
-	eigrp_instance_context_t *context, const eigrp_address_t *address)
-{
-	eigrp_neighbor_policy_state_t *state;
-	struct eigrp_neighbor_policy_entry *entry;
-	eigrp_result_t result;
 
-	if (!eigrp_neighbor_config_address_valid(address))
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_neighbor_policy_context_validate(context, address);
-	if (result != EIGRP_RESULT_SUCCESS)
-		return result;
-	if (context->config && context->config->neighbor_policy) {
-		state = context->config->neighbor_policy;
-		entry = eigrp_neighbor_policy_entry_find(state, address);
-		if (entry && entry->maximum_prefix_configured) {
-			entry->maximum_prefix_configured = false;
-			memset(&entry->maximum_prefix, 0,
-			       sizeof(entry->maximum_prefix));
-			eigrp_neighbor_policy_entry_prune(state, entry);
-			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-						: EIGRP_RESULT_SUCCESS;
-		}
-	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_NOT_FOUND;
-}
 
 /*
  * Syntax:
@@ -1269,17 +1283,31 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_reset(
  * Sets or removes the address-family default maximum-prefix policy for neighbors.
  * The target preserves configuration separately from future enforcement mechanics.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_set(
-	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
+eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
-	eigrp_neighbor_policy_state_t *state;
+	if (operation == EIGRP_RESET) {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->neighbor_policy) {
+		context->config->neighbor_policy->maximum_prefix_all_configured = false;
+		memset(&context->config->neighbor_policy->maximum_prefix_all, 0,
+		       sizeof(context->config->neighbor_policy->maximum_prefix_all));
+	}
+	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+				: EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	eigrp_nbr_policy_state_t *state;
 
 	if (!limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		state = eigrp_neighbor_policy_state_get(context->config);
+		state = eigrp_nbr_policy_state_create(context->config);
 		if (!state)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		state->maximum_prefix_all = *limit;
@@ -1299,19 +1327,7 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_set(
  * Sets or removes the address-family default maximum-prefix policy for neighbors.
  * The target preserves configuration separately from future enforcement mechanics.
  */
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_reset(
-	eigrp_instance_context_t *context)
-{
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->neighbor_policy) {
-		context->config->neighbor_policy->maximum_prefix_all_configured = false;
-		memset(&context->config->neighbor_policy->maximum_prefix_all, 0,
-		       sizeof(context->config->neighbor_policy->maximum_prefix_all));
-	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -1324,16 +1340,47 @@ eigrp_result_t eigrp_neighbor_maximum_prefix_all_reset(
  * Sets neighbor logging policy selected by type.  The selector changes the
  * logging attribute, not the semantic action exposed by the public API.
  */
-eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context,
-				      eigrp_neighbor_log_type_t type,
-				      bool enabled, uint16_t seconds)
+eigrp_result_t eigrp_nbr_log_update(eigrp_operation_t operation, eigrp_instance_context_t *context, eigrp_nbr_log_type_t type, bool enabled, uint16_t seconds)
 {
-	eigrp_neighbor_policy_state_t *state = NULL;
+	if (operation == EIGRP_RESET) {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+
+	switch (type) {
+	case EIGRP_NEIGHBOR_LOG_CHANGES:
+		if (context->config && context->config->neighbor_policy) {
+			context->config->neighbor_policy->log_changes_configured = false;
+			context->config->neighbor_policy->log_changes = true;
+		}
+		if (context->runtime)
+			context->runtime->log_neighbor_changes = true;
+		return EIGRP_RESULT_SUCCESS;
+	case EIGRP_NEIGHBOR_LOG_WARNINGS:
+		if (context->config && context->config->neighbor_policy) {
+			context->config->neighbor_policy->log_warnings_configured = false;
+			context->config->neighbor_policy->log_warnings = true;
+			context->config->neighbor_policy->log_warning_interval = 10;
+		}
+		if (context->runtime) {
+			context->runtime->log_neighbor_warnings = true;
+			context->runtime->log_neighbor_warning_interval = 10;
+		}
+		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
+					: EIGRP_RESULT_SUCCESS;
+	default:
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	}
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	eigrp_nbr_policy_state_t *state = NULL;
 
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		state = eigrp_neighbor_policy_state_get(context->config);
+		state = eigrp_nbr_policy_state_create(context->config);
 		if (!state)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 	}
@@ -1369,42 +1416,12 @@ eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context,
 }
 
 /* Restore the selected neighbor logging attribute to its default. */
-eigrp_result_t eigrp_neighbor_log_reset(eigrp_instance_context_t *context,
-					eigrp_neighbor_log_type_t type)
-{
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
 
-	switch (type) {
-	case EIGRP_NEIGHBOR_LOG_CHANGES:
-		if (context->config && context->config->neighbor_policy) {
-			context->config->neighbor_policy->log_changes_configured = false;
-			context->config->neighbor_policy->log_changes = true;
-		}
-		if (context->runtime)
-			context->runtime->log_neighbor_changes = true;
-		return EIGRP_RESULT_SUCCESS;
-	case EIGRP_NEIGHBOR_LOG_WARNINGS:
-		if (context->config && context->config->neighbor_policy) {
-			context->config->neighbor_policy->log_warnings_configured = false;
-			context->config->neighbor_policy->log_warnings = true;
-			context->config->neighbor_policy->log_warning_interval = 10;
-		}
-		if (context->runtime) {
-			context->runtime->log_neighbor_warnings = true;
-			context->runtime->log_neighbor_warning_interval = 10;
-		}
-		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-					: EIGRP_RESULT_SUCCESS;
-	default:
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	}
-}
 
-void eigrp_neighbor_policy_delete_all(eigrp_address_family_config_t *af)
+void eigrp_nbr_policy_delete_all(eigrp_af_instance_t *af)
 {
-	struct eigrp_neighbor_policy_entry *entry;
-	struct eigrp_neighbor_policy_entry *next;
+	struct eigrp_nbr_policy_entry *entry;
+	struct eigrp_nbr_policy_entry *next;
 
 	if (!af || !af->neighbor_policy)
 		return;

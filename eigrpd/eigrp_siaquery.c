@@ -22,9 +22,9 @@
 #include "eigrpd/eigrp_debug.h"
 
 /* EIGRP SIA-QUERY read function */
-void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			    struct eigrp_header *eigrph, eigrp_stream_t *pkt,
-			    eigrp_interface_t *ei, int length)
+			    eigrp_intf_t *ei, int length)
 {
 	eigrp_debug_neighbor_sia(nbr, "SIA-QUERY received");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
@@ -36,6 +36,7 @@ void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 	/* get neighbor struct */
 	nbr->recv_sequence_number = ntohl(eigrph->sequence);
+	eigrp_hello_send_ack(nbr);
 
 	// process all TLVs in the packet
 	while (pkt->endp > pkt->getp) {
@@ -73,25 +74,31 @@ void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			received_route->prefix = prefix;
 		}
 
-		msg.packet_type = EIGRP_OPC_SIAQUERY;
+		/* An SIA-QUERY without an outstanding original QUERY is processed
+		 * as a standard QUERY.  If this leaves the destination ACTIVE, the
+		 * response is SIA-REPLY with the route ACTIVE bit set. */
+		msg.packet_type = prefix->state == EIGRP_FSM_STATE_PASSIVE
+				  ? EIGRP_OPC_QUERY : EIGRP_OPC_SIAQUERY;
 		msg.eigrp = eigrp;
-		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT)
-					? EIGRP_EXT
-					: EIGRP_INT;
+		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT
+				 || received_route->type == EIGRP_TLV_IPv6_EXT
+				 || received_route->type == EIGRP_TLV_MP_EXT)
+					? EIGRP_EXT : EIGRP_INT;
 		msg.adv_router = nbr;
 		msg.route = route;
 		msg.metrics = received_route->metric;
 		msg.prefix = prefix;
 		eigrp_fsm_event(&msg);
+		if (prefix->state != EIGRP_FSM_STATE_PASSIVE)
+			eigrp_siareply_send(eigrp, nbr, prefix, true);
 
 		if (free_received_route)
 			eigrp_topology_route_free(received_route);
 	}
 
-	eigrp_hello_send_ack(nbr);
 }
 
-void eigrp_siaquery_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_siaquery_send(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			 eigrp_prefix_descriptor_t *prefix)
 {
 	eigrp_packetizer_work_t *work;
@@ -99,7 +106,7 @@ void eigrp_siaquery_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	eigrp_debug_neighbor_sia(nbr, "SIA-QUERY send");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
 				   nbr ? nbr->ei : NULL, nbr, "queue SIA-QUERY");
-	work = eigrp_packetizer_work_new(EIGRP_OPC_SIAQUERY);
+	work = eigrp_packetizer_work_create(EIGRP_OPC_SIAQUERY);
 	work->nbr = nbr;
 	work->prefix = prefix;
 	work->owner = prefix;

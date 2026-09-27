@@ -24,10 +24,16 @@ typedef enum eigrp_result {
 	EIGRP_RESULT_INTERNAL_FAILURE,
 } eigrp_result_t;
 
-typedef enum eigrp_address_family {
-	EIGRP_ADDRESS_FAMILY_IPV4 = 4,
-	EIGRP_ADDRESS_FAMILY_IPV6 = 6,
-} eigrp_address_family_t;
+/* Common configuration/state mutation opcodes. */
+typedef enum eigrp_operation {
+	EIGRP_SET = 0,
+	EIGRP_RESET,
+} eigrp_operation_t;
+
+typedef enum eigrp_afi {
+	EIGRP_AFI_IPV4 = 4,
+	EIGRP_AFI_IPV6 = 6,
+} eigrp_afi_t;
 
 typedef uint16_t eigrp_topology_id_t;
 typedef uint32_t eigrp_vrf_id_t;
@@ -37,7 +43,7 @@ typedef uint32_t eigrp_ifindex_t;
 #define EIGRP_VRF_DEFAULT ((eigrp_vrf_id_t)0)
 
 typedef struct eigrp_address {
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 	uint8_t bytes[16];
 } eigrp_address_t;
 
@@ -108,7 +114,7 @@ typedef enum eigrp_filter_decision {
 	EIGRP_FILTER_DECISION_DENY,
 } eigrp_filter_decision_t;
 
-typedef enum eigrp_redistribute_protocol {
+typedef enum eigrp_redist_protocol {
 	EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED = 0,
 	EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED,
 	EIGRP_REDISTRIBUTE_PROTOCOL_STATIC,
@@ -117,17 +123,17 @@ typedef enum eigrp_redistribute_protocol {
 	EIGRP_REDISTRIBUTE_PROTOCOL_ISIS,
 	EIGRP_REDISTRIBUTE_PROTOCOL_BGP,
 	EIGRP_REDISTRIBUTE_PROTOCOL_EIGRP,
-} eigrp_redistribute_protocol_t;
+} eigrp_redist_protocol_t;
 
 typedef uint32_t eigrp_route_instance_t;
 
-typedef struct eigrp_redistribute_source {
-	eigrp_redistribute_protocol_t protocol;
+typedef struct eigrp_redist_source {
+	eigrp_redist_protocol_t protocol;
 	eigrp_route_instance_t route_instance;
-} eigrp_redistribute_source_t;
+} eigrp_redist_source_t;
 
 typedef struct eigrp_state_request {
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 	const char *vrf_name;
 	uint16_t asn; /* zero means all configured AS contexts */
 	bool all_vrfs;
@@ -137,17 +143,17 @@ typedef struct eigrp_state_request {
 
 /* Public opaque identities.  Their layouts remain private to portable EIGRP. */
 typedef struct eigrp_instance eigrp_instance_t;
-typedef struct eigrp_interface eigrp_interface_t;
-typedef struct eigrp_neighbor eigrp_neighbor_t;
+typedef struct eigrp_interface eigrp_intf_t;
+typedef struct eigrp_neighbor eigrp_nbr_t;
 typedef struct eigrp_event eigrp_event_t;
 typedef struct eigrp_work_queue eigrp_work_queue_t;
 typedef struct eigrp_instance_parent_config eigrp_instance_parent_config_t;
-typedef struct eigrp_address_family_config eigrp_address_family_config_t;
-typedef struct eigrp_interface_config eigrp_interface_config_t;
+typedef struct eigrp_af_instance eigrp_af_instance_t;
+typedef struct eigrp_intf_config eigrp_intf_config_t;
 
 /* Small public contexts may carry opaque EIGRP identities across contracts. */
 typedef struct eigrp_instance_context {
-	eigrp_address_family_config_t *config;
+	eigrp_af_instance_t *config;
 	eigrp_instance_t *runtime;
 	eigrp_topology_id_t topology_id;
 } eigrp_instance_context_t;
@@ -157,23 +163,23 @@ typedef enum eigrp_debug_scope {
 	EIGRP_DEBUG_SCOPE_CONFIG
 } eigrp_debug_scope_t;
 
-typedef enum eigrp_debug_address_family_category {
+typedef enum eigrp_debug_af_category {
 	EIGRP_DEBUG_AF_ROUTE = 0,
 	EIGRP_DEBUG_AF_NEIGHBOR,
 	EIGRP_DEBUG_AF_NOTIFICATIONS,
 	EIGRP_DEBUG_AF_SUMMARY,
 	EIGRP_DEBUG_AF_CATEGORY_MAX
-} eigrp_debug_address_family_category_t;
+} eigrp_debug_af_category_t;
 
 /* Opaque-object identity/capability accessors used by platform adapters. */
 eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp);
-eigrp_address_family_t eigrp_instance_address_family(const eigrp_instance_t *eigrp);
+eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *eigrp);
 uint16_t eigrp_instance_asn(const eigrp_instance_t *eigrp);
 const char *eigrp_instance_name(const eigrp_instance_t *eigrp);
 bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
-eigrp_ifindex_t eigrp_interface_ifindex(const eigrp_interface_t *ei);
-const char *eigrp_interface_name(const eigrp_interface_t *ei);
-eigrp_result_t eigrp_interface_address_read(const eigrp_interface_t *ei,
+eigrp_ifindex_t eigrp_intf_ifindex(const eigrp_intf_t *ei);
+const char *eigrp_intf_name(const eigrp_intf_t *ei);
+eigrp_result_t eigrp_intf_address_read(const eigrp_intf_t *ei,
 					     eigrp_prefix_t *address);
 
 #endif /* EIGRPD_EIGRP_H_ */

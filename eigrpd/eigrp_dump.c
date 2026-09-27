@@ -45,20 +45,20 @@ unsigned long conf_debug_eigrp_transmit = 0;
 #define EIGRP_DEBUG_AF_SLOT_MAX 32
 #define EIGRP_DEBUG_VRF_NAME_MAX 64
 
-typedef struct eigrp_debug_address_family_slot {
+typedef struct eigrp_debug_af_slot {
 	bool used;
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 	uint16_t asn;
 	bool all_vrfs;
 	char vrf_name[EIGRP_DEBUG_VRF_NAME_MAX];
-	eigrp_debug_address_family_category_t category;
+	eigrp_debug_af_category_t category;
 	bool neighbor_set;
 	eigrp_address_t neighbor;
-} eigrp_debug_address_family_slot_t;
+} eigrp_debug_af_slot_t;
 
-static eigrp_debug_address_family_slot_t
+static eigrp_debug_af_slot_t
 	term_debug_eigrp_address_family[EIGRP_DEBUG_AF_SLOT_MAX];
-static eigrp_debug_address_family_slot_t
+static eigrp_debug_af_slot_t
 	conf_debug_eigrp_address_family[EIGRP_DEBUG_AF_SLOT_MAX];
 
 static bool eigrp_debug_scope_valid(eigrp_debug_scope_t scope)
@@ -67,7 +67,7 @@ static bool eigrp_debug_scope_valid(eigrp_debug_scope_t scope)
 	       || scope == EIGRP_DEBUG_SCOPE_CONFIG;
 }
 
-static eigrp_result_t eigrp_debug_flag_apply(unsigned long *term,
+static eigrp_result_t eigrp_debug_flag_update(unsigned long *term,
 					      unsigned long *conf,
 					      unsigned long valid_mask,
 					      unsigned long flags,
@@ -90,11 +90,13 @@ static eigrp_result_t eigrp_debug_flag_apply(unsigned long *term,
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static eigrp_result_t eigrp_debug_apply(eigrp_debug_target_t target,
-					unsigned long flags,
-					eigrp_debug_scope_t scope,
-					bool enable)
+eigrp_result_t eigrp_debug_update(eigrp_operation_t operation, eigrp_debug_target_t target, unsigned long flags, eigrp_debug_scope_t scope)
 {
+	bool enable;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	enable = operation == EIGRP_SET;
 	unsigned long *term;
 	unsigned long *conf;
 	unsigned long valid_mask;
@@ -126,36 +128,30 @@ static eigrp_result_t eigrp_debug_apply(eigrp_debug_target_t target,
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	}
 
-	return eigrp_debug_flag_apply(term, conf, valid_mask, flags, scope, enable);
+	return eigrp_debug_flag_update(term, conf, valid_mask, flags, scope, enable);
 }
 
-eigrp_result_t eigrp_debug_set(eigrp_debug_target_t target, unsigned long flags,
-				eigrp_debug_scope_t scope)
-{
-	return eigrp_debug_apply(target, flags, scope, true);
-}
 
-eigrp_result_t eigrp_debug_reset(eigrp_debug_target_t target, unsigned long flags,
-				  eigrp_debug_scope_t scope)
-{
-	return eigrp_debug_apply(target, flags, scope, false);
-}
 
-static bool eigrp_debug_address_equal(const eigrp_address_t *a,
+
+
+
+
+static bool eigrp_debug_address_match(const eigrp_address_t *a,
 				      const eigrp_address_t *b)
 {
 	size_t length;
 
 	if (!a || !b || a->afi != b->afi)
 		return false;
-	length = a->afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4U : 16U;
+	length = a->afi == EIGRP_AFI_IPV4 ? 4U : 16U;
 	return memcmp(a->bytes, b->bytes, length) == 0;
 }
 
-static bool eigrp_debug_address_family_slot_matches_request(
-	const eigrp_debug_address_family_slot_t *slot,
+static bool eigrp_debug_af_slot_matches_request(
+	const eigrp_debug_af_slot_t *slot,
 	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
+	eigrp_debug_af_category_t category,
 	const eigrp_address_t *neighbor, bool reset_wild_neighbor)
 {
 	const char *vrf;
@@ -175,23 +171,34 @@ static bool eigrp_debug_address_family_slot_matches_request(
 	if (!neighbor)
 		return reset_wild_neighbor || !slot->neighbor_set;
 	return slot->neighbor_set
-	       && eigrp_debug_address_equal(&slot->neighbor, neighbor);
+	       && eigrp_debug_address_match(&slot->neighbor, neighbor);
 }
 
-static eigrp_result_t eigrp_debug_address_family_slots_set(
-	eigrp_debug_address_family_slot_t *slots,
+static eigrp_result_t eigrp_debug_af_slots_update(
+	eigrp_operation_t operation,
+	eigrp_debug_af_slot_t *slots,
 	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
+	eigrp_debug_af_category_t category,
 	const eigrp_address_t *neighbor)
 {
 	const char *vrf;
 	unsigned int i;
 	int free_slot = -1;
 
+	if (operation == EIGRP_RESET) {
+		for (i = 0; i < EIGRP_DEBUG_AF_SLOT_MAX; i++)
+			if (eigrp_debug_af_slot_matches_request(
+				    &slots[i], request, category, neighbor, true))
+				memset(&slots[i], 0, sizeof(slots[i]));
+		return EIGRP_RESULT_SUCCESS;
+	}
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	for (i = 0; i < EIGRP_DEBUG_AF_SLOT_MAX; i++) {
 		if (!slots[i].used && free_slot < 0)
 			free_slot = (int)i;
-		if (eigrp_debug_address_family_slot_matches_request(
+		if (eigrp_debug_af_slot_matches_request(
 			    &slots[i], request, category, neighbor, false))
 			return EIGRP_RESULT_SUCCESS;
 	}
@@ -199,15 +206,14 @@ static eigrp_result_t eigrp_debug_address_family_slots_set(
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 
 	vrf = request->vrf_name ? request->vrf_name : "default";
-	if (strlen(vrf) >= EIGRP_DEBUG_VRF_NAME_MAX)
+	if (strlen(vrf) >= sizeof(term_debug_eigrp_address_family[0].vrf_name))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	memset(&slots[free_slot], 0, sizeof(slots[free_slot]));
 	slots[free_slot].used = true;
 	slots[free_slot].afi = request->afi;
 	slots[free_slot].asn = request->asn;
 	slots[free_slot].all_vrfs = request->all_vrfs;
-	snprintf(slots[free_slot].vrf_name,
-		 sizeof(slots[free_slot].vrf_name), "%s", vrf);
+	memcpy(slots[free_slot].vrf_name, vrf, strlen(vrf) + 1U);
 	slots[free_slot].category = category;
 	if (neighbor) {
 		slots[free_slot].neighbor_set = true;
@@ -216,29 +222,15 @@ static eigrp_result_t eigrp_debug_address_family_slots_set(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static void eigrp_debug_address_family_slots_reset(
-	eigrp_debug_address_family_slot_t *slots,
+static bool eigrp_debug_af_request_valid(
 	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
-	const eigrp_address_t *neighbor)
-{
-	unsigned int i;
-
-	for (i = 0; i < EIGRP_DEBUG_AF_SLOT_MAX; i++)
-		if (eigrp_debug_address_family_slot_matches_request(
-			    &slots[i], request, category, neighbor, true))
-			memset(&slots[i], 0, sizeof(slots[i]));
-}
-
-static bool eigrp_debug_address_family_request_valid(
-	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
+	eigrp_debug_af_category_t category,
 	const eigrp_address_t *neighbor)
 {
 	if (!request || category >= EIGRP_DEBUG_AF_CATEGORY_MAX)
 		return false;
-	if (request->afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    && request->afi != EIGRP_ADDRESS_FAMILY_IPV6)
+	if (request->afi != EIGRP_AFI_IPV4
+	    && request->afi != EIGRP_AFI_IPV6)
 		return false;
 	if (neighbor && (category != EIGRP_DEBUG_AF_NEIGHBOR
 			 || neighbor->afi != request->afi))
@@ -246,69 +238,67 @@ static bool eigrp_debug_address_family_request_valid(
 	return true;
 }
 
-eigrp_result_t eigrp_debug_address_family_set(
-	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
-	const eigrp_address_t *neighbor, eigrp_debug_scope_t scope)
+eigrp_result_t eigrp_debug_af_update(eigrp_operation_t operation, const eigrp_state_request_t *request, eigrp_debug_af_category_t category, const eigrp_address_t *neighbor, eigrp_debug_scope_t scope)
 {
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_debug_scope_valid(scope)
+	    || !eigrp_debug_af_request_valid(request, category,
+							 neighbor))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	eigrp_debug_af_slots_update(EIGRP_RESET, term_debug_eigrp_address_family,
+					       request, category, neighbor);
+	if (scope == EIGRP_DEBUG_SCOPE_CONFIG)
+		eigrp_debug_af_slots_update(EIGRP_RESET, 
+			conf_debug_eigrp_address_family, request, category, neighbor);
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	eigrp_result_t result;
 
 	if (!eigrp_debug_scope_valid(scope)
-	    || !eigrp_debug_address_family_request_valid(request, category,
+	    || !eigrp_debug_af_request_valid(request, category,
 							 neighbor))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_debug_address_family_slots_set(
+	result = eigrp_debug_af_slots_update(EIGRP_SET, 
 		term_debug_eigrp_address_family, request, category, neighbor);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	if (scope == EIGRP_DEBUG_SCOPE_CONFIG)
-		return eigrp_debug_address_family_slots_set(
+		return eigrp_debug_af_slots_update(EIGRP_SET, 
 			conf_debug_eigrp_address_family, request, category, neighbor);
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_debug_address_family_reset(
-	const eigrp_state_request_t *request,
-	eigrp_debug_address_family_category_t category,
-	const eigrp_address_t *neighbor, eigrp_debug_scope_t scope)
-{
-	if (!eigrp_debug_scope_valid(scope)
-	    || !eigrp_debug_address_family_request_valid(request, category,
-							 neighbor))
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	eigrp_debug_address_family_slots_reset(term_debug_eigrp_address_family,
-					       request, category, neighbor);
-	if (scope == EIGRP_DEBUG_SCOPE_CONFIG)
-		eigrp_debug_address_family_slots_reset(
-			conf_debug_eigrp_address_family, request, category, neighbor);
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 static bool eigrp_debug_runtime_neighbor_matches(const eigrp_address_t *filter,
 						 const eigrp_addr_t *neighbor)
 {
 	if (!filter || !neighbor)
 		return false;
-	if (filter->afi == EIGRP_ADDRESS_FAMILY_IPV4 && neighbor->afi == AF_INET)
+	if (filter->afi == EIGRP_AFI_IPV4 && neighbor->afi == AF_INET)
 		return memcmp(filter->bytes, &neighbor->ip.v4, 4) == 0;
-	if (filter->afi == EIGRP_ADDRESS_FAMILY_IPV6 && neighbor->afi == AF_INET6)
+	if (filter->afi == EIGRP_AFI_IPV6 && neighbor->afi == AF_INET6)
 		return memcmp(filter->bytes, &neighbor->ip.v6, 16) == 0;
 	return false;
 }
 
-bool eigrp_debug_address_family_enabled(
-	eigrp_instance_t *eigrp, eigrp_debug_address_family_category_t category,
+bool eigrp_debug_af_enabled(
+	eigrp_instance_t *eigrp, eigrp_debug_af_category_t category,
 	const eigrp_addr_t *neighbor)
 {
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 	unsigned int i;
 
 	if (!eigrp || category >= EIGRP_DEBUG_AF_CATEGORY_MAX)
 		return false;
-	afi = neighbor && neighbor->afi == AF_INET6 ? EIGRP_ADDRESS_FAMILY_IPV6
-						     : EIGRP_ADDRESS_FAMILY_IPV4;
+	afi = neighbor && neighbor->afi == AF_INET6 ? EIGRP_AFI_IPV6
+						     : EIGRP_AFI_IPV4;
 	for (i = 0; i < EIGRP_DEBUG_AF_SLOT_MAX; i++) {
-		const eigrp_debug_address_family_slot_t *slot =
+		const eigrp_debug_af_slot_t *slot =
 			&term_debug_eigrp_address_family[i];
 
 		if (!slot->used || slot->afi != afi || slot->category != category)
@@ -336,9 +326,9 @@ bool eigrp_debug_address_family_enabled(
 	return false;
 }
 
-bool eigrp_debug_address_family_config_enabled(
-	const eigrp_address_family_config_t *af,
-	eigrp_debug_address_family_category_t category)
+bool eigrp_debug_af_config_enabled(
+	const eigrp_af_instance_t *af,
+	eigrp_debug_af_category_t category)
 {
 	unsigned int i;
 	const char *vrf;
@@ -347,7 +337,7 @@ bool eigrp_debug_address_family_config_enabled(
 		return false;
 	vrf = af->vrf_name ? af->vrf_name : "default";
 	for (i = 0; i < EIGRP_DEBUG_AF_SLOT_MAX; i++) {
-		const eigrp_debug_address_family_slot_t *slot =
+		const eigrp_debug_af_slot_t *slot =
 			&term_debug_eigrp_address_family[i];
 
 		if (!slot->used || slot->afi != af->afi || slot->category != category)
@@ -361,7 +351,7 @@ bool eigrp_debug_address_family_config_enabled(
 	return false;
 }
 
-void eigrp_debug_neighbor_state(eigrp_neighbor_t *nbr, uint8_t old_state,
+void eigrp_debug_neighbor_state(eigrp_nbr_t *nbr, uint8_t old_state,
 				uint8_t new_state)
 {
 	eigrp_instance_t *eigrp;
@@ -370,7 +360,7 @@ void eigrp_debug_neighbor_state(eigrp_neighbor_t *nbr, uint8_t old_state,
 		return;
 	eigrp = nbr->ei ? nbr->ei->eigrp : NULL;
 	if (!(term_debug_eigrp_nei & EIGRP_DEBUG_NEI)
-	    && !eigrp_debug_address_family_enabled(
+	    && !eigrp_debug_af_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NEIGHBOR, &nbr->src))
 		return;
 	eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: Neighbor %s on %s state %u -> %u",
@@ -379,7 +369,7 @@ void eigrp_debug_neighbor_state(eigrp_neighbor_t *nbr, uint8_t old_state,
 		   new_state);
 }
 
-void eigrp_debug_neighbor_sia(eigrp_neighbor_t *nbr, const char *event)
+void eigrp_debug_neighbor_sia(eigrp_nbr_t *nbr, const char *event)
 {
 	if (!nbr || !(term_debug_eigrp_nei & EIGRP_DEBUG_NEI_SIATIMER))
 		return;
@@ -390,7 +380,7 @@ void eigrp_debug_neighbor_sia(eigrp_neighbor_t *nbr, const char *event)
 }
 
 void eigrp_debug_nsf_event(const eigrp_instance_t *eigrp,
-			   const eigrp_neighbor_t *nbr, uint32_t flags,
+			   const eigrp_nbr_t *nbr, uint32_t flags,
 			   const char *event)
 {
 	if (!(term_debug_eigrp & EIGRP_DEBUG_NSF))
@@ -402,8 +392,8 @@ void eigrp_debug_nsf_event(const eigrp_instance_t *eigrp,
 }
 
 void eigrp_debug_transmit_event(unsigned long category,
-	const eigrp_instance_t *eigrp, const eigrp_interface_t *ei,
-	const eigrp_neighbor_t *nbr, const char *format, ...)
+	const eigrp_instance_t *eigrp, const eigrp_intf_t *ei,
+	const eigrp_nbr_t *nbr, const char *format, ...)
 {
 	char message[512];
 	va_list ap;
@@ -416,11 +406,11 @@ void eigrp_debug_transmit_event(unsigned long category,
 	if (nbr)
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP TX AS %u %s nbr %s: %s",
 			   eigrp ? eigrp->AS : 0,
-			   ei ? eigrp_intf_name_string((eigrp_interface_t *)ei) : "-",
+			   ei ? eigrp_intf_name_string((eigrp_intf_t *)ei) : "-",
 			   eigrp_print_addr((eigrp_addr_t *)&nbr->src), message);
 	else
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP TX AS %u %s: %s", eigrp ? eigrp->AS : 0,
-			   ei ? eigrp_intf_name_string((eigrp_interface_t *)ei) : "-",
+			   ei ? eigrp_intf_name_string((eigrp_intf_t *)ei) : "-",
 			   message);
 }
 
@@ -458,11 +448,13 @@ const char *eigrp_debug_packet_category_name(
 	return eigrp_debug_packet_names[category];
 }
 
-static eigrp_result_t eigrp_debug_packet_apply(uint32_t packet_mask,
-					       unsigned long flags,
-					       eigrp_debug_scope_t scope,
-					       bool enable)
+eigrp_result_t eigrp_debug_packet_update(eigrp_operation_t operation, uint32_t packet_mask, unsigned long flags, eigrp_debug_scope_t scope)
 {
+	bool enable;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	enable = operation == EIGRP_SET;
 	unsigned int i;
 	unsigned long *term = term_debug_eigrp_packet;
 	unsigned long *conf = conf_debug_eigrp_packet;
@@ -500,19 +492,11 @@ static eigrp_result_t eigrp_debug_packet_apply(uint32_t packet_mask,
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_debug_packet_set(uint32_t packet_mask,
-					 unsigned long flags,
-					 eigrp_debug_scope_t scope)
-{
-	return eigrp_debug_packet_apply(packet_mask, flags, scope, true);
-}
 
-eigrp_result_t eigrp_debug_packet_reset(uint32_t packet_mask,
-					 unsigned long flags,
-					 eigrp_debug_scope_t scope)
-{
-	return eigrp_debug_packet_apply(packet_mask, flags, scope, false);
-}
+
+
+
+
 
 bool eigrp_debug_packet_any_enabled(unsigned long direction)
 {
@@ -527,7 +511,7 @@ bool eigrp_debug_packet_any_enabled(unsigned long direction)
 }
 
 static eigrp_debug_packet_category_t
-eigrp_debug_packet_category_get(const eigrp_header_t *header)
+eigrp_debug_packet_category(const eigrp_header_t *header)
 {
 	if (!header)
 		return EIGRP_DEBUG_PACKET_CATEGORY_MAX;
@@ -694,11 +678,23 @@ static void eigrp_debug_tlv_detail_dump(uint16_t type, const uint8_t *data,
 				   eigrp_debug_get32(data + 4));
 		break;
 	case EIGRP_TLV_PEER_TERMINATION:
-		if (length >= EIGRP_TLV_PEER_TERMINATION_LEN) {
-			struct in_addr peer;
+		if (length > EIGRP_TLV_HDR_SIZE) {
+			uint8_t address_length = data[4];
+			char address[INET6_ADDRSTRLEN];
 
-			memcpy(&peer.s_addr, data + 5, sizeof(peer.s_addr));
-			eigrp_log(EIGRP_LOG_DEBUG, "    peer termination neighbor %pI4", &peer);
+			if (address_length == 4 && length >= 9) {
+				struct in_addr peer;
+				memcpy(&peer, data + 5, sizeof(peer));
+				if (inet_ntop(AF_INET, &peer, address, sizeof(address)))
+					eigrp_log(EIGRP_LOG_DEBUG,
+						  "    peer termination neighbor %s", address);
+			} else if (address_length == 16 && length >= 21) {
+				struct in6_addr peer;
+				memcpy(&peer, data + 5, sizeof(peer));
+				if (inet_ntop(AF_INET6, &peer, address, sizeof(address)))
+					eigrp_log(EIGRP_LOG_DEBUG,
+						  "    peer termination neighbor %s", address);
+			}
 		}
 		break;
 	case EIGRP_TLV_IPv4_INT:
@@ -798,7 +794,7 @@ static void eigrp_debug_packet_detail_dump(const eigrp_header_t *header,
 	}
 }
 
-void eigrp_debug_packet_send(eigrp_interface_t *ei,
+void eigrp_debug_packet_send(eigrp_intf_t *ei,
 			     const eigrp_packet_t *packet, int send_result)
 {
 	const eigrp_header_t *header;
@@ -809,7 +805,7 @@ void eigrp_debug_packet_send(eigrp_interface_t *ei,
 	if (!ei || !packet || !packet->s || packet->length < EIGRP_HEADER_LEN)
 		return;
 	header = (const eigrp_header_t *)eigrp_stream_const_data(packet->s);
-	category = eigrp_debug_packet_category_get(header);
+	category = eigrp_debug_packet_category(header);
 	if (category >= EIGRP_DEBUG_PACKET_CATEGORY_MAX)
 		return;
 	state = term_debug_eigrp_packet[category];
@@ -839,7 +835,7 @@ void eigrp_debug_packet_send(eigrp_interface_t *ei,
 	}
 }
 
-void eigrp_debug_packet_receive(eigrp_interface_t *ei,
+void eigrp_debug_packet_receive(eigrp_intf_t *ei,
 				const eigrp_addr_t *source,
 				const eigrp_addr_t *destination,
 				const eigrp_header_t *header, uint16_t length)
@@ -849,7 +845,7 @@ void eigrp_debug_packet_receive(eigrp_interface_t *ei,
 
 	if (!ei || !source || !header || length < EIGRP_HEADER_LEN)
 		return;
-	category = eigrp_debug_packet_category_get(header);
+	category = eigrp_debug_packet_category(header);
 	if (category >= EIGRP_DEBUG_PACKET_CATEGORY_MAX)
 		return;
 	state = term_debug_eigrp_packet[category];
@@ -873,7 +869,7 @@ void eigrp_debug_packet_receive(eigrp_interface_t *ei,
 	}
 }
 
-void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
+void eigrp_debug_packet_retry(eigrp_nbr_t *nbr,
 			      const eigrp_packet_t *packet, uint8_t retry_count)
 {
 	const eigrp_header_t *header;
@@ -886,9 +882,9 @@ void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
 
 	eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: Sending %s on %s nbr %s, retry %u, RTO %u",
 		   eigrp_debug_packet_category_name(
-			   eigrp_debug_packet_category_get(header)),
+			   eigrp_debug_packet_category(header)),
 		   eigrp_intf_name_string(nbr->ei), eigrp_print_addr(&nbr->src), retry_count,
-		   eigrp_neighbor_rto_get(nbr));
+		   eigrp_nbr_rto(nbr));
 	eigrp_log(EIGRP_LOG_DEBUG, "  AS %u, Flags 0x%x, Seq %u/%u",
 		   ntohs(header->ASNumber), ntohl(header->flags),
 		   ntohl(header->sequence), ntohl(header->ack));

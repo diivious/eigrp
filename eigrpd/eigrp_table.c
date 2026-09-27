@@ -9,7 +9,7 @@
 #include "eigrpd/eigrp_prefix.h"
 #include "eigrpd/eigrp_table.h"
 
-static bool eigrp_table_prefix_equal(const eigrp_prefix_t *a,
+static bool eigrp_table_prefix_match(const eigrp_prefix_t *a,
 				     const eigrp_prefix_t *b)
 {
 	eigrp_prefix_t na, nb;
@@ -21,7 +21,7 @@ static bool eigrp_table_prefix_equal(const eigrp_prefix_t *a,
 	eigrp_prefix_normalize(&na);
 	eigrp_prefix_normalize(&nb);
 	return memcmp(na.address.bytes, nb.address.bytes,
-		      na.address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? 4 : 16) == 0;
+		      na.address.afi == EIGRP_AFI_IPV4 ? 4 : 16) == 0;
 }
 
 static bool eigrp_table_prefix_contains(const eigrp_prefix_t *network,
@@ -35,7 +35,7 @@ static bool eigrp_table_prefix_contains(const eigrp_prefix_t *network,
 	return eigrp_prefix_address_match(network, &candidate->address);
 }
 
-eigrp_table_t *eigrp_table_new(void)
+eigrp_table_t *eigrp_table_create(void)
 {
 	return calloc(1, sizeof(eigrp_table_t));
 }
@@ -59,12 +59,12 @@ eigrp_table_node_t *eigrp_table_node_lookup(eigrp_table_t *table,
 	if (!table || !prefix)
 		return NULL;
 	for (node = table->head; node; node = node->next)
-		if (eigrp_table_prefix_equal(&node->prefix, prefix))
+		if (eigrp_table_prefix_match(&node->prefix, prefix))
 			return node;
 	return NULL;
 }
 
-eigrp_table_node_t *eigrp_table_node_get(eigrp_table_t *table,
+eigrp_table_node_t *eigrp_table_node_lookup_or_create(eigrp_table_t *table,
 					 const eigrp_prefix_t *prefix)
 {
 	eigrp_table_node_t *node, **tail;

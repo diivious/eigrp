@@ -30,6 +30,7 @@
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_instance.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_zebra.h"
 #include "eigrpd/eigrp_vty.h"
@@ -104,10 +105,10 @@ static afi_t eigrp_zebra_instance_afi(const eigrp_instance_t *eigrp)
 {
 	if (!eigrp)
 		return AFI_UNSPEC;
-	switch (eigrp_instance_address_family(eigrp)) {
-	case EIGRP_ADDRESS_FAMILY_IPV4:
+	switch (eigrp_instance_afi(eigrp)) {
+	case EIGRP_AFI_IPV4:
 		return AFI_IP;
-	case EIGRP_ADDRESS_FAMILY_IPV6:
+	case EIGRP_AFI_IPV6:
 		return AFI_IP6;
 	default:
 		return AFI_UNSPEC;
@@ -246,7 +247,7 @@ static int eigrp_zebra_router_id_update(ZAPI_CALLBACK_ARGS)
 	zebra_router_id_update_read(zclient->ibuf, &router_id);
 
 	router_id_zebra = router_id.u.prefix4;
-	eigrp_sys_router_id_refresh((eigrp_vrf_id_t)vrf_id);
+	eigrp_sys_router_id_update((eigrp_vrf_id_t)vrf_id);
 	return 0;
 }
 
@@ -263,12 +264,28 @@ static int eigrp_zebra_route_notify_owner(ZAPI_CALLBACK_ARGS)
 	return 0;
 }
 
+static eigrp_result_t eigrp_zebra_vrf_register(eigrp_vrf_id_t vrf_id,
+	void *arg)
+{
+	struct zclient *zclient = arg;
+
+	if (vrf_id != EIGRP_VRF_DEFAULT)
+		zclient_send_reg_requests(zclient, (vrf_id_t)vrf_id);
+	return EIGRP_RESULT_SUCCESS;
+}
+
 static void eigrp_zebra_connected(struct zclient *zclient)
 {
 	zclient_send_reg_requests(zclient, VRF_DEFAULT);
+	(void)eigrp_instance_vrf_iterate(eigrp_zebra_vrf_register, zclient);
+	/* Zebra removes client-owned routes when the client disconnects.
+	 * Replay EIGRP's currently installed topology after reconnect without
+	 * exposing DUAL descriptors to the FRR adapter.
+	 */
+	(void)eigrp_rib_routes_replay();
 }
 
-static eigrp_redistribute_protocol_t eigrp_zebra_redistribute_protocol(int type)
+static eigrp_redist_protocol_t eigrp_zebra_redistribute_protocol(int type)
 {
 	switch (type) {
 	case ZEBRA_ROUTE_CONNECT:
@@ -291,7 +308,7 @@ static eigrp_redistribute_protocol_t eigrp_zebra_redistribute_protocol(int type)
 }
 
 static const char *eigrp_zebra_redistribute_protocol_name(
-	eigrp_redistribute_protocol_t protocol)
+	eigrp_redist_protocol_t protocol)
 {
 	switch (protocol) {
 	case EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED:
@@ -348,7 +365,7 @@ static void eigrp_zebra_source_nexthop_import(
 		case NEXTHOP_TYPE_IPV4_IFINDEX:
 			source->ifindex = nexthop->ifindex;
 			source->gateway_present = true;
-			source->gateway.afi = EIGRP_ADDRESS_FAMILY_IPV4;
+			source->gateway.afi = EIGRP_AFI_IPV4;
 			memcpy(source->gateway.bytes, &nexthop->gate.ipv4,
 			       sizeof(nexthop->gate.ipv4));
 			return;
@@ -356,7 +373,7 @@ static void eigrp_zebra_source_nexthop_import(
 		case NEXTHOP_TYPE_IPV6_IFINDEX:
 			source->ifindex = nexthop->ifindex;
 			source->gateway_present = true;
-			source->gateway.afi = EIGRP_ADDRESS_FAMILY_IPV6;
+			source->gateway.afi = EIGRP_AFI_IPV6;
 			memcpy(source->gateway.bytes, &nexthop->gate.ipv6,
 			       sizeof(nexthop->gate.ipv6));
 			return;
@@ -371,7 +388,7 @@ static void eigrp_zebra_source_nexthop_import(
 static eigrp_result_t eigrp_zebra_source_route_import(
 	const struct zapi_route *api, eigrp_rib_source_route_t *source)
 {
-	eigrp_redistribute_protocol_t protocol;
+	eigrp_redist_protocol_t protocol;
 	eigrp_result_t result;
 
 	if (!api || !source || api->safi != SAFI_UNICAST)
@@ -430,7 +447,7 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 		if (!state->eigrp
 		    || eigrp_instance_vrf_id(state->eigrp) != (eigrp_vrf_id_t)vrf_id)
 			continue;
-		if (eigrp_instance_address_family(state->eigrp)
+		if (eigrp_instance_afi(state->eigrp)
 		    != source.prefix.address.afi)
 			continue;
 		/* An EIGRP route originated by this exact runtime must never be
@@ -475,7 +492,7 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 
 static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 {
-	eigrp_interface_runtime_state_t state;
+	eigrp_intf_runtime_state_t state;
 	eigrp_result_t result;
 	struct connected *c;
 	struct interface *ifp;
@@ -515,7 +532,7 @@ static int eigrp_zebra_interface_address_add(ZAPI_CALLBACK_ARGS)
 		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: interface %s address add %s", ifp->name,
 				eigrp_zebra_prefix_string(c->address));
 
-	eigrp_sys_interface_state_apply((eigrp_vrf_id_t)vrf_id, &state);
+	eigrp_sys_interface_state_update((eigrp_vrf_id_t)vrf_id, &state);
 	return 0;
 }
 
@@ -586,8 +603,6 @@ eigrp_result_t eigrp_zebra_route_install(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_zclient)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	if (!eigrp_zclient->redist[AFI_IP][ZEBRA_ROUTE_EIGRP])
-		return EIGRP_RESULT_SUCCESS;
 	if (eigrp_frr_prefix_export(&route->prefix, &host_prefix)
 	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -598,10 +613,15 @@ eigrp_result_t eigrp_zebra_route_install(
 	api.instance = eigrp_instance_asn(eigrp);
 	api.safi = SAFI_UNICAST;
 	api.metric = route->metric;
+	api.distance = route->administrative_distance;
+	api.tag = route->tag;
 	api.prefix = host_prefix;
 
 	SET_FLAG(api.message, ZAPI_MESSAGE_NEXTHOP);
 	SET_FLAG(api.message, ZAPI_MESSAGE_METRIC);
+	SET_FLAG(api.message, ZAPI_MESSAGE_DISTANCE);
+	if (route->type == EIGRP_RIB_ROUTE_EXTERNAL)
+		SET_FLAG(api.message, ZAPI_MESSAGE_TAG);
 
 	for (i = 0; i < route->nexthop_count && count < MULTIPATH_NUM; i++) {
 		const eigrp_rib_nexthop_t *nexthop = &route->nexthops[i];
@@ -611,10 +631,15 @@ eigrp_result_t eigrp_zebra_route_install(
 		api_nh->vrf_id = eigrp_instance_vrf_id(eigrp);
 		api_nh->ifindex = nexthop->ifindex;
 		if (nexthop->gateway_present
-		    && nexthop->gateway.afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+		    && nexthop->gateway.afi == EIGRP_AFI_IPV4) {
 			memcpy(&api_nh->gate.ipv4, nexthop->gateway.bytes,
 			       sizeof(api_nh->gate.ipv4));
 			api_nh->type = NEXTHOP_TYPE_IPV4_IFINDEX;
+		} else if (nexthop->gateway_present
+			   && nexthop->gateway.afi == EIGRP_AFI_IPV6) {
+			memcpy(&api_nh->gate.ipv6, nexthop->gateway.bytes,
+			       sizeof(api_nh->gate.ipv6));
+			api_nh->type = NEXTHOP_TYPE_IPV6_IFINDEX;
 		} else {
 			api_nh->type = NEXTHOP_TYPE_IFINDEX;
 		}
@@ -623,7 +648,7 @@ eigrp_result_t eigrp_zebra_route_install(
 	api.nexthop_num = count;
 
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB)
-	    || eigrp_debug_address_family_enabled(
+	    || eigrp_debug_af_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
 		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: Route add %s",
 				eigrp_zebra_prefix_string(&host_prefix));
@@ -642,8 +667,6 @@ eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp_zclient)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	if (!eigrp_zclient->redist[AFI_IP][ZEBRA_ROUTE_EIGRP])
-		return EIGRP_RESULT_SUCCESS;
 	if (eigrp_frr_prefix_export(prefix, &host_prefix)
 	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -657,14 +680,14 @@ eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
 	zclient_route_send(ZEBRA_ROUTE_DELETE, eigrp_zclient, &api);
 
 	if ((term_debug_eigrp_notifications & EIGRP_DEBUG_NOTIFICATION_RIB)
-	    || eigrp_debug_address_family_enabled(
+	    || eigrp_debug_af_enabled(
 		    eigrp, EIGRP_DEBUG_AF_NOTIFICATIONS, NULL))
 		eigrp_log(EIGRP_LOG_DEBUG, "Zebra: Route del %s",
 				eigrp_zebra_prefix_string(&host_prefix));
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static int eigrp_zebra_redistribute_type(eigrp_redistribute_protocol_t protocol)
+static int eigrp_zebra_redistribute_type(eigrp_redist_protocol_t protocol)
 {
 	switch (protocol) {
 	case EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED:
@@ -695,7 +718,7 @@ struct eigrp_zebra_subscription_params {
 };
 
 static bool eigrp_zebra_source_instance_valid(
-	eigrp_redistribute_protocol_t protocol,
+	eigrp_redist_protocol_t protocol,
 	eigrp_route_instance_t route_instance)
 {
 	switch (protocol) {
@@ -720,7 +743,7 @@ static bool eigrp_zebra_source_instance_valid(
 
 static eigrp_result_t eigrp_zebra_subscription_params_build(
 	const eigrp_instance_t *eigrp,
-	const eigrp_redistribute_source_t *source,
+	const eigrp_redist_source_t *source,
 	struct eigrp_zebra_subscription_params *params)
 {
 	if (!eigrp)
@@ -744,7 +767,7 @@ static eigrp_result_t eigrp_zebra_subscription_params_build(
 }
 
 eigrp_result_t eigrp_zebra_redistribute_update(
-	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source)
+	eigrp_instance_t *eigrp, const eigrp_redist_source_t *source)
 {
 	struct eigrp_zebra_subscription_params params;
 	struct eigrp_zebra_instance_state *state;
@@ -785,7 +808,7 @@ eigrp_result_t eigrp_zebra_redistribute_update(
 }
 
 eigrp_result_t eigrp_zebra_redistribute_delete(
-	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source)
+	eigrp_instance_t *eigrp, const eigrp_redist_source_t *source)
 {
 	struct eigrp_zebra_subscription_params params;
 	struct eigrp_zebra_instance_state *state;
@@ -822,8 +845,9 @@ eigrp_result_t eigrp_zebra_redistribute_delete(
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
-int eigrp_redistribute_set(eigrp_instance_t *eigrp, int type,
-			   struct eigrp_metrics metric)
+int eigrp_redistribute_update(eigrp_operation_t operation,
+			      eigrp_instance_t *eigrp, int type,
+			      struct eigrp_metrics metric)
 {
 	struct eigrp_zebra_instance_state *state;
 	vrf_id_t vrf_id;
@@ -836,10 +860,27 @@ int eigrp_redistribute_set(eigrp_instance_t *eigrp, int type,
 	if (afi == AFI_UNSPEC)
 		return CMD_WARNING_CONFIG_FAILED;
 	vrf_id = (vrf_id_t)eigrp_instance_vrf_id(eigrp);
+
+	if (operation == EIGRP_RESET) {
+		state = eigrp_zebra_instance_state_get(eigrp, false);
+		if (!state || !state->classic_redistribute[type])
+			return CMD_SUCCESS;
+
+		memset(&state->dmetric[type], 0, sizeof(state->dmetric[type]));
+		state->classic_redistribute[type] = false;
+		if (state->redistribute_count > 0)
+			--state->redistribute_count;
+		if (!eigrp_zebra_source_in_use(afi, type, 0, vrf_id))
+			zclient_redistribute(ZEBRA_REDISTRIBUTE_DELETE,
+					     eigrp_zclient, afi, type, 0, vrf_id);
+		return CMD_SUCCESS;
+	}
+	if (operation != EIGRP_SET)
+		return CMD_WARNING_CONFIG_FAILED;
+
 	state = eigrp_zebra_instance_state_get(eigrp, true);
 	if (!state)
 		return CMD_WARNING_CONFIG_FAILED;
-
 	state->dmetric[type] = metric;
 	if (state->classic_redistribute[type])
 		return CMD_SUCCESS;
@@ -849,32 +890,6 @@ int eigrp_redistribute_set(eigrp_instance_t *eigrp, int type,
 	if (!was_in_use)
 		zclient_redistribute(ZEBRA_REDISTRIBUTE_ADD, eigrp_zclient, afi,
 				     type, 0, vrf_id);
-	return CMD_SUCCESS;
-}
-
-int eigrp_redistribute_unset(eigrp_instance_t *eigrp, int type)
-{
-	struct eigrp_zebra_instance_state *state;
-	vrf_id_t vrf_id;
-	afi_t afi;
-
-	if (!eigrp || !eigrp_zclient || type <= 0 || type >= ZEBRA_ROUTE_MAX)
-		return CMD_WARNING_CONFIG_FAILED;
-	afi = eigrp_zebra_instance_afi(eigrp);
-	if (afi == AFI_UNSPEC)
-		return CMD_WARNING_CONFIG_FAILED;
-	vrf_id = (vrf_id_t)eigrp_instance_vrf_id(eigrp);
-	state = eigrp_zebra_instance_state_get(eigrp, false);
-	if (!state || !state->classic_redistribute[type])
-		return CMD_SUCCESS;
-
-	memset(&state->dmetric[type], 0, sizeof(state->dmetric[type]));
-	state->classic_redistribute[type] = false;
-	if (state->redistribute_count > 0)
-		--state->redistribute_count;
-	if (!eigrp_zebra_source_in_use(afi, type, 0, vrf_id))
-		zclient_redistribute(ZEBRA_REDISTRIBUTE_DELETE, eigrp_zclient,
-				     afi, type, 0, vrf_id);
 	return CMD_SUCCESS;
 }
 

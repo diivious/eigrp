@@ -33,35 +33,35 @@
 /*
  * These externs need to cleaned up
  */
-extern int eigrp_make_md5_digest(eigrp_interface_t *, eigrp_stream_t *, uint8_t);
+extern int eigrp_make_md5_digest(eigrp_intf_t *, eigrp_stream_t *, uint8_t);
 extern int eigrp_check_md5_digest(eigrp_stream_t *,
 				  struct TLV_MD5_Authentication_Type *,
-				  eigrp_neighbor_t *, uint8_t);
-extern int eigrp_make_sha256_digest(eigrp_interface_t *, eigrp_stream_t *,
+				  eigrp_nbr_t *, uint8_t);
+extern int eigrp_make_sha256_digest(eigrp_intf_t *, eigrp_stream_t *,
 				    uint8_t);
 extern int eigrp_check_sha256_digest(eigrp_stream_t *,
 				     struct TLV_SHA256_Authentication_Type *,
-				     eigrp_neighbor_t *, uint8_t);
+				     eigrp_nbr_t *, uint8_t);
 
 
-extern struct TLV_SHA256_Authentication_Type *eigrp_authTLV_SHA256_new(void);
-extern void eigrp_authTLV_SHA256_free(struct TLV_SHA256_Authentication_Type *);
+extern struct TLV_SHA256_Authentication_Type *eigrp_auth_tlv_sha256_create(void);
+extern void eigrp_auth_tlv_sha256_delete(struct TLV_SHA256_Authentication_Type *);
 
-extern struct TLV_MD5_Authentication_Type *eigrp_authTLV_MD5_new(void);
-extern void eigrp_authTLV_MD5_free(struct TLV_MD5_Authentication_Type *);
+extern struct TLV_MD5_Authentication_Type *eigrp_auth_tlv_md5_create(void);
+extern void eigrp_auth_tlv_md5_delete(struct TLV_MD5_Authentication_Type *);
 
-extern uint16_t eigrp_add_authTLV_MD5_encode(eigrp_stream_t *,
-					     eigrp_interface_t *);
-extern uint16_t eigrp_add_authTLV_SHA256_encode(eigrp_stream_t *,
-						eigrp_interface_t *);
+extern uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *,
+					     eigrp_intf_t *);
+extern uint16_t eigrp_auth_tlv_sha256_encode(eigrp_stream_t *,
+						eigrp_intf_t *);
 
-eigrp_result_t eigrp_auth_mode_set(
-	eigrp_interface_context_t *context, eigrp_authentication_mode_t mode,
+eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation,
+	eigrp_intf_context_t *context,
+	eigrp_authentication_mode_t mode,
 	const eigrp_auth_hmac_config_t *hmac);
-eigrp_result_t eigrp_auth_mode_reset(eigrp_interface_context_t *context);
-eigrp_result_t eigrp_auth_keychain_set(eigrp_interface_context_t *context,
-					  const char *keychain);
-eigrp_result_t eigrp_auth_keychain_reset(eigrp_interface_context_t *context);
+eigrp_result_t eigrp_auth_keychain_update(eigrp_operation_t operation,
+	eigrp_intf_context_t *context,
+	const char *keychain);
 
 #endif /* _ZEBRA_EIGRP_AUTH_H */
 

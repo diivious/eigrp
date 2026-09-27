@@ -53,17 +53,17 @@ extern struct eigrpd *eigrp_om;
 /* Prototypes */
 extern void eigrp_init(void);
 extern void eigrp_terminate(void);
-extern void eigrp_finish(eigrp_instance_t *);
-extern void eigrp_finish_final(eigrp_instance_t *);
+extern void eigrp_instance_delete(eigrp_instance_t *);
+extern void eigrp_instance_delete_final(eigrp_instance_t *);
 
-extern eigrp_instance_t *eigrp_get(uint16_t as, eigrp_vrf_id_t vrf_id);
-extern eigrp_instance_t *eigrp_get_by_af(eigrp_address_family_t afi, uint16_t as,
+extern eigrp_instance_t *eigrp_instance_lookup_or_create(uint16_t as, eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_instance_lookup_or_create_by_af(eigrp_afi_t afi, uint16_t as,
 					eigrp_vrf_id_t vrf_id, bool data_path_ready);
 extern eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id);
 extern eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id);
-extern eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_address_family_t afi,
+extern eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_afi_t afi,
 					       uint16_t as, eigrp_vrf_id_t vrf_id);
-extern void eigrp_name_set(eigrp_instance_t *, const char *);
+extern void eigrp_name_update(eigrp_operation_t, eigrp_instance_t *, const char *);
 
 extern void eigrp_router_id_update(eigrp_instance_t *);
 

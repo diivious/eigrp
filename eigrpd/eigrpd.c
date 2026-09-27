@@ -53,8 +53,8 @@ static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors,
 		return false;
 	}
 
-	if (vectors->afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    && vectors->afi != EIGRP_ADDRESS_FAMILY_IPV6) {
+	if (vectors->afi != EIGRP_AFI_IPV4
+	    && vectors->afi != EIGRP_AFI_IPV6) {
 		eigrp_log(EIGRP_LOG_ERROR, "address-family runtime has invalid AF %u",
 				(unsigned)vectors->afi);
 		return false;
@@ -139,7 +139,7 @@ void eigrp_router_id_update(eigrp_instance_t *eigrp)
 
 	eigrp->router_id = router_id;
 	if (router_id_old.s_addr != router_id.s_addr)
-		eigrp_network_interfaces_refresh(eigrp);
+		eigrp_network_intfs_update(eigrp);
 }
 
 eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp)
@@ -147,7 +147,7 @@ eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp)
 	return eigrp ? eigrp->vrf_id : EIGRP_VRF_DEFAULT;
 }
 
-eigrp_address_family_t eigrp_instance_address_family(const eigrp_instance_t *eigrp)
+eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *eigrp)
 {
 	return eigrp ? eigrp->af_vectors.afi : 0;
 }
@@ -169,7 +169,7 @@ void eigrp_init(void)
 	memset(&eigrpd, 0, sizeof(struct eigrpd));
 
 	eigrp_om = &eigrpd;
-	eigrp_om->eigrp = eigrp_list_new();
+	eigrp_om->eigrp = eigrp_list_create();
 
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
 		eigrp_om->start_time = ts.tv_sec;
@@ -178,7 +178,7 @@ void eigrp_init(void)
 }
 
 /* Allocate a protocol runtime/control context. */
-static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
+static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
 				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
 {
 	eigrp_instance_t *eigrp = calloc(1, sizeof(struct eigrp_instance));
@@ -194,10 +194,10 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp->vrf_id = vrf_id;
 	eigrp->data_path_ready = data_path_ready;
 	switch (afi) {
-	case EIGRP_ADDRESS_FAMILY_IPV4:
+	case EIGRP_AFI_IPV4:
 		eigrp_ipv4_init(&eigrp->af_vectors);
 		break;
-	case EIGRP_ADDRESS_FAMILY_IPV6:
+	case EIGRP_AFI_IPV6:
 		eigrp_ipv6_init(&eigrp->af_vectors);
 		break;
 	default:
@@ -227,19 +227,21 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 	eigrp_tlv2_init(&eigrp->tlv2_codec);
 
 	/* Control/runtime state exists for both IPv4 and IPv6 named AFs. */
-	eigrp->eiflist = eigrp_list_new();
+	eigrp->eiflist = eigrp_list_create();
 	eigrp->passive_interface_default = EIGRP_INTF_ACTIVE;
 	eigrp->networks = NULL;
-	eigrp->oi_write_q = eigrp_list_new();
+	eigrp->oi_write_q = eigrp_list_create();
 	eigrp->topology_table = eigrp_topology_table_create();
 	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
 	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
 	eigrp->max_hops = EIGRP_MAX_HOPS;
+	eigrp->distance_internal = EIGRP_DISTANCE_INTERNAL_DEFAULT;
+	eigrp->distance_external = EIGRP_DISTANCE_EXTERNAL_DEFAULT;
 	eigrp->metric_version = EIGRP_MAJOR_VERSION;
 	eigrp->log_neighbor_changes = true;
 	eigrp->log_neighbor_warnings = true;
 	eigrp->log_neighbor_warning_interval = 10;
-	eigrp->topology_changes = eigrp_list_new();
+	eigrp->topology_changes = eigrp_list_create();
 
 	/* Diagnostic/control state is valid before a packet data path exists. */
 	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
@@ -250,16 +252,16 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 
 	if (eigrp_sys_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
 		eigrp_log(EIGRP_LOG_ERROR,
-			"eigrp_new: fatal error: host runtime was unable to open an EIGRP socket");
+			"eigrp_instance_create: fatal error: host runtime was unable to open an EIGRP socket");
 		exit(1);
 	}
 
-	eigrp->ibuf = eigrp_stream_new(EIGRP_PACKET_MAX_LEN + 1);
+	eigrp->ibuf = eigrp_stream_create(EIGRP_PACKET_MAX_LEN + 1);
 	eigrp_sys_read_add(&eigrp->t_read, eigrp,
 				   eigrp_packet_read, eigrp);
 
 	/* The self-neighbor is wire/data-path state and is created only there. */
-	src.afi = afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
+	src.afi = afi == EIGRP_AFI_IPV6 ? AF_INET6 : AF_INET;
 	eigrp->neighbor_self = eigrp_nbr_create(NULL, &src);
 	eigrp_packetizer_init(eigrp);
 	return eigrp;
@@ -272,24 +274,24 @@ static eigrp_instance_t *eigrp_new(eigrp_address_family_t afi, uint16_t as,
 eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_list_item_t *node, *nnode;
 
-	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
-		if (eigrp->af_vectors.afi == EIGRP_ADDRESS_FAMILY_IPV4
+	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
+		if (eigrp->af_vectors.afi == EIGRP_AFI_IPV4
 		    && eigrp->vrf_id == vrf_id)
 			return eigrp;
 	}
 	return NULL;
 }
 
-eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_address_family_t afi,
+eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_afi_t afi,
 					     uint16_t as,
 					     eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_list_item_t *node, *nnode;
 
-	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->af_vectors.afi == afi && eigrp->AS == as
 		    && eigrp->vrf_id == vrf_id)
 			return eigrp;
@@ -299,17 +301,17 @@ eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_address_family_t afi,
 
 eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
-	return eigrp_lookup_by_af_as_vrf(EIGRP_ADDRESS_FAMILY_IPV4, as, vrf_id);
+	return eigrp_lookup_by_af_as_vrf(EIGRP_AFI_IPV4, as, vrf_id);
 }
 
-eigrp_instance_t *eigrp_get_by_af(eigrp_address_family_t afi, uint16_t as,
+eigrp_instance_t *eigrp_instance_lookup_or_create_by_af(eigrp_afi_t afi, uint16_t as,
 				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
 {
 	eigrp_instance_t *eigrp;
 
 	eigrp = eigrp_lookup_by_af_as_vrf(afi, as, vrf_id);
 	if (eigrp == NULL) {
-		eigrp = eigrp_new(afi, as, vrf_id, data_path_ready);
+		eigrp = eigrp_instance_create(afi, as, vrf_id, data_path_ready);
 		if (!eigrp)
 			return NULL;
 		eigrp_list_add(eigrp_om->eigrp, eigrp);
@@ -317,14 +319,14 @@ eigrp_instance_t *eigrp_get_by_af(eigrp_address_family_t afi, uint16_t as,
 	return eigrp;
 }
 
-eigrp_instance_t *eigrp_get(uint16_t as, eigrp_vrf_id_t vrf_id)
+eigrp_instance_t *eigrp_instance_lookup_or_create(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
-	return eigrp_get_by_af(EIGRP_ADDRESS_FAMILY_IPV4, as, vrf_id, true);
+	return eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id, true);
 }
 
-void eigrp_name_set(eigrp_instance_t *eigrp, const char *name)
+void eigrp_name_update(eigrp_operation_t operation, eigrp_instance_t *eigrp, const char *name)
 {
-	if (!eigrp || !name || !name[0])
+	if (operation != EIGRP_SET || !eigrp || !name || !name[0])
 		return;
 
 	if (eigrp->name && strcmp(eigrp->name, name) == 0)
@@ -348,18 +350,18 @@ void eigrp_terminate(void)
 	eigrp_om->options |= EIGRPD_SHUTDOWN;
 
 	while (eigrp_om->eigrp && eigrp_om->eigrp->count) {
-		eigrp = eigrp_list_node_data(eigrp_list_head(eigrp_om->eigrp));
-		eigrp_finish(eigrp);
+		eigrp = eigrp_list_item_data(eigrp_list_first(eigrp_om->eigrp));
+		eigrp_instance_delete(eigrp);
 	}
 
-	eigrp_instance_config_finish();
+	eigrp_instance_config_delete_all();
 	eigrp_rib_finish();
 	eigrp_sys_runtime_finish();
 }
 
-void eigrp_finish(eigrp_instance_t *eigrp)
+void eigrp_instance_delete(eigrp_instance_t *eigrp)
 {
-	eigrp_finish_final(eigrp);
+	eigrp_instance_delete_final(eigrp);
 
 	/* eigrp being shut-down? If so, was this the last eigrp instance? */
 	if ((eigrp_om->options & EIGRPD_SHUTDOWN) != 0
@@ -370,20 +372,20 @@ void eigrp_finish(eigrp_instance_t *eigrp)
 }
 
 /* Final cleanup of eigrp instance */
-void eigrp_finish_final(eigrp_instance_t *eigrp)
+void eigrp_instance_delete_final(eigrp_instance_t *eigrp)
 {
-	eigrp_interface_t *ei;
-	eigrp_neighbor_t *nbr;
-	eigrp_list_node_t *node, *nnode, *node2, *nnode2;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
+	eigrp_list_item_t *node, *nnode, *node2, *nnode2;
 
 	/* Named address-family configuration owns its runtime binding.  Clear
 	 * that binding before any runtime storage is released so later config
 	 * cleanup cannot dereference or attempt to destroy a stale instance.
 	 */
-	eigrp_instance_runtime_unbind(eigrp);
+	eigrp_instance_runtime_remove(eigrp);
 
-	for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, nnode, ei)) {
-		for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr))
+	for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, nnode, ei)) {
+		for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr))
 			eigrp_nbr_delete(nbr);
 		eigrp_intf_free(eigrp, ei, EIGRP_INTERFACE_REMOVE_FINAL);
 	}
@@ -391,8 +393,8 @@ void eigrp_finish_final(eigrp_instance_t *eigrp)
 	eigrp_network_runtime_delete_all(eigrp);
 	eigrp_sys_event_cancel(&eigrp->t_write);
 	eigrp_sys_event_cancel(&eigrp->t_read);
-	eigrp_packetizer_finish(eigrp);
-	eigrp_eventlog_finish(eigrp);
+	eigrp_packetizer_delete(eigrp);
+	eigrp_eventlog_delete(eigrp);
 	eigrp_sys_socket_close(eigrp);
 
 	eigrp_list_delete(&eigrp->eiflist);

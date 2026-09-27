@@ -78,7 +78,7 @@ examples:
   tools/frr-uut.sh --build-only --frr-root ~/devel/frr
 
 layout:
-  portable tests:       test/portable/
+  portable tests:       test/common/ (shared + ipv4/ipv6 portable)
   FRR test source:      frr/test/
   FRR installed tests:  frr/tests/eigrpd/
 USAGE
@@ -157,12 +157,10 @@ has_frr_tests() {
 
 print_available_tests() {
 	echo "portable tests:"
-	if [[ -d "$eigrp_root/test/portable" ]]; then
-		find "$eigrp_root/test/portable" -mindepth 1 -maxdepth 3 -type d ! -name __pycache__ \
-			| sed "s#^$eigrp_root/test/##" | sort
-	else
-		echo "  none"
-	fi
+	find "$eigrp_root/test" \
+		\( -path "$eigrp_root/test/build" -o -path "$eigrp_root/test/build/*" \) -prune -o \
+		-mindepth 1 -maxdepth 4 -type d ! -name __pycache__ -print \
+		| sed "s#^$eigrp_root/test/##" | sort
 
 	echo
 	echo "FRR-native test payload:"
@@ -267,11 +265,10 @@ build_local_uut() {
 }
 
 run_portable_tests() {
-	local target="$1"
 	require_command python3
 	(
 		cd "$eigrp_root"
-		python3 -m pytest "$target" "${pytest_args[@]}"
+		python3 -m pytest "$@" "${pytest_args[@]}"
 	)
 }
 
@@ -644,14 +641,14 @@ fi
 
 case "$test_mode" in
 	all)
-		run_portable_tests test/portable
+		run_portable_tests test/common test/platform/frr
 		run_frr_tests
 		;;
 	packet)
-		run_portable_tests test/portable/packet
+		run_portable_tests test/common/packet test/common/ipv4/packet test/common/ipv6/packet test/platform/frr/ipv4/packet test/platform/frr/ipv6/packet
 		;;
 	portable)
-		run_portable_tests test/portable
+		run_portable_tests test/common
 		;;
 	frr)
 		run_frr_tests

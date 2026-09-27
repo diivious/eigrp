@@ -195,9 +195,9 @@ static eigrp_result_t eigrp_vty_topology_prefix_instance_render(
 
 static eigrp_result_t eigrp_vty_topology_walk_vrf(
 	struct eigrp_vty_topology_walk_context *ctx, eigrp_vrf_id_t vrf_id,
-	uint16_t asn, eigrp_topology_instance_walk_cb callback)
+	uint16_t asn, eigrp_topology_instance_iterate_cb callback)
 {
-	return eigrp_topology_instance_walk(EIGRP_ADDRESS_FAMILY_IPV4, vrf_id,
+	return eigrp_topology_instance_iterate(EIGRP_AFI_IPV4, vrf_id,
 					    asn, callback, ctx);
 }
 
@@ -309,13 +309,13 @@ DEFPY (show_ip_eigrp_topology,
 static void eigrp_interface_helper(struct vty *vty, eigrp_instance_t *eigrp,
 				   const char *ifname, const char *detail)
 {
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!ifname)
 		show_ip_eigrp_interface_header(vty, eigrp);
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
 		if (!ifname || strcmp(ei->name, ifname) == 0) {
 			show_ip_eigrp_interface_sub(vty, eigrp, ei);
 			if (detail)
@@ -366,15 +366,15 @@ DEFPY (show_ip_eigrp_interfaces,
 static void eigrp_neighbors_helper(struct vty *vty, eigrp_instance_t *eigrp,
 				   const char *ifname, const char *detail)
 {
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node, *node2, *nnode2;
-	eigrp_neighbor_t *nbr;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node, *node2, *nnode2;
+	eigrp_nbr_t *nbr;
 
 	show_ip_eigrp_neighbor_header(vty, eigrp);
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
 		if (!ifname || strcmp(ei->name, ifname) == 0) {
-			for (EIGRP_LIST_ELEMENTS(ei->nbrs, node2, nnode2, nbr)) {
+			for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
 				if (detail || (nbr->state == EIGRP_NEIGHBOR_UP))
 					show_ip_eigrp_neighbor_sub(vty, nbr,
 								   !!detail);
@@ -422,14 +422,14 @@ DEFPY (show_ip_eigrp_neighbors,
 }
 
 static void eigrp_vty_neighbor_clear_render(
-	const eigrp_neighbor_clear_state_t *state, void *arg)
+	const eigrp_nbr_clear_state_t *state, void *arg)
 {
 	struct vty *vty = arg;
 	char address[INET6_ADDRSTRLEN];
 	int family;
 
-	family = state->address.afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 :
-		 state->address.afi == EIGRP_ADDRESS_FAMILY_IPV4 ? AF_INET : AF_UNSPEC;
+	family = state->address.afi == EIGRP_AFI_IPV6 ? AF_INET6 :
+		 state->address.afi == EIGRP_AFI_IPV4 ? AF_INET : AF_UNSPEC;
 	if (family == AF_INET6 || family == AF_INET) {
 		if (!inet_ntop(family, state->address.bytes, address, sizeof(address)))
 			strlcpy(address, "<invalid>", sizeof(address));
@@ -460,7 +460,7 @@ DEFPY (clear_ip_eigrp_neighbors,
        "Clear IP-EIGRP neighbors\n")
 {
 	eigrp_instance_t *eigrp;
-	const eigrp_neighbor_clear_request_t request = {0};
+	const eigrp_nbr_clear_request_t request = {0};
 	eigrp_result_t result;
 
 	/* Check if eigrp process is enabled */
@@ -470,7 +470,7 @@ DEFPY (clear_ip_eigrp_neighbors,
 		return CMD_SUCCESS;
 	}
 
-	result = eigrp_neighbor_clear(eigrp, &request,
+	result = eigrp_nbr_clear(eigrp, &request,
 				      eigrp_vty_neighbor_clear_render, vty, NULL);
 	return eigrp_vty_neighbor_clear_result(result);
 }
@@ -489,7 +489,7 @@ DEFPY (clear_ip_eigrp_neighbors_int,
        "Interface's name\n")
 {
 	eigrp_instance_t *eigrp;
-	eigrp_neighbor_clear_request_t request = {
+	eigrp_nbr_clear_request_t request = {
 		.interface_name = ifname,
 	};
 	eigrp_result_t result;
@@ -501,7 +501,7 @@ DEFPY (clear_ip_eigrp_neighbors_int,
 		return CMD_SUCCESS;
 	}
 
-	result = eigrp_neighbor_clear(eigrp, &request,
+	result = eigrp_nbr_clear(eigrp, &request,
 				      eigrp_vty_neighbor_clear_render, vty, NULL);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, " Interface (%s) doesn't exist\n", ifname);
@@ -525,9 +525,9 @@ DEFPY (clear_ip_eigrp_neighbors_IP,
 {
 	eigrp_instance_t *eigrp;
 	eigrp_address_t address = {
-		.afi = EIGRP_ADDRESS_FAMILY_IPV4,
+		.afi = EIGRP_AFI_IPV4,
 	};
-	eigrp_neighbor_clear_request_t request = {
+	eigrp_nbr_clear_request_t request = {
 		.address = &address,
 	};
 	eigrp_result_t result;
@@ -541,7 +541,7 @@ DEFPY (clear_ip_eigrp_neighbors_IP,
 		return CMD_SUCCESS;
 	}
 
-	result = eigrp_neighbor_clear(eigrp, &request,
+	result = eigrp_nbr_clear(eigrp, &request,
 				      eigrp_vty_neighbor_clear_render, vty, NULL);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, "Neighbor with entered address doesn't exists.\n");
@@ -564,7 +564,7 @@ DEFPY (clear_ip_eigrp_neighbors_soft,
        "Resync with peers without adjacency reset\n")
 {
 	eigrp_instance_t *eigrp;
-	const eigrp_neighbor_clear_request_t request = {
+	const eigrp_nbr_clear_request_t request = {
 		.soft = true,
 	};
 	eigrp_result_t result;
@@ -576,7 +576,7 @@ DEFPY (clear_ip_eigrp_neighbors_soft,
 		return CMD_SUCCESS;
 	}
 
-	result = eigrp_neighbor_clear(eigrp, &request,
+	result = eigrp_nbr_clear(eigrp, &request,
 				      eigrp_vty_neighbor_clear_render, vty, NULL);
 	return eigrp_vty_neighbor_clear_result(result);
 }
@@ -596,7 +596,7 @@ DEFPY (clear_ip_eigrp_neighbors_int_soft,
        "Resync with peer without adjacency reset\n")
 {
 	eigrp_instance_t *eigrp;
-	eigrp_neighbor_clear_request_t request = {
+	eigrp_nbr_clear_request_t request = {
 		.interface_name = ifname,
 		.soft = true,
 	};
@@ -609,7 +609,7 @@ DEFPY (clear_ip_eigrp_neighbors_int_soft,
 		return CMD_SUCCESS;
 	}
 
-	result = eigrp_neighbor_clear(eigrp, &request,
+	result = eigrp_nbr_clear(eigrp, &request,
 				      eigrp_vty_neighbor_clear_render, vty, NULL);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, " Interface (%s) doesn't exist\n", ifname);
@@ -634,9 +634,9 @@ DEFPY (clear_ip_eigrp_neighbors_IP_soft,
 {
 	eigrp_instance_t *eigrp;
 	eigrp_address_t address = {
-		.afi = EIGRP_ADDRESS_FAMILY_IPV4,
+		.afi = EIGRP_AFI_IPV4,
 	};
-	eigrp_neighbor_clear_request_t request = {
+	eigrp_nbr_clear_request_t request = {
 		.address = &address,
 		.soft = true,
 	};
@@ -651,7 +651,7 @@ DEFPY (clear_ip_eigrp_neighbors_IP_soft,
 		return CMD_SUCCESS;
 	}
 
-	result = eigrp_neighbor_clear(eigrp, &request,
+	result = eigrp_nbr_clear(eigrp, &request,
 				      eigrp_vty_neighbor_clear_render, vty, NULL);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, "Neighbor with entered address doesn't exists.\n");
@@ -665,7 +665,7 @@ struct eigrp_vty_eventlog_output {
 };
 
 static eigrp_result_t eigrp_vty_eventlog_output_entry(
-	uint32_t event_number, const eigrp_eventlog_entry_t *entry,
+	uint32_t event_number, const eigrp_eventlog_msg_t *entry,
 	const char *format, void *arg)
 {
 	struct eigrp_vty_eventlog_output *output = arg;
@@ -675,7 +675,7 @@ static eigrp_result_t eigrp_vty_eventlog_output_entry(
 	(void)format;
 	if (!output || !output->vty || !entry)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_eventlog_entry_format(entry, text, sizeof(text));
+	result = eigrp_eventlog_msg_format(entry, text, sizeof(text));
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	vty_out(output->vty, "%u %s\n", event_number, text);
@@ -710,7 +710,7 @@ DEFPY(show_ip_eigrp_events,
 		vty_out(vty, "  No events recorded\n");
 		return CMD_SUCCESS;
 	}
-	result = eigrp_eventlog_show(&context, eigrp_vty_eventlog_output_entry,
+	result = eigrp_eventlog_msg_iterate(&context, eigrp_vty_eventlog_output_entry,
 				     &output);
 	return result == EIGRP_RESULT_SUCCESS ? CMD_SUCCESS : CMD_WARNING;
 }

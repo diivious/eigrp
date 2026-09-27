@@ -47,7 +47,7 @@ typedef struct eigrp_neighbor {
 	uint8_t K6;
 
 	/* This neighbor's parent eigrp interface. */
-	eigrp_interface_t *ei;
+	eigrp_intf_t *ei;
 
 	/* EIGRP neighbor Information */
 	uint8_t state; /* neigbor status. */
@@ -91,78 +91,73 @@ typedef struct eigrp_neighbor {
 	/* if packet is first or last during Graceful restart */
 	enum Packet_part_type nbr_gr_packet_type;
 
-} eigrp_neighbor_t;
+} eigrp_nbr_t;
 
 
 /* Prototypes */
-extern eigrp_neighbor_t *eigrp_nbr_lookup(eigrp_interface_t *, struct eigrp_header *,
+extern eigrp_nbr_t *eigrp_nbr_lookup(eigrp_intf_t *, struct eigrp_header *,
 					  eigrp_addr_t *);
-extern eigrp_neighbor_t *eigrp_nbr_create(eigrp_interface_t *, eigrp_addr_t *);
-extern void eigrp_nbr_delete(eigrp_neighbor_t *neigh);
+extern eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *, eigrp_addr_t *);
+extern void eigrp_nbr_delete(eigrp_nbr_t *neigh);
 
-extern void eigrp_neighbor_holddown_expired(void *arg);
+extern void eigrp_nbr_holddown_expired(void *arg);
 
-extern int eigrp_neighborship_check(eigrp_neighbor_t *,
-				    struct TLV_Parameter_Type *tlv);
-extern void eigrp_nbr_state_update(eigrp_neighbor_t *);
-extern void eigrp_nbr_state_set(eigrp_neighbor_t *, uint8_t state);
-extern void eigrp_neighbor_codec_bind(eigrp_neighbor_t *, uint8_t tlv_version);
-extern void eigrp_neighbor_codec_refresh(eigrp_instance_t *);
-extern uint8_t eigrp_nbr_state_get(eigrp_neighbor_t *);
-extern int eigrp_nbr_count_get(eigrp_instance_t *);
-extern const char *eigrp_nbr_state_str(eigrp_neighbor_t *);
+extern void eigrp_nbr_holddown_update(eigrp_nbr_t *);
+extern void eigrp_nbr_state_update(eigrp_operation_t, eigrp_nbr_t *, uint8_t state);
+extern void eigrp_nbr_codec_select(eigrp_nbr_t *, uint8_t tlv_version);
+extern void eigrp_nbr_codec_update(eigrp_instance_t *);
+extern uint8_t eigrp_nbr_state(eigrp_nbr_t *);
+extern int eigrp_nbr_count(eigrp_instance_t *);
+extern const char *eigrp_nbr_state_str(eigrp_nbr_t *);
 
 /* Per-neighbor Reliable Transport Protocol RTT/RTO state. */
-void eigrp_neighbor_rtt_reset(eigrp_neighbor_t *nbr);
-void eigrp_neighbor_srtt_update(eigrp_neighbor_t *nbr,
+void eigrp_nbr_rtt_clear(eigrp_nbr_t *nbr);
+void eigrp_nbr_srtt_update(eigrp_nbr_t *nbr,
 				const eigrp_packet_t *packet);
-void eigrp_neighbor_rto_backoff(eigrp_neighbor_t *nbr);
-uint32_t eigrp_neighbor_rto_get(const eigrp_neighbor_t *nbr);
-extern eigrp_neighbor_t *eigrp_nbr_lookup_by_addr(eigrp_interface_t *,
+void eigrp_nbr_rto_backoff(eigrp_nbr_t *nbr);
+uint32_t eigrp_nbr_rto(const eigrp_nbr_t *nbr);
+extern eigrp_nbr_t *eigrp_nbr_lookup_by_addr(eigrp_intf_t *,
 						  struct in_addr *);
-extern eigrp_neighbor_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *,
+extern eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *,
 							  struct in_addr addr);
 
-extern int eigrp_nbr_split_horizon_check(eigrp_route_descriptor_t *,
-					 eigrp_interface_t *);
+extern int eigrp_nbr_split_horizon(eigrp_route_descriptor_t *,
+					 eigrp_intf_t *);
 
-eigrp_result_t eigrp_neighbor_static_create(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_nbr_static_create(eigrp_af_instance_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name);
-eigrp_result_t eigrp_neighbor_static_delete(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_nbr_static_delete(eigrp_af_instance_t *af,
 					    const eigrp_address_t *address,
 					    const char *interface_name);
-void eigrp_neighbor_static_delete_all(eigrp_address_family_config_t *af);
-bool eigrp_neighbor_static_hello_send(eigrp_interface_t *ei);
-bool eigrp_neighbor_static_source_allowed(eigrp_interface_t *ei,
+void eigrp_nbr_static_delete_all(eigrp_af_instance_t *af);
+bool eigrp_nbr_static_hello_send(eigrp_intf_t *ei);
+bool eigrp_nbr_static_source_allowed(eigrp_intf_t *ei,
                                           const eigrp_addr_t *src);
-eigrp_result_t eigrp_neighbor_state_walk(
-	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+eigrp_result_t eigrp_nbr_state_iterate(
+	eigrp_af_instance_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,
-	eigrp_neighbor_state_walk_cb callback, void *arg);
-eigrp_result_t eigrp_neighbor_clear(
-	eigrp_instance_t *runtime, const eigrp_neighbor_clear_request_t *request,
-	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count);
+	eigrp_nbr_state_iterate_cb callback, void *arg);
+eigrp_result_t eigrp_nbr_clear(
+	eigrp_instance_t *runtime, const eigrp_nbr_clear_request_t *request,
+	eigrp_nbr_clear_cb callback, void *arg, size_t *affected_count);
 
-eigrp_result_t eigrp_neighbor_description_set(
-	eigrp_instance_context_t *context, const eigrp_address_t *address,
+eigrp_result_t eigrp_nbr_description_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	const eigrp_address_t *address,
 	const char *description);
-eigrp_result_t eigrp_neighbor_description_reset(
-	eigrp_instance_context_t *context, const eigrp_address_t *address);
-eigrp_result_t eigrp_neighbor_maximum_prefix_set(
-	eigrp_instance_context_t *context, const eigrp_address_t *address,
+eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	const eigrp_address_t *address,
 	const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_neighbor_maximum_prefix_reset(
-	eigrp_instance_context_t *context, const eigrp_address_t *address);
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_set(
-	eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit);
-eigrp_result_t eigrp_neighbor_maximum_prefix_all_reset(
-	eigrp_instance_context_t *context);
-eigrp_result_t eigrp_neighbor_log_set(eigrp_instance_context_t *context,
-				      eigrp_neighbor_log_type_t type,
-				      bool enabled, uint16_t seconds);
-eigrp_result_t eigrp_neighbor_log_reset(eigrp_instance_context_t *context,
-					eigrp_neighbor_log_type_t type);
-void eigrp_neighbor_policy_delete_all(eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	const eigrp_prefix_limit_t *limit);
+eigrp_result_t eigrp_nbr_log_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	eigrp_nbr_log_type_t type,
+	bool enabled,
+	uint16_t seconds);
+void eigrp_nbr_policy_delete_all(eigrp_af_instance_t *af);
 
 #endif /* _ZEBRA_EIGRP_NEIGHBOR_H */

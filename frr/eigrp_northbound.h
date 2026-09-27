@@ -16,9 +16,9 @@
 #include "eigrpd/eigrp_types.h"
 
 eigrp_result_t eigrp_northbound_neighbor_clear_address(
-	eigrp_instance_t *runtime, eigrp_address_family_t afi,
+	eigrp_instance_t *runtime, eigrp_afi_t afi,
 	const struct in_addr *ipv4_address,
 	const struct in6_addr *ipv6_address, bool soft,
-	eigrp_neighbor_clear_cb callback, void *arg, size_t *affected_count);
+	eigrp_nbr_clear_cb callback, void *arg, size_t *affected_count);
 
 #endif /* _FRR_EIGRP_NORTHBOUND_H_ */

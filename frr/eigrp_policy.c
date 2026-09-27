@@ -20,6 +20,7 @@
 
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_filter.h"
+#include "eigrpd/eigrp_redistribute.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrp_frr.h"
 #include "eigrp_policy.h"
@@ -72,23 +73,36 @@ static void eigrp_policy_distribute_update(struct distribute_ctx *ctx,
 		return;
 
 	memset(&snapshot, 0, sizeof(snapshot));
-	snapshot.access_list[EIGRP_FILTER_IN] = dist->list[DISTRIBUTE_V4_IN];
-	snapshot.access_list[EIGRP_FILTER_OUT] = dist->list[DISTRIBUTE_V4_OUT];
-	snapshot.prefix_list[EIGRP_FILTER_IN] = dist->prefix[DISTRIBUTE_V4_IN];
-	snapshot.prefix_list[EIGRP_FILTER_OUT] = dist->prefix[DISTRIBUTE_V4_OUT];
+	if (eigrp_instance_afi(state->eigrp) == EIGRP_AFI_IPV6) {
+		snapshot.access_list[EIGRP_FILTER_IN] = dist->list[DISTRIBUTE_V6_IN];
+		snapshot.access_list[EIGRP_FILTER_OUT] = dist->list[DISTRIBUTE_V6_OUT];
+		snapshot.prefix_list[EIGRP_FILTER_IN] = dist->prefix[DISTRIBUTE_V6_IN];
+		snapshot.prefix_list[EIGRP_FILTER_OUT] = dist->prefix[DISTRIBUTE_V6_OUT];
+	} else {
+		snapshot.access_list[EIGRP_FILTER_IN] = dist->list[DISTRIBUTE_V4_IN];
+		snapshot.access_list[EIGRP_FILTER_OUT] = dist->list[DISTRIBUTE_V4_OUT];
+		snapshot.prefix_list[EIGRP_FILTER_IN] = dist->prefix[DISTRIBUTE_V4_IN];
+		snapshot.prefix_list[EIGRP_FILTER_OUT] = dist->prefix[DISTRIBUTE_V4_OUT];
+	}
 	(void)eigrp_sys_filter_runtime_replace(state->eigrp, dist->ifname, &snapshot);
 }
 
 static void eigrp_policy_access_list_changed(struct access_list *access)
 {
 	(void)access;
-	eigrp_sys_policy_runtime_refresh();
+	eigrp_sys_policy_runtime_update();
 }
 
 static void eigrp_policy_prefix_list_changed(struct prefix_list *prefix)
 {
 	(void)prefix;
-	eigrp_sys_policy_runtime_refresh();
+	eigrp_sys_policy_runtime_update();
+}
+
+static void eigrp_policy_route_map_changed(const char *name)
+{
+	(void)name;
+	eigrp_redist_policy_update_all();
 }
 
 void eigrp_policy_init(void)
@@ -101,10 +115,9 @@ void eigrp_policy_init(void)
 	prefix_list_add_hook(eigrp_policy_prefix_list_changed);
 	prefix_list_delete_hook(eigrp_policy_prefix_list_changed);
 
-	/* Route-map CLI/YANG ownership is FRR-side even though EIGRP route-map
-	 * runtime application remains incomplete.
-	 */
 	route_map_init();
+	route_map_add_hook(eigrp_policy_route_map_changed);
+	route_map_delete_hook(eigrp_policy_route_map_changed);
 }
 
 void eigrp_policy_finish(void)
@@ -199,9 +212,9 @@ eigrp_result_t eigrp_policy_filter_evaluate(
 	if (eigrp_frr_prefix_export(prefix, &host_prefix)
 	    != EIGRP_RESULT_SUCCESS)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV4)
+	if (prefix->address.afi == EIGRP_AFI_IPV4)
 		afi = AFI_IP;
-	else if (prefix->address.afi == EIGRP_ADDRESS_FAMILY_IPV6)
+	else if (prefix->address.afi == EIGRP_AFI_IPV6)
 		afi = AFI_IP6;
 	else
 		return EIGRP_RESULT_UNSUPPORTED;
@@ -223,4 +236,34 @@ eigrp_result_t eigrp_policy_filter_evaluate(
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_INVALID_ARGUMENT;
+}
+
+/* FRR route-map adaptation for the portable host-policy contract.
+ * No FRR route-map type crosses into eigrpd/. */
+eigrp_result_t eigrp_policy_redistribute_route_map_evaluate(
+	eigrp_instance_t *eigrp, const char *name,
+	const eigrp_rib_source_route_t *route,
+	eigrp_filter_decision_t *decision)
+{
+	struct route_map *route_map;
+	struct prefix host_prefix;
+	route_map_result_t map_result;
+
+	(void)eigrp;
+	if (!name || !name[0] || !route || !decision)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	*decision = EIGRP_FILTER_DECISION_DENY;
+
+	if (eigrp_frr_prefix_export(&route->prefix, &host_prefix)
+	    != EIGRP_RESULT_SUCCESS)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	route_map = route_map_lookup_by_name(name);
+	if (!route_map)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	map_result = route_map_apply(route_map, &host_prefix, NULL);
+	if (map_result == RMAP_PERMITMATCH)
+		*decision = EIGRP_FILTER_DECISION_PERMIT;
+	return EIGRP_RESULT_SUCCESS;
 }

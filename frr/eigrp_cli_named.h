@@ -115,16 +115,16 @@ extern void eigrp_cli_named_show_network(struct vty *vty,
     const struct lyd_node *dnode, bool show_defaults);
 
 extern bool eigrp_cli_named_context(struct vty *vty);
-extern int eigrp_cli_named_active_time_apply(struct vty *vty, bool disabled,
+extern int eigrp_cli_named_active_time_update(struct vty *vty, bool disabled,
     const char *timer, bool remove);
-extern int eigrp_cli_named_variance_apply(struct vty *vty,
+extern int eigrp_cli_named_variance_update(struct vty *vty,
     const char *variance, bool remove);
-extern int eigrp_cli_named_maximum_paths_apply(struct vty *vty,
+extern int eigrp_cli_named_maximum_paths_update(struct vty *vty,
     const char *maximum_paths, bool remove);
-extern int eigrp_cli_named_metric_weights_apply(struct vty *vty,
+extern int eigrp_cli_named_metric_weights_update(struct vty *vty,
     const char *tos, const char *k1, const char *k2, const char *k3,
     const char *k4, const char *k5, const char *k6, bool remove);
-extern int eigrp_cli_named_redistribute_apply(struct vty *vty,
+extern int eigrp_cli_named_redist_update(struct vty *vty,
     const char *protocol, uint32_t route_instance, uint32_t bandwidth,
     const char *bandwidth_text,
     uint32_t delay, const char *delay_text, uint8_t reliability,

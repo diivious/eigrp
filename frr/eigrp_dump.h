@@ -22,10 +22,10 @@ extern void show_ip_eigrp_interface_header(struct vty *, eigrp_instance_t *);
 extern void show_ip_eigrp_neighbor_header(struct vty *, eigrp_instance_t *);
 extern void show_ip_eigrp_topology_header(struct vty *, eigrp_instance_t *);
 extern void show_ip_eigrp_interface_detail(struct vty *, eigrp_instance_t *,
-                                           eigrp_interface_t *);
+                                           eigrp_intf_t *);
 extern void show_ip_eigrp_interface_sub(struct vty *, eigrp_instance_t *,
-                                        eigrp_interface_t *);
-extern void show_ip_eigrp_neighbor_sub(struct vty *, eigrp_neighbor_t *, int);
+                                        eigrp_intf_t *);
+extern void show_ip_eigrp_neighbor_sub(struct vty *, eigrp_nbr_t *, int);
 extern void show_ip_eigrp_prefix_descriptor(struct vty *,
                                              eigrp_prefix_descriptor_t *, bool);
 extern void show_ip_eigrp_route_descriptor(struct vty *, eigrp_instance_t *,

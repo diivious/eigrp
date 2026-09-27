@@ -1,33 +1,54 @@
-# EIGRP Standalone Compile Smoke
+# EIGRP Tests
 
-This directory contains the lightweight compile-only harness for the FRR-backed
-EIGRP source projection.
+Tests are organized by ownership boundary first, then protocol family and module.
+The portable tree is intentionally runnable on a bare Unix development/CI host
+without FRR or BIRD installed.
 
-The repository keeps common source in `eigrpd/` and FRR-specific adapter source
-in `frr/`.  The real FRR build receives those as one flattened `frr/eigrpd/`
-directory.  This harness mirrors that projection under `test/build/obj/eigrpd/`
-before compiling with `-fsyntax-only` and the narrow FRR stub headers under
-`test/build/include/`.
-
-It does not link, does not run FRR clippy, and is not a replacement for
-`tools/frr.sh --build` against a complete FRR checkout.
-
-Run from the repository root:
-
-```sh
-make -C test/build
+```text
+test/
+  build/               lightweight compile/syntax/prototype smoke harness
+  common/              portable EIGRP behavior
+    configuration/     behavior shared by address families
+    process/
+    metric/
+    packet/
+    topology/
+    rib/
+    ipv4/              IPv4-specific portable behavior
+    ipv6/              IPv6-specific portable behavior
+    bfd/               optional portable BFD feature tests
+    manet/             optional portable MANET feature tests
+  platform/            host-adapter and integration-boundary tests
+    frr/
+      common/           FRR behavior shared by address families
+      ipv4/
+      ipv6/
 ```
 
-or:
+A future standalone Unix adapter belongs under `test/platform/unix/`; end-to-end
+standalone smoke scenarios belong under `test/smoke/` when that framework is
+implemented.  Do not make portable EIGRP depend on NETCONF, YANG, FRR, BIRD, or
+any future smoke harness.  A configuration transport may drive the EIGRP-owned
+northbound/configuration API from outside the portable core.
+
+`test/platform/` is for tests that inspect or exercise a host adapter.  Actual
+host-native/UUT tests remain with the integration: `frr/test/` for FRR and
+`bird/test/` for BIRD.
+
+Run the bare-host portable suite with:
 
 ```sh
-make smoke
+make portable-test
 ```
 
-Optional aliases:
+Run repository adapter-contract tests with:
 
 ```sh
-make -C test/build cli
-make -C test/build list
-make -C test/build all-sources
+make platform-test
+```
+
+The normal source gate runs compile/link smoke plus both suites:
+
+```sh
+make test
 ```

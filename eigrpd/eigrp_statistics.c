@@ -24,7 +24,7 @@ eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
 		return EIGRP_RESULT_NOT_FOUND;
 	if (!context->runtime) {
 		if (context->config
-		    && context->config->afi == EIGRP_ADDRESS_FAMILY_IPV6)
+		    && context->config->afi == EIGRP_AFI_IPV6)
 			return EIGRP_RESULT_NOT_IMPLEMENTED;
 		return EIGRP_RESULT_NOT_FOUND;
 	}
@@ -33,16 +33,16 @@ eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static void eigrp_statistics_neighbor_address(const eigrp_neighbor_t *nbr,
+static void eigrp_statistics_neighbor_address(const eigrp_nbr_t *nbr,
 					      eigrp_address_t *address)
 {
 	memset(address, 0, sizeof(*address));
 	if (nbr->src.afi == AF_INET6) {
-		address->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		address->afi = EIGRP_AFI_IPV6;
 		memcpy(address->bytes, &nbr->src.ip.v6, 16);
 		return;
 	}
-	address->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	address->afi = EIGRP_AFI_IPV4;
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
@@ -61,7 +61,7 @@ static uint32_t eigrp_statistics_prefix_count(eigrp_instance_t *runtime)
 }
 
 static uint32_t eigrp_statistics_neighbor_prefix_count(
-	eigrp_instance_t *runtime, eigrp_neighbor_t *neighbor)
+	eigrp_instance_t *runtime, eigrp_nbr_t *neighbor)
 {
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_table_node_t *route_node;
@@ -91,15 +91,15 @@ static uint32_t eigrp_statistics_neighbor_prefix_count(
  * Exports EIGRP accounting state for the selected address-family.
  * FRR supplies rendering callbacks only.
  */
-eigrp_result_t eigrp_statistics_accounting_show(
+eigrp_result_t eigrp_statistics_accounting_iterate(
 	const eigrp_instance_context_t *context, uint32_t *total_prefix_count,
 	eigrp_statistics_accounting_cb callback, void *arg)
 {
 	eigrp_result_t result = eigrp_statistics_context_validate(context);
-	eigrp_interface_t *interface;
-	eigrp_neighbor_t *neighbor;
-	eigrp_list_node_t *interface_node;
-	eigrp_list_node_t *neighbor_node;
+	eigrp_intf_t *interface;
+	eigrp_nbr_t *neighbor;
+	eigrp_list_item_t *interface_node;
+	eigrp_list_item_t *neighbor_node;
 
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
@@ -107,9 +107,9 @@ eigrp_result_t eigrp_statistics_accounting_show(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
 	*total_prefix_count = eigrp_statistics_prefix_count(context->runtime);
-	for (EIGRP_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
+	for (EIGRP_LIST_ITERATE_RO(context->runtime->eiflist, interface_node,
 				  interface)) {
-		for (EIGRP_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
+		for (EIGRP_LIST_ITERATE_RO(interface->nbrs, neighbor_node, neighbor)) {
 			eigrp_statistics_accounting_state_t state = {0};
 
 			if (neighbor->state == EIGRP_NEIGHBOR_DOWN)
@@ -140,13 +140,13 @@ eigrp_result_t eigrp_statistics_accounting_show(
  * Exports EIGRP packet and protocol traffic counters.
  * Counter ownership remains with the EIGRP runtime.
  */
-eigrp_result_t eigrp_statistics_traffic_show(
+eigrp_result_t eigrp_statistics_traffic_state_read(
 	const eigrp_instance_context_t *context,
 	eigrp_statistics_traffic_state_t *state)
 {
 	eigrp_result_t result = eigrp_statistics_context_validate(context);
-	eigrp_interface_t *interface;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *interface;
+	eigrp_list_item_t *node;
 
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
@@ -163,7 +163,7 @@ eigrp_result_t eigrp_statistics_traffic_show(
 			    | EIGRP_STATISTICS_TRAFFIC_SIA_QUERY
 			    | EIGRP_STATISTICS_TRAFFIC_SIA_REPLY;
 	state->received_valid = state->sent_valid;
-	for (EIGRP_LIST_ELEMENTS_RO(context->runtime->eiflist, node, interface)) {
+	for (EIGRP_LIST_ITERATE_RO(context->runtime->eiflist, node, interface)) {
 		state->sent_ack += interface->stats.sent.ack;
 		state->sent_hello += interface->stats.sent.hello;
 		state->sent_query += interface->stats.sent.query;

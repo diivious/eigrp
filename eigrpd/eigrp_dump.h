@@ -182,35 +182,35 @@ extern unsigned long conf_debug_eigrp_zebra;
 
 
 
-extern bool eigrp_debug_address_family_enabled(
-	eigrp_instance_t *eigrp, eigrp_debug_address_family_category_t category,
+extern bool eigrp_debug_af_enabled(
+	eigrp_instance_t *eigrp, eigrp_debug_af_category_t category,
 	const eigrp_addr_t *neighbor);
-extern bool eigrp_debug_address_family_config_enabled(
-	const eigrp_address_family_config_t *af,
-	eigrp_debug_address_family_category_t category);
+extern bool eigrp_debug_af_config_enabled(
+	const eigrp_af_instance_t *af,
+	eigrp_debug_af_category_t category);
 
 /* Runtime debug hooks owned by the protocol transitions they describe. */
-extern void eigrp_debug_neighbor_state(eigrp_neighbor_t *nbr, uint8_t old_state,
+extern void eigrp_debug_neighbor_state(eigrp_nbr_t *nbr, uint8_t old_state,
 	uint8_t new_state);
-extern void eigrp_debug_neighbor_sia(eigrp_neighbor_t *nbr, const char *event);
+extern void eigrp_debug_neighbor_sia(eigrp_nbr_t *nbr, const char *event);
 extern void eigrp_debug_nsf_event(const eigrp_instance_t *eigrp,
-	const eigrp_neighbor_t *nbr, uint32_t flags, const char *event);
+	const eigrp_nbr_t *nbr, uint32_t flags, const char *event);
 extern void eigrp_debug_transmit_event(unsigned long category,
-	const eigrp_instance_t *eigrp, const eigrp_interface_t *ei,
-	const eigrp_neighbor_t *nbr, const char *format, ...);
+	const eigrp_instance_t *eigrp, const eigrp_intf_t *ei,
+	const eigrp_nbr_t *nbr, const char *format, ...);
 
 /* Packet-debug targets and runtime hooks. */
 extern bool eigrp_debug_packet_any_enabled(unsigned long direction);
 extern const char *eigrp_debug_packet_category_name(
 	eigrp_debug_packet_category_t category);
-extern void eigrp_debug_packet_send(eigrp_interface_t *ei,
+extern void eigrp_debug_packet_send(eigrp_intf_t *ei,
 				    const eigrp_packet_t *packet, int send_result);
-extern void eigrp_debug_packet_receive(eigrp_interface_t *ei,
+extern void eigrp_debug_packet_receive(eigrp_intf_t *ei,
 				       const eigrp_addr_t *source,
 				       const eigrp_addr_t *destination,
 				       const eigrp_header_t *header,
 				       uint16_t length);
-extern void eigrp_debug_packet_retry(eigrp_neighbor_t *nbr,
+extern void eigrp_debug_packet_retry(eigrp_nbr_t *nbr,
 				     const eigrp_packet_t *packet,
 				     uint8_t retry_count);
 

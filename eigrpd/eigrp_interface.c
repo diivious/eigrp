@@ -36,7 +36,7 @@
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_sys.h"
 #include "eigrpd/eigrp_rib.h"
-static bool eigrp_interface_destination_get(const eigrp_interface_t *ei,
+static bool eigrp_intf_destination(const eigrp_intf_t *ei,
 					    eigrp_prefix_t *destination)
 {
 	if (!ei || !destination || !eigrp_prefix_valid(&ei->address))
@@ -47,7 +47,7 @@ static bool eigrp_interface_destination_get(const eigrp_interface_t *ei,
 	return true;
 }
 
-static char *eigrp_interface_string_duplicate(const char *value)
+static char *eigrp_intf_string_dup(const char *value)
 {
 	size_t len;
 	char *copy;
@@ -62,24 +62,24 @@ static char *eigrp_interface_string_duplicate(const char *value)
 	return copy;
 }
 
-static unsigned long eigrp_interface_reliable_queue_count(eigrp_interface_t *ei)
+static unsigned long eigrp_intf_reliable_queue_count(eigrp_intf_t *ei)
 {
-	eigrp_neighbor_t *nbr;
-	eigrp_list_node_t *node;
+	eigrp_nbr_t *nbr;
+	eigrp_list_item_t *node;
 	unsigned long count = 0;
 
 	if (!ei || !ei->nbrs)
 		return 0;
 
-	for (EIGRP_LIST_ELEMENTS_RO(ei->nbrs, node, nbr)) {
+	for (EIGRP_LIST_ITERATE_RO(ei->nbrs, node, nbr)) {
 		if (nbr->retrans_queue)
 			count += nbr->retrans_queue->count;
 	}
 	return count;
 }
 
-static void eigrp_interface_state_from_config(eigrp_interface_state_t *state,
-					      eigrp_interface_config_t *config)
+static void eigrp_intf_state_from_config(eigrp_intf_state_t *state,
+					      eigrp_intf_config_t *config)
 {
 	if (!state || !config)
 		return;
@@ -102,15 +102,15 @@ static void eigrp_interface_state_from_config(eigrp_interface_state_t *state,
 		state->hold_time = config->hold_time;
 }
 
-static eigrp_result_t eigrp_interface_state_emit(
-	eigrp_interface_t *ei, eigrp_interface_config_t *config,
-	eigrp_interface_state_walk_cb callback, void *arg)
+static eigrp_result_t eigrp_intf_state_emit(
+	eigrp_intf_t *ei, eigrp_intf_config_t *config,
+	eigrp_intf_state_iterate_cb callback, void *arg)
 {
-	eigrp_interface_state_t state = {0};
+	eigrp_intf_state_t state = {0};
 
 	if (config) {
 		state.interface_name = config->interface_name;
-		eigrp_interface_state_from_config(&state, config);
+		eigrp_intf_state_from_config(&state, config);
 	}
 	if (ei) {
 		state.interface_name = eigrp_intf_name_string(ei);
@@ -126,12 +126,14 @@ static eigrp_result_t eigrp_interface_state_emit(
 		state.hold_time = ei->params.v_wait;
 		state.peer_count = ei->nbrs ? ei->nbrs->count : 0;
 		state.output_queue_count = ei->obuf ? ei->obuf->count : 0;
-		state.reliable_queue_count = eigrp_interface_reliable_queue_count(ei);
+		state.reliable_queue_count = eigrp_intf_reliable_queue_count(ei);
 		state.reliability = ei->params.reliability;
 		state.load = ei->params.load;
 		state.tlv1_peer_count = ei->tlv1_peer_count;
 		state.tlv2_peer_count = ei->tlv2_peer_count;
 		state.split_horizon = ei->split_horizon;
+		state.next_hop_self = ei->next_hop_self;
+		state.bandwidth_percent = ei->bandwidth_percent;
 		state.hello_timer_running = ei->t_hello != NULL;
 		state.hello_timer_remaining =
 			eigrp_sys_timer_remaining_seconds(ei->t_hello);
@@ -158,14 +160,14 @@ static eigrp_result_t eigrp_interface_state_emit(
  * Walks EIGRP interface state for operational output.
  * The callback receives portable EIGRP state rather than FRR interface or VTY objects.
  */
-eigrp_result_t eigrp_interface_state_walk(
-	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
-	const char *interface_name, eigrp_interface_state_walk_cb callback,
+eigrp_result_t eigrp_intf_state_iterate(
+	eigrp_af_instance_t *config, eigrp_instance_t *runtime,
+	const char *interface_name, eigrp_intf_state_iterate_cb callback,
 	void *arg)
 {
-	eigrp_interface_t *ei;
-	eigrp_interface_config_t *configured;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_intf_config_t *configured;
+	eigrp_list_item_t *node;
 	bool matched = false;
 	eigrp_result_t result;
 
@@ -175,13 +177,13 @@ eigrp_result_t eigrp_interface_state_walk(
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	if (runtime && runtime->eiflist) {
-		for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+		for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, node, ei)) {
 			const char *name = eigrp_intf_name_string(ei);
 
 			if (interface_name && strcmp(name, interface_name) != 0)
 				continue;
-			configured = config ? eigrp_interface_config_read(config, name) : NULL;
-			result = eigrp_interface_state_emit(ei, configured, callback, arg);
+			configured = config ? eigrp_intf_config_read(config, name) : NULL;
+			result = eigrp_intf_state_emit(ei, configured, callback, arg);
 			if (result != EIGRP_RESULT_SUCCESS)
 				return result;
 			matched = true;
@@ -198,7 +200,7 @@ eigrp_result_t eigrp_interface_state_walk(
 			    && eigrp_intf_lookup_by_name(runtime,
 							configured->interface_name))
 				continue;
-			result = eigrp_interface_state_emit(NULL, configured, callback, arg);
+			result = eigrp_intf_state_emit(NULL, configured, callback, arg);
 			if (result != EIGRP_RESULT_SUCCESS)
 				return result;
 			matched = true;
@@ -208,10 +210,10 @@ eigrp_result_t eigrp_interface_state_walk(
 	return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 }
 
-eigrp_interface_config_t *eigrp_interface_config_read(
-	eigrp_address_family_config_t *af, const char *interface_name)
+eigrp_intf_config_t *eigrp_intf_config_read(
+	eigrp_af_instance_t *af, const char *interface_name)
 {
-	eigrp_interface_config_t *interface;
+	eigrp_intf_config_t *interface;
 
 	if (!af || !interface_name || !interface_name[0])
 		return NULL;
@@ -231,22 +233,22 @@ eigrp_interface_config_t *eigrp_interface_config_read(
  * Creates or removes named-mode interface configuration, including the default interface template.
  * Runtime application stays behind the EIGRP interface abstraction.
  */
-eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_intf_config_create(eigrp_af_instance_t *af,
 					     const char *interface_name)
 {
-	eigrp_interface_config_t *interface;
+	eigrp_intf_config_t *interface;
 
 	if (!interface_name || !interface_name[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (eigrp_interface_config_read(af, interface_name))
+	if (eigrp_intf_config_read(af, interface_name))
 		return EIGRP_RESULT_SUCCESS;
 
 	interface = calloc(1, sizeof(*interface));
 	if (!interface)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	interface->interface_name = eigrp_interface_string_duplicate(interface_name);
+	interface->interface_name = eigrp_intf_string_dup(interface_name);
 	if (!interface->interface_name) {
 		free(interface);
 		return EIGRP_RESULT_INTERNAL_FAILURE;
@@ -258,7 +260,7 @@ eigrp_result_t eigrp_interface_config_create(eigrp_address_family_config_t *af,
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static void eigrp_interface_config_free(eigrp_interface_config_t *interface)
+static void eigrp_intf_config_free(eigrp_intf_config_t *interface)
 {
 	if (!interface)
 		return;
@@ -279,11 +281,11 @@ static void eigrp_interface_config_free(eigrp_interface_config_t *interface)
  * Creates or removes named-mode interface configuration, including the default interface template.
  * Runtime application stays behind the EIGRP interface abstraction.
  */
-eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af,
+eigrp_result_t eigrp_intf_config_delete(eigrp_af_instance_t *af,
 					     const char *interface_name)
 {
-	eigrp_interface_config_t **cursor;
-	eigrp_interface_config_t *interface;
+	eigrp_intf_config_t **cursor;
+	eigrp_intf_config_t *interface;
 
 	if (!interface_name || !interface_name[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -295,33 +297,111 @@ eigrp_result_t eigrp_interface_config_delete(eigrp_address_family_config_t *af,
 		if (strcmp(interface->interface_name, interface_name) != 0)
 			continue;
 		*cursor = interface->next;
-		eigrp_interface_config_free(interface);
+		if (af->runtime) {
+			eigrp_intf_t *ei;
+			eigrp_list_item_t *node;
+
+			for (EIGRP_LIST_ITERATE_RO(af->runtime->eiflist, node, ei)) {
+				eigrp_intf_config_t *remaining;
+
+				if (strcmp(interface_name, "default") != 0
+				    && strcmp(ei->name, interface_name) != 0)
+					continue;
+				remaining = eigrp_intf_config_read(af, ei->name);
+				if (!remaining)
+					remaining = eigrp_intf_config_read(af, "default");
+				if (remaining)
+					eigrp_intf_config_update(ei, remaining);
+			}
+		}
+		eigrp_intf_config_free(interface);
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
-void eigrp_interface_config_delete_all(eigrp_address_family_config_t *af)
+void eigrp_intf_config_delete_all(eigrp_af_instance_t *af)
 {
-	eigrp_interface_config_t *interface;
-	eigrp_interface_config_t *next;
+	eigrp_intf_config_t *interface;
+	eigrp_intf_config_t *next;
 
 	if (!af)
 		return;
 	for (interface = af->interfaces; interface; interface = next) {
 		next = interface->next;
-		eigrp_interface_config_free(interface);
+		eigrp_intf_config_free(interface);
 	}
 	af->interfaces = NULL;
 }
 
-void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
-                                  const eigrp_interface_config_t *config)
+static bool eigrp_intf_config_shutdown_effective(
+	eigrp_af_instance_t *af, const eigrp_intf_config_t *specific)
 {
-	eigrp_interface_context_t context = {.runtime = runtime};
+	eigrp_intf_config_t *defaults;
+
+	if (specific && specific->shutdown_configured)
+		return specific->shutdown;
+	defaults = af ? eigrp_intf_config_read(af, "default") : NULL;
+	return defaults && defaults->shutdown_configured && defaults->shutdown;
+}
+
+bool eigrp_intf_shutdown_effective(eigrp_intf_t *ei)
+{
+	eigrp_af_instance_t *af;
+	eigrp_intf_config_t *specific;
+
+	if (!ei || !ei->eigrp)
+		return false;
+	af = eigrp_instance_runtime_config(ei->eigrp);
+	specific = af ? eigrp_intf_config_read(af, ei->name) : NULL;
+	return eigrp_intf_config_shutdown_effective(af, specific);
+}
+
+static const eigrp_intf_config_t *eigrp_intf_effective_default(
+	eigrp_intf_t *runtime)
+{
+	eigrp_af_instance_t *af;
+
+	if (!runtime || !runtime->eigrp)
+		return NULL;
+	af = eigrp_instance_runtime_config(runtime->eigrp);
+	return af ? eigrp_intf_config_read(af, "default") : NULL;
+}
+
+void eigrp_intf_config_update(eigrp_intf_t *runtime,
+                                  const eigrp_intf_config_t *config)
+{
+	eigrp_intf_context_t context = {.runtime = runtime};
+	const eigrp_intf_config_t *defaults;
 
 	if (!runtime || !config)
 		return;
+
+	/* Rebuild inheritable named af-interface state from protocol defaults,
+	 * then layer the default template and the specific interface object.
+	 */
+	runtime->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;
+	runtime->params.v_wait = EIGRP_HOLD_INTERVAL_DEFAULT;
+	runtime->params.passive_interface = EIGRP_INTF_ACTIVE;
+	runtime->split_horizon = true;
+	defaults = eigrp_intf_effective_default(runtime);
+	if (defaults && defaults != config) {
+		if (defaults->bandwidth_configured)
+			runtime->params.bandwidth = defaults->bandwidth;
+		if (defaults->delay_configured)
+			runtime->params.delay = defaults->delay;
+		if (defaults->hello_interval_configured)
+			runtime->params.v_hello = defaults->hello_interval;
+		if (defaults->hold_time_configured)
+			runtime->params.v_wait = defaults->hold_time;
+		if (defaults->passive_configured)
+			runtime->params.passive_interface = defaults->passive
+				? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+		runtime->split_horizon = defaults->split_horizon;
+		runtime->next_hop_self = defaults->next_hop_self;
+		if (defaults->bandwidth_percent_configured)
+			runtime->bandwidth_percent = defaults->bandwidth_percent;
+	}
 
 	if (config->bandwidth_configured)
 		runtime->params.bandwidth = config->bandwidth;
@@ -331,9 +411,13 @@ void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
 		runtime->params.v_hello = config->hello_interval;
 	if (config->hold_time_configured)
 		runtime->params.v_wait = config->hold_time;
-	runtime->params.passive_interface = config->passive
-		? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+	if (config == defaults || config->passive_configured)
+		runtime->params.passive_interface = config->passive
+			? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
 	runtime->split_horizon = config->split_horizon;
+	runtime->next_hop_self = config->next_hop_self;
+	if (config->bandwidth_percent_configured)
+		runtime->bandwidth_percent = config->bandwidth_percent;
 
 	/* Authentication is retained on the named af-interface object.  When a
 	 * network statement creates the runtime interface after configuration was
@@ -343,12 +427,29 @@ void eigrp_interface_runtime_bind(eigrp_interface_t *runtime,
 	 */
 	if (config->authentication_mode_configured
 	    && config->authentication_mode == EIGRP_AUTHENTICATION_MD5)
-		(void)eigrp_auth_mode_set(&context, EIGRP_AUTHENTICATION_MD5, NULL);
+		(void)eigrp_auth_mode_update(EIGRP_SET, &context, EIGRP_AUTHENTICATION_MD5, NULL);
 	if (config->keychain)
-		(void)eigrp_auth_keychain_set(&context, config->keychain);
+		(void)eigrp_auth_keychain_update(EIGRP_SET, &context, config->keychain);
 }
 
-static bool eigrp_interface_context_valid(const eigrp_interface_context_t *context)
+static void eigrp_intf_context_runtime_rebind(eigrp_intf_context_t *context)
+{
+	eigrp_intf_config_t *specific;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
+
+	if (!context || !context->address_family || !context->address_family->runtime
+	    || !context->config
+	    || strcmp(context->config->interface_name, "default") != 0)
+		return;
+
+	for (EIGRP_LIST_ITERATE_RO(context->address_family->runtime->eiflist, node, ei)) {
+		specific = eigrp_intf_config_read(context->address_family, ei->name);
+		eigrp_intf_config_update(ei, specific ? specific : context->config);
+	}
+}
+
+static bool eigrp_intf_context_valid(const eigrp_intf_context_t *context)
 {
 	return context && (context->config || context->runtime);
 }
@@ -363,19 +464,35 @@ static bool eigrp_interface_context_valid(const eigrp_interface_context_t *conte
  * Retains the configured EIGRP bandwidth percentage for interface pacing.
  * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
  */
-eigrp_result_t eigrp_interface_bandwidth_percent_set(
-	eigrp_interface_context_t *context, uint32_t percent)
+eigrp_result_t eigrp_intf_bandwidth_percent_update(eigrp_operation_t operation, eigrp_intf_context_t *context, uint32_t percent)
 {
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_intf_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->bandwidth_percent = 0;
+		context->config->bandwidth_percent_configured = false;
+	}
+	if (context->runtime)
+		context->runtime->bandwidth_percent = 50;
+	eigrp_intf_context_runtime_rebind(context);
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	if (percent == 0 || percent > 999999)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp_interface_context_valid(context))
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
 		context->config->bandwidth_percent = percent;
 		context->config->bandwidth_percent_configured = true;
 	}
 	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
+		context->runtime->bandwidth_percent = percent;
+	eigrp_intf_context_runtime_rebind(context);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -389,19 +506,7 @@ eigrp_result_t eigrp_interface_bandwidth_percent_set(
  * Retains the configured EIGRP bandwidth percentage for interface pacing.
  * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
  */
-eigrp_result_t eigrp_interface_bandwidth_percent_reset(
-	eigrp_interface_context_t *context)
-{
-	if (!eigrp_interface_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		context->config->bandwidth_percent = 0;
-		context->config->bandwidth_percent_configured = false;
-	}
-	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -415,41 +520,10 @@ eigrp_result_t eigrp_interface_bandwidth_percent_reset(
  * Sets or restores the EIGRP interface bandwidth metric input.
  * Named mode reuses the EIGRP runtime behavior represented by the classic interface command.
  */
-eigrp_result_t eigrp_interface_bandwidth_set(
-	eigrp_interface_context_t *context, uint32_t bandwidth)
+eigrp_result_t eigrp_intf_bandwidth_update(eigrp_operation_t operation, eigrp_intf_context_t *context, uint32_t bandwidth)
 {
-	if (bandwidth < EIGRP_INTERFACE_BANDWIDTH_MIN
-	    || bandwidth > EIGRP_INTERFACE_BANDWIDTH_MAX)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp_interface_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		context->config->bandwidth = bandwidth;
-		context->config->bandwidth_configured = true;
-	}
-	if (context->runtime) {
-		context->runtime->params.bandwidth = bandwidth;
-		eigrp_interface_runtime_reset(context->runtime);
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
-
-/*
- * Syntax:
- *   Classic: `eigrp bandwidth KBPS` / `no eigrp bandwidth [KBPS]`
- *   Named: `bandwidth KBPS` / `no bandwidth [KBPS]`
- * Supported: Classic / Named
- * Placement:
- *   Classic: interface mode
- *   Named: af-interface mode
- * Description:
- * Sets or restores the EIGRP interface bandwidth metric input.
- * Named mode reuses the EIGRP runtime behavior represented by the classic interface command.
- */
-eigrp_result_t eigrp_interface_bandwidth_reset(
-	eigrp_interface_context_t *context)
-{
-	if (!eigrp_interface_context_valid(context))
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
 		context->config->bandwidth = 0;
@@ -457,41 +531,43 @@ eigrp_result_t eigrp_interface_bandwidth_reset(
 	}
 	if (context->runtime) {
 		context->runtime->params.bandwidth = EIGRP_BANDWIDTH_DEFAULT;
-		eigrp_interface_runtime_reset(context->runtime);
+		eigrp_intf_runtime_update(EIGRP_RESET, NULL, NULL, context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
-}
+	}
 
-/*
- * Syntax:
- *   Classic: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
- *   Named: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
- * Supported: Classic / Named
- * Placement:
- *   Classic: interface mode
- *   Named: af-interface mode
- * Description:
- * Sets or restores the EIGRP interface delay metric input.
- * The common interface target owns the runtime refresh required after the metric changes.
- */
-eigrp_result_t eigrp_interface_delay_set(
-	eigrp_interface_context_t *context, uint32_t delay)
-{
-	if (delay < EIGRP_INTERFACE_DELAY_MIN
-	    || delay > EIGRP_INTERFACE_DELAY_MAX)
+	if (operation != EIGRP_SET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp_interface_context_valid(context))
+
+	if (bandwidth < EIGRP_INTERFACE_BANDWIDTH_MIN
+	    || bandwidth > EIGRP_INTERFACE_BANDWIDTH_MAX)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		context->config->delay = delay;
-		context->config->delay_configured = true;
+		context->config->bandwidth = bandwidth;
+		context->config->bandwidth_configured = true;
 	}
 	if (context->runtime) {
-		context->runtime->params.delay = delay;
-		eigrp_interface_runtime_reset(context->runtime);
+		context->runtime->params.bandwidth = bandwidth;
+		eigrp_intf_runtime_update(EIGRP_RESET, NULL, NULL, context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
+
+/*
+ * Syntax:
+ *   Classic: `eigrp bandwidth KBPS` / `no eigrp bandwidth [KBPS]`
+ *   Named: `bandwidth KBPS` / `no bandwidth [KBPS]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Sets or restores the EIGRP interface bandwidth metric input.
+ * Named mode reuses the EIGRP runtime behavior represented by the classic interface command.
+ */
+
 
 /*
  * Syntax:
@@ -505,10 +581,10 @@ eigrp_result_t eigrp_interface_delay_set(
  * Sets or restores the EIGRP interface delay metric input.
  * The common interface target owns the runtime refresh required after the metric changes.
  */
-eigrp_result_t eigrp_interface_delay_reset(
-	eigrp_interface_context_t *context)
+eigrp_result_t eigrp_intf_delay_update(eigrp_operation_t operation, eigrp_intf_context_t *context, uint32_t delay)
 {
-	if (!eigrp_interface_context_valid(context))
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
 		context->config->delay = 0;
@@ -516,38 +592,43 @@ eigrp_result_t eigrp_interface_delay_reset(
 	}
 	if (context->runtime) {
 		context->runtime->params.delay = EIGRP_DELAY_DEFAULT;
-		eigrp_interface_runtime_reset(context->runtime);
+		eigrp_intf_runtime_update(EIGRP_RESET, NULL, NULL, context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
-}
+	}
 
-/*
- * Syntax:
- *   Classic: `ip hello-interval eigrp AS SECONDS` / `no ip hello-interval eigrp [SECONDS]`
- *   Named: `hello-interval SECONDS` / `no hello-interval`
- * Supported: Classic / Named
- * Placement:
- *   Classic: interface mode
- *   Named: af-interface mode
- * Description:
- * Changes the EIGRP hello transmission interval or restores the default.
- * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
- */
-eigrp_result_t eigrp_interface_hello_interval_set(
-	eigrp_interface_context_t *context, uint16_t seconds)
-{
-	if (seconds == 0)
+	if (operation != EIGRP_SET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp_interface_context_valid(context))
+
+	if (delay < EIGRP_INTERFACE_DELAY_MIN
+	    || delay > EIGRP_INTERFACE_DELAY_MAX)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		context->config->hello_interval = seconds;
-		context->config->hello_interval_configured = true;
+		context->config->delay = delay;
+		context->config->delay_configured = true;
 	}
-	if (context->runtime)
-		context->runtime->params.v_hello = seconds;
+	if (context->runtime) {
+		context->runtime->params.delay = delay;
+		eigrp_intf_runtime_update(EIGRP_RESET, NULL, NULL, context->runtime);
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
+
+/*
+ * Syntax:
+ *   Classic: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
+ *   Named: `delay TENS-OF-MICROSECONDS` / `no delay [VALUE]`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Sets or restores the EIGRP interface delay metric input.
+ * The common interface target owns the runtime refresh required after the metric changes.
+ */
+
 
 /*
  * Syntax:
@@ -561,10 +642,10 @@ eigrp_result_t eigrp_interface_hello_interval_set(
  * Changes the EIGRP hello transmission interval or restores the default.
  * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
  */
-eigrp_result_t eigrp_interface_hello_interval_reset(
-	eigrp_interface_context_t *context)
+eigrp_result_t eigrp_intf_hello_interval_update(eigrp_operation_t operation, eigrp_intf_context_t *context, uint16_t seconds)
 {
-	if (!eigrp_interface_context_valid(context))
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
 		context->config->hello_interval = 0;
@@ -572,36 +653,40 @@ eigrp_result_t eigrp_interface_hello_interval_reset(
 	}
 	if (context->runtime)
 		context->runtime->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;
+	eigrp_intf_context_runtime_rebind(context);
 	return EIGRP_RESULT_SUCCESS;
-}
+	}
 
-/*
- * Syntax:
- *   Classic: `ip hold-time eigrp AS SECONDS` / `no ip hold-time eigrp [SECONDS]`
- *   Named: `hold-time SECONDS` / `no hold-time`
- * Supported: Classic / Named
- * Placement:
- *   Classic: interface mode
- *   Named: af-interface mode
- * Description:
- * Changes the advertised EIGRP neighbor hold time or restores the default.
- * Named mode uses the common interface state instead of a named-only timer implementation.
- */
-eigrp_result_t eigrp_interface_hold_time_set(eigrp_interface_context_t *context,
-					       uint16_t seconds)
-{
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	if (seconds == 0)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp_interface_context_valid(context))
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		context->config->hold_time = seconds;
-		context->config->hold_time_configured = true;
+		context->config->hello_interval = seconds;
+		context->config->hello_interval_configured = true;
 	}
 	if (context->runtime)
-		context->runtime->params.v_wait = seconds;
+		context->runtime->params.v_hello = seconds;
+	eigrp_intf_context_runtime_rebind(context);
 	return EIGRP_RESULT_SUCCESS;
 }
+
+/*
+ * Syntax:
+ *   Classic: `ip hello-interval eigrp AS SECONDS` / `no ip hello-interval eigrp [SECONDS]`
+ *   Named: `hello-interval SECONDS` / `no hello-interval`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Changes the EIGRP hello transmission interval or restores the default.
+ * The runtime hello timer is rescheduled by EIGRP-owned interface behavior.
+ */
+
 
 /*
  * Syntax:
@@ -615,9 +700,10 @@ eigrp_result_t eigrp_interface_hold_time_set(eigrp_interface_context_t *context,
  * Changes the advertised EIGRP neighbor hold time or restores the default.
  * Named mode uses the common interface state instead of a named-only timer implementation.
  */
-eigrp_result_t eigrp_interface_hold_time_reset(eigrp_interface_context_t *context)
+eigrp_result_t eigrp_intf_hold_time_update(eigrp_operation_t operation, eigrp_intf_context_t *context, uint16_t seconds)
 {
-	if (!eigrp_interface_context_valid(context))
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
 		context->config->hold_time = 0;
@@ -625,8 +711,40 @@ eigrp_result_t eigrp_interface_hold_time_reset(eigrp_interface_context_t *contex
 	}
 	if (context->runtime)
 		context->runtime->params.v_wait = EIGRP_HOLD_INTERVAL_DEFAULT;
+	eigrp_intf_context_runtime_rebind(context);
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	if (seconds == 0)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_intf_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->hold_time = seconds;
+		context->config->hold_time_configured = true;
+	}
+	if (context->runtime)
+		context->runtime->params.v_wait = seconds;
+	eigrp_intf_context_runtime_rebind(context);
 	return EIGRP_RESULT_SUCCESS;
 }
+
+/*
+ * Syntax:
+ *   Classic: `ip hold-time eigrp AS SECONDS` / `no ip hold-time eigrp [SECONDS]`
+ *   Named: `hold-time SECONDS` / `no hold-time`
+ * Supported: Classic / Named
+ * Placement:
+ *   Classic: interface mode
+ *   Named: af-interface mode
+ * Description:
+ * Changes the advertised EIGRP neighbor hold time or restores the default.
+ * Named mode uses the common interface state instead of a named-only timer implementation.
+ */
+
 
 /*
  * Syntax:
@@ -640,30 +758,39 @@ eigrp_result_t eigrp_interface_hold_time_reset(eigrp_interface_context_t *contex
  * Controls whether EIGRP forms adjacencies on the interface while retaining the connected prefix behavior required by the configuration.
  * The CLI placement differs, but the named path terminates in EIGRP-owned interface state.
  */
-static eigrp_result_t eigrp_interface_passive_apply(eigrp_interface_context_t *context,
-					      bool passive)
+eigrp_result_t eigrp_intf_passive_update(eigrp_operation_t operation, eigrp_intf_context_t *context)
 {
-	if (!eigrp_interface_context_valid(context))
+	bool passive;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	passive = operation == EIGRP_SET;
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config)
+	if (context->config) {
 		context->config->passive = passive;
+		context->config->passive_configured = true;
+	}
 	if (context->runtime) {
 		context->runtime->params.passive_interface =
 			passive ? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
-		eigrp_intf_set_multicast(context->runtime);
+		eigrp_intf_multicast_update(EIGRP_SET, context->runtime);
+	}
+	eigrp_intf_context_runtime_rebind(context);
+	if (context->address_family && context->address_family->runtime) {
+		eigrp_intf_t *ei;
+		eigrp_list_item_t *node;
+		for (EIGRP_LIST_ITERATE_RO(context->address_family->runtime->eiflist, node, ei))
+			eigrp_intf_multicast_update(EIGRP_SET, ei);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_interface_passive_set(eigrp_interface_context_t *context)
-{
-	return eigrp_interface_passive_apply(context, true);
-}
 
-eigrp_result_t eigrp_interface_passive_reset(eigrp_interface_context_t *context)
-{
-	return eigrp_interface_passive_apply(context, false);
-}
+
+
+
+
 
 /*
  * Syntax:
@@ -675,29 +802,28 @@ eigrp_result_t eigrp_interface_passive_reset(eigrp_interface_context_t *context)
  * Controls EIGRP next-hop-self behavior for the interface.
  * The target owns retained/runtime state and reports NOT_IMPLEMENTED if the live packet path cannot apply the setting yet.
  */
-static eigrp_result_t eigrp_interface_next_hop_self_apply(
-	eigrp_interface_context_t *context, bool enabled)
+eigrp_result_t eigrp_intf_nexthop_self_update(eigrp_operation_t operation, eigrp_intf_context_t *context)
 {
-	if (!eigrp_interface_context_valid(context))
+	bool enabled;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	enabled = operation == EIGRP_SET;
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config)
 		context->config->next_hop_self = enabled;
 	if (context->runtime)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
+		context->runtime->next_hop_self = enabled;
+	eigrp_intf_context_runtime_rebind(context);
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_interface_next_hop_self_set(
-	eigrp_interface_context_t *context)
-{
-	return eigrp_interface_next_hop_self_apply(context, true);
-}
 
-eigrp_result_t eigrp_interface_next_hop_self_reset(
-	eigrp_interface_context_t *context)
-{
-	return eigrp_interface_next_hop_self_apply(context, false);
-}
+
+
+
+
 
 /*
  * Syntax:
@@ -711,10 +837,14 @@ eigrp_result_t eigrp_interface_next_hop_self_reset(
  * Controls EIGRP split-horizon state on the interface.
  * The FRR reference carried only an unimplemented classic XPath marker, so named mode keeps a real EIGRP target without pretending a working classic runtime existed.
  */
-static eigrp_result_t eigrp_interface_split_horizon_apply(
-	eigrp_interface_context_t *context, bool enabled)
+eigrp_result_t eigrp_intf_split_horizon_update(eigrp_operation_t operation, eigrp_intf_context_t *context)
 {
-	if (!eigrp_interface_context_valid(context))
+	bool enabled;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	enabled = operation == EIGRP_SET;
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config)
 		context->config->split_horizon = enabled;
@@ -723,17 +853,11 @@ static eigrp_result_t eigrp_interface_split_horizon_apply(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_interface_split_horizon_set(
-	eigrp_interface_context_t *context)
-{
-	return eigrp_interface_split_horizon_apply(context, true);
-}
 
-eigrp_result_t eigrp_interface_split_horizon_reset(
-	eigrp_interface_context_t *context)
-{
-	return eigrp_interface_split_horizon_apply(context, false);
-}
+
+
+
+
 
 /*
  * Syntax:
@@ -745,13 +869,19 @@ eigrp_result_t eigrp_interface_split_horizon_reset(
  * Administratively disables or enables EIGRP on the selected named af-interface.
  * Interface runtime transitions remain owned by the common EIGRP interface layer.
  */
-static eigrp_result_t eigrp_interface_shutdown_apply(eigrp_interface_context_t *context,
-					       bool shutdown)
+eigrp_result_t eigrp_intf_shutdown_update(eigrp_operation_t operation, eigrp_intf_context_t *context)
 {
-	if (!eigrp_interface_context_valid(context))
+	bool shutdown;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	shutdown = operation == EIGRP_SET;
+	if (!eigrp_intf_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config)
+	if (context->config) {
 		context->config->shutdown = shutdown;
+		context->config->shutdown_configured = true;
+	}
 	if (context->runtime) {
 		if (shutdown && context->runtime->t_hello) {
 			eigrp_hello_send(context->runtime,
@@ -759,25 +889,37 @@ static eigrp_result_t eigrp_interface_shutdown_apply(eigrp_interface_context_t *
 			eigrp_intf_down(context->runtime);
 		} else if (!shutdown && context->runtime->operative
 			   && !context->runtime->t_hello) {
-			(void)eigrp_instance_address_family_start(
+			(void)eigrp_af_instance_start(
 				context->runtime->eigrp);
+		}
+	}
+	eigrp_intf_context_runtime_rebind(context);
+	if (context->address_family && context->address_family->runtime
+	    && strcmp(context->config->interface_name, "default") == 0) {
+		eigrp_intf_t *ei;
+		eigrp_intf_config_t *specific;
+		eigrp_list_item_t *node;
+		for (EIGRP_LIST_ITERATE_RO(context->address_family->runtime->eiflist, node, ei)) {
+			specific = eigrp_intf_config_read(context->address_family, ei->name);
+			if (specific && specific->shutdown_configured)
+				continue;
+			if (shutdown && ei->t_hello)
+				eigrp_intf_down(ei);
+			else if (!shutdown && ei->operative && !ei->t_hello)
+				eigrp_intf_up(ei->eigrp, ei);
 		}
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_interface_shutdown_set(eigrp_interface_context_t *context)
-{
-	return eigrp_interface_shutdown_apply(context, true);
-}
-
-eigrp_result_t eigrp_interface_shutdown_reset(eigrp_interface_context_t *context)
-{
-	return eigrp_interface_shutdown_apply(context, false);
-}
 
 
-void eigrp_interface_encoder_clear(eigrp_interface_t *ei)
+
+
+
+
+
+void eigrp_intf_encoder_clear(eigrp_intf_t *ei)
 {
 	if (!ei)
 		return;
@@ -787,7 +929,7 @@ void eigrp_interface_encoder_clear(eigrp_interface_t *ei)
 	ei->encoder = eigrp_packet_encoder_safe;
 }
 
-static void eigrp_interface_encoder_select(eigrp_interface_t *ei)
+static void eigrp_intf_encoder_select(eigrp_intf_t *ei)
 {
 	if (!ei)
 		return;
@@ -812,7 +954,7 @@ static void eigrp_interface_encoder_select(eigrp_interface_t *ei)
 	ei->encoder = eigrp_packet_encoder_safe;
 }
 
-void eigrp_interface_encoder_bind(eigrp_interface_t *ei, uint8_t tlv_version)
+void eigrp_intf_encoder_peer_add(eigrp_intf_t *ei, uint8_t tlv_version)
 {
 	if (!ei)
 		return;
@@ -828,10 +970,10 @@ void eigrp_interface_encoder_bind(eigrp_interface_t *ei, uint8_t tlv_version)
 		return;
 	}
 
-	eigrp_interface_encoder_select(ei);
+	eigrp_intf_encoder_select(ei);
 }
 
-void eigrp_interface_encoder_unbind(eigrp_interface_t *ei, uint8_t tlv_version)
+void eigrp_intf_encoder_peer_remove(eigrp_intf_t *ei, uint8_t tlv_version)
 {
 	if (!ei)
 		return;
@@ -849,21 +991,24 @@ void eigrp_interface_encoder_unbind(eigrp_interface_t *ei, uint8_t tlv_version)
 		return;
 	}
 
-	eigrp_interface_encoder_select(ei);
+	eigrp_intf_encoder_select(ei);
 }
 
-static void eigrp_intf_stream_set(eigrp_interface_t *ei)
+static void eigrp_intf_stream_update(eigrp_operation_t operation,
+				     eigrp_intf_t *ei)
 {
-	/* set output queue. */
-	if (ei->obuf == NULL)
-		ei->obuf = eigrp_packet_queue_new();
-}
-
-static void eigrp_intf_stream_unset(eigrp_interface_t *ei)
-{
-	eigrp_instance_t *eigrp = ei->eigrp;
+	if (operation == EIGRP_SET) {
+		/* Set output queue. */
+		if (ei->obuf == NULL)
+			ei->obuf = eigrp_packet_queue_create();
+		return;
+	}
+	if (operation != EIGRP_RESET)
+		return;
 
 	if (ei->on_write_q) {
+		eigrp_instance_t *eigrp = ei->eigrp;
+
 		eigrp_list_delete_data(eigrp->oi_write_q, ei);
 		if (eigrp_list_isempty(eigrp->oi_write_q))
 			eigrp_sys_event_cancel(&eigrp->t_write);
@@ -871,7 +1016,7 @@ static void eigrp_intf_stream_unset(eigrp_interface_t *ei)
 	}
 }
 
-const char *eigrp_intf_name_string(eigrp_interface_t *ei)
+const char *eigrp_intf_name_string(eigrp_intf_t *ei)
 {
 	if (!ei || !ei->name)
 		return "inactive";
@@ -879,8 +1024,8 @@ const char *eigrp_intf_name_string(eigrp_interface_t *ei)
 	return ei->name;
 }
 
-static void eigrp_interface_runtime_state_apply(
-	eigrp_interface_t *ei, const eigrp_interface_runtime_state_t *state)
+static void eigrp_intf_runtime_state_update(
+	eigrp_intf_t *ei, const eigrp_intf_runtime_state_t *state)
 {
 	char *name;
 
@@ -901,7 +1046,7 @@ static void eigrp_interface_runtime_state_apply(
 	if (eigrp_prefix_valid(&state->address)) {
 		/* Preserve the host address on the runtime interface.  Callers that
 		 * need the connected network prefix normalize a copy through
-		 * eigrp_interface_destination_get().
+		 * eigrp_intf_destination().
 		 */
 		ei->address = state->address;
 	}
@@ -911,10 +1056,10 @@ static void eigrp_interface_runtime_state_apply(
 	ei->curr_mtu = state->mtu;
 }
 
-eigrp_interface_t *eigrp_interface_runtime_create(
-	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state)
+eigrp_intf_t *eigrp_intf_runtime_create(
+	eigrp_instance_t *eigrp, const eigrp_intf_runtime_state_t *state)
 {
-	eigrp_interface_t *ei;
+	eigrp_intf_t *ei;
 
 	if (!eigrp || !state || !state->interface_name
 	    || !state->interface_name[0] || !eigrp_prefix_valid(&state->address))
@@ -924,28 +1069,30 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 	if (!ei)
 		ei = eigrp_intf_lookup_by_name(eigrp, state->interface_name);
 	if (ei) {
-		eigrp_interface_runtime_state_apply(ei, state);
+		eigrp_intf_runtime_state_update(ei, state);
 		return ei;
 	}
 
 	ei = calloc(1, sizeof(*ei));
 	ei->eigrp = eigrp;
-	eigrp_interface_runtime_state_apply(ei, state);
+	eigrp_intf_runtime_state_update(ei, state);
 	if (!ei->name) {
 		free(ei);
 		return NULL;
 	}
 
 	eigrp_list_add(eigrp->eiflist, ei);
-	ei->nbrs = eigrp_list_new();
+	ei->nbrs = eigrp_list_create();
 	ei->crypt_seqnum = time(NULL);
-	eigrp_interface_encoder_clear(ei);
+	eigrp_intf_encoder_clear(ei);
 	ei->split_horizon = true;
 
 	ei->params.type = state->type;
 	ei->params.v_hello = EIGRP_HELLO_INTERVAL_DEFAULT;
 	ei->params.v_wait = EIGRP_HOLD_INTERVAL_DEFAULT;
 	ei->params.bandwidth = EIGRP_BANDWIDTH_DEFAULT;
+	ei->bandwidth_percent = 50;
+	ei->next_hop_self = true;
 	ei->params.delay = EIGRP_DELAY_DEFAULT;
 	ei->params.reliability = EIGRP_RELIABILITY_DEFAULT;
 	ei->params.load = EIGRP_LOAD_DEFAULT;
@@ -955,25 +1102,35 @@ eigrp_interface_t *eigrp_interface_runtime_create(
 	return ei;
 }
 
-void eigrp_interface_runtime_update(eigrp_interface_t *ei,
-				    const eigrp_interface_runtime_state_t *state)
+void eigrp_intf_runtime_state_update_values(eigrp_intf_t *ei,
+				    const eigrp_intf_runtime_state_t *state)
 {
 	if (!ei || !state)
 		return;
 
-	eigrp_interface_runtime_state_apply(ei, state);
+	eigrp_intf_runtime_state_update(ei, state);
 	ei->params.type = state->type;
 }
 
-eigrp_result_t eigrp_interface_runtime_refresh(
-	eigrp_instance_t *eigrp, const eigrp_interface_runtime_state_t *state)
+eigrp_result_t eigrp_intf_runtime_update(
+	eigrp_operation_t operation, eigrp_instance_t *eigrp,
+	const eigrp_intf_runtime_state_t *state, eigrp_intf_t *runtime)
 {
-	eigrp_address_family_config_t *af;
-	eigrp_interface_config_t *config;
-	eigrp_interface_t *ei;
+	eigrp_af_instance_t *af;
+	eigrp_intf_config_t *config;
+	eigrp_intf_t *ei;
 	bool was_running;
 	uint32_t old_mtu;
 
+	if (operation == EIGRP_RESET) {
+		if (!runtime)
+			return EIGRP_RESULT_INVALID_ARGUMENT;
+		eigrp_intf_down(runtime);
+		eigrp_intf_up(runtime->eigrp, runtime);
+		return EIGRP_RESULT_SUCCESS;
+	}
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!eigrp || !state || !state->interface_name
 	    || !state->interface_name[0] || !eigrp_prefix_valid(&state->address))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -982,18 +1139,20 @@ eigrp_result_t eigrp_interface_runtime_refresh(
 	was_running = ei && ei->t_hello;
 	old_mtu = ei ? ei->curr_mtu : state->mtu;
 	if (ei)
-		eigrp_interface_runtime_update(ei, state);
+		eigrp_intf_runtime_state_update_values(ei, state);
 	else
-		ei = eigrp_interface_runtime_create(eigrp, state);
+		ei = eigrp_intf_runtime_create(eigrp, state);
 	if (!ei)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 
 	af = eigrp_instance_runtime_config(eigrp);
-	config = af ? eigrp_interface_config_read(af, state->interface_name) : NULL;
+	config = af ? eigrp_intf_config_read(af, state->interface_name) : NULL;
+	if (!config && af)
+		config = eigrp_intf_config_read(af, "default");
 	if (config)
-		eigrp_interface_runtime_bind(ei, config);
+		eigrp_intf_config_update(ei, config);
 
-	if ((af && af->shutdown) || (config && config->shutdown)
+	if ((af && af->shutdown) || eigrp_intf_config_shutdown_effective(af, config)
 	    || !state->operative) {
 		if (was_running)
 			eigrp_intf_down(ei);
@@ -1001,15 +1160,15 @@ eigrp_result_t eigrp_interface_runtime_refresh(
 	}
 
 	if (was_running && old_mtu != state->mtu)
-		eigrp_interface_runtime_reset(ei);
+		eigrp_intf_runtime_update(EIGRP_RESET, NULL, NULL, ei);
 	else if (!was_running)
 		eigrp_intf_up(eigrp, ei);
 
 	return EIGRP_RESULT_SUCCESS;
 }
 
-void eigrp_interface_runtime_delete(
-	eigrp_interface_t *ei, eigrp_interface_remove_reason_t reason)
+void eigrp_intf_runtime_delete(
+	eigrp_intf_t *ei, eigrp_intf_remove_reason_t reason)
 {
 	if (!ei)
 		return;
@@ -1022,14 +1181,14 @@ void eigrp_sys_interface_link_down(
 	uint8_t type, uint32_t bandwidth, uint32_t mtu)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_interface_runtime_state_t state;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_intf_runtime_state_t state;
+	eigrp_list_item_t *node;
 
 	if (!ifindex || !eigrp_om || !eigrp_om->eigrp)
 		return;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
 		if (eigrp->vrf_id != vrf_id)
 			continue;
 		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
@@ -1044,44 +1203,44 @@ void eigrp_sys_interface_link_down(
 		state.operative = false;
 		state.bandwidth = bandwidth;
 		state.mtu = mtu;
-		eigrp_interface_runtime_update(ei, &state);
+		eigrp_intf_runtime_state_update_values(ei, &state);
 		eigrp_intf_down(ei);
 	}
 }
 
 void eigrp_sys_interface_link_remove(
 	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
-	eigrp_interface_remove_reason_t reason)
+	eigrp_intf_remove_reason_t reason)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!ifindex || !eigrp_om || !eigrp_om->eigrp)
 		return;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
 		if (eigrp->vrf_id != vrf_id)
 			continue;
 		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
 		if (ei)
-			eigrp_interface_runtime_delete(ei, reason);
+			eigrp_intf_runtime_delete(ei, reason);
 	}
 }
 
 void eigrp_sys_interface_address_remove(
 	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex,
-	const eigrp_prefix_t *address, eigrp_interface_remove_reason_t reason)
+	const eigrp_prefix_t *address, eigrp_intf_remove_reason_t reason)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!ifindex || !address || !eigrp_prefix_valid(address) || !eigrp_om
 	    || !eigrp_om->eigrp)
 		return;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
 		if (eigrp->vrf_id != vrf_id)
 			continue;
 		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
@@ -1091,7 +1250,7 @@ void eigrp_sys_interface_address_remove(
 			      sizeof(address->address.bytes)) != 0)
 			continue;
 
-		eigrp_interface_runtime_delete(ei, reason);
+		eigrp_intf_runtime_delete(ei, reason);
 	}
 }
 
@@ -1101,17 +1260,17 @@ void eigrp_del_intf_params(eigrp_intf_params_t *eip)
 		free(eip->auth_keychain);
 }
 
-int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
+int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 {
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 	eigrp_metrics_t metric;
 
 	eigrp_sys_socket_send_buffer_ensure(eigrp, ei->curr_mtu);
-	eigrp_intf_stream_set(ei);
+	eigrp_intf_stream_update(EIGRP_SET, ei);
 
 	/* Set multicast memberships appropriately for new state. */
-	eigrp_intf_set_multicast(ei);
+	eigrp_intf_multicast_update(EIGRP_SET, ei);
 
 	eigrp_sys_event_add(&ei->t_hello, eigrp_hello_timer, ei);
 
@@ -1129,18 +1288,18 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 
 	/*Add connected route to topology table*/
 	route = eigrp_topology_route_create(ei);
-	route->type = EIGRP_TLV_IPv4_INT;
+	route->type = eigrp->af_vectors.classic_internal_tlv_type;
 
 	route->reported_metric = metric;
 	route->total_metric = metric;
-	route->distance = eigrp_calculate_metrics(eigrp, metric);
+	route->distance = eigrp_metric_calculate(eigrp, metric);
 	route->reported_distance = 0;
 	route->adv_router = eigrp->neighbor_self;
 	route->flags = EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG;
 
 	eigrp_prefix_t destination;
 
-	if (!eigrp_interface_destination_get(ei, &destination)) {
+	if (!eigrp_intf_destination(ei, &destination)) {
 		eigrp_topology_route_free(route);
 		return 0;
 	}
@@ -1153,7 +1312,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 		prefix->nt = EIGRP_TOPOLOGY_TYPE_CONNECTED;
 		prefix->reported_metric = metric;
 		prefix->state = EIGRP_FSM_STATE_PASSIVE;
-		prefix->fdistance = eigrp_calculate_metrics(eigrp, metric);
+		prefix->fdistance = eigrp_metric_calculate(eigrp, metric);
 		prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
 
 		eigrp_prefix_descriptor_add(eigrp->topology_table, prefix);
@@ -1184,10 +1343,10 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_interface_t *ei)
 	return 1;
 }
 
-int eigrp_intf_down(eigrp_interface_t *ei)
+int eigrp_intf_down(eigrp_intf_t *ei)
 {
-	eigrp_list_node_t *node, *nnode;
-	eigrp_neighbor_t *nbr;
+	eigrp_list_item_t *node, *nnode;
+	eigrp_nbr_t *nbr;
 
 	if (ei == NULL)
 		return 0;
@@ -1196,25 +1355,31 @@ int eigrp_intf_down(eigrp_interface_t *ei)
 	if (ei->t_hello)
 		eigrp_sys_event_cancel(&ei->t_hello);
 
-	eigrp_intf_stream_unset(ei);
+	eigrp_intf_stream_update(EIGRP_RESET, ei);
+	if (ei->member_allrouters) {
+		(void)eigrp_sys_multicast_leave(ei->eigrp, ei);
+		ei->member_allrouters = false;
+	}
 
 	/*Set infinite metrics to routes learned by this interface and start
 	 * query process*/
-	for (EIGRP_LIST_ELEMENTS(ei->nbrs, node, nnode, nbr)) {
+	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
 		eigrp_nbr_delete(nbr);
 	}
-	eigrp_interface_encoder_clear(ei);
+	eigrp_intf_encoder_clear(ei);
 
 	return 1;
 }
 
-bool eigrp_intf_is_passive(eigrp_interface_t *ei)
+bool eigrp_intf_is_passive(eigrp_intf_t *ei)
 {
 	return ei && ei->params.passive_interface == EIGRP_INTF_PASSIVE;
 }
 
-void eigrp_intf_set_multicast(eigrp_interface_t *ei)
+void eigrp_intf_multicast_update(eigrp_operation_t operation, eigrp_intf_t *ei)
 {
+	if (operation != EIGRP_SET)
+		return;
 	if (!ei)
 		return;
 
@@ -1228,8 +1393,8 @@ void eigrp_intf_set_multicast(eigrp_interface_t *ei)
 	}
 }
 
-void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
-		    eigrp_interface_remove_reason_t reason)
+void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
+		    eigrp_intf_remove_reason_t reason)
 {
 	eigrp_prefix_t destination;
 	eigrp_prefix_descriptor_t *pe = NULL;
@@ -1239,7 +1404,7 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 	}
 
-	if (eigrp_interface_destination_get(ei, &destination))
+	if (eigrp_intf_destination(ei, &destination))
 		pe = eigrp_topology_table_lookup(eigrp->topology_table,
 					 &destination);
 	if (pe)
@@ -1257,32 +1422,23 @@ void eigrp_intf_free(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
 	free(ei);
 }
 
-void eigrp_interface_runtime_reset(eigrp_interface_t *ei)
-{
-	if (!ei)
-		return;
-
-	eigrp_intf_down(ei);
-	eigrp_intf_up(ei->eigrp, ei);
-}
-
-eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *eigrp,
+eigrp_intf_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *eigrp,
 						   const eigrp_addr_t *address)
 {
-	eigrp_list_node_t *node;
-	eigrp_interface_t *ei;
+	eigrp_list_item_t *node;
+	eigrp_intf_t *ei;
 
 	if (!eigrp || !address)
 		return NULL;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
 		if (address->afi == AF_INET
-		    && ei->address.address.afi == EIGRP_ADDRESS_FAMILY_IPV4
+		    && ei->address.address.afi == EIGRP_AFI_IPV4
 		    && memcmp(ei->address.address.bytes, &address->ip.v4,
 			      sizeof(address->ip.v4)) == 0)
 			return ei;
 		if (address->afi == AF_INET6
-		    && ei->address.address.afi == EIGRP_ADDRESS_FAMILY_IPV6
+		    && ei->address.address.afi == EIGRP_AFI_IPV6
 		    && memcmp(ei->address.address.bytes, &address->ip.v6,
 			      sizeof(address->ip.v6)) == 0)
 			return ei;
@@ -1291,32 +1447,32 @@ eigrp_interface_t *eigrp_intf_lookup_by_local_addr(eigrp_instance_t *eigrp,
 	return NULL;
 }
 
-eigrp_interface_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *eigrp,
+eigrp_intf_t *eigrp_intf_lookup_by_ifindex(eigrp_instance_t *eigrp,
 						 eigrp_ifindex_t ifindex)
 {
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!eigrp || !ifindex)
 		return NULL;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei))
 		if (ei->ifindex == ifindex)
 			return ei;
 	return NULL;
 }
 
-eigrp_interface_t *eigrp_intf_lookup_by_vrf_ifindex(
+eigrp_intf_t *eigrp_intf_lookup_by_vrf_ifindex(
 	eigrp_vrf_id_t vrf_id, eigrp_ifindex_t ifindex)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!ifindex)
 		return NULL;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
 		if (eigrp->vrf_id != vrf_id)
 			continue;
 		ei = eigrp_intf_lookup_by_ifindex(eigrp, ifindex);
@@ -1326,16 +1482,16 @@ eigrp_interface_t *eigrp_intf_lookup_by_vrf_ifindex(
 	return NULL;
 }
 
-eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *eigrp,
+eigrp_intf_t *eigrp_intf_lookup_by_name(eigrp_instance_t *eigrp,
 					     const char *if_name)
 {
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!eigrp || !if_name)
 		return NULL;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, node, ei))
+	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei))
 		if (ei->name && strcmp(ei->name, if_name) == 0)
 			return ei;
 
@@ -1343,17 +1499,17 @@ eigrp_interface_t *eigrp_intf_lookup_by_name(eigrp_instance_t *eigrp,
 }
 
 
-eigrp_ifindex_t eigrp_interface_ifindex(const eigrp_interface_t *ei)
+eigrp_ifindex_t eigrp_intf_ifindex(const eigrp_intf_t *ei)
 {
 	return ei ? ei->ifindex : 0;
 }
 
-const char *eigrp_interface_name(const eigrp_interface_t *ei)
+const char *eigrp_intf_name(const eigrp_intf_t *ei)
 {
 	return ei ? ei->name : NULL;
 }
 
-eigrp_result_t eigrp_interface_address_read(const eigrp_interface_t *ei,
+eigrp_result_t eigrp_intf_address_read(const eigrp_intf_t *ei,
 					     eigrp_prefix_t *address)
 {
 	if (!ei || !address)

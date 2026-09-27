@@ -13,7 +13,7 @@
 #include "eigrpd/eigrp.h"
 
 /* Interface state snapshot. */
-typedef struct eigrp_interface_state {
+typedef struct eigrp_intf_state {
 	const char *interface_name;
 	bool config_present;
 	bool runtime_present;
@@ -49,18 +49,18 @@ typedef struct eigrp_interface_state {
 	bool bandwidth_percent_configured;
 	bool hello_interval_configured;
 	bool hold_time_configured;
-} eigrp_interface_state_t;
+} eigrp_intf_state_t;
 
-typedef eigrp_result_t (*eigrp_interface_state_walk_cb)(
-	const eigrp_interface_state_t *state, void *arg);
+typedef eigrp_result_t (*eigrp_intf_state_iterate_cb)(
+	const eigrp_intf_state_t *state, void *arg);
 
-eigrp_result_t eigrp_interface_state_walk(
-	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
-	const char *interface_name, eigrp_interface_state_walk_cb callback,
+eigrp_result_t eigrp_intf_state_iterate(
+	eigrp_af_instance_t *config, eigrp_instance_t *runtime,
+	const char *interface_name, eigrp_intf_state_iterate_cb callback,
 	void *arg);
 
 /* Neighbor state snapshot. */
-typedef struct eigrp_neighbor_state {
+typedef struct eigrp_nbr_state {
 	eigrp_address_t address;
 	const char *interface_name;
 	const char *state_name;
@@ -81,15 +81,15 @@ typedef struct eigrp_neighbor_state {
 	uint8_t tlv_major;
 	uint8_t tlv_minor;
 	uint8_t tlv_version;
-} eigrp_neighbor_state_t;
+} eigrp_nbr_state_t;
 
-typedef eigrp_result_t (*eigrp_neighbor_state_walk_cb)(
-	const eigrp_neighbor_state_t *state, void *arg);
+typedef eigrp_result_t (*eigrp_nbr_state_iterate_cb)(
+	const eigrp_nbr_state_t *state, void *arg);
 
-eigrp_result_t eigrp_neighbor_state_walk(
-	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+eigrp_result_t eigrp_nbr_state_iterate(
+	eigrp_af_instance_t *config, eigrp_instance_t *runtime,
 	const char *interface_name, bool static_only,
-	eigrp_neighbor_state_walk_cb callback, void *arg);
+	eigrp_nbr_state_iterate_cb callback, void *arg);
 
 /* Topology snapshots. */
 typedef struct eigrp_topology_prefix_state {
@@ -114,17 +114,17 @@ typedef eigrp_result_t (*eigrp_topology_prefix_state_cb)(
 	const eigrp_topology_prefix_state_t *state, void *arg);
 typedef eigrp_result_t (*eigrp_topology_route_state_cb)(
 	const eigrp_topology_route_state_t *state, void *arg);
-typedef eigrp_result_t (*eigrp_topology_instance_walk_cb)(
+typedef eigrp_result_t (*eigrp_topology_instance_iterate_cb)(
 	eigrp_instance_t *runtime, void *arg);
 
-eigrp_result_t eigrp_topology_state_walk(
-	eigrp_address_family_config_t *config, eigrp_instance_t *runtime,
+eigrp_result_t eigrp_topology_state_iterate(
+	eigrp_af_instance_t *config, eigrp_instance_t *runtime,
 	const eigrp_prefix_t *destination, bool all_links,
 	eigrp_topology_prefix_state_cb prefix_callback,
 	eigrp_topology_route_state_cb route_callback, void *arg);
-eigrp_result_t eigrp_topology_instance_walk(
-	eigrp_address_family_t afi, eigrp_vrf_id_t vrf_id, uint16_t asn,
-	eigrp_topology_instance_walk_cb callback, void *arg);
+eigrp_result_t eigrp_topology_instance_iterate(
+	eigrp_afi_t afi, eigrp_vrf_id_t vrf_id, uint16_t asn,
+	eigrp_topology_instance_iterate_cb callback, void *arg);
 
 /* Timer state. */
 typedef enum eigrp_timer_state_type {
@@ -142,36 +142,36 @@ typedef struct eigrp_timer_state {
 
 typedef eigrp_result_t (*eigrp_timer_state_cb)(
 	const eigrp_timer_state_t *state, void *arg);
-eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
+eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context,
 				eigrp_timer_state_cb callback, void *arg);
 
 /* Event log. */
 #define EIGRP_EVENTLOG_DEFAULT_SIZE 500U
-typedef struct eigrp_eventlog_entry {
+typedef struct eigrp_eventlog_msg {
 	unsigned long opcode;
 	unsigned long arg1;
 	unsigned long arg2;
-} eigrp_eventlog_entry_t;
+} eigrp_eventlog_msg_t;
 
 typedef struct eigrp_eventlog_state {
 	uint32_t capacity;
 	uint32_t count;
 } eigrp_eventlog_state_t;
 
-typedef eigrp_result_t (*eigrp_eventlog_show_cb)(
-	uint32_t event_number, const eigrp_eventlog_entry_t *entry,
+typedef eigrp_result_t (*eigrp_eventlog_msg_cb)(
+	uint32_t event_number, const eigrp_eventlog_msg_t *entry,
 	const char *format, void *arg);
 
 /* The context type is defined by eigrp_cli.h; use the tagged name here. */
 eigrp_result_t eigrp_eventlog_state_read(
 	const eigrp_instance_context_t *context,
 	eigrp_eventlog_state_t *state);
-eigrp_result_t eigrp_eventlog_show(
+eigrp_result_t eigrp_eventlog_msg_iterate(
 	const eigrp_instance_context_t *context,
-	eigrp_eventlog_show_cb callback, void *arg);
+	eigrp_eventlog_msg_cb callback, void *arg);
 const char *eigrp_eventlog_format_read(unsigned long opcode);
-eigrp_result_t eigrp_eventlog_entry_format(
-	const eigrp_eventlog_entry_t *entry, char *buffer, size_t buffer_size);
+eigrp_result_t eigrp_eventlog_msg_format(
+	const eigrp_eventlog_msg_t *entry, char *buffer, size_t buffer_size);
 
 /* Traffic/accounting state. */
 #define EIGRP_STATISTICS_TRAFFIC_ACK (1U << 0)
@@ -210,20 +210,38 @@ typedef struct eigrp_statistics_accounting_state {
 
 typedef eigrp_result_t (*eigrp_statistics_accounting_cb)(
 	const eigrp_statistics_accounting_state_t *state, void *arg);
-eigrp_result_t eigrp_statistics_accounting_show(
+eigrp_result_t eigrp_statistics_accounting_iterate(
 	const eigrp_instance_context_t *context,
 	uint32_t *total_prefix_count,
 	eigrp_statistics_accounting_cb callback, void *arg);
-eigrp_result_t eigrp_statistics_traffic_show(
+eigrp_result_t eigrp_statistics_traffic_state_read(
 	const eigrp_instance_context_t *context,
 	eigrp_statistics_traffic_state_t *state);
+
+/* Image capability snapshot used by technical-support presentation. */
+typedef struct eigrp_status_capability_state {
+	const char *release;
+	bool tlv1;
+	bool tlv2;
+	bool wide_metrics;
+	bool ipv4;
+	bool ipv6;
+	bool bfd;
+	bool manet;
+	bool mtr;
+	bool evn;
+	bool snmp;
+} eigrp_status_capability_state_t;
+
+eigrp_result_t eigrp_status_capability_state_read(
+	eigrp_status_capability_state_t *state);
 
 /* Protocol summary/tech-support snapshot. */
 typedef struct eigrp_status_protocol_state {
 	const char *instance_name;
 	/* Opaque identity used only to feed other public management walkers. */
-	eigrp_address_family_config_t *config;
-	eigrp_address_family_t afi;
+	eigrp_af_instance_t *config;
+	eigrp_afi_t afi;
 	const char *vrf_name;
 	uint16_t asn;
 	bool shutdown;
@@ -235,26 +253,26 @@ typedef struct eigrp_status_protocol_state {
 
 typedef eigrp_result_t (*eigrp_status_protocol_cb)(
 	const eigrp_status_protocol_state_t *state, void *arg);
-eigrp_result_t eigrp_status_protocol_show(
+eigrp_result_t eigrp_status_protocol_iterate(
 	eigrp_status_protocol_cb callback, void *arg);
-eigrp_result_t eigrp_status_tech_support_show(
+eigrp_result_t eigrp_status_tech_support_iterate(
 	eigrp_status_protocol_cb callback, void *arg);
 
 /* Debug state snapshots consumed by host presentation. */
-typedef struct eigrp_debug_address_family_state {
+typedef struct eigrp_debug_af_state {
 	bool used;
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 	uint16_t asn;
 	bool all_vrfs;
 	char vrf_name[64];
-	eigrp_debug_address_family_category_t category;
+	eigrp_debug_af_category_t category;
 	bool neighbor_set;
 	eigrp_address_t neighbor;
-} eigrp_debug_address_family_state_t;
+} eigrp_debug_af_state_t;
 
-size_t eigrp_debug_address_family_state_count(void);
-bool eigrp_debug_address_family_state_get(
+size_t eigrp_debug_af_state_count(void);
+bool eigrp_debug_af_state_read(
 	eigrp_debug_scope_t scope, size_t index,
-	eigrp_debug_address_family_state_t *state);
+	eigrp_debug_af_state_t *state);
 
 #endif /* EIGRPD_EIGRP_MGNT_H_ */

@@ -1,7 +1,7 @@
 # BIRD EIGRP Tests
 
 This directory owns BIRD-specific EIGRP adapter, integration, and UUT material.
-Host-independent tests remain under `test/portable/` or `test/common/`;
+Host-independent tests remain under `test/common/`;
 FRR-native tests remain under `frr/test/`.
 
 Add BIRD-native build, integration, and runtime tests here as the BIRD adapter

@@ -24,7 +24,7 @@ typedef enum {
 typedef struct eigrp_fsm_action_message {
 	uint8_t packet_type;			// UPDATE, QUERY, SIAQUERY, SIAREPLY
 	eigrp_instance_t *eigrp;		// which event sent mesg
-	eigrp_neighbor_t *adv_router;		// advertising neighbor
+	eigrp_nbr_t *adv_router;		// advertising neighbor
 	eigrp_route_descriptor_t *route;	//
 	eigrp_prefix_descriptor_t *prefix;	//
 	msg_data_t data_type;			// internal or external tlv type
@@ -33,6 +33,19 @@ typedef struct eigrp_fsm_action_message {
 } eigrp_fsm_action_message_t;
 
 extern int eigrp_fsm_event(eigrp_fsm_action_message_t *msg);
+void eigrp_fsm_reply_status_add(eigrp_prefix_descriptor_t *prefix,
+				eigrp_nbr_t *nbr);
+bool eigrp_fsm_reply_status_remove(eigrp_prefix_descriptor_t *prefix,
+				   eigrp_nbr_t *nbr);
+bool eigrp_fsm_reply_status_pending(const eigrp_prefix_descriptor_t *prefix,
+				    const eigrp_nbr_t *nbr);
+void eigrp_fsm_sia_reply_received(eigrp_prefix_descriptor_t *prefix,
+				  eigrp_nbr_t *nbr);
+void eigrp_fsm_active_timer_start(eigrp_instance_t *eigrp,
+				  eigrp_prefix_descriptor_t *prefix);
+void eigrp_fsm_query_sent(eigrp_instance_t *eigrp,
+			  eigrp_prefix_descriptor_t *prefix);
+void eigrp_fsm_active_timer_stop(eigrp_prefix_descriptor_t *prefix);
 
 
 #endif /* _ZEBRA_EIGRP_DUAL_H */

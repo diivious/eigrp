@@ -17,7 +17,7 @@
 #include "eigrpd/eigrp_rib.h"
 static unsigned char zeropad[16] = {0};
 
-int eigrp_make_md5_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
+int eigrp_make_md5_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
 			  uint8_t flags)
 {
 	char key_string[PLAINTEXT_LENGTH + 1] = {0};
@@ -33,7 +33,7 @@ int eigrp_make_md5_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 	backup_end = s->endp;
 	backup_get = s->getp;
 
-	auth_TLV = eigrp_authTLV_MD5_new();
+	auth_TLV = eigrp_auth_tlv_md5_create();
 
 	eigrp_stream_set_getp(s, EIGRP_HEADER_LEN);
 	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_MD5_TLV_SIZE);
@@ -41,7 +41,7 @@ int eigrp_make_md5_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 
 	if (!eigrp_sys_auth_key_lookup(ei->params.auth_keychain, &key_id,
 	                                       key_string, sizeof(key_string))) {
-		eigrp_authTLV_MD5_free(auth_TLV);
+		eigrp_auth_tlv_md5_delete(auth_TLV);
 		return EIGRP_AUTH_TYPE_NONE;
 	}
 
@@ -81,13 +81,13 @@ int eigrp_make_md5_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 	eigrp_stream_put(s, auth_TLV, EIGRP_AUTH_MD5_TLV_SIZE);
 	eigrp_stream_set_endp(s, backup_end);
 
-	eigrp_authTLV_MD5_free(auth_TLV);
+	eigrp_auth_tlv_md5_delete(auth_TLV);
 	return EIGRP_AUTH_TYPE_MD5_LEN;
 }
 
 int eigrp_check_md5_digest(eigrp_stream_t *s,
 			   struct TLV_MD5_Authentication_Type *authTLV,
-			   eigrp_neighbor_t *nbr, uint8_t flags)
+			   eigrp_nbr_t *nbr, uint8_t flags)
 {
 	eigrp_md5_ctx_t ctx;
 	unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN];
@@ -176,7 +176,7 @@ int eigrp_check_md5_digest(eigrp_stream_t *s,
 	return 1;
 }
 
-int eigrp_make_sha256_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
+int eigrp_make_sha256_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
 			     uint8_t flags)
 {
 	char key_string[PLAINTEXT_LENGTH + 1] = {0};
@@ -195,7 +195,7 @@ int eigrp_make_sha256_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 	backup_end = s->endp;
 	backup_get = s->getp;
 
-	auth_TLV = eigrp_authTLV_SHA256_new();
+	auth_TLV = eigrp_auth_tlv_sha256_create();
 
 	eigrp_stream_set_getp(s, EIGRP_HEADER_LEN);
 	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_SHA256_TLV_SIZE);
@@ -206,7 +206,7 @@ int eigrp_make_sha256_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 		eigrp_log(EIGRP_LOG_WARNING,
 			"Interface %s: Expected key value not found in config",
 			ei->name);
-		eigrp_authTLV_SHA256_free(auth_TLV);
+		eigrp_auth_tlv_sha256_delete(auth_TLV);
 		return 0;
 	}
 
@@ -229,25 +229,25 @@ int eigrp_make_sha256_digest(eigrp_interface_t *ei, eigrp_stream_t *s,
 	eigrp_stream_put(s, auth_TLV, EIGRP_AUTH_SHA256_TLV_SIZE);
 	eigrp_stream_set_endp(s, backup_end);
 
-	eigrp_authTLV_SHA256_free(auth_TLV);
+	eigrp_auth_tlv_sha256_delete(auth_TLV);
 
 	return EIGRP_AUTH_TYPE_SHA256_LEN;
 }
 
 int eigrp_check_sha256_digest(eigrp_stream_t *s,
 			      struct TLV_SHA256_Authentication_Type *authTLV,
-			      eigrp_neighbor_t *nbr, uint8_t flags)
+			      eigrp_nbr_t *nbr, uint8_t flags)
 {
 	return 1;
 }
 
-uint16_t eigrp_add_authTLV_MD5_encode(eigrp_stream_t *s, eigrp_interface_t *ei)
+uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *s, eigrp_intf_t *ei)
 {
 	char key_string[PLAINTEXT_LENGTH + 1] = {0};
 	uint32_t key_id = 0;
 	struct TLV_MD5_Authentication_Type *authTLV;
 
-	authTLV = eigrp_authTLV_MD5_new();
+	authTLV = eigrp_auth_tlv_md5_create();
 
 	authTLV->type = htons(EIGRP_TLV_AUTH);
 	authTLV->length = htons(EIGRP_AUTH_MD5_TLV_SIZE);
@@ -262,23 +262,23 @@ uint16_t eigrp_add_authTLV_MD5_encode(eigrp_stream_t *s, eigrp_interface_t *ei)
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_MD5_Authentication_Type));
-		eigrp_authTLV_MD5_free(authTLV);
+		eigrp_auth_tlv_md5_delete(authTLV);
 		return EIGRP_AUTH_MD5_TLV_SIZE;
 	}
 
-	eigrp_authTLV_MD5_free(authTLV);
+	eigrp_auth_tlv_md5_delete(authTLV);
 
 	return 0;
 }
 
-uint16_t eigrp_add_authTLV_SHA256_encode(eigrp_stream_t *s,
-					 eigrp_interface_t *ei)
+uint16_t eigrp_auth_tlv_sha256_encode(eigrp_stream_t *s,
+					 eigrp_intf_t *ei)
 {
 	char key_string[PLAINTEXT_LENGTH + 1] = {0};
 	uint32_t key_id = 0;
 	struct TLV_SHA256_Authentication_Type *authTLV;
 
-	authTLV = eigrp_authTLV_SHA256_new();
+	authTLV = eigrp_auth_tlv_sha256_create();
 
 	authTLV->type = htons(EIGRP_TLV_AUTH);
 	authTLV->length = htons(EIGRP_AUTH_SHA256_TLV_SIZE);
@@ -293,16 +293,16 @@ uint16_t eigrp_add_authTLV_SHA256_encode(eigrp_stream_t *s,
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_SHA256_Authentication_Type));
-		eigrp_authTLV_SHA256_free(authTLV);
+		eigrp_auth_tlv_sha256_delete(authTLV);
 		return EIGRP_AUTH_SHA256_TLV_SIZE;
 	}
 
-	eigrp_authTLV_SHA256_free(authTLV);
+	eigrp_auth_tlv_sha256_delete(authTLV);
 
 	return 0;
 }
 
-struct TLV_MD5_Authentication_Type *eigrp_authTLV_MD5_new(void)
+struct TLV_MD5_Authentication_Type *eigrp_auth_tlv_md5_create(void)
 {
 	struct TLV_MD5_Authentication_Type *new;
 
@@ -311,12 +311,12 @@ struct TLV_MD5_Authentication_Type *eigrp_authTLV_MD5_new(void)
 	return new;
 }
 
-void eigrp_authTLV_MD5_free(struct TLV_MD5_Authentication_Type *authTLV)
+void eigrp_auth_tlv_md5_delete(struct TLV_MD5_Authentication_Type *authTLV)
 {
 	free(authTLV);
 }
 
-struct TLV_SHA256_Authentication_Type *eigrp_authTLV_SHA256_new(void)
+struct TLV_SHA256_Authentication_Type *eigrp_auth_tlv_sha256_create(void)
 {
 	struct TLV_SHA256_Authentication_Type *new;
 
@@ -325,13 +325,13 @@ struct TLV_SHA256_Authentication_Type *eigrp_authTLV_SHA256_new(void)
 	return new;
 }
 
-void eigrp_authTLV_SHA256_free(struct TLV_SHA256_Authentication_Type *authTLV)
+void eigrp_auth_tlv_sha256_delete(struct TLV_SHA256_Authentication_Type *authTLV)
 {
 	free(authTLV);
 }
 
 
-static char *eigrp_auth_string_duplicate(const char *value)
+static char *eigrp_auth_string_dup(const char *value)
 {
 	size_t len;
 	char *copy;
@@ -358,10 +358,26 @@ static char *eigrp_auth_string_duplicate(const char *value)
  * Selects or removes packet authentication for a named EIGRP interface.
  * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
  */
-eigrp_result_t eigrp_auth_mode_set(
-	eigrp_interface_context_t *context, eigrp_authentication_mode_t mode,
-	const eigrp_auth_hmac_config_t *hmac)
+eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_context_t *context, eigrp_authentication_mode_t mode, const eigrp_auth_hmac_config_t *hmac)
 {
+	if (operation == EIGRP_RESET) {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->authentication_mode = EIGRP_AUTHENTICATION_NONE;
+		context->config->authentication_mode_configured = false;
+		context->config->authentication_encryption_type = 0;
+		free(context->config->authentication_password);
+		context->config->authentication_password = NULL;
+	}
+	if (context->runtime)
+		context->runtime->params.auth_type = EIGRP_AUTH_TYPE_NONE;
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	char *password = NULL;
 
 	if (mode != EIGRP_AUTHENTICATION_MD5
@@ -381,7 +397,7 @@ eigrp_result_t eigrp_auth_mode_set(
 			|| strlen(hmac->password) > 32))
 			return EIGRP_RESULT_INVALID_ARGUMENT;
 		if (context->config) {
-			password = eigrp_auth_string_duplicate(hmac->password);
+			password = eigrp_auth_string_dup(hmac->password);
 			if (!password)
 				return EIGRP_RESULT_INTERNAL_FAILURE;
 		}
@@ -425,21 +441,7 @@ eigrp_result_t eigrp_auth_mode_set(
  * Selects or removes packet authentication for a named EIGRP interface.
  * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
  */
-eigrp_result_t eigrp_auth_mode_reset(eigrp_interface_context_t *context)
-{
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		context->config->authentication_mode = EIGRP_AUTHENTICATION_NONE;
-		context->config->authentication_mode_configured = false;
-		context->config->authentication_encryption_type = 0;
-		free(context->config->authentication_password);
-		context->config->authentication_password = NULL;
-	}
-	if (context->runtime)
-		context->runtime->params.auth_type = EIGRP_AUTH_TYPE_NONE;
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -453,9 +455,25 @@ eigrp_result_t eigrp_auth_mode_reset(eigrp_interface_context_t *context)
  * Selects or removes the EIGRP authentication key chain.
  * Classic and named adapters converge on this EIGRP-owned target.
  */
-eigrp_result_t eigrp_auth_keychain_set(eigrp_interface_context_t *context,
-					  const char *keychain)
+eigrp_result_t eigrp_auth_keychain_update(eigrp_operation_t operation, eigrp_intf_context_t *context, const char *keychain)
 {
+	if (operation == EIGRP_RESET) {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		free(context->config->keychain);
+		context->config->keychain = NULL;
+	}
+	if (context->runtime) {
+		free(context->runtime->params.auth_keychain);
+		context->runtime->params.auth_keychain = NULL;
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	char *config_copy = NULL;
 	char *runtime_copy = NULL;
 
@@ -469,12 +487,12 @@ eigrp_result_t eigrp_auth_keychain_set(eigrp_interface_context_t *context,
 	 * leave retained named configuration and the active interface out of
 	 * sync. */
 	if (context->config) {
-		config_copy = eigrp_auth_string_duplicate(keychain);
+		config_copy = eigrp_auth_string_dup(keychain);
 		if (!config_copy)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 	}
 	if (context->runtime) {
-		runtime_copy = eigrp_auth_string_duplicate(keychain);
+		runtime_copy = eigrp_auth_string_dup(keychain);
 		if (!runtime_copy) {
 			free(config_copy);
 			return EIGRP_RESULT_INTERNAL_FAILURE;
@@ -504,17 +522,4 @@ eigrp_result_t eigrp_auth_keychain_set(eigrp_interface_context_t *context,
  * Selects or removes the EIGRP authentication key chain.
  * Classic and named adapters converge on this EIGRP-owned target.
  */
-eigrp_result_t eigrp_auth_keychain_reset(eigrp_interface_context_t *context)
-{
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		free(context->config->keychain);
-		context->config->keychain = NULL;
-	}
-	if (context->runtime) {
-		free(context->runtime->params.auth_keychain);
-		context->runtime->params.auth_keychain = NULL;
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
+

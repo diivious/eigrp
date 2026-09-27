@@ -39,6 +39,7 @@
 #include "eigrpd/eigrp_eventlog.h"
 #include "eigrpd/eigrp_statistics.h"
 #include "eigrpd/eigrp_status.h"
+#include "eigrpd/eigrp_features.h"
 #include "eigrpd/eigrp_timer.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_topology.h"
@@ -758,7 +759,7 @@ static eigrp_instance_t *eigrp_cli_instance_lookup_by_as_vrf(const char *asn,
 {
 	struct vrf *vrf;
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_list_item_t *node, *nnode;
 	uint32_t as;
 
 	if (!asn || !vrf_name)
@@ -769,7 +770,7 @@ static eigrp_instance_t *eigrp_cli_instance_lookup_by_as_vrf(const char *asn,
 		return NULL;
 
 	as = strtoul(asn, NULL, 10);
-	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->AS == as && eigrp->vrf_id == vrf->vrf_id)
 			return eigrp;
 	}
@@ -960,11 +961,9 @@ static int eigrp_cli_push_named_root(struct vty *vty, const char *name)
 	return rv;
 }
 
-static int eigrp_cli_named_address_family_set(struct vty *vty,
-					      const char *name,
-					      const char *afi,
-					      const char *asn,
-					      const char *vrf_name)
+static int eigrp_cli_named_address_family_update(
+	eigrp_operation_t operation, struct vty *vty, const char *name,
+	const char *afi, const char *asn, const char *vrf_name)
 {
 	char xpath[XPATH_MAXLEN];
 	uint16_t as;
@@ -974,28 +973,19 @@ static int eigrp_cli_named_address_family_set(struct vty *vty,
 		vty_out(vty, "%% Invalid EIGRP named address-family configuration\n");
 		return CMD_WARNING;
 	}
-
 	eigrp_cli_named_af_xpath(xpath, sizeof(xpath), name, afi,
 				eigrp_cli_vrf_name(vrf_name), asn);
+	if (operation == EIGRP_RESET) {
+		nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
+		return nb_cli_apply_changes_clear_pending(vty, NULL);
+	}
+	if (operation != EIGRP_SET)
+		return CMD_WARNING;
 	nb_cli_enqueue_change(vty, xpath, NB_OP_CREATE, NULL);
 	rv = nb_cli_apply_changes(vty, NULL);
 	if (rv == CMD_SUCCESS)
 		VTY_PUSH_XPATH(EIGRP_NODE, xpath);
 	return rv;
-}
-
-static int eigrp_cli_named_address_family_unset(struct vty *vty,
-						const char *name,
-						const char *afi,
-						const char *asn,
-						const char *vrf_name)
-{
-	char xpath[XPATH_MAXLEN];
-
-	eigrp_cli_named_af_xpath(xpath, sizeof(xpath), name, afi,
-				eigrp_cli_vrf_name(vrf_name), asn);
-	nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
-	return nb_cli_apply_changes_clear_pending(vty, NULL);
 }
 
 static int eigrp_cli_network_prefix_from_address(const char *addr,
@@ -1210,7 +1200,7 @@ DEFUN(no_router_eigrp_named,
  * Syntax: `address-family ipv4 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_instance_address_family_create()
+ * Target: eigrp_af_instance_create()
  */
 DEFUN(eigrp_address_family_ipv4,
       eigrp_address_family_ipv4_cmd,
@@ -1230,7 +1220,7 @@ DEFUN(eigrp_address_family_ipv4,
 		vty_out(vty, "%% Enter named EIGRP router mode first\n");
 		return CMD_WARNING;
 	}
-	return eigrp_cli_named_address_family_set(vty, name, "ipv4", asn,
+	return eigrp_cli_named_address_family_update(EIGRP_SET, vty, name, "ipv4", asn,
 						    eigrp_cli_vrf_name(vrf_name));
 }
 
@@ -1238,7 +1228,7 @@ DEFUN(eigrp_address_family_ipv4,
  * Syntax: `no address-family ipv4 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_instance_address_family_delete()
+ * Target: eigrp_af_instance_delete()
  */
 DEFUN(no_eigrp_address_family_ipv4,
       no_eigrp_address_family_ipv4_cmd,
@@ -1259,7 +1249,7 @@ DEFUN(no_eigrp_address_family_ipv4,
 		vty_out(vty, "%% Enter named EIGRP router mode first\n");
 		return CMD_WARNING;
 	}
-	return eigrp_cli_named_address_family_unset(vty, name, "ipv4", asn,
+	return eigrp_cli_named_address_family_update(EIGRP_RESET, vty, name, "ipv4", asn,
 						      eigrp_cli_vrf_name(vrf_name));
 }
 
@@ -1267,7 +1257,7 @@ DEFUN(no_eigrp_address_family_ipv4,
  * Syntax: `address-family ipv6 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_instance_address_family_create()
+ * Target: eigrp_af_instance_create()
  */
 DEFUN(eigrp_address_family_ipv6,
       eigrp_address_family_ipv6_cmd,
@@ -1287,7 +1277,7 @@ DEFUN(eigrp_address_family_ipv6,
 		vty_out(vty, "%% Enter named EIGRP router mode first\n");
 		return CMD_WARNING;
 	}
-	return eigrp_cli_named_address_family_set(vty, name, "ipv6", asn,
+	return eigrp_cli_named_address_family_update(EIGRP_SET, vty, name, "ipv6", asn,
 						    eigrp_cli_vrf_name(vrf_name));
 }
 
@@ -1295,7 +1285,7 @@ DEFUN(eigrp_address_family_ipv6,
  * Syntax: `no address-family ipv6 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_instance_address_family_delete()
+ * Target: eigrp_af_instance_delete()
  */
 DEFUN(no_eigrp_address_family_ipv6,
       no_eigrp_address_family_ipv6_cmd,
@@ -1316,7 +1306,7 @@ DEFUN(no_eigrp_address_family_ipv6,
 		vty_out(vty, "%% Enter named EIGRP router mode first\n");
 		return CMD_WARNING;
 	}
-	return eigrp_cli_named_address_family_unset(vty, name, "ipv6", asn,
+	return eigrp_cli_named_address_family_update(EIGRP_RESET, vty, name, "ipv6", asn,
 						      eigrp_cli_vrf_name(vrf_name));
 }
 
@@ -1347,7 +1337,7 @@ DEFUN(eigrp_exit_address_family,
  * Syntax: `no shutdown`
  * Mode: Named parent / address-family / af-interface
  * XPath: parent is direct; address-family and af-interface use their local shutdown leaf
- * Target: parent -> eigrp_instance_parent_shutdown_set(); address-family -> eigrp_instance_address_family_shutdown_set(); af-interface -> eigrp_interface_shutdown_set()
+ * Target: parent -> eigrp_instance_parent_shutdown_update(EIGRP_SET); address-family -> eigrp_af_instance_shutdown_update(EIGRP_SET); af-interface -> eigrp_intf_shutdown_update(EIGRP_SET)
  */
 DEFUN(eigrp_no_shutdown,
       eigrp_no_shutdown_cmd,
@@ -1371,8 +1361,7 @@ DEFUN(eigrp_no_shutdown,
 		eigrp_cli_current_name(vty, name, sizeof(name));
 		return eigrp_cli_result_render(
 			vty, "named process no shutdown",
-			eigrp_instance_parent_shutdown_reset(
-				eigrp_instance_parent_read(name)));
+			eigrp_instance_parent_shutdown_update(EIGRP_RESET, eigrp_instance_parent_read(name)));
 	}
 	return CMD_WARNING;
 }
@@ -1381,7 +1370,7 @@ DEFUN(eigrp_no_shutdown,
  * Syntax: `shutdown`
  * Mode: Named parent / address-family / af-interface
  * XPath: parent is direct; address-family and af-interface use their local shutdown leaf
- * Target: parent -> eigrp_instance_parent_shutdown_set(); address-family -> eigrp_instance_address_family_shutdown_set(); af-interface -> eigrp_interface_shutdown_set()
+ * Target: parent -> eigrp_instance_parent_shutdown_update(EIGRP_SET); address-family -> eigrp_af_instance_shutdown_update(EIGRP_SET); af-interface -> eigrp_intf_shutdown_update(EIGRP_SET)
  */
 DEFUN(eigrp_shutdown,
       eigrp_shutdown_cmd,
@@ -1404,8 +1393,7 @@ DEFUN(eigrp_shutdown,
 		eigrp_cli_current_name(vty, name, sizeof(name));
 		return eigrp_cli_result_render(
 			vty, "named process shutdown",
-			eigrp_instance_parent_shutdown_set(
-				eigrp_instance_parent_read(name)));
+			eigrp_instance_parent_shutdown_update(EIGRP_SET, eigrp_instance_parent_read(name)));
 	}
 	return CMD_WARNING;
 }
@@ -1523,8 +1511,9 @@ DEFUN(no_eigrp_network_address,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
-static int eigrp_cli_named_neighbor_set(struct vty *vty, const char *address,
-					 const char *interface_name, bool remove)
+static int eigrp_cli_named_neighbor_update(eigrp_operation_t operation,
+					    struct vty *vty, const char *address,
+					    const char *interface_name)
 {
 	char afi[8];
 	char xpath[XPATH_MAXLEN];
@@ -1538,7 +1527,7 @@ static int eigrp_cli_named_neighbor_set(struct vty *vty, const char *address,
 		 "./neighbor[address='%s'][interface='%s']", address,
 		 interface_name);
 	nb_cli_enqueue_change(vty, xpath,
-			      remove ? NB_OP_DESTROY : NB_OP_CREATE, NULL);
+			      operation == EIGRP_RESET ? NB_OP_DESTROY : NB_OP_CREATE, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -1546,7 +1535,7 @@ static int eigrp_cli_named_neighbor_set(struct vty *vty, const char *address,
  * Syntax: `neighbor A.B.C.D IFNAME`
  * Mode: Named IPv4 address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor
- * Target: eigrp_neighbor_static_create()
+ * Target: eigrp_nbr_static_create()
  */
 DEFUN(eigrp_named_neighbor_ipv4,
       eigrp_named_neighbor_ipv4_cmd,
@@ -1562,16 +1551,16 @@ DEFUN(eigrp_named_neighbor_ipv4,
 		vty_out(vty, "%% IPv4 neighbor is valid only under named IPv4 address-family\n");
 		return CMD_WARNING;
 	}
-	return eigrp_cli_named_neighbor_set(
-		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
-		eigrp_cli_token_last(argc, argv), false);
+	return eigrp_cli_named_neighbor_update(
+		EIGRP_SET, vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv));
 }
 
 /*
  * Syntax: `no neighbor A.B.C.D IFNAME`
  * Mode: Named IPv4 address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor
- * Target: eigrp_neighbor_static_delete()
+ * Target: eigrp_nbr_static_delete()
  */
 DEFUN(no_eigrp_named_neighbor_ipv4,
       no_eigrp_named_neighbor_ipv4_cmd,
@@ -1581,16 +1570,16 @@ DEFUN(no_eigrp_named_neighbor_ipv4,
       "Neighbor IPv4 address\n"
       "Interface used to reach the neighbor\n")
 {
-	return eigrp_cli_named_neighbor_set(
-		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
-		eigrp_cli_token_last(argc, argv), true);
+	return eigrp_cli_named_neighbor_update(
+		EIGRP_RESET, vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv));
 }
 
 /*
  * Syntax: `neighbor X:X::X:X IFNAME`
  * Mode: Named IPv6 address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor
- * Target: eigrp_neighbor_static_create()
+ * Target: eigrp_nbr_static_create()
  */
 DEFUN(eigrp_named_neighbor_ipv6,
       eigrp_named_neighbor_ipv6_cmd,
@@ -1606,16 +1595,16 @@ DEFUN(eigrp_named_neighbor_ipv6,
 		vty_out(vty, "%% IPv6 neighbor is valid only under named IPv6 address-family\n");
 		return CMD_WARNING;
 	}
-	return eigrp_cli_named_neighbor_set(
-		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
-		eigrp_cli_token_last(argc, argv), false);
+	return eigrp_cli_named_neighbor_update(
+		EIGRP_SET, vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv));
 }
 
 /*
  * Syntax: `no neighbor X:X::X:X IFNAME`
  * Mode: Named IPv6 address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor
- * Target: eigrp_neighbor_static_delete()
+ * Target: eigrp_nbr_static_delete()
  */
 DEFUN(no_eigrp_named_neighbor_ipv6,
       no_eigrp_named_neighbor_ipv6_cmd,
@@ -1625,9 +1614,9 @@ DEFUN(no_eigrp_named_neighbor_ipv6,
       "Neighbor IPv6 address\n"
       "Interface used to reach the neighbor\n")
 {
-	return eigrp_cli_named_neighbor_set(
-		vty, eigrp_cli_token_after(argc, argv, "neighbor"),
-		eigrp_cli_token_last(argc, argv), true);
+	return eigrp_cli_named_neighbor_update(
+		EIGRP_RESET, vty, eigrp_cli_token_after(argc, argv, "neighbor"),
+		eigrp_cli_token_last(argc, argv));
 }
 
 static int eigrp_cli_neighbor_policy_xpath(struct vty *vty, const char *address,
@@ -1639,17 +1628,17 @@ static int eigrp_cli_neighbor_policy_xpath(struct vty *vty, const char *address,
     return 1;
 }
 
-static int eigrp_cli_prefix_limit_set(struct vty *vty, int argc,
+static int eigrp_cli_prefix_limit_update(struct vty *vty, int argc,
                                       struct cmd_token *argv[],
                                       const char *keyword,
                                       const char *xpath, bool include_timers,
-                                      bool remove);
+                                      eigrp_operation_t operation);
 
 /*
  * Syntax: `neighbor <A.B.C.D|X:X::X:X> description LINE`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description
- * Target: eigrp_neighbor_description_set()
+ * Target: eigrp_nbr_description_update(EIGRP_SET)
  */
 DEFUN(eigrp_neighbor_description,
       eigrp_neighbor_description_cmd,
@@ -1673,7 +1662,7 @@ DEFUN(eigrp_neighbor_description,
  * Syntax: `no neighbor <A.B.C.D|X:X::X:X> description [LINE]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/description
- * Target: eigrp_neighbor_description_reset()
+ * Target: eigrp_nbr_description_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_neighbor_description,
       no_eigrp_neighbor_description_cmd,
@@ -1695,7 +1684,7 @@ DEFUN(no_eigrp_neighbor_description,
  * Syntax: `neighbor <A.B.C.D|X:X::X:X> maximum-prefix (1-4294967295) [(1-100)] [warning-only]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_set()
+ * Target: eigrp_nbr_max_prefix_update(EIGRP_SET)
  */
 DEFUN(eigrp_neighbor_maximum_prefix,
       eigrp_neighbor_maximum_prefix_cmd,
@@ -1711,14 +1700,14 @@ DEFUN(eigrp_neighbor_maximum_prefix,
     nb_cli_enqueue_change(vty, base, NB_OP_CREATE, NULL);
     if (!eigrp_cli_xpath_leaf_build(xpath, sizeof(xpath), base, "maximum-prefix"))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix", xpath, false, false);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix", xpath, false, EIGRP_SET);
 }
 
 /*
  * Syntax: `no neighbor <A.B.C.D|X:X::X:X> maximum-prefix`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-policy/maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_reset()
+ * Target: eigrp_nbr_max_prefix_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_neighbor_maximum_prefix,
       no_eigrp_neighbor_maximum_prefix_cmd,
@@ -1732,14 +1721,14 @@ DEFUN(no_eigrp_neighbor_maximum_prefix,
         return CMD_WARNING;
     if (!eigrp_cli_xpath_leaf_build(xpath, sizeof(xpath), base, "maximum-prefix"))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix", xpath, false, true);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix", xpath, false, EIGRP_RESET);
 }
 
 /*
  * Syntax: `neighbor maximum-prefix (1-4294967295) [(1-100)] [dampened] [reset-time (1-65535)] [restart (1-65535)] [restart-count (1-65535)] [warning-only]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_all_set()
+ * Target: eigrp_nbr_max_prefix_all_update(EIGRP_SET)
  */
 DEFUN(eigrp_neighbor_maximum_prefix_all,
       eigrp_neighbor_maximum_prefix_all_cmd,
@@ -1751,15 +1740,15 @@ DEFUN(eigrp_neighbor_maximum_prefix_all,
 {
     if (!eigrp_cli_named_af_required(vty))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",
-                                      "./neighbor-maximum-prefix", true, false);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix",
+                                      "./neighbor-maximum-prefix", true, EIGRP_SET);
 }
 
 /*
  * Syntax: `no neighbor maximum-prefix`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/neighbor-maximum-prefix
- * Target: eigrp_neighbor_maximum_prefix_all_reset()
+ * Target: eigrp_nbr_max_prefix_all_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_neighbor_maximum_prefix_all,
       no_eigrp_neighbor_maximum_prefix_all_cmd,
@@ -1768,15 +1757,15 @@ DEFUN(no_eigrp_neighbor_maximum_prefix_all,
 {
     if (!eigrp_cli_named_af_required(vty))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",
-                                      "./neighbor-maximum-prefix", true, true);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix",
+                                      "./neighbor-maximum-prefix", true, EIGRP_RESET);
 }
 
 /*
  * Syntax: `eigrp log-neighbor-changes`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
- * Target: eigrp_neighbor_log_set()
+ * Target: eigrp_nbr_log_update(EIGRP_SET)
  */
 DEFUN(eigrp_log_neighbor_changes,
       eigrp_log_neighbor_changes_cmd,
@@ -1793,7 +1782,7 @@ DEFUN(eigrp_log_neighbor_changes,
  * Syntax: `no eigrp log-neighbor-changes`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-changes
- * Target: eigrp_neighbor_log_reset()
+ * Target: eigrp_nbr_log_update(EIGRP_RESET, 0, 0)
  */
 DEFUN(no_eigrp_log_neighbor_changes,
       no_eigrp_log_neighbor_changes_cmd,
@@ -1810,7 +1799,7 @@ DEFUN(no_eigrp_log_neighbor_changes,
  * Syntax: `eigrp log-neighbor-warnings [(1-65535)]`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
- * Target: eigrp_neighbor_log_set()
+ * Target: eigrp_nbr_log_update(EIGRP_SET)
  */
 DEFUN(eigrp_log_neighbor_warnings,
       eigrp_log_neighbor_warnings_cmd,
@@ -1834,7 +1823,7 @@ DEFUN(eigrp_log_neighbor_warnings,
  * Syntax: `no eigrp log-neighbor-warnings`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/log-neighbor-warnings
- * Target: eigrp_neighbor_log_reset()
+ * Target: eigrp_nbr_log_update(EIGRP_RESET, 0, 0)
  */
 DEFUN(no_eigrp_log_neighbor_warnings,
       no_eigrp_log_neighbor_warnings_cmd,
@@ -1853,7 +1842,7 @@ DEFUN(no_eigrp_log_neighbor_warnings,
  * Syntax: `af-interface <default|IFNAME>`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface
- * Target: eigrp_interface_config_create()
+ * Target: eigrp_intf_config_create()
  */
 DEFUN(eigrp_af_interface,
       eigrp_af_interface_cmd,
@@ -1890,7 +1879,7 @@ DEFUN(eigrp_af_interface,
  * Syntax: `no af-interface <default|IFNAME>`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface
- * Target: eigrp_interface_config_delete()
+ * Target: eigrp_intf_config_delete()
  */
 DEFUN(no_eigrp_af_interface,
       no_eigrp_af_interface_cmd,
@@ -1952,7 +1941,7 @@ DEFUN(eigrp_exit_af_interface,
  * Syntax: `bandwidth-percent (1-999999)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent
- * Target: eigrp_interface_bandwidth_percent_set()
+ * Target: eigrp_intf_bandwidth_percent_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_bandwidth_percent,
       eigrp_af_interface_bandwidth_percent_cmd,
@@ -1974,7 +1963,7 @@ DEFUN(eigrp_af_interface_bandwidth_percent,
  * Syntax: `no bandwidth-percent`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth-percent
- * Target: eigrp_interface_bandwidth_percent_reset()
+ * Target: eigrp_intf_bandwidth_percent_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_af_interface_bandwidth_percent,
       no_eigrp_af_interface_bandwidth_percent_cmd,
@@ -1995,7 +1984,7 @@ DEFUN(no_eigrp_af_interface_bandwidth_percent,
  * Syntax: `bandwidth (1-10000000)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth
- * Target: eigrp_interface_bandwidth_set()
+ * Target: eigrp_intf_bandwidth_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_bandwidth,
       eigrp_af_interface_bandwidth_cmd,
@@ -2017,7 +2006,7 @@ DEFUN(eigrp_af_interface_bandwidth,
  * Syntax: `no bandwidth [(1-10000000)]`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/bandwidth
- * Target: eigrp_interface_bandwidth_reset()
+ * Target: eigrp_intf_bandwidth_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_af_interface_bandwidth,
       no_eigrp_af_interface_bandwidth_cmd,
@@ -2039,7 +2028,7 @@ DEFUN(no_eigrp_af_interface_bandwidth,
  * Syntax: `delay (1-16777215)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/delay
- * Target: eigrp_interface_delay_set()
+ * Target: eigrp_intf_delay_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_delay,
       eigrp_af_interface_delay_cmd,
@@ -2061,7 +2050,7 @@ DEFUN(eigrp_af_interface_delay,
  * Syntax: `no delay [(1-16777215)]`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/delay
- * Target: eigrp_interface_delay_reset()
+ * Target: eigrp_intf_delay_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_af_interface_delay,
       no_eigrp_af_interface_delay_cmd,
@@ -2083,7 +2072,7 @@ DEFUN(no_eigrp_af_interface_delay,
  * Syntax: `hello-interval (1-65535)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hello-interval
- * Target: eigrp_interface_hello_interval_set()
+ * Target: eigrp_intf_hello_interval_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_hello_interval,
       eigrp_af_interface_hello_interval_cmd,
@@ -2105,7 +2094,7 @@ DEFUN(eigrp_af_interface_hello_interval,
  * Syntax: `no hello-interval`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hello-interval
- * Target: eigrp_interface_hello_interval_reset()
+ * Target: eigrp_intf_hello_interval_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_af_interface_hello_interval,
       no_eigrp_af_interface_hello_interval_cmd,
@@ -2126,7 +2115,7 @@ DEFUN(no_eigrp_af_interface_hello_interval,
  * Syntax: `hold-time (1-65535)`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hold-time
- * Target: eigrp_interface_hold_time_set()
+ * Target: eigrp_intf_hold_time_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_hold_time,
       eigrp_af_interface_hold_time_cmd,
@@ -2148,7 +2137,7 @@ DEFUN(eigrp_af_interface_hold_time,
  * Syntax: `no hold-time`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/hold-time
- * Target: eigrp_interface_hold_time_reset()
+ * Target: eigrp_intf_hold_time_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_af_interface_hold_time,
       no_eigrp_af_interface_hold_time_cmd,
@@ -2169,7 +2158,7 @@ DEFUN(no_eigrp_af_interface_hold_time,
  * Syntax: `authentication mode <md5|hmac-sha-256 <0|7> WORD>`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
- * Target: eigrp_auth_mode_set()
+ * Target: eigrp_auth_mode_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_authentication_mode,
       eigrp_af_interface_authentication_mode_cmd,
@@ -2222,7 +2211,7 @@ DEFUN(eigrp_af_interface_authentication_mode,
  * Syntax: `no authentication mode`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
- * Target: eigrp_auth_mode_reset()
+ * Target: eigrp_auth_mode_update(EIGRP_RESET, 0, 0)
  */
 DEFUN(no_eigrp_af_interface_authentication_mode,
       no_eigrp_af_interface_authentication_mode_cmd,
@@ -2246,7 +2235,7 @@ DEFUN(no_eigrp_af_interface_authentication_mode,
  * Syntax: `authentication key-chain WORD`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain
- * Target: eigrp_auth_keychain_set()
+ * Target: eigrp_auth_keychain_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_keychain,
       eigrp_af_interface_keychain_cmd,
@@ -2270,7 +2259,7 @@ DEFUN(eigrp_af_interface_keychain,
  * Syntax: `no authentication key-chain WORD`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-key-chain
- * Target: eigrp_auth_keychain_reset()
+ * Target: eigrp_auth_keychain_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_af_interface_keychain,
       no_eigrp_af_interface_keychain_cmd,
@@ -2294,7 +2283,7 @@ DEFUN(no_eigrp_af_interface_keychain,
  * Syntax: `passive-interface`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/passive-interface
- * Target: eigrp_interface_passive_set()
+ * Target: eigrp_intf_passive_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_passive,
       eigrp_af_interface_passive_cmd,
@@ -2314,7 +2303,7 @@ DEFUN(eigrp_af_interface_passive,
  * Syntax: `no passive-interface`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/passive-interface
- * Target: eigrp_interface_passive_set()
+ * Target: eigrp_intf_passive_update(EIGRP_SET)
  */
 DEFUN(no_eigrp_af_interface_passive,
       no_eigrp_af_interface_passive_cmd,
@@ -2335,7 +2324,7 @@ DEFUN(no_eigrp_af_interface_passive,
  * Syntax: `next-hop-self`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/next-hop-self
- * Target: eigrp_interface_next_hop_self_set()
+ * Target: eigrp_intf_nexthop_self_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_next_hop_self,
       eigrp_af_interface_next_hop_self_cmd,
@@ -2356,7 +2345,7 @@ DEFUN(eigrp_af_interface_next_hop_self,
  * Syntax: `no next-hop-self`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/next-hop-self
- * Target: eigrp_interface_next_hop_self_set()
+ * Target: eigrp_intf_nexthop_self_update(EIGRP_SET)
  */
 DEFUN(no_eigrp_af_interface_next_hop_self,
       no_eigrp_af_interface_next_hop_self_cmd,
@@ -2377,7 +2366,7 @@ DEFUN(no_eigrp_af_interface_next_hop_self,
  * Syntax: `split-horizon`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/split-horizon
- * Target: eigrp_interface_split_horizon_set()
+ * Target: eigrp_intf_split_horizon_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_split_horizon,
       eigrp_af_interface_split_horizon_cmd,
@@ -2398,7 +2387,7 @@ DEFUN(eigrp_af_interface_split_horizon,
  * Syntax: `no split-horizon`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/split-horizon
- * Target: eigrp_interface_split_horizon_set()
+ * Target: eigrp_intf_split_horizon_update(EIGRP_SET)
  */
 DEFUN(no_eigrp_af_interface_split_horizon,
       no_eigrp_af_interface_split_horizon_cmd,
@@ -2473,9 +2462,9 @@ static const char *eigrp_cli_ipv6_prefix(int argc, struct cmd_token *argv[])
     return NULL;
 }
 
-static int eigrp_cli_af_interface_summary_set(
+static int eigrp_cli_af_interface_summary_update(
     struct vty *vty, const char *prefix, const char *distance,
-    const char *leak_map, bool remove)
+    const char *leak_map, eigrp_operation_t operation)
 {
     char interface_name[IFNAMSIZ];
     char xpath[XPATH_MAXLEN];
@@ -2484,7 +2473,7 @@ static int eigrp_cli_af_interface_summary_set(
     if (!eigrp_cli_af_interface_path(vty, interface_name, sizeof(interface_name)))
         return CMD_WARNING;
     snprintf(xpath, sizeof(xpath), "./summary-address[prefix='%s']", prefix);
-    if (remove) {
+    if (operation == EIGRP_RESET) {
         nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
         return nb_cli_apply_changes(vty, NULL);
     }
@@ -2558,7 +2547,7 @@ DEFUN(eigrp_af_interface_summary_address,
             break;
         }
     }
-    return eigrp_cli_af_interface_summary_set(vty, prefix, distance, leak_map,
+    return eigrp_cli_af_interface_summary_update(vty, prefix, distance, leak_map,
                                                false);
 }
 
@@ -2596,7 +2585,7 @@ DEFUN(eigrp_af_interface_summary_address_ipv6,
             break;
         }
     }
-    return eigrp_cli_af_interface_summary_set(vty, prefix, distance, leak_map,
+    return eigrp_cli_af_interface_summary_update(vty, prefix, distance, leak_map,
                                                false);
 }
 
@@ -2623,7 +2612,7 @@ DEFUN(no_eigrp_af_interface_summary_address,
     if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
         || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
         return CMD_WARNING;
-    return eigrp_cli_af_interface_summary_set(vty, prefix, NULL, NULL, true);
+    return eigrp_cli_af_interface_summary_update(vty, prefix, NULL, NULL, EIGRP_RESET);
 }
 
 /*
@@ -2646,7 +2635,7 @@ DEFUN(no_eigrp_af_interface_summary_address_ipv6,
 
     if (!prefix)
         return CMD_WARNING;
-    return eigrp_cli_af_interface_summary_set(vty, prefix, NULL, NULL, true);
+    return eigrp_cli_af_interface_summary_update(vty, prefix, NULL, NULL, EIGRP_RESET);
 }
 
 /*
@@ -2716,7 +2705,7 @@ DEFUN(eigrp_exit_af_topology,
  * Syntax: `auto-summary`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/auto-summary
- * Target: eigrp_summary_auto_set()
+ * Target: eigrp_summary_auto_update(EIGRP_SET)
  */
 DEFUN(eigrp_auto_summary,
       eigrp_auto_summary_cmd,
@@ -2740,7 +2729,7 @@ DEFUN(eigrp_auto_summary,
  * Syntax: `no auto-summary`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/auto-summary
- * Target: eigrp_summary_auto_set()
+ * Target: eigrp_summary_auto_update(EIGRP_SET)
  */
 DEFUN(no_eigrp_auto_summary,
       no_eigrp_auto_summary_cmd,
@@ -2754,10 +2743,10 @@ DEFUN(no_eigrp_auto_summary,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
-static int eigrp_cli_default_information_set(struct vty *vty,
+static int eigrp_cli_default_information_update(struct vty *vty,
 					     const char *direction,
 					     const char *access_list,
-					     bool remove)
+					     eigrp_operation_t operation)
 {
 	char xpath[96];
 	char child[128];
@@ -2768,7 +2757,7 @@ static int eigrp_cli_default_information_set(struct vty *vty,
 	    || (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0))
 		return CMD_WARNING;
 	snprintf(xpath, sizeof(xpath), "./default-information-%s", direction);
-	if (remove) {
+	if (operation == EIGRP_RESET) {
 		nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
 		return nb_cli_apply_changes(vty, NULL);
 	}
@@ -2784,7 +2773,7 @@ static int eigrp_cli_default_information_set(struct vty *vty,
  * Syntax: `default-information <in|out> [WORD]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-{in|out}
- * Target: eigrp_topology_default_information_set()
+ * Target: eigrp_topology_default_information_update(EIGRP_SET)
  */
 DEFUN(eigrp_default_information,
       eigrp_default_information_cmd,
@@ -2798,14 +2787,14 @@ DEFUN(eigrp_default_information,
 	const char *last = eigrp_cli_token_last(argc, argv);
 	const char *acl = last && strcmp(last, direction) != 0 ? last : NULL;
 
-	return eigrp_cli_default_information_set(vty, direction, acl, false);
+	return eigrp_cli_default_information_update(vty, direction, acl, false);
 }
 
 /*
  * Syntax: `no default-information <in|out> [WORD]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-information-{in|out}
- * Target: eigrp_topology_default_information_set()
+ * Target: eigrp_topology_default_information_update(EIGRP_SET)
  */
 DEFUN(no_eigrp_default_information,
       no_eigrp_default_information_cmd,
@@ -2818,14 +2807,14 @@ DEFUN(no_eigrp_default_information,
 {
 	const char *direction = eigrp_cli_token_present(argc, argv, "in") ? "in" : "out";
 
-	return eigrp_cli_default_information_set(vty, direction, NULL, true);
+	return eigrp_cli_default_information_update(vty, direction, NULL, true);
 }
 
 /*
  * Syntax: `default-metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric
- * Target: eigrp_metric_default_set()
+ * Target: eigrp_metric_default_update(EIGRP_SET)
  */
 DEFUN(eigrp_default_metric,
       eigrp_default_metric_cmd,
@@ -2861,7 +2850,7 @@ DEFUN(eigrp_default_metric,
  * Syntax: `no default-metric (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/default-metric
- * Target: eigrp_metric_default_reset()
+ * Target: eigrp_metric_default_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_default_metric,
       no_eigrp_default_metric_cmd,
@@ -2884,7 +2873,7 @@ DEFUN(no_eigrp_default_metric,
  * Syntax: `distance eigrp (1-255) (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
- * Target: eigrp_instance_distance_set()
+ * Target: eigrp_instance_distance_update(EIGRP_SET)
  */
 DEFUN(eigrp_distance,
       eigrp_distance_cmd,
@@ -2910,7 +2899,7 @@ DEFUN(eigrp_distance,
  * Syntax: `no distance eigrp`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
- * Target: eigrp_instance_distance_reset()
+ * Target: eigrp_instance_distance_update(EIGRP_RESET, 0, 0)
  */
 DEFUN(no_eigrp_distance,
       no_eigrp_distance_cmd,
@@ -2925,11 +2914,11 @@ DEFUN(no_eigrp_distance,
 	return nb_cli_apply_changes(vty, NULL);
 }
 
-static int eigrp_cli_prefix_limit_set(struct vty *vty, int argc,
+static int eigrp_cli_prefix_limit_update(struct vty *vty, int argc,
                                       struct cmd_token *argv[],
                                       const char *keyword,
                                       const char *xpath, bool include_timers,
-                                      bool remove)
+                                      eigrp_operation_t operation)
 {
     const char *values[16] = {0};
     const char *maximum = NULL;
@@ -2937,7 +2926,7 @@ static int eigrp_cli_prefix_limit_set(struct vty *vty, int argc,
     char child[XPATH_MAXLEN];
     int count, i;
 
-    if (remove) {
+    if (operation == EIGRP_RESET) {
         nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
         return nb_cli_apply_changes(vty, NULL);
     }
@@ -3016,7 +3005,7 @@ static int eigrp_cli_prefix_limit_set(struct vty *vty, int argc,
  * Syntax: `maximum-prefix (1-4294967295) [(1-100)] [dampened] [reset-time (1-65535)] [restart (1-65535)] [restart-count (1-65535)] [warning-only]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
- * Target: eigrp_topology_maximum_prefix_set()
+ * Target: eigrp_topology_max_prefix_update(EIGRP_SET)
  */
 DEFUN(eigrp_maximum_prefix,
       eigrp_maximum_prefix_cmd,
@@ -3029,15 +3018,15 @@ DEFUN(eigrp_maximum_prefix,
 {
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",
-                                      "./maximum-prefix", true, false);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix",
+                                      "./maximum-prefix", true, EIGRP_SET);
 }
 
 /*
  * Syntax: `no maximum-prefix`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-prefix
- * Target: eigrp_topology_maximum_prefix_reset()
+ * Target: eigrp_topology_max_prefix_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_maximum_prefix,
       no_eigrp_maximum_prefix_cmd,
@@ -3046,15 +3035,15 @@ DEFUN(no_eigrp_maximum_prefix,
 {
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",
-                                      "./maximum-prefix", true, true);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix",
+                                      "./maximum-prefix", true, EIGRP_RESET);
 }
 
 /*
  * Syntax: `metric maximum-hops (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops
- * Target: eigrp_metric_maximum_hops_set()
+ * Target: eigrp_metric_maximum_hops_update(EIGRP_SET)
  */
 DEFUN(eigrp_metric_maximum_hops,
       eigrp_metric_maximum_hops_cmd,
@@ -3072,7 +3061,7 @@ DEFUN(eigrp_metric_maximum_hops,
  * Syntax: `no metric maximum-hops`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-maximum-hops
- * Target: eigrp_metric_maximum_hops_reset()
+ * Target: eigrp_metric_maximum_hops_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_metric_maximum_hops,
       no_eigrp_metric_maximum_hops_cmd,
@@ -3089,7 +3078,7 @@ DEFUN(no_eigrp_metric_maximum_hops,
  * Syntax: `metric holddown`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Target: eigrp_metric_holddown_set()
+ * Target: eigrp_metric_holddown_update(EIGRP_SET)
  */
 DEFUN(eigrp_metric_holddown,
       eigrp_metric_holddown_cmd,
@@ -3106,7 +3095,7 @@ DEFUN(eigrp_metric_holddown,
  * Syntax: `no metric holddown`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Target: eigrp_metric_holddown_reset()
+ * Target: eigrp_metric_holddown_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_metric_holddown,
       no_eigrp_metric_holddown_cmd,
@@ -3123,7 +3112,7 @@ DEFUN(no_eigrp_metric_holddown,
  * Syntax: `metric version 32bit`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-version-32bit
- * Target: eigrp_metric_version_set()
+ * Target: eigrp_metric_version_update(EIGRP_SET)
  */
 DEFUN(eigrp_metric_version_32bit,
       eigrp_metric_version_32bit_cmd,
@@ -3153,7 +3142,7 @@ DEFUN(no_eigrp_metric_version_32bit,
  * Syntax: `eigrp event-log-size (0-4294967295)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
- * Target: eigrp_eventlog_size_set()
+ * Target: eigrp_eventlog_size_update(EIGRP_SET)
  */
 DEFUN(eigrp_event_log_size,
       eigrp_event_log_size_cmd,
@@ -3172,7 +3161,7 @@ DEFUN(eigrp_event_log_size,
  * Syntax: `no eigrp event-log-size`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/event-log-size
- * Target: eigrp_eventlog_size_reset()
+ * Target: eigrp_eventlog_size_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_event_log_size,
       no_eigrp_event_log_size_cmd,
@@ -3259,7 +3248,7 @@ DEFUN(no_eigrp_offset_list,
  * Syntax: `redistribute maximum-prefix (1-4294967295) [(1-100)] [dampened] [reset-time (1-65535)] [restart (1-65535)] [restart-count (1-65535)] [warning-only]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
- * Target: eigrp_redistribute_maximum_prefix_set()
+ * Target: eigrp_redist_max_prefix_update(EIGRP_SET)
  */
 DEFUN(eigrp_redistribute_maximum_prefix,
       eigrp_redistribute_maximum_prefix_cmd,
@@ -3270,15 +3259,15 @@ DEFUN(eigrp_redistribute_maximum_prefix,
 {
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",
-                                      "./redistribute-maximum-prefix", true, false);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix",
+                                      "./redistribute-maximum-prefix", true, EIGRP_SET);
 }
 
 /*
  * Syntax: `no redistribute maximum-prefix`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute-maximum-prefix
- * Target: eigrp_redistribute_maximum_prefix_reset()
+ * Target: eigrp_redist_max_prefix_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_redistribute_maximum_prefix,
       no_eigrp_redistribute_maximum_prefix_cmd,
@@ -3287,14 +3276,14 @@ DEFUN(no_eigrp_redistribute_maximum_prefix,
 {
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
-    return eigrp_cli_prefix_limit_set(vty, argc, argv, "maximum-prefix",
-                                      "./redistribute-maximum-prefix", true, true);
+    return eigrp_cli_prefix_limit_update(vty, argc, argv, "maximum-prefix",
+                                      "./redistribute-maximum-prefix", true, EIGRP_RESET);
 }
 
-static int eigrp_cli_summary_metric_set(struct vty *vty,
+static int eigrp_cli_summary_metric_update(struct vty *vty,
                                         const char *prefix,
                                         const char **metric,
-                                        const char *distance, bool remove)
+                                        const char *distance, eigrp_operation_t operation)
 {
     char xpath[XPATH_MAXLEN];
     char child[XPATH_MAXLEN];
@@ -3304,7 +3293,7 @@ static int eigrp_cli_summary_metric_set(struct vty *vty,
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
     snprintf(xpath, sizeof(xpath), "./summary-metric[prefix='%s']", prefix);
-    if (remove) {
+    if (operation == EIGRP_RESET) {
         nb_cli_enqueue_change(vty, xpath, NB_OP_DESTROY, NULL);
         return nb_cli_apply_changes(vty, NULL);
     }
@@ -3326,7 +3315,7 @@ static int eigrp_cli_summary_metric_set(struct vty *vty,
  * Syntax: `summary-metric A.B.C.D A.B.C.D (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535) [distance (1-255)]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_set()
+ * Target: eigrp_summary_metric_update(EIGRP_SET)
  */
 DEFUN(eigrp_summary_metric,
       eigrp_summary_metric_cmd,
@@ -3350,14 +3339,14 @@ DEFUN(eigrp_summary_metric,
         return CMD_WARNING;
     for (i = 0; i < 5; i++)
         metric[i] = args[i + 2];
-    return eigrp_cli_summary_metric_set(vty, prefix, metric, distance, false);
+    return eigrp_cli_summary_metric_update(vty, prefix, metric, distance, false);
 }
 
 /*
  * Syntax: `summary-metric X:X::X:X/M (1-4294967295) (0-4294967295) (0-255) (1-255) (1-65535) [distance (1-255)]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_set()
+ * Target: eigrp_summary_metric_update(EIGRP_SET)
  */
 DEFUN(eigrp_summary_metric_ipv6,
       eigrp_summary_metric_ipv6_cmd,
@@ -3379,14 +3368,14 @@ DEFUN(eigrp_summary_metric_ipv6,
         return CMD_WARNING;
     for (i = 0; i < 5; i++)
         metric[i] = args[i + 1];
-    return eigrp_cli_summary_metric_set(vty, prefix, metric, distance, false);
+    return eigrp_cli_summary_metric_update(vty, prefix, metric, distance, false);
 }
 
 /*
  * Syntax: `summary-metric A.B.C.D A.B.C.D distance (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_set()
+ * Target: eigrp_summary_metric_update(EIGRP_SET)
  */
 DEFUN(eigrp_summary_metric_distance,
       eigrp_summary_metric_distance_cmd,
@@ -3400,7 +3389,7 @@ DEFUN(eigrp_summary_metric_distance,
     if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
         || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
         return CMD_WARNING;
-    return eigrp_cli_summary_metric_set(vty, prefix, NULL,
+    return eigrp_cli_summary_metric_update(vty, prefix, NULL,
                                         eigrp_cli_token_after(argc, argv, "distance"), false);
 }
 
@@ -3408,7 +3397,7 @@ DEFUN(eigrp_summary_metric_distance,
  * Syntax: `summary-metric X:X::X:X/M distance (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_set()
+ * Target: eigrp_summary_metric_update(EIGRP_SET)
  */
 DEFUN(eigrp_summary_metric_distance_ipv6,
       eigrp_summary_metric_distance_ipv6_cmd,
@@ -3420,7 +3409,7 @@ DEFUN(eigrp_summary_metric_distance_ipv6,
 
     if (!prefix)
         return CMD_WARNING;
-    return eigrp_cli_summary_metric_set(vty, prefix, NULL,
+    return eigrp_cli_summary_metric_update(vty, prefix, NULL,
                                         eigrp_cli_token_after(argc, argv, "distance"), false);
 }
 
@@ -3428,7 +3417,7 @@ DEFUN(eigrp_summary_metric_distance_ipv6,
  * Syntax: `no summary-metric A.B.C.D A.B.C.D`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_reset()
+ * Target: eigrp_summary_metric_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_summary_metric,
       no_eigrp_summary_metric_cmd,
@@ -3442,14 +3431,14 @@ DEFUN(no_eigrp_summary_metric,
     if (!eigrp_cli_ipv4_pair(argc, argv, &address, &mask)
         || !eigrp_cli_ipv4_summary_prefix(address, mask, prefix, sizeof(prefix)))
         return CMD_WARNING;
-    return eigrp_cli_summary_metric_set(vty, prefix, NULL, NULL, true);
+    return eigrp_cli_summary_metric_update(vty, prefix, NULL, NULL, EIGRP_RESET);
 }
 
 /*
  * Syntax: `no summary-metric X:X::X:X/M`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/summary-metric
- * Target: eigrp_summary_metric_reset()
+ * Target: eigrp_summary_metric_update(EIGRP_RESET, 0)
  */
 DEFUN(no_eigrp_summary_metric_ipv6,
       no_eigrp_summary_metric_ipv6_cmd,
@@ -3460,14 +3449,14 @@ DEFUN(no_eigrp_summary_metric_ipv6,
 
     if (!prefix)
         return CMD_WARNING;
-    return eigrp_cli_summary_metric_set(vty, prefix, NULL, NULL, true);
+    return eigrp_cli_summary_metric_update(vty, prefix, NULL, NULL, EIGRP_RESET);
 }
 
 /*
  * Syntax: `traffic-share balanced`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
- * Target: eigrp_metric_traffic_share_balanced_set()
+ * Target: eigrp_traffic_share_balanced_update(EIGRP_SET)
  */
 DEFUN(eigrp_traffic_share_balanced,
       eigrp_traffic_share_balanced_cmd,
@@ -3486,7 +3475,7 @@ DEFUN(eigrp_traffic_share_balanced,
  * Syntax: `no traffic-share balanced`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
- * Target: eigrp_metric_traffic_share_balanced_set()
+ * Target: eigrp_traffic_share_balanced_update(EIGRP_SET)
  */
 DEFUN(no_eigrp_traffic_share_balanced,
       no_eigrp_traffic_share_balanced_cmd,
@@ -3512,10 +3501,10 @@ bool eigrp_cli_named_context(struct vty *vty)
  * Syntax: `timers active-time <seconds|disabled>` / `no timers active-time`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
- * Target: eigrp_timer_active_time_set() / eigrp_timer_active_time_reset()
+ * Target: eigrp_timer_active_time_update(EIGRP_SET) / eigrp_timer_active_time_update(EIGRP_RESET, 0)
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
-int eigrp_cli_named_active_time_apply(struct vty *vty, bool disabled,
+int eigrp_cli_named_active_time_update(struct vty *vty, bool disabled,
                                       const char *timer, bool remove)
 {
     if (!eigrp_cli_named_topology_required(vty))
@@ -3530,10 +3519,10 @@ int eigrp_cli_named_active_time_apply(struct vty *vty, bool disabled,
  * Syntax: `variance multiplier` / `no variance`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/variance
- * Target: eigrp_metric_variance_set() / eigrp_metric_variance_reset()
+ * Target: eigrp_metric_variance_update(EIGRP_SET) / eigrp_metric_variance_update(EIGRP_RESET, 0)
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
-int eigrp_cli_named_variance_apply(struct vty *vty, const char *variance,
+int eigrp_cli_named_variance_update(struct vty *vty, const char *variance,
                                    bool remove)
 {
     if (!eigrp_cli_named_topology_required(vty))
@@ -3548,10 +3537,10 @@ int eigrp_cli_named_variance_apply(struct vty *vty, const char *variance,
  * Syntax: `maximum-paths paths` / `no maximum-paths`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
- * Target: eigrp_topology_maximum_paths_set() / eigrp_topology_maximum_paths_reset()
+ * Target: eigrp_topology_maximum_paths_update(EIGRP_SET) / eigrp_topology_maximum_paths_update(EIGRP_RESET, 0)
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
-int eigrp_cli_named_maximum_paths_apply(struct vty *vty,
+int eigrp_cli_named_maximum_paths_update(struct vty *vty,
                                         const char *maximum_paths,
                                         bool remove)
 {
@@ -3567,10 +3556,10 @@ int eigrp_cli_named_maximum_paths_apply(struct vty *vty,
  * Syntax: `metric weights tos K1 K2 K3 K4 K5 [K6]` / `no metric weights`
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights
- * Target: eigrp_metric_weights_set() / eigrp_metric_weights_reset()
+ * Target: eigrp_metric_weights_update(EIGRP_SET) / eigrp_metric_weights_update(EIGRP_RESET, 0)
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
-int eigrp_cli_named_metric_weights_apply(struct vty *vty,
+int eigrp_cli_named_metric_weights_update(struct vty *vty,
                                          const char *tos,
                                          const char *k1,
                                          const char *k2,
@@ -3609,10 +3598,10 @@ int eigrp_cli_named_metric_weights_apply(struct vty *vty,
  *         / `no redistribute PROTOCOL [ROUTE-INSTANCE]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
- * Target: eigrp_redistribute_add() / eigrp_redistribute_remove()
+ * Target: eigrp_redist_add() / eigrp_redist_remove()
  * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
  */
-int eigrp_cli_named_redistribute_apply(struct vty *vty,
+int eigrp_cli_named_redist_update(struct vty *vty,
                                        const char *protocol,
                                        uint32_t route_instance,
                                        uint32_t bandwidth,
@@ -3692,7 +3681,7 @@ struct eigrp_vty_walk_context {
 	const char *all;
 	const char *target;
 	const struct prefix *prefix;
-	eigrp_address_family_t address_afi;
+	eigrp_afi_t address_afi;
 	const struct in_addr *ipv4_address;
 	const struct in6_addr *ipv6_address;
 	bool soft;
@@ -3737,7 +3726,7 @@ static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 {
 	struct vrf *vrf;
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_list_item_t *node, *nnode;
 	int count = 0;
 
 	if (!eigrp_vty_afi_supported(vty, afi, command))
@@ -3761,7 +3750,7 @@ static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 		return CMD_SUCCESS;
 	}
 
-	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
 		if (eigrp->vrf_id != vrf->vrf_id)
 			continue;
 
@@ -3776,9 +3765,9 @@ static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 	return CMD_SUCCESS;
 }
 
-static const char *eigrp_vty_afi_name(eigrp_address_family_t afi)
+static const char *eigrp_vty_afi_name(eigrp_afi_t afi)
 {
-	return afi == EIGRP_ADDRESS_FAMILY_IPV6 ? "IPv6" : "IPv4";
+	return afi == EIGRP_AFI_IPV6 ? "IPv6" : "IPv4";
 }
 
 static const char *eigrp_vty_address_string(const eigrp_address_t *address,
@@ -3788,7 +3777,7 @@ static const char *eigrp_vty_address_string(const eigrp_address_t *address,
 
 	if (!address || !buffer || length == 0)
 		return "<invalid>";
-	family = address->afi == EIGRP_ADDRESS_FAMILY_IPV6 ? AF_INET6 : AF_INET;
+	family = address->afi == EIGRP_AFI_IPV6 ? AF_INET6 : AF_INET;
 	if (!inet_ntop(family, address->bytes, buffer, length))
 		return "<invalid>";
 	return buffer;
@@ -3807,7 +3796,7 @@ static const char *eigrp_vty_prefix_string(const eigrp_prefix_t *prefix,
 }
 
 static bool eigrp_vty_destination_parse(const char *text,
-					eigrp_address_family_t afi,
+					eigrp_afi_t afi,
 					eigrp_prefix_t *destination)
 {
 	char address[INET6_ADDRSTRLEN + 4];
@@ -3820,10 +3809,10 @@ static bool eigrp_vty_destination_parse(const char *text,
 
 	if (!text || !destination)
 		return false;
-	if (afi == EIGRP_ADDRESS_FAMILY_IPV4) {
+	if (afi == EIGRP_AFI_IPV4) {
 		family = AF_INET;
 		maximum_prefix_length = 32;
-	} else if (afi == EIGRP_ADDRESS_FAMILY_IPV6) {
+	} else if (afi == EIGRP_AFI_IPV6) {
 		family = AF_INET6;
 		maximum_prefix_length = 128;
 	} else {
@@ -3853,9 +3842,9 @@ static bool eigrp_vty_destination_parse(const char *text,
 }
 
 static eigrp_instance_t *
-eigrp_vty_named_runtime_lookup(eigrp_address_family_config_t *af)
+eigrp_vty_named_runtime_lookup(eigrp_af_instance_t *af)
 {
-	if (!af || af->afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (!af)
 		return NULL;
 
 	/*
@@ -3868,7 +3857,7 @@ eigrp_vty_named_runtime_lookup(eigrp_address_family_config_t *af)
 
 typedef eigrp_result_t (*eigrp_vty_named_state_cb)(
 	struct vty *vty, const char *instance_name,
-	eigrp_address_family_config_t *af, eigrp_instance_t *runtime, void *arg);
+	eigrp_af_instance_t *af, eigrp_instance_t *runtime, void *arg);
 
 struct eigrp_vty_named_state_walk {
 	struct vty *vty;
@@ -3877,7 +3866,7 @@ struct eigrp_vty_named_state_walk {
 };
 
 static eigrp_result_t eigrp_vty_named_state_bridge(
-	const char *instance_name, eigrp_address_family_config_t *af, void *arg)
+	const char *instance_name, eigrp_af_instance_t *af, void *arg)
 {
 	struct eigrp_vty_named_state_walk *walk = arg;
 
@@ -3897,7 +3886,7 @@ static int eigrp_vty_named_state_walk(struct vty *vty,
 	};
 	eigrp_result_t result;
 
-	result = eigrp_instance_address_family_walk(
+	result = eigrp_af_instance_iterate(
 		request, eigrp_vty_named_state_bridge, &walk);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty,
@@ -3913,7 +3902,7 @@ static int eigrp_vty_named_state_walk(struct vty *vty,
 
 static void eigrp_vty_named_context_header(struct vty *vty,
 					   const char *instance_name,
-					   eigrp_address_family_config_t *af,
+					   eigrp_af_instance_t *af,
 					   eigrp_instance_t *runtime,
 					   const char *subject)
 {
@@ -3923,10 +3912,7 @@ static void eigrp_vty_named_context_header(struct vty *vty,
 		vty_out(vty, " VRF(%s)", af->vrf_name);
 	vty_out(vty, "\n");
 	if (!runtime)
-		vty_out(vty, "  Runtime state: %s\n",
-			af->afi == EIGRP_ADDRESS_FAMILY_IPV6
-				? "IPv6 data path not supported"
-				: "address-family not active in the runtime");
+		vty_out(vty, "  Runtime state: address-family not active in the runtime\n");
 }
 
 struct eigrp_vty_interface_show {
@@ -3936,7 +3922,7 @@ struct eigrp_vty_interface_show {
 };
 
 static eigrp_result_t eigrp_vty_interface_state_render(
-	const eigrp_interface_state_t *state, void *arg)
+	const eigrp_intf_state_t *state, void *arg)
 {
 	struct eigrp_vty_interface_show *show = arg;
 
@@ -4025,7 +4011,7 @@ struct eigrp_vty_interface_context {
 };
 
 static eigrp_result_t eigrp_vty_interface_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_interface_context *options = arg;
@@ -4037,7 +4023,7 @@ static eigrp_result_t eigrp_vty_interface_context_render(
 
 	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
 				       "Address-family Interfaces");
-	result = eigrp_interface_state_walk(af, runtime, options->ifname,
+	result = eigrp_intf_state_iterate(af, runtime, options->ifname,
 					    eigrp_vty_interface_state_render, &show);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, "  No EIGRP interfaces matched%s%s\n",
@@ -4077,7 +4063,7 @@ struct eigrp_vty_neighbor_show {
 };
 
 static eigrp_result_t eigrp_vty_neighbor_state_render(
-	const eigrp_neighbor_state_t *state, void *arg)
+	const eigrp_nbr_state_t *state, void *arg)
 {
 	struct eigrp_vty_neighbor_show *show = arg;
 	char address[INET6_ADDRSTRLEN];
@@ -4085,7 +4071,7 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 	char srtt[16];
 
 	if (!show->printed_header) {
-		show->address_width = state->address.afi == EIGRP_ADDRESS_FAMILY_IPV6
+		show->address_width = state->address.afi == EIGRP_AFI_IPV6
 					      ? 40U
 					      : 23U;
 		if (show->static_only) {
@@ -4140,7 +4126,7 @@ struct eigrp_vty_neighbor_context {
 };
 
 static eigrp_result_t eigrp_vty_neighbor_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_neighbor_context *options = arg;
@@ -4155,7 +4141,7 @@ static eigrp_result_t eigrp_vty_neighbor_context_render(
 				       options->static_only
 					       ? "Static Neighbors"
 					       : "Address-family Neighbors");
-	result = eigrp_neighbor_state_walk(af, runtime, options->ifname,
+	result = eigrp_nbr_state_iterate(af, runtime, options->ifname,
 					   options->static_only,
 					   eigrp_vty_neighbor_state_render, &show);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
@@ -4219,7 +4205,7 @@ struct eigrp_vty_topology_context {
 };
 
 static eigrp_result_t eigrp_vty_topology_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_topology_context *options = arg;
@@ -4238,7 +4224,7 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 	vty_out(vty,
 		"Codes: P - Passive, A - Active, U - Update, Q - Query, R - Reply,\n"
 		"       r - reply Status, s - sia Status\n\n");
-	result = eigrp_topology_state_walk(
+	result = eigrp_topology_state_iterate(
 		af, runtime, options->destination, options->all_links,
 		eigrp_vty_topology_prefix_render, eigrp_vty_topology_route_render, &show);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
@@ -4260,7 +4246,7 @@ static eigrp_result_t eigrp_vty_topology_instance_render(
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_topology_instance_walk *walk = arg;
-	eigrp_address_family_config_t *af = eigrp_instance_runtime_config(runtime);
+	eigrp_af_instance_t *af = eigrp_instance_runtime_config(runtime);
 
 	return eigrp_vty_topology_context_render(
 		walk->vty, runtime->name, af, runtime, walk->options);
@@ -4285,7 +4271,7 @@ static int eigrp_vty_topology_walk(struct vty *vty,
 	if (!vrf)
 		return CMD_WARNING;
 
-	result = eigrp_topology_instance_walk(
+	result = eigrp_topology_instance_iterate(
 		request->afi, vrf->vrf_id, request->asn,
 		eigrp_vty_topology_instance_render, &walk);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
@@ -4310,9 +4296,9 @@ static bool eigrp_vty_state_request_build(
 
 	memset(request, 0, sizeof(*request));
 	if (strcmp(afi_text, "ipv4") == 0)
-		request->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		request->afi = EIGRP_AFI_IPV4;
 	else if (strcmp(afi_text, "ipv6") == 0)
-		request->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		request->afi = EIGRP_AFI_IPV6;
 	else
 		return false;
 	request->asn = asn > 0 ? (uint16_t)asn : 0;
@@ -4372,7 +4358,7 @@ static const char *no = NULL;
  * Syntax: `[no] redistribute eigrp AS [metric ...] [route-map NAME]`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
- * Target: eigrp_redistribute_add() / eigrp_redistribute_remove()
+ * Target: eigrp_redist_add() / eigrp_redist_remove()
  */
 DEFPY(eigrp_named_redistribute_eigrp,
       eigrp_named_redistribute_eigrp_cmd,
@@ -4390,7 +4376,7 @@ DEFPY(eigrp_named_redistribute_eigrp,
       "Route-map\n"
       "Route-map name\n")
 {
-    return eigrp_cli_named_redistribute_apply(
+    return eigrp_cli_named_redist_update(
         vty, "eigrp", route_instance, bw, bw_str, delay, delay_str, rlbt,
         rlbt_str, load, load_str, mtu, mtu_str, route_map, no);
 }
@@ -4400,7 +4386,7 @@ DEFPY(eigrp_named_redistribute_eigrp,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_interface_state_walk()
+ * Target: eigrp_intf_state_iterate()
  */
 DEFPY(show_eigrp_interface,
       show_eigrp_interface_cmd,
@@ -4434,7 +4420,7 @@ DEFPY(show_eigrp_interface,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] neighbors [static] [detail]$detail [IFNAME$ifname]`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_neighbor_state_walk()
+ * Target: eigrp_nbr_state_iterate()
  */
 DEFPY(show_eigrp_neighbor,
       show_eigrp_neighbor_cmd,
@@ -4471,7 +4457,7 @@ DEFPY(show_eigrp_neighbor,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] [all-links]$all`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_topology_state_walk()
+ * Target: eigrp_topology_state_iterate()
  */
 DEFPY(show_eigrp_topology_all,
       show_eigrp_topology_all_cmd,
@@ -4502,7 +4488,7 @@ DEFPY(show_eigrp_topology_all,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] WORD$target [all-links]$all`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_topology_state_walk()
+ * Target: eigrp_topology_state_iterate()
  */
 DEFPY(show_eigrp_topology,
       show_eigrp_topology_cmd,
@@ -4561,7 +4547,7 @@ static eigrp_result_t eigrp_vty_accounting_state_render(
 }
 
 static eigrp_result_t eigrp_vty_accounting_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4579,7 +4565,7 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 	vty_out(vty, "States: A-Adjacency, P-Pending, D-Down\n");
 	vty_out(vty, "%-5s %-40s %-22s %-10s %-9s %s\n", "State",
 		"Address/Source", "Interface", "Prefixes", "Restart", "Restart/Reset(s)");
-	result = eigrp_statistics_accounting_show(
+	result = eigrp_statistics_accounting_iterate(
 		&context, &total_prefix_count, eigrp_vty_accounting_state_render, &show);
 	if (result == EIGRP_RESULT_SUCCESS) {
 		vty_out(vty, "Total Prefix Count: %u\n", total_prefix_count);
@@ -4594,7 +4580,7 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 }
 
 static eigrp_result_t eigrp_vty_traffic_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4608,7 +4594,7 @@ static eigrp_result_t eigrp_vty_traffic_context_render(
 	(void)arg;
 	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
 				       "Traffic Statistics");
-	result = eigrp_statistics_traffic_show(&context, &state);
+	result = eigrp_statistics_traffic_state_read(&context, &state);
 	if (result == EIGRP_RESULT_SUCCESS) {
 		vty_out(vty, "  Hellos sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_hello, state.received_hello);
@@ -4668,7 +4654,7 @@ static eigrp_result_t eigrp_vty_timer_state_render(const eigrp_timer_state_t *st
 }
 
 static eigrp_result_t eigrp_vty_timer_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4682,7 +4668,7 @@ static eigrp_result_t eigrp_vty_timer_context_render(
 	(void)arg;
 	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
 				       "Address-family Timers");
-	result = eigrp_timer_show(&context, eigrp_vty_timer_state_render, &show);
+	result = eigrp_timer_state_iterate(&context, eigrp_vty_timer_state_render, &show);
 	if (result != EIGRP_RESULT_SUCCESS)
 		eigrp_cli_result_render(vty, "timers", result);
 	if (!show.printed_header)
@@ -4697,7 +4683,7 @@ struct eigrp_vty_eventlog_show {
 };
 
 static eigrp_result_t eigrp_vty_eventlog_entry_render(
-	uint32_t event_number, const eigrp_eventlog_entry_t *entry,
+	uint32_t event_number, const eigrp_eventlog_msg_t *entry,
 	const char *format, void *arg)
 {
 	struct eigrp_vty_eventlog_show *show = arg;
@@ -4707,7 +4693,7 @@ static eigrp_result_t eigrp_vty_eventlog_entry_render(
 	(void)format;
 	if (!show || !show->vty || !entry)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_eventlog_entry_format(entry, text, sizeof(text));
+	result = eigrp_eventlog_msg_format(entry, text, sizeof(text));
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	vty_out(show->vty, "%u %s\n", event_number, text);
@@ -4715,7 +4701,7 @@ static eigrp_result_t eigrp_vty_eventlog_entry_render(
 }
 
 static eigrp_result_t eigrp_vty_event_context_render(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4745,7 +4731,7 @@ static eigrp_result_t eigrp_vty_event_context_render(
 		vty_out(vty, "  No events recorded\n");
 		return EIGRP_RESULT_SUCCESS;
 	}
-	result = eigrp_eventlog_show(&context, eigrp_vty_eventlog_entry_render,
+	result = eigrp_eventlog_msg_iterate(&context, eigrp_vty_eventlog_entry_render,
 				     &show);
 	if (result != EIGRP_RESULT_SUCCESS)
 		eigrp_cli_result_render(vty, "event history", result);
@@ -4756,7 +4742,7 @@ static eigrp_result_t eigrp_vty_event_context_render(
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] accounting`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_statistics_accounting_show()
+ * Target: eigrp_statistics_accounting_iterate()
  */
 DEFPY(show_eigrp_accounting,
       show_eigrp_accounting_cmd,
@@ -4778,7 +4764,7 @@ DEFPY(show_eigrp_accounting,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] events`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_eventlog_show()
+ * Target: eigrp_eventlog_msg_iterate()
  */
 DEFPY(show_eigrp_event,
       show_eigrp_event_cmd,
@@ -4800,7 +4786,7 @@ DEFPY(show_eigrp_event,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] timers`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_timer_show()
+ * Target: eigrp_timer_state_iterate()
  */
 DEFPY(show_eigrp_timer,
       show_eigrp_timer_cmd,
@@ -4822,7 +4808,7 @@ DEFPY(show_eigrp_timer,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] traffic`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_statistics_traffic_show()
+ * Target: eigrp_statistics_traffic_state_read()
  */
 DEFPY(show_eigrp_traffic,
       show_eigrp_traffic_cmd,
@@ -4877,7 +4863,7 @@ static eigrp_result_t eigrp_vty_protocol_state_render(
  * Syntax: `show eigrp protocols`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_status_protocol_show()
+ * Target: eigrp_status_protocol_iterate()
  */
 DEFPY(show_eigrp_protocol,
       show_eigrp_protocol_cmd,
@@ -4885,7 +4871,7 @@ DEFPY(show_eigrp_protocol,
       SHOW_STR EIGRP_STR "Display EIGRP protocol information\n")
 {
 	struct eigrp_vty_protocol_show show = {.vty = vty};
-	eigrp_result_t result = eigrp_status_protocol_show(
+	eigrp_result_t result = eigrp_status_protocol_iterate(
 		eigrp_vty_protocol_state_render, &show);
 
 	if (result == EIGRP_RESULT_NOT_FOUND) {
@@ -4929,18 +4915,42 @@ static eigrp_result_t eigrp_vty_tech_support_context(
  * Syntax: `show eigrp tech-support`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_status_tech_support_show()
+ * Target: eigrp_status_tech_support_iterate()
  */
 DEFPY(show_eigrp_tech_support,
       show_eigrp_tech_support_cmd,
       "show eigrp tech-support",
       SHOW_STR EIGRP_STR "Display EIGRP tech-support information\n")
 {
-	eigrp_result_t result = eigrp_status_tech_support_show(
-		eigrp_vty_tech_support_context, vty);
+	eigrp_status_capability_state_t capabilities;
+	eigrp_result_t result;
 
+	result = eigrp_status_capability_state_read(&capabilities);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return eigrp_cli_result_render(vty, "tech-support", result);
+
+	vty_out(vty, "EIGRP features:\n\n");
+	vty_out(vty, "  release              : %s\n", capabilities.release);
+	vty_out(vty, "  transport            : TLV 1.0, TLV 2.0, Wide Metrics\n");
+	vty_out(vty, "  bfd                  : %s\n",
+		capabilities.bfd ? "BFD Support" : "Not Supported");
+	vty_out(vty, "  ipv4-af              : %s\n",
+		capabilities.ipv4 ? "IPv4 Routing Protocol Support" : "Not Supported");
+	vty_out(vty, "  ipv6-af              : %s\n",
+		capabilities.ipv6 ? "IPv6 Routing Protocol Support" : "Not Supported");
+	vty_out(vty, "  manet                : %s\n",
+		capabilities.manet ? "MANET Support" : "Not Supported");
+	vty_out(vty, "  mtr                  : %s\n",
+		capabilities.mtr ? "MTR Support" : "Not Supported");
+	vty_out(vty, "  evn                  : %s\n",
+		capabilities.evn ? "EVN Support" : "Not Supported");
+	vty_out(vty, "  snmp-agent           : %s\n",
+		capabilities.snmp ? "SNMP/SNMPv2 Agent Support" : "Not Supported");
+
+	result = eigrp_status_tech_support_iterate(
+		eigrp_vty_tech_support_context, vty);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
-		vty_out(vty, "No named EIGRP address families are configured\n");
+		vty_out(vty, "\nNo named EIGRP address families are configured\n");
 		return CMD_SUCCESS;
 	}
 	return eigrp_cli_result_render(vty, "tech-support", result);
@@ -4978,7 +4988,7 @@ struct eigrp_vty_topology_clear_context {
 };
 
 static eigrp_result_t clear_eigrp_topology_context(
-	struct vty *vty, const char *instance_name, eigrp_address_family_config_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_topology_clear_context *clear = arg;
@@ -5071,10 +5081,10 @@ DEFPY(clear_eigrp_topology_prefix,
 {
 	eigrp_prefix_t destination;
 	const char *prefix_text = ipv4_prefix_str ? ipv4_prefix_str : ipv6_prefix_str;
-	eigrp_address_family_t address_family;
+	eigrp_afi_t address_family;
 
-	address_family = strcmp(afi, "ipv6") == 0 ? EIGRP_ADDRESS_FAMILY_IPV6
-						 : EIGRP_ADDRESS_FAMILY_IPV4;
+	address_family = strcmp(afi, "ipv6") == 0 ? EIGRP_AFI_IPV6
+						 : EIGRP_AFI_IPV4;
 	if (!prefix_text
 	    || !eigrp_vty_destination_parse(prefix_text, address_family,
 					    &destination)) {
@@ -5115,7 +5125,7 @@ DEFPY(clear_eigrp_topology_mask,
 		vty_out(vty, "%% Dotted network masks are valid only for IPv4\n");
 		return CMD_WARNING;
 	}
-	if (!eigrp_vty_destination_parse(network_str, EIGRP_ADDRESS_FAMILY_IPV4,
+	if (!eigrp_vty_destination_parse(network_str, EIGRP_AFI_IPV4,
 					 &destination)
 	    || !eigrp_vty_ipv4_mask_prefix_length(mask_str, &prefix_length)) {
 		vty_out(vty, "%% Invalid IPv4 prefix or network mask\n");
@@ -5127,7 +5137,7 @@ DEFPY(clear_eigrp_topology_mask,
 }
 
 static void clear_eigrp_neighbor_render(
-	const eigrp_neighbor_clear_state_t *state, void *arg)
+	const eigrp_nbr_clear_state_t *state, void *arg)
 {
 	struct vty *vty = arg;
 	char address[INET6_ADDRSTRLEN];
@@ -5160,13 +5170,13 @@ static void clear_eigrp_neighbor_result_apply(
 static void clear_eigrp_neighbor_apply(struct vty *vty,
 				       eigrp_instance_t *eigrp,
 				       struct eigrp_vty_walk_context *ctx,
-				       const eigrp_neighbor_clear_request_t *request,
+				       const eigrp_nbr_clear_request_t *request,
 				       bool soft_scope_matches)
 {
 	eigrp_result_t result;
 	size_t affected = 0;
 
-	result = eigrp_neighbor_clear(eigrp, request, clear_eigrp_neighbor_render,
+	result = eigrp_nbr_clear(eigrp, request, clear_eigrp_neighbor_render,
 				      vty, &affected);
 	clear_eigrp_neighbor_result_apply(ctx, result, affected,
 					  soft_scope_matches);
@@ -5175,7 +5185,7 @@ static void clear_eigrp_neighbor_apply(struct vty *vty,
 static void clear_eigrp_neighbor_all_cb(struct vty *vty, eigrp_instance_t *eigrp,
 					struct eigrp_vty_walk_context *ctx)
 {
-	const eigrp_neighbor_clear_request_t request = {
+	const eigrp_nbr_clear_request_t request = {
 		.soft = ctx->soft,
 	};
 
@@ -5186,7 +5196,7 @@ static void clear_eigrp_neighbor_interface_cb(struct vty *vty,
 					      eigrp_instance_t *eigrp,
 					      struct eigrp_vty_walk_context *ctx)
 {
-	eigrp_neighbor_clear_request_t request = {
+	eigrp_nbr_clear_request_t request = {
 		.interface_name = ctx->ifname,
 		.soft = ctx->soft,
 	};
@@ -5211,7 +5221,7 @@ static void clear_eigrp_neighbor_address_cb(struct vty *vty,
  * Syntax: `clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors [soft]$soft`
  * Mode: Privileged EXEC
  * XPath: none; operational action
- * Target: eigrp_neighbor_clear()
+ * Target: eigrp_nbr_clear()
  */
 DEFPY(clear_eigrp_neighbor,
       clear_eigrp_neighbor_cmd,
@@ -5247,7 +5257,7 @@ DEFPY(clear_eigrp_neighbor,
  * Syntax: `clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors IFNAME$ifname [soft]$soft`
  * Mode: Privileged EXEC
  * XPath: none; operational action
- * Target: eigrp_neighbor_clear()
+ * Target: eigrp_nbr_clear()
  */
 DEFPY(clear_eigrp_neighbor_interface,
       clear_eigrp_neighbor_interface_cmd,
@@ -5285,7 +5295,7 @@ DEFPY(clear_eigrp_neighbor_interface,
  * Syntax: `clear eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors <A.B.C.D$ipv4_addr|X:X::X:X$ipv6_addr> [soft]$soft`
  * Mode: Privileged EXEC
  * XPath: none; operational action
- * Target: eigrp_neighbor_clear()
+ * Target: eigrp_nbr_clear()
  */
 DEFPY(clear_eigrp_neighbor_address,
       clear_eigrp_neighbor_address_cmd,
@@ -5302,7 +5312,7 @@ DEFPY(clear_eigrp_neighbor_address,
       "IPv6 EIGRP neighbor address\n"
       "Resync with peers without adjacency reset\n")
 {
-	eigrp_address_family_t address_afi;
+	eigrp_afi_t address_afi;
 	const char *address_text;
 	struct eigrp_vty_walk_context ctx = {0};
 	int rv;
@@ -5313,7 +5323,7 @@ DEFPY(clear_eigrp_neighbor_address,
 				"%% IPv6 EIGRP requires an IPv6 neighbor address\n");
 			return CMD_WARNING;
 		}
-		address_afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		address_afi = EIGRP_AFI_IPV6;
 		address_text = ipv6_addr_str;
 		ctx.ipv6_address = &ipv6_addr;
 	} else {
@@ -5322,7 +5332,7 @@ DEFPY(clear_eigrp_neighbor_address,
 				"%% IPv4 EIGRP requires an IPv4 neighbor address\n");
 			return CMD_WARNING;
 		}
-		address_afi = EIGRP_ADDRESS_FAMILY_IPV4;
+		address_afi = EIGRP_AFI_IPV4;
 		address_text = ipv4_addr_str;
 		ctx.ipv4_address = &ipv4_addr;
 	}
@@ -5392,10 +5402,10 @@ DEFUN(clear_eigrp_events,
       CLEAR_STR EIGRP_STR "Clear EIGRP event log\n")
 {
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node, *nnode;
+	eigrp_list_item_t *node, *nnode;
 	eigrp_instance_context_t context;
 
-	for (EIGRP_LIST_ELEMENTS(eigrp_om->eigrp, node, nnode, eigrp)) {
+	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
 		memset(&context, 0, sizeof(context));
 		context.runtime = eigrp;
 		context.topology_id = EIGRP_TOPOLOGY_ID_BASE;
@@ -5415,10 +5425,14 @@ void eigrp_cli_named_init(void)
     install_element(ENABLE_NODE, &clear_eigrp_events_cmd);
     install_element(ENABLE_NODE, &clear_eigrp_address_family_events_cmd);
 
-    install_element(EIGRP_NODE, &eigrp_address_family_ipv4_cmd);
-    install_element(EIGRP_NODE, &no_eigrp_address_family_ipv4_cmd);
-    install_element(EIGRP_NODE, &eigrp_address_family_ipv6_cmd);
-    install_element(EIGRP_NODE, &no_eigrp_address_family_ipv6_cmd);
+    if (eigrp_afi_supported(EIGRP_AFI_IPV4)) {
+        install_element(EIGRP_NODE, &eigrp_address_family_ipv4_cmd);
+        install_element(EIGRP_NODE, &no_eigrp_address_family_ipv4_cmd);
+    }
+    if (eigrp_afi_supported(EIGRP_AFI_IPV6)) {
+        install_element(EIGRP_NODE, &eigrp_address_family_ipv6_cmd);
+        install_element(EIGRP_NODE, &no_eigrp_address_family_ipv6_cmd);
+    }
     install_element(EIGRP_NODE, &eigrp_exit_address_family_cmd);
     install_element(EIGRP_NODE, &eigrp_no_shutdown_cmd);
     install_element(EIGRP_NODE, &eigrp_shutdown_cmd);

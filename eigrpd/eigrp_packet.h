@@ -44,46 +44,46 @@ extern void eigrp_packet_read(void *arg);
 extern void eigrp_packet_write(void *arg);
 extern void eigrp_packet_write_schedule(eigrp_instance_t *eigrp);
 
-extern eigrp_packet_t *eigrp_packet_new(size_t, eigrp_neighbor_t *);
-extern eigrp_packet_t *eigrp_packet_duplicate(eigrp_packet_t *,
-					      eigrp_neighbor_t *);
+extern eigrp_packet_t *eigrp_packet_create(size_t, eigrp_nbr_t *);
+extern eigrp_packet_t *eigrp_packet_dup(eigrp_packet_t *,
+					      eigrp_nbr_t *);
 extern void eigrp_packet_free(eigrp_packet_t *);
-extern void eigrp_packet_delete(eigrp_interface_t *);
+extern void eigrp_packet_delete(eigrp_intf_t *);
 extern uint32_t eigrp_packet_sequence_reserve(eigrp_instance_t *);
 extern void eigrp_packet_header_init(int, eigrp_instance_t *, eigrp_stream_t *,
 				     uint32_t, uint32_t, uint32_t);
-extern void eigrp_packet_checksum(eigrp_interface_t *, eigrp_stream_t *,
+extern void eigrp_packet_checksum(eigrp_intf_t *, eigrp_stream_t *,
 				  uint16_t);
 
-extern eigrp_packet_queue_t *eigrp_packet_queue_new(void);
+extern eigrp_packet_queue_t *eigrp_packet_queue_create(void);
 extern eigrp_packet_t *eigrp_packet_queue_next(eigrp_packet_queue_t *);
 extern eigrp_packet_t *eigrp_packet_dequeue(eigrp_packet_queue_t *);
 extern void eigrp_packet_enqueue(eigrp_packet_queue_t *, eigrp_packet_t *);
 extern void eigrp_packet_queue_free(eigrp_packet_queue_t *);
-extern void eigrp_packet_queue_reset(eigrp_packet_queue_t *);
+extern void eigrp_packet_queue_clear(eigrp_packet_queue_t *);
 
-extern void eigrp_packet_output_enqueue(eigrp_instance_t *, eigrp_interface_t *,
+extern void eigrp_packet_output_enqueue(eigrp_instance_t *, eigrp_intf_t *,
 				       eigrp_packet_t *);
 extern bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *,
-						     eigrp_interface_t *,
+						     eigrp_intf_t *,
 						     eigrp_packet_t *);
-extern void eigrp_packet_retransmit_timer_start(eigrp_neighbor_t *);
-extern void eigrp_packet_send_reliably(eigrp_instance_t *, eigrp_neighbor_t *);
+extern void eigrp_packet_retransmit_timer_start(eigrp_nbr_t *);
+extern void eigrp_packet_send_reliably(eigrp_instance_t *, eigrp_nbr_t *);
 
 extern void eigrp_packet_unack_retrans(void *arg);
 
 extern eigrp_route_descriptor_t *eigrp_packet_decoder_safe(
-	eigrp_instance_t *, eigrp_neighbor_t *, eigrp_stream_t *, uint16_t);
+	eigrp_instance_t *, eigrp_nbr_t *, eigrp_stream_t *, uint16_t);
 extern uint16_t eigrp_packet_encoder_safe(eigrp_instance_t *,
-					 eigrp_interface_t *, eigrp_neighbor_t *,
+					 eigrp_intf_t *, eigrp_nbr_t *,
 					 eigrp_stream_t *,
 					 eigrp_route_descriptor_t *);
 extern uint16_t eigrp_packet_encoder_both(eigrp_instance_t *,
-					 eigrp_interface_t *, eigrp_neighbor_t *,
+					 eigrp_intf_t *, eigrp_nbr_t *,
 					 eigrp_stream_t *,
 					 eigrp_route_descriptor_t *);
 extern int eigrp_packet_route_encode_append(eigrp_instance_t *,
-					 eigrp_interface_t *, eigrp_neighbor_t *,
+					 eigrp_intf_t *, eigrp_nbr_t *,
 					 eigrp_packet_encoder_t, eigrp_stream_t *,
 					 eigrp_route_descriptor_t *, uint16_t);
 
@@ -92,35 +92,35 @@ extern int eigrp_packet_route_encode_append(eigrp_instance_t *,
  * eigrp_hello.c
  */
 extern void eigrp_sw_version_init(void);
-extern void eigrp_hello_send(eigrp_interface_t *, uint8_t, eigrp_addr_t *);
-extern void eigrp_hello_send_unicast(eigrp_interface_t *, const eigrp_addr_t *);
-extern void eigrp_hello_send_ack(eigrp_neighbor_t *);
-extern void eigrp_hello_send_sequence(eigrp_interface_t *, uint32_t);
+extern void eigrp_hello_send(eigrp_intf_t *, uint8_t, eigrp_addr_t *);
+extern void eigrp_hello_send_unicast(eigrp_intf_t *, const eigrp_addr_t *);
+extern void eigrp_hello_send_ack(eigrp_nbr_t *);
+extern void eigrp_hello_send_sequence(eigrp_intf_t *, uint32_t);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
-			 eigrp_addr_t *, eigrp_interface_t *,
+			 eigrp_addr_t *, eigrp_intf_t *,
 			 eigrp_stream_t *, int);
 extern void eigrp_hello_timer(void *arg);
 
 /*
  * These externs are found in eigrp_update.c
  */
-extern void eigrp_update_receive(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_update_receive(eigrp_instance_t *, eigrp_nbr_t *,
 				 eigrp_header_t *, eigrp_stream_t *,
-				 eigrp_interface_t *, int);
-extern void eigrp_update_send_all(eigrp_instance_t *, eigrp_interface_t *);
-extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_neighbor_t *);
-extern void eigrp_update_send_EOT(eigrp_neighbor_t *);
+				 eigrp_intf_t *, int);
+extern void eigrp_update_send_all(eigrp_instance_t *, eigrp_intf_t *);
+extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_nbr_t *);
+extern void eigrp_update_send_EOT(eigrp_nbr_t *);
 extern void eigrp_update_send_GR_event(void *arg);
-extern void eigrp_update_send_GR(eigrp_neighbor_t *, enum GR_type);
-extern void eigrp_update_send_interface_GR(eigrp_interface_t *, enum GR_type);
+extern void eigrp_update_send_GR(eigrp_nbr_t *, enum GR_type);
+extern void eigrp_update_intf_gr_send(eigrp_intf_t *, enum GR_type);
 extern void eigrp_update_send_process_GR(eigrp_instance_t *, enum GR_type);
 
 /*
  * These externs are found in eigrp_query.c
  */
-extern void eigrp_query_receive(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_query_receive(eigrp_instance_t *, eigrp_nbr_t *,
 				eigrp_header_t *, eigrp_stream_t *,
-				eigrp_interface_t *, int);
+				eigrp_intf_t *, int);
 extern uint32_t eigrp_query_send_all(eigrp_instance_t *);
 extern void eigrp_query_send_route(eigrp_instance_t *,
 				  eigrp_prefix_descriptor_t *,
@@ -129,37 +129,37 @@ extern void eigrp_query_send_route(eigrp_instance_t *,
 /*
  * These externs are found in eigrp_reply.c
  */
-extern void eigrp_reply_send(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_reply_send(eigrp_instance_t *, eigrp_nbr_t *,
 			     eigrp_prefix_descriptor_t *);
-extern void eigrp_reply_send_route(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_reply_send_route(eigrp_instance_t *, eigrp_nbr_t *,
 				   eigrp_prefix_descriptor_t *,
 				   eigrp_route_descriptor_t *, uint32_t);
-extern void eigrp_reply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_reply_receive(eigrp_instance_t *, eigrp_nbr_t *,
 				eigrp_header_t *, eigrp_stream_t *,
-				eigrp_interface_t *, int);
+				eigrp_intf_t *, int);
 
 /*
  * These externs are found in eigrp_siaquery.c
  */
-extern void eigrp_siaquery_send(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_siaquery_send(eigrp_instance_t *, eigrp_nbr_t *,
 				eigrp_prefix_descriptor_t *);
-extern void eigrp_siaquery_receive(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_siaquery_receive(eigrp_instance_t *, eigrp_nbr_t *,
 				   eigrp_header_t *, eigrp_stream_t *,
-				   eigrp_interface_t *, int);
+				   eigrp_intf_t *, int);
 
 /*
  * These externs are found in eigrp_siareply.c
  */
-extern void eigrp_siareply_send(eigrp_instance_t *, eigrp_neighbor_t *,
-				eigrp_prefix_descriptor_t *);
-extern void eigrp_siareply_receive(eigrp_instance_t *, eigrp_neighbor_t *,
+extern void eigrp_siareply_send(eigrp_instance_t *, eigrp_nbr_t *,
+				eigrp_prefix_descriptor_t *, bool active);
+extern void eigrp_siareply_receive(eigrp_instance_t *, eigrp_nbr_t *,
 				   eigrp_header_t *, eigrp_stream_t *,
-				   eigrp_interface_t *, int);
+				   eigrp_intf_t *, int);
 
 /*
  * These externs need to cleaned up
  */
-extern struct TLV_Sequence_Type *eigrp_SequenceTLV_new(void);
+extern struct TLV_Sequence_Type *eigrp_sequence_tlv_create(void);
 
 extern const eigrp_message_t eigrp_packet_type_str[];
 extern const size_t eigrp_packet_type_str_max;

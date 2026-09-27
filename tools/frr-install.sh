@@ -93,6 +93,35 @@ infer_frr_root() {
 	return 1
 }
 
+eigrp_release_tag() {
+	local tag
+
+	command -v git >/dev/null 2>&1 || return 1
+	git -C "$eigrp_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+		|| return 1
+	tag="$(git -C "$eigrp_root" describe --tags --exact-match \
+		--match 'alpha[0-9]*' HEAD 2>/dev/null)" || return 1
+	[[ -n "$tag" ]] || return 1
+	printf '%s\n' "$tag"
+}
+
+inject_eigrp_release() {
+	local stage="$1"
+	local header="$stage/eigrp_features.h"
+	local release
+
+	[[ -f "$header" ]] || fail "staged feature header not found: $header"
+	if ! release="$(eigrp_release_tag)"; then
+		echo "warning: EIGRP checkout is not on an alpha tag; using development release label" >&2
+		return 0
+	fi
+
+	sed -i \
+		-e 's/^#define EIGRP_RELEASE ".*"/#define EIGRP_RELEASE "'"$release"'"/' \
+		"$header"
+	echo "release: $release"
+}
+
 rsync_project_tree() {
 	local src="$1"
 	local dst="$2"
@@ -126,6 +155,7 @@ assemble_eigrpd_tree() {
 
 	# Common source establishes the base daemon tree.
 	rsync_project_tree "$common_src" "$stage"
+	inject_eigrp_release "$stage"
 
 	# FRR-specific daemon files overlay the common tree.  frr/patch and
 	# frr/test are integration payloads and are never copied into eigrpd/.

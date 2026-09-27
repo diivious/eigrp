@@ -51,6 +51,10 @@
 #define EIGRP_MAX_PATHS_DEFAULT 4
 #define EIGRP_MAX_PATHS_MAX 32
 
+/* Default administrative distances for EIGRP routes. */
+#define EIGRP_DISTANCE_INTERNAL_DEFAULT 90
+#define EIGRP_DISTANCE_EXTERNAL_DEFAULT 170
+
 /* Return values of functions involved in packet verification */
 #define MSG_OK 0
 #define MSG_NG 1

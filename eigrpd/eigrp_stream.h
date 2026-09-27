@@ -17,9 +17,9 @@ typedef struct eigrp_stream {
 	size_t endp;
 } eigrp_stream_t;
 
-eigrp_stream_t *eigrp_stream_new(size_t size);
+eigrp_stream_t *eigrp_stream_create(size_t size);
 void eigrp_stream_free(eigrp_stream_t *stream);
-void eigrp_stream_reset(eigrp_stream_t *stream);
+void eigrp_stream_clear(eigrp_stream_t *stream);
 void eigrp_stream_copy(eigrp_stream_t *dst, const eigrp_stream_t *src);
 size_t eigrp_stream_get(void *dst, eigrp_stream_t *stream, size_t size);
 uint8_t eigrp_stream_getc(eigrp_stream_t *stream);

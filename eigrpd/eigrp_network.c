@@ -37,22 +37,22 @@ typedef enum eigrp_network_operation {
 	EIGRP_NETWORK_OPERATION_DELETE,
 } eigrp_network_operation_t;
 
-static bool eigrp_network_address_equal(const eigrp_address_t *a,
+static bool eigrp_network_address_match(const eigrp_address_t *a,
 					const eigrp_address_t *b)
 {
 	return a && b && a->afi == b->afi
 	       && memcmp(a->bytes, b->bytes, sizeof(a->bytes)) == 0;
 }
 
-static bool eigrp_network_prefix_equal(const eigrp_prefix_t *a,
+static bool eigrp_network_prefix_match(const eigrp_prefix_t *a,
 				       const eigrp_prefix_t *b)
 {
 	return a && b && a->prefix_length == b->prefix_length
-	       && eigrp_network_address_equal(&a->address, &b->address);
+	       && eigrp_network_address_match(&a->address, &b->address);
 }
 
 static eigrp_result_t eigrp_network_config_create(
-	eigrp_address_family_config_t *af, const eigrp_prefix_t *prefix,
+	eigrp_af_instance_t *af, const eigrp_prefix_t *prefix,
 	bool *changed)
 {
 	eigrp_network_config_t *network;
@@ -63,7 +63,7 @@ static eigrp_result_t eigrp_network_config_create(
 		return EIGRP_RESULT_NOT_FOUND;
 
 	for (network = af->networks; network; network = network->next) {
-		if (!eigrp_network_prefix_equal(&network->prefix, prefix))
+		if (!eigrp_network_prefix_match(&network->prefix, prefix))
 			continue;
 		return EIGRP_RESULT_SUCCESS;
 	}
@@ -80,7 +80,7 @@ static eigrp_result_t eigrp_network_config_create(
 }
 
 static eigrp_result_t eigrp_network_config_delete(
-	eigrp_address_family_config_t *af, const eigrp_prefix_t *prefix,
+	eigrp_af_instance_t *af, const eigrp_prefix_t *prefix,
 	bool *changed)
 {
 	eigrp_network_config_t **cursor;
@@ -93,7 +93,7 @@ static eigrp_result_t eigrp_network_config_delete(
 
 	for (cursor = &af->networks; *cursor; cursor = &(*cursor)->next) {
 		network = *cursor;
-		if (!eigrp_network_prefix_equal(&network->prefix, prefix))
+		if (!eigrp_network_prefix_match(&network->prefix, prefix))
 			continue;
 		*cursor = network->next;
 		free(network);
@@ -104,7 +104,7 @@ static eigrp_result_t eigrp_network_config_delete(
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
-void eigrp_network_config_delete_all(eigrp_address_family_config_t *af)
+void eigrp_network_config_delete_all(eigrp_af_instance_t *af)
 {
 	eigrp_network_config_t *network;
 	eigrp_network_config_t *next;
@@ -123,10 +123,19 @@ static bool eigrp_network_runtime_matches(
 {
 	const struct eigrp_network_runtime *network;
 
-	if (!eigrp || !connected
-	    || eigrp->af_vectors.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || connected->address.afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    || !eigrp_prefix_valid(connected))
+	if (!eigrp || !connected || !eigrp_prefix_valid(connected))
+		return false;
+
+	if (eigrp->af_vectors.afi == EIGRP_AFI_IPV6) {
+		struct in6_addr address;
+
+		if (connected->address.afi != EIGRP_AFI_IPV6)
+			return false;
+		memcpy(&address, connected->address.bytes, sizeof(address));
+		return IN6_IS_ADDR_LINKLOCAL(&address);
+	}
+	if (eigrp->af_vectors.afi != EIGRP_AFI_IPV4
+	    || connected->address.afi != EIGRP_AFI_IPV4)
 		return false;
 
 	for (network = eigrp->networks; network; network = network->next) {
@@ -149,7 +158,7 @@ eigrp_result_t eigrp_network_runtime_exists(
 		return EIGRP_RESULT_NOT_FOUND;
 
 	for (network = eigrp->networks; network; network = network->next) {
-		if (!eigrp_network_prefix_equal(&network->prefix, prefix))
+		if (!eigrp_network_prefix_match(&network->prefix, prefix))
 			continue;
 		*exists = true;
 		break;
@@ -183,7 +192,7 @@ static eigrp_result_t eigrp_network_runtime_create(
 	if (eigrp->router_id.s_addr == INADDR_ANY)
 		eigrp_router_id_update(eigrp);
 	else
-		eigrp_network_interfaces_refresh(eigrp);
+		eigrp_network_intfs_update(eigrp);
 
 	if (changed)
 		*changed = true;
@@ -195,9 +204,9 @@ static eigrp_result_t eigrp_network_runtime_delete(
 {
 	struct eigrp_network_runtime **cursor;
 	struct eigrp_network_runtime *network;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
-	eigrp_list_node_t *next;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
+	eigrp_list_item_t *next;
 	bool found = false;
 
 	if (changed)
@@ -209,7 +218,7 @@ static eigrp_result_t eigrp_network_runtime_delete(
 
 	for (cursor = &eigrp->networks; *cursor; cursor = &(*cursor)->next) {
 		network = *cursor;
-		if (!eigrp_network_prefix_equal(&network->prefix, prefix))
+		if (!eigrp_network_prefix_match(&network->prefix, prefix))
 			continue;
 		*cursor = network->next;
 		free(network);
@@ -219,7 +228,7 @@ static eigrp_result_t eigrp_network_runtime_delete(
 	if (!found)
 		return EIGRP_RESULT_NOT_FOUND;
 
-	for (EIGRP_LIST_ELEMENTS(eigrp->eiflist, node, next, ei)) {
+	for (EIGRP_LIST_ITERATE(eigrp->eiflist, node, next, ei)) {
 		if (!eigrp_network_runtime_matches(eigrp, &ei->address))
 			eigrp_intf_free(eigrp, ei, EIGRP_INTERFACE_REMOVE_CONFIG);
 	}
@@ -243,8 +252,8 @@ void eigrp_network_runtime_delete_all(eigrp_instance_t *eigrp)
 	eigrp->networks = NULL;
 }
 
-static void eigrp_network_interface_walk_refresh(
-	const eigrp_interface_runtime_state_t *state, void *arg)
+static void eigrp_network_intf_update(
+	const eigrp_intf_runtime_state_t *state, void *arg)
 {
 	eigrp_instance_t *eigrp = arg;
 
@@ -252,34 +261,34 @@ static void eigrp_network_interface_walk_refresh(
 	    || eigrp->router_id.s_addr == INADDR_ANY
 	    || !eigrp_network_runtime_matches(eigrp, &state->address))
 		return;
-	(void)eigrp_interface_runtime_refresh(eigrp, state);
+	(void)eigrp_intf_runtime_update(EIGRP_SET, eigrp, state, NULL);
 }
 
-void eigrp_network_interfaces_refresh(eigrp_instance_t *eigrp)
+void eigrp_network_intfs_update(eigrp_instance_t *eigrp)
 {
 	if (!eigrp || !eigrp->data_path_ready
 	    || eigrp->router_id.s_addr == INADDR_ANY)
 		return;
 	(void)eigrp_sys_interface_walk(
-		eigrp, eigrp_network_interface_walk_refresh, eigrp);
+		eigrp, eigrp_network_intf_update, eigrp);
 }
 
-void eigrp_sys_interface_state_apply(
-	eigrp_vrf_id_t vrf_id, const eigrp_interface_runtime_state_t *state)
+void eigrp_sys_interface_state_update(
+	eigrp_vrf_id_t vrf_id, const eigrp_intf_runtime_state_t *state)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_list_node_t *node;
+	eigrp_list_item_t *node;
 
 	if (!state || state->secondary || !eigrp_prefix_valid(&state->address)
 	    || !eigrp_om)
 		return;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, eigrp)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
 		if (eigrp->vrf_id != vrf_id || !eigrp->data_path_ready
 		    || eigrp->router_id.s_addr == INADDR_ANY
 		    || !eigrp_network_runtime_matches(eigrp, &state->address))
 			continue;
-		(void)eigrp_interface_runtime_refresh(eigrp, state);
+		(void)eigrp_intf_runtime_update(EIGRP_SET, eigrp, state, NULL);
 	}
 }
 
@@ -291,7 +300,7 @@ static eigrp_result_t eigrp_network_process(eigrp_instance_context_t *context,
 static eigrp_result_t eigrp_network_validate(eigrp_instance_context_t *context,
 					      const eigrp_prefix_t *prefix)
 {
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 
 	if (!prefix)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -306,7 +315,7 @@ static eigrp_result_t eigrp_network_validate(eigrp_instance_context_t *context,
 	/* `network` is an IPv4 configuration feature.  Prefix matching itself is
 	 * generic and lives in eigrp_prefix.c rather than in the AF vectors.
 	 */
-	if (afi != EIGRP_ADDRESS_FAMILY_IPV4)
+	if (afi != EIGRP_AFI_IPV4)
 		return EIGRP_RESULT_UNSUPPORTED;
 
 	return EIGRP_RESULT_SUCCESS;

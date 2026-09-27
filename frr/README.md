@@ -36,13 +36,13 @@ FRR YANG + VTY parser          frr/eigrp_cli_named.c
         |                      frr/eigrp_cli_classic.c
         |                      frr/patch YANG schema
         v
-northbound adapter             frr/eigrp_northbound.c
+northbound adapter             frr/eigrp_northbound.c + AF-specific modules
         |
         | eigrp_cli.h
         v
 portable core                  eigrpd/
         |
-        +-- eigrp_sys.h -----> southbound     frr/eigrp_southbound.c
+        +-- eigrp_sys.h -----> southbound     frr/eigrp_southbound*.c
         |                      sockets, timers, multicast, IPv4 I/O
         |
         +-- eigrp_rib.h -----> zebra adapter  frr/eigrp_zebra.c
@@ -53,12 +53,12 @@ portable core                  eigrpd/
 flowchart TB
   yang["FRR YANG / vtysh / named CLI"]
   classic["classic CLI"]
-  nb["eigrp_northbound.c"]
+  nb["eigrp_northbound.c + AF modules"]
   cli["eigrp_cli.h"]
   core["eigrpd/ core"]
   sys["eigrp_sys.h"]
   rib["eigrp_rib.h"]
-  sb["eigrp_southbound.c"]
+  sb["eigrp_southbound*.c"]
   zebra["eigrp_zebra.c"]
   frrsys["FRR event loop, sockets, interfaces"]
   frrrib["Zebra RIB"]
@@ -112,13 +112,13 @@ route TLVs.
 kernel / socket
    |  IPv4 proto 88
    v
-eigrp_southbound.c          eigrp_sys_ipv4_packet_receive
+eigrp_southbound_ipv4.c     eigrp_sys_ipv4_packet_receive
    |
    v
 eigrpd packet / RTP / DUAL
    |
    v
-eigrp_southbound.c          eigrp_sys_ipv4_packet_send
+eigrp_southbound_ipv4.c     eigrp_sys_ipv4_packet_send
    |
    v
 kernel / socket
@@ -128,10 +128,10 @@ kernel / socket
 
 | File | Job | Public header it should sit on |
 |---|---|---|
-| `eigrp_southbound.c` | timers, events, sockets, multicast, IPv4 packet I/O, interface facts | `eigrp_sys.h` |
+| `eigrp_southbound.c`, `eigrp_southbound_ipv4.c`, `eigrp_southbound_ipv6.c` | common host services plus AF-specific socket, multicast, and packet I/O | `eigrp_sys.h` |
 | `eigrp_zebra.c` | route install/remove and redistribution feed | `eigrp_rib.h` |
 | `eigrp_frr.c` / `eigrp_frr.h` | convert FRR `prefix` / `interface` objects into EIGRP values | `eigrp.h`, `eigrp_sys.h` |
-| `eigrp_northbound.c` | committed FRR config to semantic EIGRP targets | `eigrp_cli.h` |
+| `eigrp_northbound.c`, `eigrp_northbound_ipv4.c`, `eigrp_northbound_ipv6.c` | common and AF-specific committed FRR config to semantic EIGRP targets | `eigrp_cli.h` |
 | `eigrp_cli_named.c` | named-mode CLI front end | host parser only, then `eigrp_cli.h` |
 | `eigrp_cli_classic.c` | classic CLI front end | host parser only, then `eigrp_cli.h` |
 | `eigrp_vty.c` / `eigrp_dump.c` | show and operational output | `eigrp_mgnt.h` |

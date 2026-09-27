@@ -12,6 +12,7 @@
 #include "eigrpd/eigrpd.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_instance.h"
+#include "eigrpd/eigrp_features.h"
 #include "eigrpd/eigrp_interface.h"
 #include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
@@ -28,7 +29,7 @@
 
 static eigrp_instance_parent_config_t *eigrp_instance_parents;
 
-static char *eigrp_instance_string_duplicate(const char *value)
+static char *eigrp_instance_string_dup(const char *value)
 {
 	size_t len;
 	char *copy;
@@ -44,14 +45,14 @@ static char *eigrp_instance_string_duplicate(const char *value)
 	return copy;
 }
 
-static bool eigrp_instance_afi_valid(eigrp_address_family_t afi)
+static bool eigrp_instance_afi_valid(eigrp_afi_t afi)
 {
-	return afi == EIGRP_ADDRESS_FAMILY_IPV4
-	       || afi == EIGRP_ADDRESS_FAMILY_IPV6;
+	return afi == EIGRP_AFI_IPV4
+	       || afi == EIGRP_AFI_IPV6;
 }
 
-static eigrp_result_t eigrp_instance_address_family_runtime_create(
-	const char *name, eigrp_address_family_config_t *af)
+static eigrp_result_t eigrp_af_instance_runtime_create(
+	const char *name, eigrp_af_instance_t *af)
 {
 	eigrp_instance_t *runtime;
 	eigrp_vrf_id_t vrf_id;
@@ -72,10 +73,10 @@ static eigrp_result_t eigrp_instance_address_family_runtime_create(
 		if (!runtime->name || strcmp(runtime->name, name) != 0)
 			return EIGRP_RESULT_CONFLICT;
 	} else {
-		runtime = eigrp_get_by_af(af->afi, af->asn, vrf_id, true);
+		runtime = eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id, true);
 		if (!runtime)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
-		eigrp_name_set(runtime, name);
+		eigrp_name_update(EIGRP_SET, runtime, name);
 	}
 
 	/* Runtime gets the same immutable AF dispatch selected by configuration. */
@@ -84,8 +85,8 @@ static eigrp_result_t eigrp_instance_address_family_runtime_create(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static eigrp_result_t eigrp_instance_address_family_runtime_delete(
-	const char *name, eigrp_address_family_config_t *af)
+static eigrp_result_t eigrp_af_instance_runtime_delete(
+	const char *name, eigrp_af_instance_t *af)
 {
 	if (!name || !af)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -94,7 +95,7 @@ static eigrp_result_t eigrp_instance_address_family_runtime_delete(
 	if (!af->runtime->name || strcmp(af->runtime->name, name) != 0)
 		return EIGRP_RESULT_CONFLICT;
 
-	eigrp_finish_final(af->runtime);
+	eigrp_instance_delete_final(af->runtime);
 	af->runtime = NULL;
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -129,7 +130,7 @@ eigrp_result_t eigrp_instance_classic_create(
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 
-	*runtime = eigrp_get(asn, vrf_id);
+	*runtime = eigrp_instance_lookup_or_create(asn, vrf_id);
 	return *runtime ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_INTERNAL_FAILURE;
 }
 
@@ -147,7 +148,7 @@ eigrp_result_t eigrp_instance_classic_delete(eigrp_instance_t *runtime)
 		return EIGRP_RESULT_NOT_FOUND;
 	if (runtime->name)
 		return EIGRP_RESULT_CONFLICT;
-	eigrp_finish_final(runtime);
+	eigrp_instance_delete_final(runtime);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -187,7 +188,7 @@ eigrp_result_t eigrp_instance_parent_create(const char *name)
 	parent = calloc(1, sizeof(*parent));
 	if (!parent)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	parent->name = eigrp_instance_string_duplicate(name);
+	parent->name = eigrp_instance_string_dup(name);
 	if (!parent->name) {
 		free(parent);
 		return EIGRP_RESULT_INTERNAL_FAILURE;
@@ -197,12 +198,12 @@ eigrp_result_t eigrp_instance_parent_create(const char *name)
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_address_family_config_t *eigrp_instance_address_family_read(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+eigrp_af_instance_t *eigrp_af_instance_read(
+	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn)
 {
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t *af;
+	eigrp_af_instance_t *af;
 
 	parent = eigrp_instance_parent_read(name);
 	if (!parent || !vrf_name)
@@ -226,18 +227,20 @@ eigrp_address_family_config_t *eigrp_instance_address_family_read(
  * Creates or removes one named EIGRP address-family and its EIGRP-owned runtime context.
  * IPv4 and IPv6 retain separate AF state while sharing the named parent.
  */
-eigrp_result_t eigrp_instance_address_family_create(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+eigrp_result_t eigrp_af_instance_create(
+	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn)
 {
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t *af;
+	eigrp_af_instance_t *af;
 	eigrp_result_t result;
 	bool parent_created = false;
 
 	if (!name || !name[0] || !vrf_name || !vrf_name[0] || asn == 0
 	    || !eigrp_instance_afi_valid(afi))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_afi_supported(afi))
+		return EIGRP_RESULT_UNSUPPORTED;
 
 	parent = eigrp_instance_parent_read(name);
 	if (!parent) {
@@ -246,7 +249,7 @@ eigrp_result_t eigrp_instance_address_family_create(
 			return result;
 		parent_created = true;
 	}
-	if (eigrp_instance_address_family_read(name, afi, vrf_name, asn))
+	if (eigrp_af_instance_read(name, afi, vrf_name, asn))
 		return EIGRP_RESULT_SUCCESS;
 
 	parent = eigrp_instance_parent_read(name);
@@ -262,7 +265,7 @@ eigrp_result_t eigrp_instance_address_family_create(
 			(void)eigrp_instance_parent_delete(name);
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 	}
-	af->vrf_name = eigrp_instance_string_duplicate(vrf_name);
+	af->vrf_name = eigrp_instance_string_dup(vrf_name);
 	if (!af->vrf_name) {
 		free(af);
 		if (parent_created)
@@ -274,15 +277,15 @@ eigrp_result_t eigrp_instance_address_family_create(
 
 	/* Bind AF behavior once; common feature code calls through this vector. */
 	switch (afi) {
-	case EIGRP_ADDRESS_FAMILY_IPV4:
+	case EIGRP_AFI_IPV4:
 		eigrp_ipv4_init(&af->af_vectors);
 		break;
-	case EIGRP_ADDRESS_FAMILY_IPV6:
+	case EIGRP_AFI_IPV6:
 		eigrp_ipv6_init(&af->af_vectors);
 		break;
 	}
 
-	result = eigrp_instance_address_family_runtime_create(name, af);
+	result = eigrp_af_instance_runtime_create(name, af);
 	if (result != EIGRP_RESULT_SUCCESS) {
 		free(af->vrf_name);
 		free(af);
@@ -295,22 +298,22 @@ eigrp_result_t eigrp_instance_address_family_create(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static void eigrp_instance_address_family_free(eigrp_address_family_config_t *af)
+static void eigrp_af_instance_free(eigrp_af_instance_t *af)
 {
 	if (!af)
 		return;
 
 	eigrp_network_config_delete_all(af);
-	eigrp_neighbor_static_delete_all(af);
-	eigrp_interface_config_delete_all(af);
-	eigrp_redistribute_config_delete_all(af);
-	eigrp_redistribute_policy_delete_all(af);
+	eigrp_nbr_static_delete_all(af);
+	eigrp_intf_config_delete_all(af);
+	eigrp_redist_config_delete_all(af);
+	eigrp_redist_policy_delete_all(af);
 	eigrp_distribute_list_config_delete_all(af);
 	eigrp_offset_config_delete_all(af);
 	eigrp_metric_config_delete_all(af);
 	eigrp_summary_state_delete_all(af);
 	eigrp_timer_config_delete_all(af);
-	eigrp_neighbor_policy_delete_all(af);
+	eigrp_nbr_policy_delete_all(af);
 	free(af->vrf_name);
 	free(af);
 }
@@ -325,13 +328,13 @@ static void eigrp_instance_address_family_free(eigrp_address_family_config_t *af
  * Creates or removes one named EIGRP address-family and its EIGRP-owned runtime context.
  * IPv4 and IPv6 retain separate AF state while sharing the named parent.
  */
-eigrp_result_t eigrp_instance_address_family_delete(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+eigrp_result_t eigrp_af_instance_delete(
+	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn)
 {
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t **cursor;
-	eigrp_address_family_config_t *af;
+	eigrp_af_instance_t **cursor;
+	eigrp_af_instance_t *af;
 
 	if (!name || !name[0] || !vrf_name || !vrf_name[0] || asn == 0
 	    || !eigrp_instance_afi_valid(afi))
@@ -349,16 +352,53 @@ eigrp_result_t eigrp_instance_address_family_delete(
 			continue;
 		{
 			eigrp_result_t result =
-				eigrp_instance_address_family_runtime_delete(
+				eigrp_af_instance_runtime_delete(
 					name, af);
 			if (result != EIGRP_RESULT_SUCCESS)
 				return result;
 		}
 		*cursor = af->next;
-		eigrp_instance_address_family_free(af);
+		eigrp_af_instance_free(af);
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_FOUND;
+}
+
+eigrp_result_t eigrp_instance_vrf_iterate(
+	eigrp_instance_vrf_iterate_cb callback, void *arg)
+{
+	eigrp_instance_t *runtime;
+	eigrp_instance_t *previous;
+	eigrp_list_item_t *node;
+	eigrp_list_item_t *prior_node;
+	eigrp_vrf_id_t vrf_id;
+	eigrp_result_t result;
+	bool seen;
+
+	if (!callback)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (!eigrp_om || !eigrp_om->eigrp)
+		return EIGRP_RESULT_SUCCESS;
+
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, runtime)) {
+		vrf_id = eigrp_instance_vrf_id(runtime);
+		seen = false;
+		for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, prior_node, previous)) {
+			if (previous == runtime)
+				break;
+			if (eigrp_instance_vrf_id(previous) == vrf_id) {
+				seen = true;
+				break;
+			}
+		}
+		if (seen)
+			continue;
+
+		result = callback(vrf_id, arg);
+		if (result != EIGRP_RESULT_SUCCESS)
+			return result;
+	}
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -371,20 +411,20 @@ eigrp_result_t eigrp_instance_address_family_delete(
  * Walks EIGRP-owned address-family state using an EIGRP request and callback.
  * FRR VTY and YANG objects remain outside the common API.
  */
-eigrp_result_t eigrp_instance_address_family_walk(
+eigrp_result_t eigrp_af_instance_iterate(
 	const eigrp_state_request_t *request,
-	eigrp_instance_address_family_walk_cb callback, void *arg)
+	eigrp_af_instance_iterate_cb callback, void *arg)
 {
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t *af;
+	eigrp_af_instance_t *af;
 	eigrp_result_t result;
 	const char *vrf_name;
 	bool matched = false;
 
 	if (!request || !callback)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (request->afi != EIGRP_ADDRESS_FAMILY_IPV4
-	    && request->afi != EIGRP_ADDRESS_FAMILY_IPV6)
+	if (request->afi != EIGRP_AFI_IPV4
+	    && request->afi != EIGRP_AFI_IPV6)
 		return EIGRP_RESULT_UNSUPPORTED;
 	/*
 	 * The CLI token selects EIGRP's Multicast Address Family (VRID 0x0001),
@@ -432,8 +472,8 @@ eigrp_result_t eigrp_instance_parent_delete(const char *name)
 {
 	eigrp_instance_parent_config_t **cursor;
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t *af;
-	eigrp_address_family_config_t *next;
+	eigrp_af_instance_t *af;
+	eigrp_af_instance_t *next;
 	eigrp_result_t result;
 
 	if (!name || !name[0])
@@ -447,7 +487,7 @@ eigrp_result_t eigrp_instance_parent_delete(const char *name)
 
 		/* Stop every bound runtime before discarding configuration ownership. */
 		for (af = parent->address_families; af; af = af->next) {
-			result = eigrp_instance_address_family_runtime_delete(
+			result = eigrp_af_instance_runtime_delete(
 				parent->name, af);
 			if (result != EIGRP_RESULT_SUCCESS)
 				return result;
@@ -456,7 +496,7 @@ eigrp_result_t eigrp_instance_parent_delete(const char *name)
 		*cursor = parent->next;
 		for (af = parent->address_families; af; af = next) {
 			next = af->next;
-			eigrp_instance_address_family_free(af);
+			eigrp_af_instance_free(af);
 		}
 		free(parent->name);
 		free(parent);
@@ -465,10 +505,10 @@ eigrp_result_t eigrp_instance_parent_delete(const char *name)
 	return EIGRP_RESULT_NOT_FOUND;
 }
 
-void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime)
+void eigrp_instance_runtime_remove(eigrp_instance_t *runtime)
 {
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t *af;
+	eigrp_af_instance_t *af;
 
 	if (!runtime)
 		return;
@@ -482,10 +522,10 @@ void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime)
 }
 
 
-eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime)
+eigrp_af_instance_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime)
 {
 	eigrp_instance_parent_config_t *parent;
-	eigrp_address_family_config_t *af;
+	eigrp_af_instance_t *af;
 
 	if (!runtime)
 		return NULL;
@@ -497,7 +537,7 @@ eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *r
 	return NULL;
 }
 
-static void eigrp_instance_router_id_refresh(eigrp_instance_t *runtime)
+static void eigrp_instance_router_id_runtime_update(eigrp_instance_t *runtime)
 {
 	if (!runtime)
 		return;
@@ -513,30 +553,30 @@ bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime)
 	return runtime && runtime->data_path_ready;
 }
 
-void eigrp_sys_router_id_refresh(eigrp_vrf_id_t vrf_id)
+void eigrp_sys_router_id_update(eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *runtime;
-	eigrp_list_node_t *node;
+	eigrp_list_item_t *node;
 
 	if (!eigrp_om)
 		return;
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, node, runtime)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, runtime)) {
 		if (runtime->vrf_id == vrf_id)
-			eigrp_instance_router_id_refresh(runtime);
+			eigrp_instance_router_id_runtime_update(runtime);
 	}
 }
 
-eigrp_result_t eigrp_instance_address_family_stop(eigrp_instance_t *runtime)
+eigrp_result_t eigrp_af_instance_stop(eigrp_instance_t *runtime)
 {
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
 	if (!runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
-	for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
+	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, node, ei)) {
 		if (!ei->t_hello)
 			continue;
 		eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
@@ -545,12 +585,12 @@ eigrp_result_t eigrp_instance_address_family_stop(eigrp_instance_t *runtime)
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime)
+eigrp_result_t eigrp_af_instance_start(eigrp_instance_t *runtime)
 {
-	eigrp_address_family_config_t *af;
-	eigrp_interface_config_t *config;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *node;
+	eigrp_af_instance_t *af;
+	eigrp_intf_config_t *config;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *node;
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
@@ -564,13 +604,16 @@ eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime)
 	/* Re-read host interface state before deciding which EIGRP interfaces can
 	 * run.  The host adapter only enumerates and normalizes interface state.
 	 */
-	eigrp_network_interfaces_refresh(runtime);
+	eigrp_network_intfs_update(runtime);
 	af = eigrp_instance_runtime_config(runtime);
-	for (EIGRP_LIST_ELEMENTS_RO(runtime->eiflist, node, ei)) {
-		config = af ? eigrp_interface_config_read(af, ei->name) : NULL;
+	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, node, ei)) {
+		config = af ? eigrp_intf_config_read(af, ei->name) : NULL;
+		if (!config && af)
+			config = eigrp_intf_config_read(af, "default");
 		if (config)
-			eigrp_interface_runtime_bind(ei, config);
-		if ((config && config->shutdown) || !ei->operative || ei->t_hello)
+			eigrp_intf_config_update(ei, config);
+		if (eigrp_intf_shutdown_effective(ei)
+		    || !ei->operative || ei->t_hello)
 			continue;
 		eigrp_intf_up(runtime, ei);
 	}
@@ -589,9 +632,25 @@ eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime)
  * Sets or resets the 32-bit EIGRP router ID for the selected instance.
  * Named mode reaches the same EIGRP-owned router-ID behavior instead of duplicating protocol state in the FRR CLI.
  */
-eigrp_result_t eigrp_instance_router_id_set(eigrp_instance_context_t *context,
-					       uint32_t router_id)
+eigrp_result_t eigrp_instance_router_id_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint32_t router_id)
 {
+	if (operation == EIGRP_RESET) {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		context->config->router_id = 0;
+		context->config->router_id_configured = false;
+	}
+	if (context->runtime) {
+		context->runtime->router_id_static.s_addr = INADDR_ANY;
+		eigrp_instance_router_id_runtime_update(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (router_id == 0 || router_id == UINT32_MAX)
@@ -602,7 +661,7 @@ eigrp_result_t eigrp_instance_router_id_set(eigrp_instance_context_t *context,
 	}
 	if (context->runtime) {
 		context->runtime->router_id_static.s_addr = htonl(router_id);
-		eigrp_instance_router_id_refresh(context->runtime);
+		eigrp_instance_router_id_runtime_update(context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -619,20 +678,7 @@ eigrp_result_t eigrp_instance_router_id_set(eigrp_instance_context_t *context,
  * Sets or resets the 32-bit EIGRP router ID for the selected instance.
  * Named mode reaches the same EIGRP-owned router-ID behavior instead of duplicating protocol state in the FRR CLI.
  */
-eigrp_result_t eigrp_instance_router_id_reset(eigrp_instance_context_t *context)
-{
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		context->config->router_id = 0;
-		context->config->router_id_configured = false;
-	}
-	if (context->runtime) {
-		context->runtime->router_id_static.s_addr = INADDR_ANY;
-		eigrp_instance_router_id_refresh(context->runtime);
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -644,9 +690,13 @@ eigrp_result_t eigrp_instance_router_id_reset(eigrp_instance_context_t *context)
  * Changes the administrative state of one named address-family.
  * The common target owns retained state and runtime start/stop behavior.
  */
-static eigrp_result_t eigrp_instance_address_family_shutdown_apply(
-	eigrp_address_family_config_t *af, bool shutdown)
+eigrp_result_t eigrp_af_instance_shutdown_update(eigrp_operation_t operation, eigrp_af_instance_t *af)
 {
+	bool shutdown;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	shutdown = operation == EIGRP_SET;
 	eigrp_result_t result;
 
 	if (!af)
@@ -657,12 +707,12 @@ static eigrp_result_t eigrp_instance_address_family_shutdown_apply(
 	/* Commit retained configuration first, then change runtime state. */
 	af->shutdown = shutdown;
 	if (!af->runtime)
-		return af->afi == EIGRP_ADDRESS_FAMILY_IPV6
+		return af->afi == EIGRP_AFI_IPV6
 		       ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 
 	result = shutdown
-		 ? eigrp_instance_address_family_stop(af->runtime)
-		 : eigrp_instance_address_family_start(af->runtime);
+		 ? eigrp_af_instance_stop(af->runtime)
+		 : eigrp_af_instance_start(af->runtime);
 	/* NOT_IMPLEMENTED is a truthful data-path boundary, not config failure. */
 	if (result != EIGRP_RESULT_SUCCESS
 	    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
@@ -670,17 +720,11 @@ static eigrp_result_t eigrp_instance_address_family_shutdown_apply(
 	return result;
 }
 
-eigrp_result_t eigrp_instance_address_family_shutdown_set(
-	eigrp_address_family_config_t *af)
-{
-	return eigrp_instance_address_family_shutdown_apply(af, true);
-}
 
-eigrp_result_t eigrp_instance_address_family_shutdown_reset(
-	eigrp_address_family_config_t *af)
-{
-	return eigrp_instance_address_family_shutdown_apply(af, false);
-}
+
+
+
+
 
 /*
  * Syntax:
@@ -692,26 +736,24 @@ eigrp_result_t eigrp_instance_address_family_shutdown_reset(
  * Represents administrative shutdown of the named parent rather than one address-family.
  * The real target remains in place and reports NOT_IMPLEMENTED until parent-wide runtime semantics are defined.
  */
-static eigrp_result_t eigrp_instance_parent_shutdown_apply(
-	eigrp_instance_parent_config_t *parent, bool shutdown)
+eigrp_result_t eigrp_instance_parent_shutdown_update(eigrp_operation_t operation, eigrp_instance_parent_config_t *parent)
 {
+	bool shutdown;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	shutdown = operation == EIGRP_SET;
 	(void)shutdown;
 	if (!parent)
 		return EIGRP_RESULT_NOT_FOUND;
 	return EIGRP_RESULT_NOT_IMPLEMENTED;
 }
 
-eigrp_result_t eigrp_instance_parent_shutdown_set(
-	eigrp_instance_parent_config_t *parent)
-{
-	return eigrp_instance_parent_shutdown_apply(parent, true);
-}
 
-eigrp_result_t eigrp_instance_parent_shutdown_reset(
-	eigrp_instance_parent_config_t *parent)
-{
-	return eigrp_instance_parent_shutdown_apply(parent, false);
-}
+
+
+
+
 
 /*
  * Syntax:
@@ -721,17 +763,34 @@ eigrp_result_t eigrp_instance_parent_shutdown_reset(
  *   Named: topology base mode
  * Description:
  * Sets or resets internal and external EIGRP administrative distance.
- * RIB-side application remains owned by this target and reports NOT_IMPLEMENTED while that runtime path is incomplete.
+ * The runtime stores both values and replays installed routes so Zebra sees the new distance immediately.
  */
-eigrp_result_t eigrp_instance_distance_set(eigrp_address_family_config_t *af,
-					      uint8_t internal_distance,
-					      uint8_t external_distance)
+eigrp_result_t eigrp_instance_distance_update(eigrp_operation_t operation, eigrp_af_instance_t *af, uint8_t internal_distance, uint8_t external_distance)
 {
+	if (operation == EIGRP_RESET) {
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+	if (af->runtime) {
+		af->runtime->distance_internal = EIGRP_DISTANCE_INTERNAL_DEFAULT;
+		af->runtime->distance_external = EIGRP_DISTANCE_EXTERNAL_DEFAULT;
+		(void)eigrp_rib_routes_replay_instance(af->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	if (!internal_distance || !external_distance)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (af->runtime) {
+		af->runtime->distance_internal = internal_distance;
+		af->runtime->distance_external = external_distance;
+		(void)eigrp_rib_routes_replay_instance(af->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -742,29 +801,24 @@ eigrp_result_t eigrp_instance_distance_set(eigrp_address_family_config_t *af,
  *   Named: topology base mode
  * Description:
  * Sets or resets internal and external EIGRP administrative distance.
- * RIB-side application remains owned by this target and reports NOT_IMPLEMENTED while that runtime path is incomplete.
+ * The runtime stores both values and replays installed routes so Zebra sees the new distance immediately.
  */
-eigrp_result_t eigrp_instance_distance_reset(eigrp_address_family_config_t *af)
-{
-	if (!af)
-		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
-}
 
-void eigrp_instance_config_finish(void)
+
+void eigrp_instance_config_delete_all(void)
 {
 	eigrp_instance_parent_config_t *parent;
 	eigrp_instance_parent_config_t *next;
-	eigrp_address_family_config_t *af;
-	eigrp_address_family_config_t *af_next;
+	eigrp_af_instance_t *af;
+	eigrp_af_instance_t *af_next;
 
 	for (parent = eigrp_instance_parents; parent; parent = next) {
 		next = parent->next;
 		for (af = parent->address_families; af; af = af_next) {
 			af_next = af->next;
-			(void)eigrp_instance_address_family_runtime_delete(
+			(void)eigrp_af_instance_runtime_delete(
 				parent->name, af);
-			eigrp_instance_address_family_free(af);
+			eigrp_af_instance_free(af);
 		}
 		free(parent->name);
 		free(parent);

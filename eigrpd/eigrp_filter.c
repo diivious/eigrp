@@ -21,6 +21,7 @@
 #include "eigrpd/eigrp_const.h"
 #include "eigrpd/eigrp_filter.h"
 #include "eigrpd/eigrp_interface.h"
+#include "eigrpd/eigrp_neighbor.h"
 #include "eigrpd/eigrp_packet.h"
 #include "eigrpd/eigrp_sys.h"
 #include "eigrpd/eigrp_rib.h"
@@ -33,7 +34,7 @@ struct eigrp_offset_config {
 	eigrp_offset_config_t *next;
 };
 
-static char *eigrp_filter_string_duplicate(const char *value)
+static char *eigrp_filter_string_dup(const char *value)
 {
 	size_t len;
 	char *copy;
@@ -48,7 +49,7 @@ static char *eigrp_filter_string_duplicate(const char *value)
 	return copy;
 }
 
-static bool eigrp_filter_string_equal(const char *a, const char *b)
+static bool eigrp_filter_string_match(const char *a, const char *b)
 {
 	if (!a || !b)
 		return a == b;
@@ -70,16 +71,16 @@ void eigrp_filter_runtime_state_clear(eigrp_filter_runtime_state_t *state)
 	}
 }
 
-static bool eigrp_filter_runtime_state_equal(
+static bool eigrp_filter_runtime_state_match(
 	const eigrp_filter_runtime_state_t *state,
 	const eigrp_filter_runtime_snapshot_t *snapshot)
 {
 	int direction;
 
 	for (direction = 0; direction < EIGRP_FILTER_MAX; direction++) {
-		if (!eigrp_filter_string_equal(state->access_list[direction],
+		if (!eigrp_filter_string_match(state->access_list[direction],
 					       snapshot->access_list[direction])
-		    || !eigrp_filter_string_equal(state->prefix_list[direction],
+		    || !eigrp_filter_string_match(state->prefix_list[direction],
 						 snapshot->prefix_list[direction]))
 			return false;
 	}
@@ -95,13 +96,13 @@ static eigrp_result_t eigrp_filter_runtime_state_copy(
 	memset(state, 0, sizeof(*state));
 	for (direction = 0; direction < EIGRP_FILTER_MAX; direction++) {
 		if (snapshot->access_list[direction]) {
-			state->access_list[direction] = eigrp_filter_string_duplicate(
+			state->access_list[direction] = eigrp_filter_string_dup(
 				snapshot->access_list[direction]);
 			if (!state->access_list[direction])
 				goto failure;
 		}
 		if (snapshot->prefix_list[direction]) {
-			state->prefix_list[direction] = eigrp_filter_string_duplicate(
+			state->prefix_list[direction] = eigrp_filter_string_dup(
 				snapshot->prefix_list[direction]);
 			if (!state->prefix_list[direction])
 				goto failure;
@@ -135,12 +136,28 @@ static void eigrp_filter_schedule_process(eigrp_instance_t *eigrp)
 				   eigrp_distribute_timer_process, eigrp, 10000U);
 }
 
-static void eigrp_filter_schedule_interface(eigrp_interface_t *ei)
+static void eigrp_filter_intf_schedule(eigrp_intf_t *ei)
 {
 	if (!ei)
 		return;
 	eigrp_sys_timer_add(&ei->t_distribute,
-				   eigrp_distribute_timer_interface, ei, 10000U);
+				   eigrp_distribute_intf_timer, ei, 10000U);
+}
+
+static void eigrp_filter_soft_resync(eigrp_instance_t *eigrp,
+                                     const char *interface_name)
+{
+	eigrp_nbr_clear_request_t request;
+
+	if (!eigrp || !eigrp_instance_data_path_ready(eigrp))
+		return;
+	memset(&request, 0, sizeof(request));
+	request.interface_name = interface_name;
+	request.soft = true;
+	/* A soft clear is the protocol's existing resync mechanism.  It causes
+	 * learned routes to be replayed through the inbound policy path without
+	 * tearing the adjacency down. */
+	(void)eigrp_nbr_clear(eigrp, &request, NULL, NULL, NULL);
 }
 
 eigrp_result_t eigrp_sys_filter_runtime_replace(
@@ -149,7 +166,7 @@ eigrp_result_t eigrp_sys_filter_runtime_replace(
 {
 	eigrp_filter_runtime_state_t replacement;
 	eigrp_filter_runtime_state_t *state;
-	eigrp_interface_t *ei = NULL;
+	eigrp_intf_t *ei = NULL;
 	eigrp_result_t result;
 
 	if (!eigrp || !snapshot)
@@ -166,7 +183,7 @@ eigrp_result_t eigrp_sys_filter_runtime_replace(
 		state = &eigrp->filter;
 	}
 
-	if (eigrp_filter_runtime_state_equal(state, snapshot))
+	if (eigrp_filter_runtime_state_match(state, snapshot))
 		return EIGRP_RESULT_SUCCESS;
 
 	result = eigrp_filter_runtime_state_copy(&replacement, snapshot);
@@ -176,28 +193,36 @@ eigrp_result_t eigrp_sys_filter_runtime_replace(
 	eigrp_filter_runtime_state_clear(state);
 	*state = replacement;
 	if (ei)
-		eigrp_filter_schedule_interface(ei);
+		eigrp_filter_intf_schedule(ei);
 	else
 		eigrp_filter_schedule_process(eigrp);
+	eigrp_filter_soft_resync(eigrp, interface_name);
 	return EIGRP_RESULT_SUCCESS;
 }
 
-void eigrp_sys_policy_runtime_refresh(void)
+void eigrp_sys_policy_runtime_update(void)
 {
 	eigrp_instance_t *eigrp;
-	eigrp_interface_t *ei;
-	eigrp_list_node_t *instance_node;
-	eigrp_list_node_t *interface_node;
+	eigrp_intf_t *ei;
+	eigrp_list_item_t *instance_node;
+	eigrp_list_item_t *interface_node;
 
 	if (!eigrp_om || !eigrp_om->eigrp)
 		return;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp_om->eigrp, instance_node, eigrp)) {
-		if (eigrp_filter_runtime_state_active(&eigrp->filter))
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, instance_node, eigrp)) {
+		eigrp_af_instance_t *af = eigrp_instance_runtime_config(eigrp);
+		bool offset_active = af && af->offsets;
+
+		if (eigrp_filter_runtime_state_active(&eigrp->filter) || offset_active) {
 			eigrp_filter_schedule_process(eigrp);
-		for (EIGRP_LIST_ELEMENTS_RO(eigrp->eiflist, interface_node, ei))
-			if (eigrp_filter_runtime_state_active(&ei->filter))
-				eigrp_filter_schedule_interface(ei);
+			eigrp_filter_soft_resync(eigrp, NULL);
+		}
+		for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, interface_node, ei))
+			if (eigrp_filter_runtime_state_active(&ei->filter)) {
+				eigrp_filter_intf_schedule(ei);
+				eigrp_filter_soft_resync(eigrp, ei->name);
+			}
 	}
 }
 
@@ -231,8 +256,8 @@ static bool eigrp_filter_runtime_state_denies(
 	return false;
 }
 
-bool eigrp_filter_prefix_apply(eigrp_instance_t *eigrp,
-			       eigrp_interface_t *ei, int direction,
+bool eigrp_filter_prefix_update(eigrp_instance_t *eigrp,
+			       eigrp_intf_t *ei, int direction,
 			       const eigrp_prefix_t *prefix)
 {
 	if (!eigrp || !ei || !prefix || direction < 0
@@ -256,25 +281,25 @@ void eigrp_distribute_timer_process(void *arg)
 	eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER);
 }
 
-void eigrp_distribute_timer_interface(void *arg)
+void eigrp_distribute_intf_timer(void *arg)
 {
-	eigrp_interface_t *ei = arg;
+	eigrp_intf_t *ei = arg;
 
 	if (!ei)
 		return;
 	ei->t_distribute = NULL;
-	eigrp_update_send_interface_GR(ei, EIGRP_GR_FILTER);
+	eigrp_update_intf_gr_send(ei, EIGRP_GR_FILTER);
 }
 
-static bool eigrp_offset_interface_equal(const char *a, const char *b)
+static bool eigrp_offset_intf_match(const char *a, const char *b)
 {
 	if (!a || !b)
 		return a == b;
 	return strcmp(a, b) == 0;
 }
 
-static eigrp_offset_config_t *eigrp_offset_config_find(
-	eigrp_address_family_config_t *af, const char *access_list,
+static eigrp_offset_config_t *eigrp_offset_config_lookup(
+	eigrp_af_instance_t *af, const char *access_list,
 	eigrp_offset_direction_t direction, const char *interface_name)
 {
 	eigrp_offset_config_t *config;
@@ -284,10 +309,73 @@ static eigrp_offset_config_t *eigrp_offset_config_find(
 	for (config = af->offsets; config; config = config->next)
 		if (config->direction == direction
 		    && strcmp(config->access_list, access_list) == 0
-		    && eigrp_offset_interface_equal(config->interface_name,
+		    && eigrp_offset_intf_match(config->interface_name,
 						 interface_name))
 			return config;
 	return NULL;
+}
+
+static bool eigrp_offset_acl_permits(eigrp_instance_t *eigrp,
+                                     const char *access_list,
+                                     const eigrp_prefix_t *prefix)
+{
+	eigrp_filter_decision_t decision = EIGRP_FILTER_DECISION_DENY;
+
+	return access_list && prefix
+	       && eigrp_sys_filter_evaluate(eigrp,
+					    EIGRP_DISTRIBUTE_ACCESS_LIST,
+					    access_list, prefix, &decision)
+			  == EIGRP_RESULT_SUCCESS
+	       && decision == EIGRP_FILTER_DECISION_PERMIT;
+}
+
+void eigrp_offset_metric_update(eigrp_instance_t *eigrp,
+                               eigrp_intf_t *ei, int direction,
+                               const eigrp_prefix_t *prefix,
+                               eigrp_metrics_t *metric)
+{
+	eigrp_af_instance_t *af;
+	eigrp_offset_config_t *config;
+	eigrp_offset_config_t *global = NULL;
+	const char *ifname;
+	uint64_t delay;
+	eigrp_offset_direction_t wanted;
+
+	if (!eigrp || !ei || !prefix || !metric
+	    || (direction != EIGRP_FILTER_IN && direction != EIGRP_FILTER_OUT)
+	    || metric->delay == EIGRP_MAX_METRIC)
+		return;
+	af = eigrp_instance_runtime_config(eigrp);
+	if (!af)
+		return;
+	ifname = ei->name;
+	wanted = direction == EIGRP_FILTER_OUT ? EIGRP_OFFSET_OUT : EIGRP_OFFSET_IN;
+
+	/* Interface-specific policy wins over the address-family default. */
+	for (config = af->offsets; config; config = config->next) {
+		if (config->direction != wanted)
+			continue;
+		if (!config->interface_name) {
+			if (!global && eigrp_offset_acl_permits(eigrp,
+							       config->access_list,
+							       prefix))
+				global = config;
+			continue;
+		}
+		if (ifname && strcmp(config->interface_name, ifname) == 0
+		    && eigrp_offset_acl_permits(eigrp, config->access_list, prefix))
+			break;
+	}
+	if (!config)
+		config = global;
+	if (!config)
+		return;
+
+	/* EIGRP's retained vector has no separate scalar policy-metric field.
+	 * Apply the offset to delay, which is the monotonic vector component used
+	 * by the composite metric calculation and by both classic/wide TLVs. */
+	delay = metric->delay + (uint64_t)config->offset;
+	metric->delay = delay >= EIGRP_MAX_METRIC ? EIGRP_MAX_METRIC : delay;
 }
 
 /*
@@ -320,17 +408,17 @@ eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context,
 		return EIGRP_RESULT_NOT_FOUND;
 
 	if (context->config) {
-		config = eigrp_offset_config_find(context->config, access_list,
+		config = eigrp_offset_config_lookup(context->config, access_list,
 						 direction, interface_name);
 		if (config) {
 			config->offset = offset;
 		} else {
-			access_copy = eigrp_filter_string_duplicate(access_list);
+			access_copy = eigrp_filter_string_dup(access_list);
 			if (!access_copy)
 				return EIGRP_RESULT_INTERNAL_FAILURE;
 			if (interface_name) {
 				interface_copy =
-					eigrp_filter_string_duplicate(interface_name);
+					eigrp_filter_string_dup(interface_name);
 				if (!interface_copy) {
 					free(access_copy);
 					return EIGRP_RESULT_INTERNAL_FAILURE;
@@ -351,9 +439,11 @@ eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context,
 		}
 	}
 
-	/* Metric offset application is retained but not yet in the data path. */
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	if (context->runtime) {
+		eigrp_filter_schedule_process(context->runtime);
+		eigrp_filter_soft_resync(context->runtime, interface_name);
+	}
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -391,23 +481,27 @@ eigrp_result_t eigrp_offset_remove(eigrp_instance_context_t *context,
 			config = *cursor;
 			if (config->direction != direction
 			    || strcmp(config->access_list, access_list) != 0
-			    || !eigrp_offset_interface_equal(config->interface_name,
+			    || !eigrp_offset_intf_match(config->interface_name,
 							     interface_name))
 				continue;
 			*cursor = config->next;
 			free(config->access_list);
 			free(config->interface_name);
 			free(config);
-			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-						: EIGRP_RESULT_SUCCESS;
+			if (context->runtime) {
+				eigrp_filter_schedule_process(context->runtime);
+				eigrp_filter_soft_resync(context->runtime,
+							 interface_name);
+			}
+			return EIGRP_RESULT_SUCCESS;
 		}
 		if (!context->runtime)
 			return EIGRP_RESULT_NOT_FOUND;
 	}
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	return EIGRP_RESULT_NOT_FOUND;
 }
 
-void eigrp_offset_config_delete_all(eigrp_address_family_config_t *af)
+void eigrp_offset_config_delete_all(eigrp_af_instance_t *af)
 {
 	eigrp_offset_config_t *config;
 	eigrp_offset_config_t *next;
@@ -431,7 +525,7 @@ struct eigrp_distribute_list_config {
 	eigrp_distribute_list_config_t *next;
 };
 
-static char *eigrp_distribute_string_duplicate(const char *value)
+static char *eigrp_distribute_string_dup(const char *value)
 {
 	size_t len;
 	char *copy;
@@ -446,15 +540,15 @@ static char *eigrp_distribute_string_duplicate(const char *value)
 	return copy;
 }
 
-static bool eigrp_distribute_interface_equal(const char *a, const char *b)
+static bool eigrp_distribute_intf_match(const char *a, const char *b)
 {
 	if (!a || !b)
 		return a == b;
 	return strcmp(a, b) == 0;
 }
 
-static eigrp_distribute_list_config_t *eigrp_distribute_list_config_find(
-	eigrp_address_family_config_t *af, eigrp_distribute_list_type_t type,
+static eigrp_distribute_list_config_t *eigrp_distribute_list_config_lookup(
+	eigrp_af_instance_t *af, eigrp_distribute_list_type_t type,
 	eigrp_offset_direction_t direction, const char *interface_name)
 {
 	eigrp_distribute_list_config_t *config;
@@ -463,7 +557,7 @@ static eigrp_distribute_list_config_t *eigrp_distribute_list_config_find(
 		return NULL;
 	for (config = af->distribute_lists; config; config = config->next) {
 		if (config->type == type && config->direction == direction
-		    && eigrp_distribute_interface_equal(config->interface_name,
+		    && eigrp_distribute_intf_match(config->interface_name,
 							 interface_name))
 			return config;
 	}
@@ -502,7 +596,7 @@ static eigrp_result_t eigrp_filter_runtime_reference_update(
 {
 	eigrp_filter_runtime_snapshot_t snapshot;
 	eigrp_filter_runtime_state_t *state;
-	eigrp_interface_t *ei = NULL;
+	eigrp_intf_t *ei = NULL;
 	int slot = direction == EIGRP_OFFSET_OUT ? EIGRP_FILTER_OUT
 						     : EIGRP_FILTER_IN;
 
@@ -559,12 +653,12 @@ eigrp_result_t eigrp_distribute_add(
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 
-	new_name = eigrp_distribute_string_duplicate(name);
+	new_name = eigrp_distribute_string_dup(name);
 	if (!new_name)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
 
 	if (context->config) {
-		config = eigrp_distribute_list_config_find(
+		config = eigrp_distribute_list_config_lookup(
 			context->config, type, direction, interface_name);
 		if (!config) {
 			new_config = calloc(1, sizeof(*new_config));
@@ -578,7 +672,7 @@ eigrp_result_t eigrp_distribute_add(
 			new_name = NULL;
 			if (interface_name) {
 				new_config->interface_name =
-					eigrp_distribute_string_duplicate(interface_name);
+					eigrp_distribute_string_dup(interface_name);
 				if (!new_config->interface_name) {
 					free(new_config->name);
 					free(new_config);
@@ -650,7 +744,7 @@ eigrp_result_t eigrp_distribute_remove(
 			if ((*cursor)->type != type
 			    || (*cursor)->direction != direction
 			    || strcmp((*cursor)->name, name) != 0
-			    || !eigrp_distribute_interface_equal(
+			    || !eigrp_distribute_intf_match(
 				    (*cursor)->interface_name, interface_name))
 				continue;
 			config = *cursor;
@@ -685,7 +779,7 @@ eigrp_result_t eigrp_distribute_remove(
 	return result;
 }
 
-void eigrp_distribute_list_config_delete_all(eigrp_address_family_config_t *af)
+void eigrp_distribute_list_config_delete_all(eigrp_af_instance_t *af)
 {
 	eigrp_distribute_list_config_t *config;
 	eigrp_distribute_list_config_t *next;

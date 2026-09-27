@@ -29,27 +29,27 @@ typedef struct eigrp_eventlog eigrp_eventlog_t;
 typedef struct eigrp_table eigrp_table_t;
 typedef struct eigrp_table_node eigrp_table_node_t;
 typedef struct eigrp_network_config eigrp_network_config_t;
-typedef struct eigrp_neighbor_config eigrp_neighbor_config_t;
+typedef struct eigrp_nbr_config eigrp_nbr_config_t;
 typedef struct eigrp_summary_config eigrp_summary_config_t;
-typedef struct eigrp_redistribute_config eigrp_redistribute_config_t;
+typedef struct eigrp_redist_config eigrp_redist_config_t;
 typedef struct eigrp_distribute_list_config eigrp_distribute_list_config_t;
 typedef struct eigrp_offset_config eigrp_offset_config_t;
 typedef struct eigrp_metric_config eigrp_metric_config_t;
 typedef struct eigrp_summary_state eigrp_summary_state_t;
 typedef struct eigrp_timer_config eigrp_timer_config_t;
-typedef struct eigrp_neighbor_policy_state eigrp_neighbor_policy_state_t;
-typedef struct eigrp_redistribute_policy_config eigrp_redistribute_policy_config_t;
+typedef struct eigrp_nbr_policy_state eigrp_nbr_policy_state_t;
+typedef struct eigrp_redist_policy_config eigrp_redist_policy_config_t;
 
 // basic packet processor definitions
 typedef struct eigrp_packet eigrp_packet_t;
 typedef struct eigrp_tlv_header eigrp_tlv_header_t;
 
 typedef eigrp_route_descriptor_t *(*eigrp_packet_decoder_t)(
-	eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr, eigrp_stream_t *pkt,
+	eigrp_instance_t *eigrp, eigrp_nbr_t *nbr, eigrp_stream_t *pkt,
 	uint16_t pktlen);
 
 typedef uint16_t (*eigrp_packet_encoder_t)(
-	eigrp_instance_t *eigrp, eigrp_interface_t *ei, eigrp_neighbor_t *nbr,
+	eigrp_instance_t *eigrp, eigrp_intf_t *ei, eigrp_nbr_t *nbr,
 	eigrp_stream_t *pkt, eigrp_route_descriptor_t *route);
 
 typedef struct eigrp_message {
@@ -66,7 +66,7 @@ typedef struct eigrp_tlv_codec {
 } eigrp_tlv_codec_t;
 
 typedef struct eigrp_af_vectors {
-	eigrp_address_family_t afi;
+	eigrp_afi_t afi;
 
 	/*
 	 * Network-layer packet envelope.  Common EIGRP packet processing owns
@@ -77,13 +77,13 @@ typedef struct eigrp_af_vectors {
 	 * Runtime creation validates the complete vector before packet processing
 	 * is started; common packet code does not probe callbacks before use.
 	 */
-	int (*packet_send)(eigrp_instance_t *eigrp, eigrp_interface_t *ei,
+	int (*packet_send)(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 			   eigrp_packet_t *packet);
 	bool (*packet_receive)(eigrp_instance_t *eigrp,
-			       eigrp_stream_t *stream, eigrp_interface_t **ei,
+			       eigrp_stream_t *stream, eigrp_intf_t **ei,
 			       eigrp_addr_t *source, eigrp_addr_t *destination,
 			       eigrp_packet_rx_meta_t *meta);
-	bool (*packet_source_on_link)(eigrp_interface_t *ei,
+	bool (*packet_source_on_link)(eigrp_intf_t *ei,
 				      const eigrp_addr_t *source);
 
 	/*

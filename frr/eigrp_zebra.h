@@ -31,12 +31,12 @@ eigrp_result_t eigrp_zebra_route_install(
 	eigrp_instance_t *eigrp, const eigrp_rib_route_t *route);
 eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
 				       const eigrp_prefix_t *prefix);
-extern int eigrp_redistribute_set(eigrp_instance_t *, int, struct eigrp_metrics);
-extern int eigrp_redistribute_unset(eigrp_instance_t *, int);
+extern int eigrp_redistribute_update(eigrp_operation_t, eigrp_instance_t *, int,
+				     struct eigrp_metrics);
 
 eigrp_result_t eigrp_zebra_redistribute_update(
-	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
+	eigrp_instance_t *eigrp, const eigrp_redist_source_t *source);
 eigrp_result_t eigrp_zebra_redistribute_delete(
-	eigrp_instance_t *eigrp, const eigrp_redistribute_source_t *source);
+	eigrp_instance_t *eigrp, const eigrp_redist_source_t *source);
 
 #endif /* _ZEBRA_EIGRP_ZEBRA_H_ */

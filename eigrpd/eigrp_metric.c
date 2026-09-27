@@ -12,6 +12,7 @@
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_metric.h"
 #include "eigrpd/eigrp_neighbor.h"
+#include "eigrpd/eigrp_topology.h"
 
 struct eigrp_metric_config {
 	bool default_metric_configured;
@@ -93,43 +94,51 @@ eigrp_delay_t eigrp_scaled_to_delay(eigrp_scaled_t scaled)
 	return scaled;
 }
 
-eigrp_metric_t eigrp_calculate_metrics(eigrp_instance_t *eigrp,
+eigrp_metric_t eigrp_metric_calculate(eigrp_instance_t *eigrp,
 				       eigrp_metrics_t metric)
 {
-	eigrp_metric_t composite;
-	composite = 0;
+	uint64_t throughput = 0;
+	uint64_t latency = 0;
+	uint64_t composite;
+	uint64_t scale;
 
-	if (metric.delay == EIGRP_METRIC_MAX)
+	if (!eigrp || metric.delay == EIGRP_METRIC_MAX)
 		return EIGRP_METRIC_MAX;
 
-	// EIGRP Composite =
-	// {K1*BW+[(K2*BW)/(256-load)]+(K3*delay)}*{K5/(reliability+K4)}
-
+	/* Native vector storage uses the classic 256-scaled bandwidth/delay
+	 * components. Release-2/Wide metric calculation promotes those values to
+	 * the RFC 7868 65536 scale; forced 32-bit policy retains classic scale.
+	 */
+	scale = eigrp->metric_version >= EIGRP_TLV_64B_VERSION
+			? (EIGRP_METRIC_SCALER / EIGRP_CLASSIC_SCALER) : 1;
 	if (eigrp->k_values[0])
-		composite += (eigrp->k_values[0] * metric.bandwidth);
+		throughput = (uint64_t)eigrp->k_values[0] * metric.bandwidth * scale;
 	if (eigrp->k_values[1])
-		composite += ((eigrp->k_values[1] * metric.bandwidth)
-			      / (256 - metric.load));
+		throughput += ((uint64_t)eigrp->k_values[1] * metric.bandwidth * scale)
+			      / (EIGRP_MAX_LOAD - metric.load);
 	if (eigrp->k_values[2])
-		composite += (eigrp->k_values[2] * metric.delay);
-	if (eigrp->k_values[3] && !eigrp->k_values[4])
-		composite *= eigrp->k_values[3];
-	if (!eigrp->k_values[3] && eigrp->k_values[4])
-		composite *= (eigrp->k_values[4] / metric.reliability);
-	if (eigrp->k_values[3] && eigrp->k_values[4])
-		composite *= ((eigrp->k_values[4] / metric.reliability)
-			      + eigrp->k_values[3]);
+		latency = (uint64_t)eigrp->k_values[2] * metric.delay * scale;
 
-	composite =
-		(composite <= EIGRP_METRIC_MAX) ? composite : EIGRP_METRIC_MAX;
+	composite = throughput + latency;
+	/* K6 controls RFC 7868 extended attributes. This implementation does not
+	 * yet source jitter/energy, so ExtAttr is correctly zero. */
+	if (eigrp->k_values[4]) {
+		uint64_t denominator = (uint64_t)metric.reliability + eigrp->k_values[3];
+		if (!denominator)
+			return EIGRP_METRIC_MAX;
+		composite = (composite * eigrp->k_values[4]) / denominator;
+	}
 
-	return composite;
+	if (eigrp->metric_version < EIGRP_TLV_64B_VERSION
+	    && composite > EIGRP_CLASSIC_MAX)
+		return EIGRP_CLASSIC_MAX;
+	return composite > EIGRP_METRIC_MAX ? EIGRP_METRIC_MAX : composite;
 }
 
-eigrp_metric_t eigrp_calculate_total_metrics(eigrp_instance_t *eigrp,
+eigrp_metric_t eigrp_metric_total_calculate(eigrp_instance_t *eigrp,
 					     eigrp_route_descriptor_t *entry)
 {
-	eigrp_interface_t *ei = entry->ei;
+	eigrp_intf_t *ei = entry->ei;
 	eigrp_delay_t link_delay;
 	eigrp_bandwidth_t bw;
 
@@ -152,10 +161,10 @@ eigrp_metric_t eigrp_calculate_total_metrics(eigrp_instance_t *eigrp,
 						? bw
 						: entry->total_metric.bandwidth;
 
-	return eigrp_calculate_metrics(eigrp, entry->total_metric);
+	return eigrp_metric_calculate(eigrp, entry->total_metric);
 }
 
-bool eigrp_metrics_is_same(eigrp_metrics_t metric1, eigrp_metrics_t metric2)
+bool eigrp_metrics_match(eigrp_metrics_t metric1, eigrp_metrics_t metric2)
 {
 	if ((metric1.bandwidth == metric2.bandwidth)
 	    && (metric1.delay == metric2.delay)
@@ -181,8 +190,8 @@ static bool eigrp_metric_values_valid(const eigrp_metric_values_t *metric)
 	return metric && metric->bandwidth && metric->load && metric->mtu;
 }
 
-static eigrp_metric_config_t *eigrp_metric_config_get(
-	eigrp_address_family_config_t *af)
+static eigrp_metric_config_t *eigrp_metric_config_create(
+	eigrp_af_instance_t *af)
 {
 	if (!af)
 		return NULL;
@@ -206,9 +215,22 @@ static eigrp_metric_config_t *eigrp_metric_config_get(
  * Sets or resets the default seed metric used by redistribution when a source-specific metric is not supplied.
  * Runtime redistribution fallback remains owned by the metric/redistribution path.
  */
-eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context,
-					   const eigrp_metric_values_t *metric)
+eigrp_result_t eigrp_metric_default_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_metric_values_t *metric)
 {
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->default_metric_configured = false;
+		memset(&context->config->metric_config->default_metric, 0,
+		       sizeof(context->config->metric_config->default_metric));
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	eigrp_metric_config_t *config;
 
 	if (!eigrp_metric_values_valid(metric))
@@ -216,14 +238,13 @@ eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context,
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
+		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->default_metric = *metric;
 		config->default_metric_configured = true;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -236,20 +257,9 @@ eigrp_result_t eigrp_metric_default_set(eigrp_instance_context_t *context,
  * Sets or resets the default seed metric used by redistribution when a source-specific metric is not supplied.
  * Runtime redistribution fallback remains owned by the metric/redistribution path.
  */
-eigrp_result_t eigrp_metric_default_reset(eigrp_instance_context_t *context)
-{
-	if (!eigrp_metric_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->metric_config) {
-		context->config->metric_config->default_metric_configured = false;
-		memset(&context->config->metric_config->default_metric, 0,
-		       sizeof(context->config->metric_config->default_metric));
-	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
-}
 
-bool eigrp_metric_default_get(const eigrp_address_family_config_t *af,
+
+bool eigrp_metric_default(const eigrp_af_instance_t *af,
 			      eigrp_metric_values_t *metric)
 {
 	if (!af || !metric || !af->metric_config
@@ -272,9 +282,31 @@ bool eigrp_metric_default_get(const eigrp_address_family_config_t *af,
  * Sets or restores the EIGRP metric coefficients after validating the coefficient set.
  * Named mode converges on the EIGRP-owned metric target used for protocol state instead of carrying metric behavior in the parser.
  */
-eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
-					   const eigrp_metric_weights_t *weights)
+eigrp_result_t eigrp_metric_weights_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_metric_weights_t *weights)
 {
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->weights_configured = false;
+		memset(&context->config->metric_config->weights, 0,
+		       sizeof(context->config->metric_config->weights));
+	}
+	if (context->runtime) {
+		context->runtime->k_values[0] = EIGRP_K1_DEFAULT;
+		context->runtime->k_values[1] = EIGRP_K2_DEFAULT;
+		context->runtime->k_values[2] = EIGRP_K3_DEFAULT;
+		context->runtime->k_values[3] = EIGRP_K4_DEFAULT;
+		context->runtime->k_values[4] = EIGRP_K5_DEFAULT;
+		context->runtime->k_values[5] = EIGRP_K6_DEFAULT;
+		eigrp_topology_metric_update(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	eigrp_metric_config_t *config;
 
 	if (!weights || weights->tos != 0)
@@ -282,7 +314,7 @@ eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
+		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->weights = *weights;
@@ -295,6 +327,7 @@ eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
 		context->runtime->k_values[3] = weights->k4;
 		context->runtime->k_values[4] = weights->k5;
 		context->runtime->k_values[5] = weights->k6;
+		eigrp_topology_metric_update(context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -311,25 +344,7 @@ eigrp_result_t eigrp_metric_weights_set(eigrp_instance_context_t *context,
  * Sets or restores the EIGRP metric coefficients after validating the coefficient set.
  * Named mode converges on the EIGRP-owned metric target used for protocol state instead of carrying metric behavior in the parser.
  */
-eigrp_result_t eigrp_metric_weights_reset(eigrp_instance_context_t *context)
-{
-	if (!eigrp_metric_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->metric_config) {
-		context->config->metric_config->weights_configured = false;
-		memset(&context->config->metric_config->weights, 0,
-		       sizeof(context->config->metric_config->weights));
-	}
-	if (context->runtime) {
-		context->runtime->k_values[0] = EIGRP_K1_DEFAULT;
-		context->runtime->k_values[1] = EIGRP_K2_DEFAULT;
-		context->runtime->k_values[2] = EIGRP_K3_DEFAULT;
-		context->runtime->k_values[3] = EIGRP_K4_DEFAULT;
-		context->runtime->k_values[4] = EIGRP_K5_DEFAULT;
-		context->runtime->k_values[5] = EIGRP_K6_DEFAULT;
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -343,9 +358,25 @@ eigrp_result_t eigrp_metric_weights_reset(eigrp_instance_context_t *context)
  * Sets or resets the unequal-cost load-sharing variance multiplier.
  * DUAL feasibility remains authoritative; variance does not make an infeasible path a successor.
  */
-eigrp_result_t eigrp_metric_variance_set(eigrp_instance_context_t *context,
-					    uint8_t variance)
+eigrp_result_t eigrp_metric_variance_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t variance)
 {
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->variance_configured = false;
+		context->config->metric_config->variance = 0;
+	}
+	if (context->runtime) {
+		context->runtime->variance = EIGRP_VARIANCE_DEFAULT;
+		eigrp_topology_multipath_update(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	eigrp_metric_config_t *config;
 
 	if (variance < 1 || variance > 128)
@@ -353,14 +384,16 @@ eigrp_result_t eigrp_metric_variance_set(eigrp_instance_context_t *context,
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
+		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->variance = variance;
 		config->variance_configured = true;
 	}
-	if (context->runtime)
+	if (context->runtime) {
 		context->runtime->variance = variance;
+		eigrp_topology_multipath_update(context->runtime);
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -376,18 +409,7 @@ eigrp_result_t eigrp_metric_variance_set(eigrp_instance_context_t *context,
  * Sets or resets the unequal-cost load-sharing variance multiplier.
  * DUAL feasibility remains authoritative; variance does not make an infeasible path a successor.
  */
-eigrp_result_t eigrp_metric_variance_reset(eigrp_instance_context_t *context)
-{
-	if (!eigrp_metric_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->metric_config) {
-		context->config->metric_config->variance_configured = false;
-		context->config->metric_config->variance = 0;
-	}
-	if (context->runtime)
-		context->runtime->variance = EIGRP_VARIANCE_DEFAULT;
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -399,15 +421,19 @@ eigrp_result_t eigrp_metric_variance_reset(eigrp_instance_context_t *context)
  * Selects retained balanced traffic-sharing behavior.
  * The target reports NOT_IMPLEMENTED until the forwarding/runtime application path exists.
  */
-static eigrp_result_t eigrp_metric_traffic_share_balanced_apply(
-	eigrp_instance_context_t *context, bool enabled)
+eigrp_result_t eigrp_traffic_share_balanced_update(eigrp_operation_t operation, eigrp_instance_context_t *context)
 {
+	bool enabled;
+
+	if (operation != EIGRP_SET && operation != EIGRP_RESET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	enabled = operation == EIGRP_SET;
 	eigrp_metric_config_t *config;
 
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
+		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->traffic_share_balanced = enabled;
@@ -416,18 +442,11 @@ static eigrp_result_t eigrp_metric_traffic_share_balanced_apply(
 				: EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_metric_traffic_share_balanced_set(
-	eigrp_instance_context_t *context)
-{
-	return eigrp_metric_traffic_share_balanced_apply(context, true);
-}
 
-eigrp_result_t eigrp_metric_traffic_share_balanced_reset(
-	eigrp_instance_context_t *context)
-{
-	/* Balanced is the configured/default traffic-share behavior. */
-	return eigrp_metric_traffic_share_balanced_apply(context, true);
-}
+
+
+
+
 
 /*
  * Syntax:
@@ -439,9 +458,23 @@ eigrp_result_t eigrp_metric_traffic_share_balanced_reset(
  * Sets or resets the configured EIGRP maximum-hop metric constraint.
  * The target retains the real feature endpoint even while live enforcement is incomplete.
  */
-eigrp_result_t eigrp_metric_maximum_hops_set(
-	eigrp_instance_context_t *context, uint8_t maximum_hops)
+eigrp_result_t eigrp_metric_maximum_hops_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t maximum_hops)
 {
+	if (operation == EIGRP_RESET) {
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->metric_config) {
+		context->config->metric_config->maximum_hops_configured = false;
+		context->config->metric_config->maximum_hops = 0;
+	}
+	if (context->runtime)
+		context->runtime->max_hops = EIGRP_MAX_HOPS;
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	eigrp_metric_config_t *config;
 
 	if (!maximum_hops)
@@ -449,7 +482,7 @@ eigrp_result_t eigrp_metric_maximum_hops_set(
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
+		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->maximum_hops = maximum_hops;
@@ -470,19 +503,7 @@ eigrp_result_t eigrp_metric_maximum_hops_set(
  * Sets or resets the configured EIGRP maximum-hop metric constraint.
  * The target retains the real feature endpoint even while live enforcement is incomplete.
  */
-eigrp_result_t eigrp_metric_maximum_hops_reset(
-	eigrp_instance_context_t *context)
-{
-	if (!eigrp_metric_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->metric_config) {
-		context->config->metric_config->maximum_hops_configured = false;
-		context->config->metric_config->maximum_hops = 0;
-	}
-	if (context->runtime)
-		context->runtime->max_hops = EIGRP_MAX_HOPS;
-	return EIGRP_RESULT_SUCCESS;
-}
+
 
 /*
  * Syntax:
@@ -494,15 +515,21 @@ eigrp_result_t eigrp_metric_maximum_hops_reset(
  * Sets or resets retained metric holddown configuration.
  * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
  */
-eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
-					    bool enabled)
+eigrp_result_t eigrp_metric_holddown_update(eigrp_operation_t operation, eigrp_instance_context_t *context, bool enabled)
 {
+	if (operation == EIGRP_RESET) {
+	return eigrp_metric_holddown_update(EIGRP_SET, context, true);
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	eigrp_metric_config_t *config;
 
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
+		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->holddown_enabled = enabled;
@@ -521,10 +548,7 @@ eigrp_result_t eigrp_metric_holddown_set(eigrp_instance_context_t *context,
  * Sets or resets retained metric holddown configuration.
  * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
  */
-eigrp_result_t eigrp_metric_holddown_reset(eigrp_instance_context_t *context)
-{
-	return eigrp_metric_holddown_set(context, true);
-}
+
 
 
 /* Select the highest route TLV version supported by both local policy and peer. */
@@ -540,40 +564,46 @@ uint8_t eigrp_metric_version_select(const eigrp_instance_t *eigrp,
 }
 
 /* `metric version 32bit`: constrain this address family to classic metrics. */
-eigrp_result_t eigrp_metric_version_set(eigrp_instance_context_t *context)
+eigrp_result_t eigrp_metric_version_update(eigrp_operation_t operation, eigrp_instance_context_t *context)
 {
-	eigrp_metric_config_t *config;
-
-	if (!eigrp_metric_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		config = eigrp_metric_config_get(context->config);
-		if (!config)
-			return EIGRP_RESULT_INTERNAL_FAILURE;
-		config->version_32bit = true;
-	}
-	if (context->runtime) {
-		context->runtime->metric_version = EIGRP_TLV_32B_VERSION;
-		eigrp_neighbor_codec_refresh(context->runtime);
-	}
-	return EIGRP_RESULT_SUCCESS;
-}
-
-/* `no metric version 32bit`: restore Release 2 / Wide Metrics default. */
-eigrp_result_t eigrp_metric_version_reset(eigrp_instance_context_t *context)
-{
+	if (operation == EIGRP_RESET) {
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config && context->config->metric_config)
 		context->config->metric_config->version_32bit = false;
 	if (context->runtime) {
 		context->runtime->metric_version = EIGRP_MAJOR_VERSION;
-		eigrp_neighbor_codec_refresh(context->runtime);
+		eigrp_nbr_codec_update(context->runtime);
+		eigrp_topology_metric_update(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	eigrp_metric_config_t *config;
+
+	if (!eigrp_metric_context_valid(context))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config) {
+		config = eigrp_metric_config_create(context->config);
+		if (!config)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		config->version_32bit = true;
+	}
+	if (context->runtime) {
+		context->runtime->metric_version = EIGRP_TLV_32B_VERSION;
+		eigrp_nbr_codec_update(context->runtime);
+		eigrp_topology_metric_update(context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
-void eigrp_metric_config_delete_all(eigrp_address_family_config_t *af)
+/* `no metric version 32bit`: restore Release 2 / Wide Metrics default. */
+
+
+void eigrp_metric_config_delete_all(eigrp_af_instance_t *af)
 {
 	if (!af)
 		return;

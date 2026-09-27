@@ -9,5 +9,5 @@ If you are adding EIGRP to BIRD, start with `../specs/integration-spec.md`
 and the five public headers in `../eigrpd/`. Use `../frr/README.md` only as a
 job-split example. Do not import FRR types or FRR test objects.
 
-Host-independent tests stay under `../test/portable/` and `../test/common/`.
+Host-independent tests stay under `../test/common/`.
 BIRD-native tests belong under `test/` in this directory when they exist.

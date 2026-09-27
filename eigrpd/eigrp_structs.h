@@ -28,7 +28,7 @@ struct eigrp_addr {
 	struct in6_addr v6;
     } ip;
 };
-    
+
 typedef struct eigrp_extdata {
 	uint32_t orig;
 	uint32_t as;
@@ -57,6 +57,8 @@ struct eigrp_instance {
 	uint8_t variance;    /*Metric variance multiplier*/
 	uint8_t max_paths;   /*Maximum allowed paths for 1 prefix*/
 	uint8_t max_hops;    /*Maximum accepted path hop count*/
+	uint8_t distance_internal; /* Host RIB administrative distance. */
+	uint8_t distance_external; /* Host RIB administrative distance. */
 	uint8_t metric_version; /* Highest locally enabled route TLV version. */
 	bool log_neighbor_changes;
 	bool log_neighbor_warnings;
@@ -103,7 +105,7 @@ struct eigrp_instance {
 	eigrp_tlv_codec_t tlv2_codec;
 
 	/*Neighbor self*/
-	eigrp_neighbor_t *neighbor_self;
+	eigrp_nbr_t *neighbor_self;
 
 
 	/* Host-independent runtime policy references. */
@@ -192,6 +194,8 @@ typedef struct eigrp_interface {
 	uint16_t tlv2_peer_count;
 	eigrp_packet_encoder_t encoder;
 	bool split_horizon;
+	bool next_hop_self;
+	uint32_t bandwidth_percent;
 
 	/* Neighbor information. */
 	eigrp_list_t *nbrs; /* EIGRP Neighbor List */
@@ -210,7 +214,7 @@ typedef struct eigrp_interface {
 
 	/* Host-independent runtime policy references. */
 	eigrp_filter_runtime_state_t filter;
-} eigrp_interface_t;
+} eigrp_intf_t;
 
 /* Determines if it is first or last packet
  * when packet consists of multiple packet
@@ -239,7 +243,7 @@ typedef struct eigrp_packet {
 	uint8_t retrans_counter;
 
 	/*neighbor details for sendng packet*/
-	eigrp_neighbor_t *nbr;
+	eigrp_nbr_t *nbr;
 	uint32_t sequence_number;
 	bool retransmission;
 	bool multicast_exception;
@@ -385,6 +389,12 @@ enum GR_type { EIGRP_GR_MANUAL, EIGRP_GR_FILTER };
 //---------------------------------------------------------------------------------------------------------------------------------------------
 
 /* EIGRP Topology table node structure */
+typedef struct eigrp_reply_status {
+	eigrp_nbr_t *neighbor;
+	uint8_t sia_queries;
+	bool sia_response_received;
+} eigrp_reply_status_t;
+
 typedef struct eigrp_prefix_descriptor {
 	eigrp_list_t *internal_routes, *external_routes, *rij;
 	eigrp_prefix_t destination;
@@ -397,6 +407,8 @@ typedef struct eigrp_prefix_descriptor {
 	uint8_t nt;	    // network type
 	uint8_t state;	    // route FSM state
 	uint8_t req_action; // required action
+	eigrp_event_t *t_active;
+	eigrp_instance_t *active_eigrp;
 
 	// If network type is REMOTE_EXTERNAL, pointer will have reference to
 	// its external TLV
@@ -414,7 +426,7 @@ typedef struct eigrp_route_descriptor {
 	eigrp_addr_t nexthop;			// address of advertised by peer
 
 	eigrp_prefix_descriptor_t *prefix;	// prefix this route is part of
-	eigrp_neighbor_t *adv_router;		// peer who sent me the route
+	eigrp_nbr_t *adv_router;		// peer who sent me the route
 
 	eigrp_metrics_t reported_metric;	// neighbors vector metrics
 	uint32_t reported_distance;		// neighbors distance (RD)
@@ -427,7 +439,7 @@ typedef struct eigrp_route_descriptor {
 
 	uint8_t flags; // used for marking successor and FS
 
-	eigrp_interface_t *ei; // pointer for case of connected entry
+	eigrp_intf_t *ei; // pointer for case of connected entry
 } eigrp_route_descriptor_t;
 
 //---------------------------------------------------------------------------------------------------------------------------------------------

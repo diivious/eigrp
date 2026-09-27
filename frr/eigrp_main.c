@@ -33,6 +33,7 @@
 #include "libagentx.h"
 
 #include "eigrpd/eigrpd.h"
+#include "eigrpd/eigrp_features.h"
 #include "eigrpd/eigrp_structs.h"
 #include "eigrpd/eigrp_debug.h"
 #include "eigrpd/eigrp_dump.h"
@@ -52,6 +53,18 @@
 #include "eigrpd/eigrp_yang.h"
 
 /* EIGRPd privileges. */
+
+#ifndef EIGRP_DISABLE_SNMP
+bool eigrp_snmp_supported(void)
+{
+#ifdef HAVE_SNMP
+	return true;
+#else
+	return false;
+#endif
+}
+#endif
+
 static zebra_capabilities_t eigrpd_caps[] = {
 	ZCAP_NET_RAW, ZCAP_BIND, ZCAP_NET_ADMIN,
 };

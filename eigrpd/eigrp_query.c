@@ -23,7 +23,7 @@
 
 
 static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
-					eigrp_neighbor_t *nbr,
+					eigrp_nbr_t *nbr,
 					eigrp_route_descriptor_t *query_route)
 {
 	eigrp_prefix_descriptor_t *prefix;
@@ -67,7 +67,7 @@ void eigrp_query_send_route(eigrp_instance_t *eigrp,
 	if (!eigrp || !prefix)
 		return;
 
-	work = eigrp_packetizer_work_new(EIGRP_OPC_QUERY);
+	work = eigrp_packetizer_work_create(EIGRP_OPC_QUERY);
 	work->prefix = prefix;
 	work->route = route;
 	work->owner = prefix;
@@ -79,13 +79,13 @@ uint32_t eigrp_query_send_all(eigrp_instance_t *eigrp)
 {
 	eigrp_packetizer_work_t *work;
 	eigrp_prefix_descriptor_t *prefix;
-	eigrp_list_node_t *node;
+	eigrp_list_item_t *node;
 	uint32_t counter = 0;
 
 	if (!eigrp)
 		return 0;
 
-	for (EIGRP_LIST_ELEMENTS_RO(eigrp->topology_changes, node, prefix)) {
+	for (EIGRP_LIST_ITERATE_RO(eigrp->topology_changes, node, prefix)) {
 		if (!(prefix->req_action & EIGRP_FSM_NEED_QUERY))
 			continue;
 		counter++;
@@ -95,16 +95,16 @@ uint32_t eigrp_query_send_all(eigrp_instance_t *eigrp)
 
 	/* One work bead lets the packetizer batch all currently pending QUERY
 	 * destinations per interface and split only at complete TLV boundaries. */
-	work = eigrp_packetizer_work_new(EIGRP_OPC_QUERY);
+	work = eigrp_packetizer_work_create(EIGRP_OPC_QUERY);
 	eigrp_packetizer_enqueue(eigrp, work);
 
 	return counter;
 }
 
 /*EIGRP QUERY read function*/
-void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			 struct eigrp_header *eigrph, eigrp_stream_t *pkt,
-			 eigrp_interface_t *ei, int length)
+			 eigrp_intf_t *ei, int length)
 {
 	eigrp_fsm_action_message_t msg;
 	eigrp_prefix_descriptor_t *prefix;
@@ -153,9 +153,10 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 		msg.packet_type = EIGRP_OPC_QUERY;
 		msg.eigrp = eigrp;
-		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT)
-					? EIGRP_EXT
-					: EIGRP_INT;
+		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT
+				 || received_route->type == EIGRP_TLV_IPv6_EXT
+				 || received_route->type == EIGRP_TLV_MP_EXT)
+					? EIGRP_EXT : EIGRP_INT;
 		msg.adv_router = nbr;
 		msg.route = route;
 		msg.metrics = received_route->metric;

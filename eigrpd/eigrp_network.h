@@ -27,7 +27,24 @@
 static inline const char *
 eigrp_print_addr(eigrp_addr_t *addr)
 {
-    return inet_ntoa(addr->ip.v4);
+    static char buffers[4][INET6_ADDRSTRLEN];
+    static unsigned int next;
+    char *buffer;
+
+    if (!addr)
+        return "<null>";
+    buffer = buffers[next++ % 4U];
+    if (addr->afi == AF_INET6) {
+        if (!inet_ntop(AF_INET6, &addr->ip.v6, buffer, INET6_ADDRSTRLEN))
+            return "<invalid>";
+        return buffer;
+    }
+    if (addr->afi == AF_INET) {
+        if (!inet_ntop(AF_INET, &addr->ip.v4, buffer, INET6_ADDRSTRLEN))
+            return "<invalid>";
+        return buffer;
+    }
+    return "<unknown-af>";
 }
 
 static inline const char *
@@ -42,11 +59,11 @@ eigrp_result_t eigrp_network_create(eigrp_instance_context_t *context,
 				    const eigrp_prefix_t *prefix);
 eigrp_result_t eigrp_network_delete(eigrp_instance_context_t *context,
 				    const eigrp_prefix_t *prefix);
-void eigrp_network_config_delete_all(eigrp_address_family_config_t *af);
+void eigrp_network_config_delete_all(eigrp_af_instance_t *af);
 eigrp_result_t eigrp_network_runtime_exists(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix, bool *exists);
 void eigrp_network_runtime_delete_all(eigrp_instance_t *eigrp);
-void eigrp_network_interfaces_refresh(eigrp_instance_t *eigrp);
+void eigrp_network_intfs_update(eigrp_instance_t *eigrp);
 
 
 

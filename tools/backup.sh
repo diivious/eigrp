@@ -74,9 +74,13 @@ cp -R "$project_root" "$backup_dir"
 find "$backup_dir" \
 	-name .git -o \
 	-name .pytest_cache -o \
+	-name .deps -o \
+	-name .libs -o \
 	-name __pycache__ -o \
 	-name __MACOSX -o \
 	-name .DS_Store -o \
+	-name .dirstamp -o \
+	-name '*.pyc' -o \
 	-name '*.o' -o \
 	-name '*.lo' -o \
 	-name '*.la' -o \

@@ -18,9 +18,9 @@ typedef struct eigrp_table {
 	eigrp_table_node_t *head;
 } eigrp_table_t;
 
-eigrp_table_t *eigrp_table_new(void);
+eigrp_table_t *eigrp_table_create(void);
 void eigrp_table_free(eigrp_table_t *table);
-eigrp_table_node_t *eigrp_table_node_get(eigrp_table_t *table,
+eigrp_table_node_t *eigrp_table_node_lookup_or_create(eigrp_table_t *table,
 					 const eigrp_prefix_t *prefix);
 eigrp_table_node_t *eigrp_table_node_lookup(eigrp_table_t *table,
 					    const eigrp_prefix_t *prefix);

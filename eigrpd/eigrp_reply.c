@@ -24,7 +24,7 @@
 #include "eigrpd/eigrp_packetizer.h"
 #include "eigrpd/eigrp_prefix.h"
 
-void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			   eigrp_prefix_descriptor_t *prefix,
 			   eigrp_route_descriptor_t *route, uint32_t flags)
 {
@@ -33,7 +33,7 @@ void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	if (!eigrp || !nbr || !prefix)
 		return;
 
-	work = eigrp_packetizer_work_new(EIGRP_OPC_REPLY);
+	work = eigrp_packetizer_work_create(EIGRP_OPC_REPLY);
 	work->nbr = nbr;
 	work->prefix = prefix;
 	work->route = route;
@@ -42,16 +42,16 @@ void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	eigrp_packetizer_enqueue(eigrp, work);
 }
 
-void eigrp_reply_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_reply_send(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		      eigrp_prefix_descriptor_t *prefix)
 {
 	eigrp_reply_send_route(eigrp, nbr, prefix, NULL, 0);
 }
 
 /*EIGRP REPLY read function*/
-void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			 struct eigrp_header *eigrph, eigrp_stream_t *pkt,
-			 eigrp_interface_t *ei, int length)
+			 eigrp_intf_t *ei, int length)
 {
 	struct eigrp_fsm_action_message msg;
 	eigrp_prefix_descriptor_t *prefix;
@@ -60,6 +60,7 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 
 	// record neighbor seq were processing
 	nbr->recv_sequence_number = ntohl(eigrph->sequence);
+	eigrp_hello_send_ack(nbr);
 
 	while (pkt->endp > pkt->getp) {
 		route = (nbr->decoder)(eigrp, nbr, pkt, length);
@@ -75,6 +76,12 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 					      &route->dest);
 			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP REPLY: Neighbor(%s) sent unknown prefix %s",
 				   eigrp_print_addr(&nbr->src), prefix_buf);
+			eigrp_topology_route_free(route);
+			continue;
+		}
+		/* RFC 7868: a REPLY for a destination not in ACTIVE state is
+		 * acknowledged and discarded. */
+		if (prefix->state == EIGRP_FSM_STATE_PASSIVE) {
 			eigrp_topology_route_free(route);
 			continue;
 		}
@@ -97,9 +104,10 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		// should have got route off the packet, but one never knows
 		msg.packet_type = EIGRP_OPC_REPLY;
 		msg.eigrp = eigrp;
-		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT)
-					? EIGRP_EXT
-					: EIGRP_INT;
+		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT
+				 || received_route->type == EIGRP_TLV_IPv6_EXT
+				 || received_route->type == EIGRP_TLV_MP_EXT)
+					? EIGRP_EXT : EIGRP_INT;
 		msg.adv_router = nbr;
 		msg.route = route;
 		msg.metrics = received_route->metric;
@@ -109,5 +117,4 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 		if (free_received_route)
 			eigrp_topology_route_free(received_route);
 	}
-	eigrp_hello_send_ack(nbr);
 }

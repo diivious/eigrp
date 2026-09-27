@@ -104,6 +104,14 @@ Before production, perform one bounded navigation/naming review against
 - grouped-module exceptions remain intentional;
 - no obsolete alias wrappers remain after approved renames.
 
+The public namespace should name the EIGRP object a developer is navigating to,
+not mechanically repeat the implementation module.  A detail that has no useful
+protocol meaning outside its owning area may still be the object-level namespace.
+For example, variance is a metric behavior, but `eigrp_metric_variance_update()`
+obscures the object/action pattern; the bounded naming pass should move that family
+toward `eigrp_variance_*`.  Apply the same test to other compound public names
+rather than preserving module prefixes by habit.
+
 This review should produce a finite rename set and be committed separately from
 protocol feature changes.
 
@@ -118,20 +126,20 @@ packet-I/O foundation; adjacency completion remains separate protocol work.
 
 | Target | What works today | What is still missing |
 |---|---|---|
-| `eigrp_auth_mode_set` HMAC-SHA-256 with a named direct password | config retained; MD5 runtime works; classic HMAC via key-chain works | named direct-password key material and receive validation |
+| `eigrp_auth_mode_update` HMAC-SHA-256 with a named direct password | config retained; MD5 runtime works; classic HMAC via key-chain works | named direct-password key material and receive validation |
 | `eigrp_offset_add` / `eigrp_offset_remove` | config retained | apply offset into metric processing |
-| `eigrp_instance_parent_shutdown_set` / `_reset` | config retained | parent-wide runtime shutdown semantics |
-| `eigrp_instance_distance_set` / `_reset` | config retained | RIB administrative-distance application |
-| `eigrp_interface_bandwidth_percent_set` / `_reset` | config retained | live pacing application |
-| `eigrp_interface_next_hop_self_set` / `_reset` | config retained | live packet-path application |
-| `eigrp_metric_traffic_share_balanced_set` / `_reset` | config retained | forwarding/runtime application |
+| `eigrp_instance_parent_shutdown_update` | config retained | parent-wide runtime shutdown semantics |
+| `eigrp_instance_distance_update` | config retained | RIB administrative-distance application |
+| `eigrp_interface_bandwidth_percent_set` | config retained | live pacing application |
+| `eigrp_interface_next_hop_self_set` | config retained | live packet-path application |
+| `eigrp_metric_traffic_share_balanced_update` | config retained | forwarding/runtime application |
 | `eigrp_summary_create` / `_delete` | config retained | advertise/withdraw manual summaries |
-| `eigrp_summary_auto_set` / `_reset` | config retained | auto-summary runtime |
-| `eigrp_summary_metric_set` / `_reset` | config retained | use the override when originating a summary |
-| `eigrp_neighbor_maximum_prefix_set` / `_reset` / `_all_*` | config retained | enforce the prefix limit on a neighbor |
+| `eigrp_summary_auto_update` | config retained | auto-summary runtime |
+| `eigrp_summary_metric_update` | config retained | use the override when originating a summary |
+| `eigrp_neighbor_maximum_prefix_set` / `_all_*` | config retained | enforce the prefix limit on a neighbor |
 | `eigrp_topology_create` / `_delete` | config/identity retained | non-base topology runtime |
-| `eigrp_topology_default_information_set` / `_reset` | config retained | originate/accept default by that policy |
-| `eigrp_topology_maximum_prefix_set` / `_reset` | config retained | enforce the topology prefix limit |
+| `eigrp_topology_default_information_update` | config retained | originate/accept default by that policy |
+| `eigrp_topology_maximum_prefix_update` | config retained | enforce the topology prefix limit |
 | `eigrp_rib_redistribute_add` / FRR `eigrp_zebra_redistribute_update` | Zebra subscribe happens | install source routes into topology and apply route-map |
 | IPv6 adjacency | live IPv6 runtime, proto-88 socket, multicast, packet send/receive | AF-correct HELLO/adjacency bring-up and end-to-end neighbor validation |
 | `eigrp_init` / `eigrp_terminate` | FRR main calls them from `eigrpd.h` | move process init into the public `eigrp.h` contract |

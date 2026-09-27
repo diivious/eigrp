@@ -7,20 +7,20 @@
 
 #include "eigrpd/eigrp_list.h"
 
-eigrp_list_t *eigrp_list_new(void)
+eigrp_list_t *eigrp_list_create(void)
 {
 	return calloc(1, sizeof(eigrp_list_t));
 }
 
-static eigrp_list_node_t *eigrp_list_node_new(void *data)
+static eigrp_list_item_t *eigrp_list_item_create(void *data)
 {
-	eigrp_list_node_t *node = calloc(1, sizeof(*node));
+	eigrp_list_item_t *node = calloc(1, sizeof(*node));
 	if (node)
 		node->data = data;
 	return node;
 }
 
-void eigrp_list_delete_node(eigrp_list_t *list, eigrp_list_node_t *node)
+void eigrp_list_remove(eigrp_list_t *list, eigrp_list_item_t *node)
 {
 	if (!list || !node)
 		return;
@@ -42,7 +42,7 @@ void eigrp_list_delete_node(eigrp_list_t *list, eigrp_list_node_t *node)
 void eigrp_list_delete(eigrp_list_t **listp)
 {
 	eigrp_list_t *list;
-	eigrp_list_node_t *node, *next;
+	eigrp_list_item_t *node, *next;
 
 	if (!listp || !*listp)
 		return;
@@ -57,12 +57,12 @@ void eigrp_list_delete(eigrp_list_t **listp)
 	*listp = NULL;
 }
 
-eigrp_list_node_t *eigrp_list_add(eigrp_list_t *list, void *data)
+eigrp_list_item_t *eigrp_list_add(eigrp_list_t *list, void *data)
 {
-	eigrp_list_node_t *node;
+	eigrp_list_item_t *node;
 	if (!list)
 		return NULL;
-	node = eigrp_list_node_new(data);
+	node = eigrp_list_item_create(data);
 	if (!node)
 		return NULL;
 	node->prev = list->tail;
@@ -75,9 +75,9 @@ eigrp_list_node_t *eigrp_list_add(eigrp_list_t *list, void *data)
 	return node;
 }
 
-eigrp_list_node_t *eigrp_list_add_sort(eigrp_list_t *list, void *data)
+eigrp_list_item_t *eigrp_list_insert(eigrp_list_t *list, void *data)
 {
-	eigrp_list_node_t *node, *new_node;
+	eigrp_list_item_t *node, *new_node;
 	if (!list || !list->cmp)
 		return eigrp_list_add(list, data);
 	for (node = list->head; node; node = node->next) {
@@ -86,7 +86,7 @@ eigrp_list_node_t *eigrp_list_add_sort(eigrp_list_t *list, void *data)
 	}
 	if (!node)
 		return eigrp_list_add(list, data);
-	new_node = eigrp_list_node_new(data);
+	new_node = eigrp_list_item_create(data);
 	if (!new_node)
 		return NULL;
 	new_node->next = node;
@@ -100,9 +100,9 @@ eigrp_list_node_t *eigrp_list_add_sort(eigrp_list_t *list, void *data)
 	return new_node;
 }
 
-eigrp_list_node_t *eigrp_list_lookup(eigrp_list_t *list, const void *data)
+eigrp_list_item_t *eigrp_list_lookup(eigrp_list_t *list, const void *data)
 {
-	eigrp_list_node_t *node;
+	eigrp_list_item_t *node;
 	if (!list)
 		return NULL;
 	for (node = list->head; node; node = node->next)
@@ -113,7 +113,7 @@ eigrp_list_node_t *eigrp_list_lookup(eigrp_list_t *list, const void *data)
 
 void eigrp_list_delete_data(eigrp_list_t *list, const void *data)
 {
-	eigrp_list_node_t *node = eigrp_list_lookup(list, data);
+	eigrp_list_item_t *node = eigrp_list_lookup(list, data);
 	if (node)
-		eigrp_list_delete_node(list, node);
+		eigrp_list_remove(list, node);
 }

@@ -22,9 +22,9 @@
 #include "eigrpd/eigrp_debug.h"
 
 /* EIGRP SIA-REPLY read function */
-void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
+void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			    struct eigrp_header *eigrph, eigrp_stream_t *pkt,
-			    eigrp_interface_t *ei, int length)
+			    eigrp_intf_t *ei, int length)
 {
 	eigrp_debug_neighbor_sia(nbr, "SIA-REPLY received");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
@@ -34,6 +34,7 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 	eigrp_route_descriptor_t *route;
 
 	nbr->recv_sequence_number = ntohl(eigrph->sequence);
+	eigrp_hello_send_ack(nbr);
 
 	while (pkt->endp > pkt->getp) {
 		route = (nbr->decoder)(eigrp, nbr, pkt, length);
@@ -52,51 +53,52 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
 			eigrp_topology_route_free(route);
 			continue;
 		}
-		eigrp_route_descriptor_t *received_route = route;
-		eigrp_route_descriptor_t *topology_route =
-			eigrp_prefix_descriptor_lookup(prefix, nbr);
-		bool free_received_route = false;
+		bool route_retained = false;
 
-		if (topology_route) {
-			topology_route->type = received_route->type;
-			topology_route->nexthop = received_route->nexthop;
-			topology_route->extdata = received_route->extdata;
-			route = topology_route;
-			free_received_route = true;
-		} else {
-			received_route->adv_router = nbr;
-			received_route->prefix = prefix;
+		if (prefix->state != EIGRP_FSM_STATE_PASSIVE
+		    && eigrp_fsm_reply_status_pending(prefix, nbr)) {
+			if (route->metric.flags & EIGRP_OPAQUE_ACTIVE)
+				eigrp_fsm_sia_reply_received(prefix, nbr);
+			else {
+				/* A non-ACTIVE SIA-REPLY says convergence completed.
+				 * Treat it as the outstanding REPLY through DUAL. */
+				msg.packet_type = EIGRP_OPC_REPLY;
+				msg.eigrp = eigrp;
+				msg.data_type = (route->type == EIGRP_TLV_IPv4_EXT
+						 || route->type == EIGRP_TLV_IPv6_EXT
+						 || route->type == EIGRP_TLV_MP_EXT)
+						? EIGRP_EXT : EIGRP_INT;
+				msg.adv_router = nbr;
+				msg.route = eigrp_prefix_descriptor_lookup(prefix, nbr);
+				if (!msg.route) {
+					route->adv_router = nbr;
+					route->prefix = prefix;
+					msg.route = route;
+					route_retained = true;
+				}
+				msg.metrics = route->metric;
+				msg.prefix = prefix;
+				eigrp_fsm_event(&msg);
+			}
 		}
-
-		/* If the destination exists, pass it to DUAL. */
-		msg.packet_type = EIGRP_OPC_SIAREPLY;
-		msg.eigrp = eigrp;
-		msg.data_type = (received_route->type == EIGRP_TLV_IPv4_EXT)
-					? EIGRP_EXT
-					: EIGRP_INT;
-		msg.adv_router = nbr;
-		msg.route = route;
-		msg.metrics = received_route->metric;
-		msg.prefix = prefix;
-		eigrp_fsm_event(&msg);
-
-		if (free_received_route)
-			eigrp_topology_route_free(received_route);
+		if (!route_retained)
+			eigrp_topology_route_free(route);
 	}
-	eigrp_hello_send_ack(nbr);
 }
 
-void eigrp_siareply_send(eigrp_instance_t *eigrp, eigrp_neighbor_t *nbr,
-			 eigrp_prefix_descriptor_t *prefix)
+void eigrp_siareply_send(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
+			 eigrp_prefix_descriptor_t *prefix, bool active)
 {
 	eigrp_packetizer_work_t *work;
 
 	eigrp_debug_neighbor_sia(nbr, "SIA-REPLY send");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
 				   nbr ? nbr->ei : NULL, nbr, "queue SIA-REPLY");
-	work = eigrp_packetizer_work_new(EIGRP_OPC_SIAREPLY);
+	work = eigrp_packetizer_work_create(EIGRP_OPC_SIAREPLY);
 	work->nbr = nbr;
 	work->prefix = prefix;
 	work->owner = prefix;
+	if (active)
+		work->flags |= EIGRP_PACKETIZER_WORK_F_ROUTE_ACTIVE;
 	eigrp_packetizer_enqueue(eigrp, work);
 }

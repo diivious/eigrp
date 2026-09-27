@@ -17,22 +17,23 @@
 #include "eigrp_neighbor.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
+#include "eigrp_instance.h"
 
 struct eigrp_timer_config {
 	bool active_time_configured;
 	uint16_t active_time_seconds;
 };
 
-static void eigrp_timer_neighbor_address(const eigrp_neighbor_t *nbr,
+static void eigrp_timer_neighbor_address(const eigrp_nbr_t *nbr,
 					 eigrp_address_t *address)
 {
 	memset(address, 0, sizeof(*address));
 	if (nbr->src.afi == AF_INET6) {
-		address->afi = EIGRP_ADDRESS_FAMILY_IPV6;
+		address->afi = EIGRP_AFI_IPV6;
 		memcpy(address->bytes, &nbr->src.ip.v6, 16);
 		return;
 	}
-	address->afi = EIGRP_ADDRESS_FAMILY_IPV4;
+	address->afi = EIGRP_AFI_IPV4;
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
@@ -46,11 +47,23 @@ static void eigrp_timer_neighbor_address(const eigrp_neighbor_t *nbr,
  *   Named: topology base mode
  * Description:
  * Sets or resets the ACTIVE/SIA timer configuration.
- * The FRR reference callback did not implement live ACTIVE-time behavior, so this target retains configuration and returns NOT_IMPLEMENTED when runtime enforcement is requested.
+ * The retained value is consumed by portable DUAL ACTIVE/SIA timer enforcement.
  */
-eigrp_result_t eigrp_timer_active_time_set(eigrp_instance_context_t *context,
-					      uint16_t seconds)
+eigrp_result_t eigrp_timer_active_time_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint16_t seconds)
 {
+	if (operation == EIGRP_RESET) {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
+	if (context->config && context->config->timer_config) {
+		context->config->timer_config->active_time_configured = false;
+		context->config->timer_config->active_time_seconds = 0;
+	}
+	return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (operation != EIGRP_SET)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
@@ -63,8 +76,7 @@ eigrp_result_t eigrp_timer_active_time_set(eigrp_instance_context_t *context,
 		context->config->timer_config->active_time_configured = true;
 		context->config->timer_config->active_time_seconds = seconds;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -77,21 +89,24 @@ eigrp_result_t eigrp_timer_active_time_set(eigrp_instance_context_t *context,
  *   Named: topology base mode
  * Description:
  * Sets or resets the ACTIVE/SIA timer configuration.
- * The FRR reference callback did not implement live ACTIVE-time behavior, so this target retains configuration and returns NOT_IMPLEMENTED when runtime enforcement is requested.
+ * The retained value is consumed by portable DUAL ACTIVE/SIA timer enforcement.
  */
-eigrp_result_t eigrp_timer_active_time_reset(eigrp_instance_context_t *context)
+
+
+
+uint16_t eigrp_timer_active_time_seconds(const eigrp_instance_t *runtime)
 {
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->timer_config) {
-		context->config->timer_config->active_time_configured = false;
-		context->config->timer_config->active_time_seconds = 0;
-	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	eigrp_af_instance_t *af;
+
+	if (!runtime)
+		return 180;
+	af = eigrp_instance_runtime_config((eigrp_instance_t *)runtime);
+	if (!af || !af->timer_config || !af->timer_config->active_time_configured)
+		return 180;
+	return af->timer_config->active_time_seconds;
 }
 
-void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af)
+void eigrp_timer_config_delete_all(eigrp_af_instance_t *af)
 {
 	if (!af)
 		return;
@@ -109,13 +124,13 @@ void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af)
  * Exports active EIGRP timer state through portable callbacks.
  * FRR only formats the returned state.
  */
-eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
+eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context,
 				eigrp_timer_state_cb callback, void *arg)
 {
-	eigrp_interface_t *interface;
-	eigrp_neighbor_t *neighbor;
-	eigrp_list_node_t *interface_node;
-	eigrp_list_node_t *neighbor_node;
+	eigrp_intf_t *interface;
+	eigrp_nbr_t *neighbor;
+	eigrp_list_item_t *interface_node;
+	eigrp_list_item_t *neighbor_node;
 	eigrp_result_t result;
 
 	if (!context || (!context->config && !context->runtime))
@@ -127,7 +142,7 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 	if (!context->runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
-	for (EIGRP_LIST_ELEMENTS_RO(context->runtime->eiflist, interface_node,
+	for (EIGRP_LIST_ITERATE_RO(context->runtime->eiflist, interface_node,
 				  interface)) {
 		if (interface->t_hello) {
 			eigrp_timer_state_t state = {
@@ -143,7 +158,7 @@ eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
 				return result;
 		}
 
-		for (EIGRP_LIST_ELEMENTS_RO(interface->nbrs, neighbor_node, neighbor)) {
+		for (EIGRP_LIST_ITERATE_RO(interface->nbrs, neighbor_node, neighbor)) {
 			eigrp_timer_state_t state = {0};
 
 			if (neighbor->state == EIGRP_NEIGHBOR_DOWN

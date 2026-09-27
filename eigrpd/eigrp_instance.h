@@ -17,12 +17,12 @@
  */
 struct eigrp_instance_parent_config {
 	char *name;
-	eigrp_address_family_config_t *address_families;
+	eigrp_af_instance_t *address_families;
 	eigrp_instance_parent_config_t *next;
 };
 
-struct eigrp_address_family_config {
-	eigrp_address_family_t afi;
+struct eigrp_af_instance {
+	eigrp_afi_t afi;
 	eigrp_af_vectors_t af_vectors;
 	uint16_t asn;
 	char *vrf_name;
@@ -34,21 +34,23 @@ struct eigrp_address_family_config {
 	bool event_log_size_configured;
 	uint32_t event_log_size;
 	eigrp_network_config_t *networks;
-	eigrp_neighbor_config_t *neighbors;
-	eigrp_interface_config_t *interfaces;
-	eigrp_redistribute_config_t *redistributions;
+	eigrp_nbr_config_t *neighbors;
+	eigrp_intf_config_t *interfaces;
+	eigrp_redist_config_t *redistributions;
 	eigrp_distribute_list_config_t *distribute_lists;
 	eigrp_offset_config_t *offsets;
 	eigrp_metric_config_t *metric_config;
 	eigrp_summary_state_t *summary_state;
 	eigrp_timer_config_t *timer_config;
-	eigrp_neighbor_policy_state_t *neighbor_policy;
-	eigrp_redistribute_policy_config_t *redistribute_policy;
-	eigrp_address_family_config_t *next;
+	eigrp_nbr_policy_state_t *neighbor_policy;
+	eigrp_redist_policy_config_t *redistribute_policy;
+	eigrp_af_instance_t *next;
 };
 
-typedef eigrp_result_t (*eigrp_instance_address_family_walk_cb)(
-	const char *instance_name, eigrp_address_family_config_t *af, void *arg);
+typedef eigrp_result_t (*eigrp_af_instance_iterate_cb)(
+	const char *instance_name, eigrp_af_instance_t *af, void *arg);
+typedef eigrp_result_t (*eigrp_instance_vrf_iterate_cb)(
+	eigrp_vrf_id_t vrf_id, void *arg);
 
 eigrp_result_t eigrp_instance_classic_validate(
 	uint16_t asn, eigrp_vrf_id_t vrf_id, const char **owner_name);
@@ -62,43 +64,41 @@ eigrp_result_t eigrp_instance_parent_create(const char *name);
 eigrp_instance_parent_config_t *eigrp_instance_parent_read(const char *name);
 eigrp_result_t eigrp_instance_parent_delete(const char *name);
 
-eigrp_result_t eigrp_instance_address_family_create(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+eigrp_result_t eigrp_af_instance_create(
+	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn);
-eigrp_address_family_config_t *eigrp_instance_address_family_read(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+eigrp_af_instance_t *eigrp_af_instance_read(
+	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn);
-eigrp_result_t eigrp_instance_address_family_delete(
-	const char *name, eigrp_address_family_t afi, const char *vrf_name,
+eigrp_result_t eigrp_af_instance_delete(
+	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn);
-eigrp_result_t eigrp_instance_address_family_walk(
+eigrp_result_t eigrp_af_instance_iterate(
 	const eigrp_state_request_t *request,
-	eigrp_instance_address_family_walk_cb callback, void *arg);
+	eigrp_af_instance_iterate_cb callback, void *arg);
+eigrp_result_t eigrp_instance_vrf_iterate(
+	eigrp_instance_vrf_iterate_cb callback, void *arg);
 
 /* Clear any named address-family binding to a runtime being destroyed. */
-void eigrp_instance_runtime_unbind(eigrp_instance_t *runtime);
-eigrp_address_family_config_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime);
+void eigrp_instance_runtime_remove(eigrp_instance_t *runtime);
+eigrp_af_instance_t *eigrp_instance_runtime_config(eigrp_instance_t *runtime);
 
-eigrp_result_t eigrp_instance_router_id_set(eigrp_instance_context_t *context,
-					       uint32_t router_id);
-eigrp_result_t eigrp_instance_router_id_reset(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_instance_address_family_shutdown_set(
-	eigrp_address_family_config_t *af);
-eigrp_result_t eigrp_instance_address_family_shutdown_reset(
-	eigrp_address_family_config_t *af);
-eigrp_result_t eigrp_instance_address_family_start(eigrp_instance_t *runtime);
-eigrp_result_t eigrp_instance_address_family_stop(eigrp_instance_t *runtime);
+eigrp_result_t eigrp_instance_router_id_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	uint32_t router_id);
+eigrp_result_t eigrp_af_instance_shutdown_update(eigrp_operation_t operation,
+	eigrp_af_instance_t *af);
+eigrp_result_t eigrp_af_instance_start(eigrp_instance_t *runtime);
+eigrp_result_t eigrp_af_instance_stop(eigrp_instance_t *runtime);
 bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
 
-eigrp_result_t eigrp_instance_parent_shutdown_set(
+eigrp_result_t eigrp_instance_parent_shutdown_update(eigrp_operation_t operation,
 	eigrp_instance_parent_config_t *parent);
-eigrp_result_t eigrp_instance_parent_shutdown_reset(
-	eigrp_instance_parent_config_t *parent);
-eigrp_result_t eigrp_instance_distance_set(eigrp_address_family_config_t *af,
-					      uint8_t internal_distance,
-					      uint8_t external_distance);
-eigrp_result_t eigrp_instance_distance_reset(eigrp_address_family_config_t *af);
+eigrp_result_t eigrp_instance_distance_update(eigrp_operation_t operation,
+	eigrp_af_instance_t *af,
+	uint8_t internal_distance,
+	uint8_t external_distance);
 
-void eigrp_instance_config_finish(void);
+void eigrp_instance_config_delete_all(void);
 
 #endif /* EIGRPD_EIGRP_INSTANCE_H_ */

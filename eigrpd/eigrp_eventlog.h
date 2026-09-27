@@ -29,30 +29,30 @@
  */
 /* Runtime ring lifecycle. */
 eigrp_result_t eigrp_eventlog_init(eigrp_instance_t *eigrp, uint32_t capacity);
-void eigrp_eventlog_finish(eigrp_instance_t *eigrp);
+void eigrp_eventlog_delete(eigrp_instance_t *eigrp);
 eigrp_result_t eigrp_eventlog_resize(eigrp_instance_t *eigrp,
 				     uint32_t capacity);
 
 /* Future event producers use this API; no protocol event sites are wired yet. */
-eigrp_result_t eigrp_eventlog_record(eigrp_instance_t *eigrp,
+eigrp_result_t eigrp_eventlog_msg_add(eigrp_instance_t *eigrp,
 				     unsigned long opcode,
 				     unsigned long arg1,
 				     unsigned long arg2);
 
 /* Operational/configuration targets. */
 eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context);
-eigrp_result_t eigrp_eventlog_size_set(eigrp_instance_context_t *context,
-					  uint32_t size);
-eigrp_result_t eigrp_eventlog_size_reset(eigrp_instance_context_t *context);
+eigrp_result_t eigrp_eventlog_size_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	uint32_t size);
 eigrp_result_t eigrp_eventlog_state_read(
 	const eigrp_instance_context_t *context, eigrp_eventlog_state_t *state);
-eigrp_result_t eigrp_eventlog_show(const eigrp_instance_context_t *context,
-				   eigrp_eventlog_show_cb callback,
+eigrp_result_t eigrp_eventlog_msg_iterate(const eigrp_instance_context_t *context,
+				   eigrp_eventlog_msg_cb callback,
 				   void *arg);
 
 /* Static opcode-to-format lookup and trusted formatter used by show adapters. */
 const char *eigrp_eventlog_format_read(unsigned long opcode);
-eigrp_result_t eigrp_eventlog_entry_format(const eigrp_eventlog_entry_t *entry,
+eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 					 char *buffer, size_t buffer_size);
 
 #endif /* EIGRPD_EIGRP_EVENTLOG_H_ */

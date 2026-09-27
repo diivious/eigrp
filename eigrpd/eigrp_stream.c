@@ -34,7 +34,7 @@ static int eigrp_stream_ensure(eigrp_stream_t *stream, size_t needed)
 	return 1;
 }
 
-eigrp_stream_t *eigrp_stream_new(size_t size)
+eigrp_stream_t *eigrp_stream_create(size_t size)
 {
 	eigrp_stream_t *stream = calloc(1, sizeof(*stream));
 	if (!stream)
@@ -54,7 +54,7 @@ void eigrp_stream_free(eigrp_stream_t *stream)
 	free(stream);
 }
 
-void eigrp_stream_reset(eigrp_stream_t *stream)
+void eigrp_stream_clear(eigrp_stream_t *stream)
 {
 	if (!stream)
 		return;

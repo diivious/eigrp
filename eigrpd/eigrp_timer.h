@@ -13,11 +13,12 @@
 #include "eigrp.h"
 #include "eigrp_types.h"
 
-eigrp_result_t eigrp_timer_active_time_set(eigrp_instance_context_t *context,
-					      uint16_t seconds);
-eigrp_result_t eigrp_timer_active_time_reset(eigrp_instance_context_t *context);
-void eigrp_timer_config_delete_all(eigrp_address_family_config_t *af);
-eigrp_result_t eigrp_timer_show(const eigrp_instance_context_t *context,
+eigrp_result_t eigrp_timer_active_time_update(eigrp_operation_t operation,
+	eigrp_instance_context_t *context,
+	uint16_t seconds);
+void eigrp_timer_config_delete_all(eigrp_af_instance_t *af);
+uint16_t eigrp_timer_active_time_seconds(const eigrp_instance_t *runtime);
+eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context,
 				eigrp_timer_state_cb callback, void *arg);
 
 #endif /* EIGRPD_EIGRP_TIMER_H_ */
