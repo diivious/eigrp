@@ -18,6 +18,11 @@
 
 #define EIGRP_EVENTLOG_DEFAULT_SIZE 500U
 
+typedef enum eigrp_eventlog_opcode {
+	EIGRP_EVENTLOG_OPCODE_NONE = 0,
+	EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID,
+} eigrp_eventlog_opcode_t;
+
 /*
  * Keep the per-event footprint fixed at exactly three machine words.  The
  * opcode is an index into the static event-format table; arg1 and arg2 are

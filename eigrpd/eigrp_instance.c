@@ -22,6 +22,8 @@
 #include "eigrpd/eigrp_redistribute.h"
 #include "eigrpd/eigrp_summary.h"
 #include "eigrpd/eigrp_timer.h"
+#include "eigrpd/eigrp_eventlog.h"
+#include "eigrpd/eigrp_log.h"
 #include "eigrpd/eigrp_sys.h"
 #include "eigrpd/eigrp_rib.h"
 
@@ -295,6 +297,15 @@ eigrp_result_t eigrp_af_instance_create(
 	}
 	af->next = parent->address_families;
 	parent->address_families = af;
+
+	/* A newly created address-family is administratively enabled unless the
+	 * retained shutdown leaf is present.  Start it after linking the AF so
+	 * runtime-to-config lookups work during interface discovery.  Runtime
+	 * inability (for example, no usable IPv6 router ID yet) must not reject
+	 * retained configuration.
+	 */
+	if (!af->shutdown)
+		(void)eigrp_af_instance_start(af->runtime);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -598,8 +609,13 @@ eigrp_result_t eigrp_af_instance_start(eigrp_instance_t *runtime)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (runtime->router_id.s_addr == INADDR_ANY)
 		eigrp_router_id_update(runtime);
-	if (runtime->router_id.s_addr == INADDR_ANY)
+	if (runtime->router_id.s_addr == INADDR_ANY) {
+		if (eigrp_instance_afi(runtime) == EIGRP_AFI_IPV6)
+			eigrp_log(EIGRP_LOG_WARNING,
+				  "EIGRP: Ignored HELLO, no routerid for IPv6 AS(%u)",
+				  runtime->AS);
 		return EIGRP_RESULT_SUCCESS;
+	}
 
 	/* Re-read host interface state before deciding which EIGRP interfaces can
 	 * run.  The host adapter only enumerates and normalizes interface state.

@@ -107,16 +107,108 @@ const char *eigrp_message_lookup(const eigrp_message_t *messages, int value,
  *   2. If there is no statically assigned router ID, then try to stick
  *      with the most recent value, since changing router ID's is very
  *      disruptive.
- *   3. Last choice: just go with whatever the zebra daemon recommends.
+ *   3. Last choice: select from normalized host interface state.
  *
  * Note:
  * router id for EIGRP is really just a 32 bit number. Cisco historically
  * displays it in dotted decimal notation, and will pickup an IP address
  * from an interface so it can be 'auto-configed" to a uniqe value
  *
- * This does not work for IPv6, and to make the code simpler, its
- * stored and processed internerall as a 32bit number
+ * IPv6 EIGRP uses the same 32-bit router ID even though its protocol
+ * interfaces and neighbors use IPv6 addresses.  It is stored internally
+ * as a 32-bit IPv4-format value.
  */
+struct eigrp_router_id_select {
+	eigrp_ifindex_t loopback_ifindex;
+	eigrp_ifindex_t physical_ifindex;
+	uint32_t loopback;
+	uint32_t physical;
+};
+
+static void eigrp_router_id_ipv4_candidate_read(
+	const eigrp_intf_runtime_state_t *state, void *arg)
+{
+	struct eigrp_router_id_select *selection = arg;
+	struct in_addr candidate;
+	char address[INET_ADDRSTRLEN] = {0};
+	uint32_t host_address;
+
+	if (!state || !selection || state->address.address.afi != EIGRP_AFI_IPV4)
+		return;
+
+	memcpy(&candidate.s_addr, state->address.address.bytes,
+	       sizeof(candidate.s_addr));
+	(void)inet_ntop(AF_INET, &candidate, address, sizeof(address));
+	eigrp_log(EIGRP_LOG_DEBUG,
+		  "EIGRP router-id auto candidate: interface %s[%u] address %s type %u operative %u secondary %u",
+		  state->interface_name ? state->interface_name : "?", state->ifindex,
+		  address[0] ? address : "?", state->type, state->operative,
+		  state->secondary);
+
+	if (state->secondary || !state->operative)
+		return;
+
+	host_address = ntohl(candidate.s_addr);
+	if (!host_address || host_address == UINT32_MAX)
+		return;
+
+	/* Cisco EIGRP router-ID selection prefers an IPv4 loopback.  Otherwise
+	 * retain the first operative physical interface in host interface order.
+	 * The selected 32-bit ID is independent of the address-family carried by
+	 * EIGRP; IPv6 EIGRP therefore does not require the IPv4 candidate itself
+	 * to belong to an IPv6 EIGRP runtime interface. */
+	if (state->type == EIGRP_IFTYPE_LOOPBACK) {
+		if (!selection->loopback_ifindex
+		    || state->ifindex < selection->loopback_ifindex) {
+			selection->loopback_ifindex = state->ifindex;
+			selection->loopback = host_address;
+		}
+		return;
+	}
+
+	if (!selection->physical_ifindex
+	    || state->ifindex < selection->physical_ifindex) {
+		selection->physical_ifindex = state->ifindex;
+		selection->physical = host_address;
+	}
+}
+
+static bool eigrp_router_id_auto_select(eigrp_instance_t *eigrp,
+					uint32_t *router_id)
+{
+	struct eigrp_router_id_select selection = {0};
+	eigrp_result_t result;
+	struct in_addr selected = {.s_addr = INADDR_ANY};
+	char address[INET_ADDRSTRLEN] = {0};
+
+	if (!eigrp || !router_id)
+		return false;
+
+	result = eigrp_sys_interface_walk(
+		eigrp, eigrp_router_id_ipv4_candidate_read, &selection);
+	if (result != EIGRP_RESULT_SUCCESS) {
+		eigrp_log(EIGRP_LOG_DEBUG,
+			  "EIGRP router-id auto selection: interface walk failed for AS(%u), result %u",
+			  eigrp->AS, (unsigned)result);
+		return false;
+	}
+
+	*router_id = selection.loopback ? selection.loopback : selection.physical;
+	if (!*router_id) {
+		eigrp_log(EIGRP_LOG_DEBUG,
+			  "EIGRP router-id auto selection: no eligible IPv4 address for AS(%u)",
+			  eigrp->AS);
+		return false;
+	}
+
+	selected.s_addr = htonl(*router_id);
+	(void)inet_ntop(AF_INET, &selected, address, sizeof(address));
+	eigrp_log(EIGRP_LOG_DEBUG,
+		  "EIGRP router-id auto selection: selected %s for AS(%u)",
+		  address[0] ? address : "?", eigrp->AS);
+	return true;
+}
+
 void eigrp_router_id_update(eigrp_instance_t *eigrp)
 {
 	struct in_addr router_id = {.s_addr = INADDR_ANY};
@@ -132,9 +224,22 @@ void eigrp_router_id_update(eigrp_instance_t *eigrp)
 	else if (eigrp->router_id.s_addr != INADDR_ANY)
 		router_id = eigrp->router_id;
 	else {
-		uint32_t host_router_id = 0;
-		if (eigrp_sys_router_id_get(eigrp, &host_router_id))
-			router_id.s_addr = htonl(host_router_id);
+		uint32_t selected_router_id = 0;
+
+		if (eigrp_router_id_auto_select(eigrp, &selected_router_id))
+			router_id.s_addr = htonl(selected_router_id);
+	}
+
+	if (router_id.s_addr == INADDR_ANY
+	    && eigrp_instance_afi(eigrp) == EIGRP_AFI_IPV6) {
+		if (!eigrp->router_id_missing_event_logged) {
+			(void)eigrp_eventlog_msg_add(
+				eigrp, EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID,
+				eigrp->AS, 0);
+			eigrp->router_id_missing_event_logged = true;
+		}
+	} else {
+		eigrp->router_id_missing_event_logged = false;
 	}
 
 	eigrp->router_id = router_id;

@@ -284,8 +284,15 @@ void eigrp_sys_interface_state_update(
 		return;
 
 	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (eigrp->vrf_id != vrf_id || !eigrp->data_path_ready
-		    || eigrp->router_id.s_addr == INADDR_ANY
+		if (eigrp->vrf_id != vrf_id || !eigrp->data_path_ready)
+			continue;
+		/* Interface/address discovery can complete after the AF runtime is
+		 * created.  Retry automatic router-ID selection before rejecting
+		 * interface activation so IPv6 does not remain inert solely because
+		 * host interface state arrived later in startup. */
+		if (eigrp->router_id.s_addr == INADDR_ANY)
+			eigrp_router_id_update(eigrp);
+		if (eigrp->router_id.s_addr == INADDR_ANY
 		    || !eigrp_network_runtime_matches(eigrp, &state->address))
 			continue;
 		(void)eigrp_intf_runtime_update(EIGRP_SET, eigrp, state, NULL);

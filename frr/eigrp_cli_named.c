@@ -4215,12 +4215,26 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 	};
 	eigrp_result_t result;
 
-	if (af)
-		eigrp_vty_named_context_header(vty, instance_name, af, runtime,
-					       "Topology Table");
-	else
-		vty_out(vty, "\nEIGRP-%s Topology Table for AS(%u)\n",
-			eigrp_vty_afi_name(runtime->af_vectors.afi), runtime->AS);
+	if (af) {
+		char router_id[INET_ADDRSTRLEN] = "0.0.0.0";
+
+		if (runtime)
+			inet_ntop(AF_INET, &runtime->router_id, router_id,
+				  sizeof(router_id));
+		vty_out(vty,
+			"\nEIGRP-%s VR(%s) Topology Table for AS(%u)/ID(%s)",
+			eigrp_vty_afi_name(af->afi), instance_name, af->asn,
+			router_id);
+		if (strcmp(af->vrf_name, VRF_DEFAULT_NAME) != 0)
+			vty_out(vty, " VRF(%s)", af->vrf_name);
+		vty_out(vty, "\n");
+		if (!runtime)
+			vty_out(vty,
+				"  Runtime state: address-family not active in the runtime\n");
+	} else
+		vty_out(vty, "\nEIGRP-%s Topology Table for AS(%u)/ID(%s)\n",
+			eigrp_vty_afi_name(runtime->af_vectors.afi), runtime->AS,
+			inet_ntoa(runtime->router_id));
 	vty_out(vty,
 		"Codes: P - Passive, A - Active, U - Update, Q - Query, R - Reply,\n"
 		"       r - reply Status, s - sia Status\n\n");

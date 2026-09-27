@@ -23,13 +23,14 @@ struct eigrp_eventlog {
 	uint32_t next;
 };
 
-/*
- * Event strings are intentionally empty in this pass.  Future event producers
- * add an opcode and its printf-style text here.  The opcode stored in each
- * three-word ring entry is the direct index into this table.
+/* The opcode stored in each three-word ring entry is the direct index into
+ * this table.  Keep protocol wording here so all management adapters render
+ * the same event text.
  */
 static const char *const eigrp_eventlog_formats[] = {
-	NULL,
+	[EIGRP_EVENTLOG_OPCODE_NONE] = NULL,
+	[EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID] =
+		"EIGRP: Ignored HELLO, no routerid for IPv6 AS(%lu)",
 };
 
 static const eigrp_eventlog_msg_t *

@@ -70,6 +70,7 @@ struct eigrp_instance {
 	/* EIGRP Router ID. */
 	struct in_addr router_id;	 /* Configured automatically. */
 	struct in_addr router_id_static; /* Configured manually. */
+	bool router_id_missing_event_logged; /* Missing-ID event de-duplication. */
 
 	eigrp_list_t *eiflist;		   /* eigrp interfaces */
 	uint8_t passive_interface_default; /* passive-interface default */
