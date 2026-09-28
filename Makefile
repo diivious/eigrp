@@ -1,20 +1,50 @@
-# EIGRP project convenience targets.
-# The real FRR daemon build still happens after eigrpd/ is staged into FRR.
+# EIGRP standalone development pipeline.
+# Platform integration remains explicit under tools/<platform>.sh.
 
-.PHONY: all smoke compile-smoke portable-test platform-test test clean
+.PHONY: all build uut portable-build portable-test portable-pytest portable-scenarios \
+	ipv4-basic-core ipv6-basic-core rtp-core test clean frr-smoke
 
-all: smoke
+all: build
 
-smoke compile-smoke:
-	$(MAKE) -C test/build
+portable-build:
+	$(MAKE) -C eigrpd/code
 
-portable-test:
-	python3 -m pytest test/common
+portable-pytest: build
+	python3 -m pytest eigrpd/test
 
-platform-test:
-	python3 -m pytest test/platform
+portable-scenarios: build
+	$(MAKE) -C eigrpd/test/uut all-scenarios
 
-test: smoke portable-test platform-test
+portable-test: portable-pytest portable-scenarios
+
+build: portable-build
+	$(MAKE) -C unix/code
+
+uut: portable-pytest portable-scenarios
+
+ipv4-basic-core: build
+	$(MAKE) -C eigrpd/test/uut ipv4-basic-core
+
+ipv6-basic-core: build
+	$(MAKE) -C eigrpd/test/uut ipv6-basic-core
+
+rtp-core: build
+	$(MAKE) -C eigrpd/test/uut rtp-core
+
+test:
+	@status=0; \
+	$(MAKE) portable-test || status=$$?; \
+	$(MAKE) uut || status=$$?; \
+	$(MAKE) ipv4-basic-core || status=$$?; \
+	$(MAKE) ipv6-basic-core || status=$$?; \
+	$(MAKE) rtp-core || status=$$?; \
+	exit $$status
+
+# Optional FRR-owned compile/link smoke; never part of the root portable gate.
+frr-smoke:
+	$(MAKE) -C frr/test/build
 
 clean:
-	$(MAKE) -C test/build clean
+	$(MAKE) -C eigrpd/code clean
+	$(MAKE) -C unix/code clean
+	$(MAKE) -C eigrpd/test/uut clean

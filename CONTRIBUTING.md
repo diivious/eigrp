@@ -21,7 +21,7 @@ specs/    project rules. read before you invent a new pattern
 tools/    FRR stage/build/UUT helpers
 ```
 
-If the change is protocol behavior, it belongs in `eigrpd/`.
+If the change is protocol behavior, it belongs in `eigrpd/code/`.
 If the change is FRR CLI, YANG, Zebra, vtysh, or FRR process wiring, it belongs
 in `frr/`.
 If the change is a public host API, update `specs/integration-spec.md` in the
@@ -146,15 +146,25 @@ New files use the copyright of the person who wrote them.
 
 ## 7. Test gate
 
-From the repository root:
+From the repository root, the normal standalone development loop is:
 
 ```sh
+make
 make test
 ```
 
-That is the local fast gate. It is not the whole gate.
+`make` builds `eigrpd/code` plus `unix/code`. `make test` is the authoritative
+portable/core gate: portable build validation, `eigrpd/test`, `unix/test`, the
+IPv4 and IPv6 Basic Core Gates, and the RTP Core Gate. It requires no FRR/BIRD
+checkout or VM, root privileges, or host VLAN configuration, and it never
+invokes platform tooling implicitly.
 
-For protocol or FRR adapter changes, also:
+GitHub Actions executes this same gate on Linux and macOS; it does not reproduce
+the individual build/test targets in workflow YAML. See
+`specs/github-core-ci.md` for the hosted CI contract.
+
+For protocol changes that also require FRR platform validation, move to the FRR
+environment after the portable gate and run explicitly:
 
 ```sh
 tools/frr.sh --install --frr-root ../frr
@@ -178,11 +188,11 @@ documented `no` form are shown to work.
 The installed public headers are:
 
 ```text
-eigrpd/eigrp.h
-eigrpd/eigrp_cli.h
-eigrpd/eigrp_mgnt.h
-eigrpd/eigrp_rib.h
-eigrpd/eigrp_sys.h
+eigrpd/code/eigrp.h
+eigrpd/code/eigrp_cli.h
+eigrpd/code/eigrp_mgnt.h
+eigrpd/code/eigrp_rib.h
+eigrpd/code/eigrp_sys.h
 ```
 
 If you add or change a public type or function:
@@ -194,7 +204,7 @@ If you add or change a public type or function:
 
 A public symbol with no spec entry is not a stable API.
 
-Host code must not include private `eigrpd/` module headers to "get it working."
+Host code must not include private `eigrpd/code/` module headers to "get it working."
 If the public contract is missing a call you need, that is a spec change, not an
 excuse to reach into DUAL or packet objects.
 

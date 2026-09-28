@@ -443,7 +443,7 @@ if [[ "${#extra_configure_args[@]}" -gt 0 ]]; then
 fi
 
 if [[ "$action" == "smoke" ]]; then
-	make -C "$eigrp_root/test/build"
+	make -C "$eigrp_root/frr/test/build"
 	exit 0
 fi
 

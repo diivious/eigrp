@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: ISC
+#
+# Copyright (C) 2026 Donnie V. Savage
+#
+# Source-level guards for IPv4 packet destination family initialization.
+
+from pathlib import Path
+
+
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
+
+
+def read(relative: str) -> str:
+    return (ROOT / relative).read_text()
+
+
+def test_runtime_address_keeps_system_address_family_identity():
+    structs = read("eigrpd/code/eigrp_structs.h")
+    start = structs.index("struct eigrp_addr {")
+    end = structs.index("};", start)
+    address = structs[start:end]
+
+    assert "uint8_t afi;" in address
+    assert "struct in_addr" in address
+    assert "struct in6_addr" in address
+
+
+def test_ipv4_vector_uses_posix_family_for_runtime_addresses():
+    ipv4 = read("eigrpd/code/eigrp_ipv4.c")
+    southbound = read("frr/code/eigrp_southbound_ipv4.c")
+
+    assert "source->afi = EIGRP_AFI_IPV4;" in southbound
+    assert "destination->afi = EIGRP_AFI_IPV4;" in southbound
+    assert "address->afi = AF_INET;" in ipv4
+    assert "packet->dst.afi != AF_INET" in ipv4
+
+
+def test_ipv4_packet_destinations_set_family_before_send():
+    hello = read("eigrpd/code/eigrp_hello.c")
+    update = read("eigrpd/code/eigrp_update.c")
+    packetizer = read("eigrpd/code/eigrp_packetizer.c")
+    packet = read("eigrpd/code/eigrp_packet.c")
+
+    assert "destination.afi = AF_INET;" in hello
+    assert "packet->dst = *destination;" in hello
+    assert "eigrp_addr_cpy(&packet->dst, &nbr->src);" in update
+    assert "eigrp_packet_multicast_reliable_enqueue" in packetizer
+    assert "packet->dst.afi = AF_INET;" in packet
+
+
+def test_no_custom_runtime_family_conversion_was_introduced():
+    structs = read("eigrpd/code/eigrp_structs.h")
+    start = structs.index("struct eigrp_addr {")
+    end = structs.index("};", start)
+    address = structs[start:end]
+
+    assert "eigrp_afi_t afi;" not in address

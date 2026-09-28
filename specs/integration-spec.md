@@ -29,16 +29,16 @@ or the TLV codecs to write a shim.
 
 ### 1.1 Who this document is for
 
-This spec is the black-box contract. You were handed `eigrpd/` and told to make
+This spec is the black-box contract. You were handed `eigrpd/code/` and told to make
 it run on a routing platform. You should be able to do that from:
 
 ```text
 this file
-eigrpd/eigrp.h
-eigrpd/eigrp_cli.h
-eigrpd/eigrp_mgnt.h
-eigrpd/eigrp_rib.h
-eigrpd/eigrp_sys.h
+eigrpd/code/eigrp.h
+eigrpd/code/eigrp_cli.h
+eigrpd/code/eigrp_mgnt.h
+eigrpd/code/eigrp_rib.h
+eigrpd/code/eigrp_sys.h
 ```
 
 FRR is one host. It is not the API. `frr/README.md` maps current FRR files onto
@@ -80,7 +80,7 @@ flowchart LR
 
 ### 1.2 What you compile
 
-Portable protocol objects are the `.c` files under `eigrpd/`.
+Portable protocol objects are the `.c` files under `eigrpd/code/`.
 
 Host adapter objects are written by you. They implement the host side of
 `eigrp_sys.h` and `eigrp_rib.h`, and they call `eigrp_cli.h` / `eigrp_mgnt.h`.
@@ -96,11 +96,11 @@ Include path:
 so this works:
 
 ```c
-#include "eigrpd/eigrp.h"
-#include "eigrpd/eigrp_cli.h"
-#include "eigrpd/eigrp_mgnt.h"
-#include "eigrpd/eigrp_rib.h"
-#include "eigrpd/eigrp_sys.h"
+#include "eigrpd/code/eigrp.h"
+#include "eigrpd/code/eigrp_cli.h"
+#include "eigrpd/code/eigrp_mgnt.h"
+#include "eigrpd/code/eigrp_rib.h"
+#include "eigrpd/code/eigrp_sys.h"
 ```
 
 Compile flags used by the in-tree smoke harness:
@@ -109,13 +109,13 @@ Compile flags used by the in-tree smoke harness:
 -std=gnu11
 ```
 
-Link portable `eigrpd/*.o` with your adapter `.o` files and the host libc.
-MD5 and SHA-256 used by EIGRP auth live in `eigrpd/`. You do not need an
+Link portable `eigrpd/code/*.o` with your adapter `.o` files and the host libc.
+MD5 and SHA-256 used by EIGRP auth live in `eigrpd/code/`. You do not need an
 external crypto library for the current auth code.
 
-`eigrpd/eigrp_log.c` is a stderr fallback. A host may replace that one file
-with a log sink that still implements `eigrp_log()` from `eigrpd/eigrp_log.h`.
-FRR does that in `frr/eigrp_log.c`. If you keep the portable log file, do not
+`eigrpd/code/eigrp_log.c` is a stderr fallback. A host may replace that one file
+with a log sink that still implements `eigrp_log()` from `eigrpd/code/eigrp_log.h`.
+FRR does that in `frr/code/eigrp_log.c`. If you keep the portable log file, do not
 also link the FRR one.
 
 Packet I/O in `eigrp_sys.h` provides IPv4 and IPv6 envelopes behind the same
@@ -132,13 +132,13 @@ Order at process start:
 2. eigrp_sys_runtime_init()     host implements
 3. eigrp_rib_init()             host implements
 4. eigrp_sys_policy_init()      host implements if policy is used
-5. eigrp_init()                 portable, declared in eigrpd/eigrpd.h
+5. eigrp_init()                 portable, declared in eigrpd/code/eigrpd.h
 6. host config/admin binds to eigrp_cli.h
 7. host interface/RIB callbacks start feeding eigrp_sys.h / eigrp_rib.h
 ```
 
 `eigrp_init()` is the current portable runtime constructor. It is declared in
-`eigrpd/eigrpd.h`, not in the five public headers. FRR `eigrp_main.c` calls
+`eigrpd/code/eigrpd.h`, not in the five public headers. FRR `eigrp_main.c` calls
 it. A new host needs that call until the symbol moves into `eigrp.h`. That
 gap is listed in `refactor-work.md`.
 
@@ -173,7 +173,7 @@ host callback pointing at a destroyed `eigrp_instance_t`.
 You need:
 
 ```text
-all eigrpd/*.c except a file you replaced on purpose (today: eigrp_log.c)
+all eigrpd/code/*.c except a file you replaced on purpose (today: eigrp_log.c)
 your eigrp_sys_* implementation
 your eigrp_rib_* host-side implementation
 your config/admin caller of eigrp_cli.h
@@ -216,14 +216,14 @@ Section 11.1.
 files.
 
 ```text
-frr/eigrp_southbound.c + eigrp_southbound_ipv4.c + eigrp_southbound_ipv6.c  eigrp_sys.h services
-frr/eigrp_zebra.c        eigrp_rib.h host side
-frr/eigrp_northbound.c + eigrp_northbound_ipv4.c + eigrp_northbound_ipv6.c  committed config -> eigrp_cli.h
-frr/eigrp_cli_named.c    named parser only
-frr/eigrp_cli_classic.c  classic parser only
-frr/eigrp_vty.c          show surface, should consume eigrp_mgnt.h
-frr/eigrp_main.c         process lifecycle
-frr/eigrp_log.c          host log sink
+frr/code/eigrp_southbound.c + eigrp_southbound_ipv4.c + eigrp_southbound_ipv6.c  eigrp_sys.h services
+frr/code/eigrp_zebra.c        eigrp_rib.h host side
+frr/code/eigrp_northbound.c + eigrp_northbound_ipv4.c + eigrp_northbound_ipv6.c  committed config -> eigrp_cli.h
+frr/code/eigrp_cli_named.c    named parser only
+frr/code/eigrp_cli_classic.c  classic parser only
+frr/code/eigrp_vty.c          show surface, should consume eigrp_mgnt.h
+frr/code/eigrp_main.c         process lifecycle
+frr/code/eigrp_log.c          host log sink
 frr/patch/               host-tree edits outside the daemon directory
 ```
 
@@ -362,7 +362,7 @@ Public headers must not include internal module headers that expose private impl
 
 Private portable code may include public headers.
 
-Host integration code under `frr/` or `bird/` must use only approved public integration headers, plus host-native headers.
+Host integration code under `frr/code/` or `bird/code/` must use only approved public integration headers, plus host-native headers.
 
 ---
 
@@ -1232,7 +1232,7 @@ a public API exists only to expose one host's convenient internal object
 - Include `eigrp.h` and only the public integration headers required by the port.
 - Implement mandatory `eigrp_sys.h` services.
 - Implement the host side of `eigrp_rib.h`.
-- Keep private `eigrpd/` module headers out of platform code.
+- Keep private `eigrpd/code/` module headers out of platform code.
 
 ### Phase 2: runtime basics
 

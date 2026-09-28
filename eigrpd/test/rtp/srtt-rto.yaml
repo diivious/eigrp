@@ -1,0 +1,8 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: rtp-srtt-rto
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0, srtt_valid: true, rto: 200, timeout: 5}
+  - validate-packet: {source_uut: r1, destination_uut: r2, opcode: update, multicast: false, min: 1, timeout: 5}
+  - validate-packet: {source_uut: r2, destination_uut: r1, opcode: ack, multicast: false, min: 1, timeout: 5}

@@ -22,10 +22,11 @@ install_tests=1
 install_patches=1
 dry_run=0
 
-common_src="$eigrp_root/eigrpd"
-frr_src="$eigrp_root/frr"
-frr_test_src="$frr_src/test"
-frr_patch_src="$frr_src/patch"
+common_src="$eigrp_root/eigrpd/code"
+frr_src="$eigrp_root/frr/code"
+frr_test_src="$eigrp_root/frr/test/eigrpd"
+frr_topotest_src="$eigrp_root/frr/test/topotests"
+frr_patch_src="$eigrp_root/frr/patch"
 
 usage() {
 	cat <<USAGE
@@ -41,8 +42,9 @@ options:
   --help                Show this help.
 
 installs:
-  eigrpd/ + frr/*       -> FRR/eigrpd/
-  frr/test/             -> FRR/tests/eigrpd/
+  eigrpd/code/ + frr/code/* -> FRR/eigrpd/
+  frr/test/eigrpd/      -> FRR/tests/eigrpd/
+  frr/test/topotests/    -> FRR/tests/topotests/
   frr/patch/*.patch     -> applied at the FRR repository root
 
 Patch handling is idempotent.  frr/patch/series defines dependency order when
@@ -153,16 +155,12 @@ assemble_eigrpd_tree() {
 
 	mkdir -p "$stage"
 
-	# Common source establishes the base daemon tree.
+	# Portable source establishes the base daemon tree.
 	rsync_project_tree "$common_src" "$stage"
 	inject_eigrp_release "$stage"
 
-	# FRR-specific daemon files overlay the common tree.  frr/patch and
-	# frr/test are integration payloads and are never copied into eigrpd/.
-	rsync_project_tree "$frr_src" "$stage" \
-		--exclude '/patch/' \
-		--exclude '/patches/' \
-		--exclude '/test/'
+	# FRR-specific daemon files overlay the portable tree.
+	rsync_project_tree "$frr_src" "$stage"
 }
 
 install_eigrpd_tree() {
@@ -177,7 +175,7 @@ install_eigrpd_tree() {
 	fi
 
 	if [[ "$dry_run" -eq 1 ]]; then
-		echo "would assemble: eigrpd/ + frr/ -> $dst/"
+		echo "would assemble: eigrpd/code/ + frr/code/ -> $dst/"
 		rm -rf "$stage"
 		return 0
 	fi
@@ -185,7 +183,7 @@ install_eigrpd_tree() {
 	mkdir -p "$dst"
 	rsync -a --delete "$stage"/ "$dst"/
 	rm -rf "$stage"
-	echo "installed: eigrpd/ + frr/ -> $dst/"
+	echo "installed: eigrpd/code/ + frr/code/ -> $dst/"
 }
 
 install_test_tree() {
@@ -203,7 +201,28 @@ install_test_tree() {
 
 	mkdir -p "$dst"
 	rsync_project_tree "$frr_test_src" "$dst" --delete
-	echo "installed: frr/test/ -> $dst/"
+	echo "installed: frr/test/eigrpd/ -> $dst/"
+}
+
+
+install_topotest_tree() {
+	local dst="$frr_root/tests/topotests"
+
+	if [[ ! -d "$frr_topotest_src" ]]; then
+		return 0
+	fi
+	if ! find "$frr_topotest_src" -mindepth 1 -type f | grep -q .; then
+		return 0
+	fi
+
+	if [[ "$dry_run" -eq 1 ]]; then
+		echo "would sync: $frr_topotest_src/ -> $dst/"
+		return 0
+	fi
+
+	mkdir -p "$dst"
+	rsync_project_tree "$frr_topotest_src" "$dst"
+	echo "installed: frr/test/topotests/ -> $dst/"
 }
 
 
@@ -453,4 +472,5 @@ fi
 
 if [[ "$install_tests" -eq 1 ]]; then
 	install_test_tree
+	install_topotest_tree
 fi

@@ -1,0 +1,17 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: two-router-framework-smoke
+steps:
+  - start: all
+  - validate-packet: {uut: r1, interface: eth0, opcode: hello, min: 1, timeout: 7}
+  - validate-route: {uut: r1, prefix: 10.1.0.0/24, table: rib}
+  - validate-route: {uut: r2, prefix: 10.2.0.0/24, table: topology}
+  - validate-convergence:
+      timeout: 3
+      expect:
+        - route: {uut: r1, prefix: 10.1.0.0/24}
+        - route: {uut: r2, prefix: 10.2.0.0/24}
+  - link-down: {uut: r2, interface: eth0}
+  - wait: 0.2
+  - link-up: {uut: r2, interface: eth0}
+  - stop: all

@@ -1,0 +1,25 @@
+schema: eigrp-uut-topology/v1
+segments:
+  r1-r2: {}
+  r2-r3: {}
+routers:
+  r1:
+    asn: 4453
+    router_id: 10.255.0.1
+    interfaces:
+      eth12: {segment: r1-r2, ipv6: 'fe80::1/128'}
+    attached_networks:
+      - {prefix: 'fe80:1::1/128', interface: lan1}
+  r2:
+    asn: 4453
+    router_id: 10.255.0.2
+    interfaces:
+      eth21: {segment: r1-r2, ipv6: 'fe80::2/128'}
+      eth23: {segment: r2-r3, ipv6: 'fe80::2/128'}
+  r3:
+    asn: 4453
+    router_id: 10.255.0.3
+    interfaces:
+      eth32: {segment: r2-r3, ipv6: 'fe80::3/128'}
+    attached_networks:
+      - {prefix: 'fe80:3::1/128', interface: lan3}

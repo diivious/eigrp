@@ -10,17 +10,17 @@ conditional address-family builds in this task.
 
 The FRR shim remains split into:
 
-- `frr/eigrp_northbound.c`: address-family-neutral named-mode normalization,
+- `frr/code/eigrp_northbound.c`: address-family-neutral named-mode normalization,
   FRR northbound registration, and common host-to-EIGRP management helpers.
-- `frr/eigrp_northbound_ipv4.c`: classic IPv4 northbound callbacks and IPv4
+- `frr/code/eigrp_northbound_ipv4.c`: classic IPv4 northbound callbacks and IPv4
   host-value conversion.
-- `frr/eigrp_northbound_ipv6.c`: IPv6 host-value conversion currently needed by
+- `frr/code/eigrp_northbound_ipv6.c`: IPv6 host-value conversion currently needed by
   common named operational handling.
-- `frr/eigrp_southbound.c`: address-family-neutral FRR service implementations
+- `frr/code/eigrp_southbound.c`: address-family-neutral FRR service implementations
   plus current AF dispatch points.
-- `frr/eigrp_southbound_ipv4.c`: IPv4 socket options, multicast membership,
+- `frr/code/eigrp_southbound_ipv4.c`: IPv4 socket options, multicast membership,
   interface address selection, and packet I/O.
-- `frr/eigrp_southbound_ipv6.c`: IPv6 socket options, multicast membership,
+- `frr/code/eigrp_southbound_ipv6.c`: IPv6 socket options, multicast membership,
   link-local source selection, and packet I/O.
 
 Every function in the six implementation files was reviewed by what it inherently
@@ -68,7 +68,7 @@ while omitting IPv6 implementation objects. No conditional build is implemented.
 | Northbound registration/classic IPv4 callbacks | already separable | Classic callbacks are owned by `eigrp_northbound_ipv4.c`; common registration references those IPv4 callbacks as expected for an IPv4 build. |
 | Common named northbound parsing | already separable | Common named callbacks represent both AFs through `eigrp_afi_t` and generic EIGRP values. Parsing an `afi` value is not itself an implementation-object dependency. |
 | Named clear-neighbor host address conversion | API/vector dependency | `eigrp_northbound_neighbor_clear_address()` in common directly references both `eigrp_northbound_ipv4_neighbor_address_copy()` and `eigrp_northbound_ipv6_neighbor_address_copy()`. Omitting the IPv6 northbound object therefore leaves an unresolved symbol. The conversion/dispatch needs an AF registration/vector or a generic host-value normalization API before selective linkage. |
-| Portable AF vector initialization | API/vector dependency | `eigrpd/eigrpd.c` and `eigrpd/eigrp_instance.c` directly call both `eigrp_ipv4_init()` and `eigrp_ipv6_init()`. Omitting `eigrp_ipv6.c` cannot link until AF vector providers are registered/selected without hard references from common lifecycle code. |
+| Portable AF vector initialization | API/vector dependency | `eigrpd/code/eigrpd.c` and `eigrpd/code/eigrp_instance.c` directly call both `eigrp_ipv4_init()` and `eigrp_ipv6_init()`. Omitting `eigrp_ipv6.c` cannot link until AF vector providers are registered/selected without hard references from common lifecycle code. |
 | FRR socket creation/configuration | API/vector dependency | `eigrp_sys_socket_open()` in common southbound chooses `AF_INET`/`AF_INET6` and directly calls both AF socket-configure functions. Socket family configuration must become an AF-provided operation (or equivalent registered capability) before the IPv6 southbound object can be omitted. |
 | Multicast interface/join/leave | API/vector dependency | Common southbound `eigrp_sys_multicast_interface_update(EIGRP_SET)`, `eigrp_sys_multicast_join()`, and `eigrp_sys_multicast_leave()` directly reference IPv4 and IPv6 implementations. These are normal AF operations and need vector/registration ownership rather than link-time references from common. |
 | Packet send/receive | API/vector dependency | Common southbound `eigrp_sys_packet_send()` and `eigrp_sys_packet_receive()` directly dispatch to `eigrp_sys_ipv4_*` and `eigrp_sys_ipv6_*`. Portable AF vectors already select the family before entering the system boundary, but the system boundary dispatches a second time. Selective linkage requires removing this second hard-wired AF dispatch, not adding conditional stubs. |
@@ -78,7 +78,7 @@ while omitting IPv6 implementation objects. No conditional build is implemented.
 | Packet/socket startup | runtime dependency | Runtime creation opens the protocol socket before packet processing. An IPv4-only runtime can use only IPv4 behavior, but current initialization reaches common dispatch code that is linked against both AF implementations. |
 | Global instance/AF creation | API/vector dependency | Address-family creation initializes vectors through direct `eigrp_ipv4_init()`/`eigrp_ipv6_init()` calls. This is the earliest portable link blocker for omitting an AF implementation object. |
 | Shutdown | already separable | Common shutdown closes per-instance sockets and tears down common runtime state without requiring an IPv6-specific shutdown entry point. The multicast-leave path remains subject to the common multicast dispatch dependency above. |
-| Build manifests | minor build dependency | `frr/subdir.am` currently lists both AF shim objects unconditionally, as expected before conditional builds exist. Once symbol dependencies are removed, selecting object lists is straightforward build-system work. |
+| Build manifests | minor build dependency | `frr/code/subdir.am` currently lists both AF shim objects unconditionally, as expected before conditional builds exist. Once symbol dependencies are removed, selecting object lists is straightforward build-system work. |
 | AF implementation private-header use | requires later redesign | IPv4/IPv6 FRR AF shims include private portable headers to inspect runtime/interface fields. Public integration accessors must replace those layout dependencies before the integration boundary satisfies the five-header rule completely. |
 
 ## Direct common-to-AF symbol dependencies to remove later

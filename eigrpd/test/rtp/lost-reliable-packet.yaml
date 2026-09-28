@@ -1,0 +1,13 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: rtp-lost-reliable-packet
+steps:
+  - fault-add: {name: lose-r1-update, action: drop, source_uut: r1, destination_uut: r2, source_interface: eth0, destination_interface: eth0, segment: transit, afi: 4, multicast: false, opcode: update, count: 1}
+  - packet-mark: fault-window
+  - start: all
+  - validate-fault: {name: lose-r1-update, hits: 1, remaining: 0, timeout: 4}
+  - validate-packet: {since: fault-window, source_uut: r1, destination_uut: r2, opcode: update, event: dropped, min: 1, timeout: 4}
+  - validate-packet: {since: fault-window, source_uut: r1, destination_uut: r2, opcode: update, multicast: false, event: delivered, min: 1, timeout: 5}
+  - validate-retransmission: {since: fault-window, source_uut: r1, destination_uut: r2, opcode: update, timeout: 5}
+  - validate-route: {uut: r2, prefix: 10.1.0.0/24, table: rib, timeout: 5}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0, srtt_valid: true, timeout: 5}

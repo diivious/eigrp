@@ -159,7 +159,7 @@ void eigrp_work_queue_enqueue(...);
 eigrp_instance_t *eigrp_work_queue_eigrp(...);
 ```
 
-The FRR implementation lives in `frr/eigrp_southbound.c` plus its IPv4/IPv6-specific modules and may use FRR
+The FRR implementation lives in `frr/code/eigrp_southbound.c` plus its IPv4/IPv6-specific modules and may use FRR
 `work_queue`/event facilities privately. The BIRD adapter provides the
 corresponding host implementation without changing packetizer, DUAL, topology,
 or TLV code.

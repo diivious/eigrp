@@ -17,7 +17,7 @@ uut_name="savage"
 uut_name_case="SAVAGE"
 uut_if="${EIGRP_UUT_INTERFACE:-enp0s8}"
 keep_config="${EIGRP_UUT_KEEP_CONFIG:-0}"
-log_dir="${EIGRP_UUT_LOG_DIR:-$eigrp_root/test/build/logs}"
+log_dir="${EIGRP_UUT_LOG_DIR:-$eigrp_root/frr/test/build/logs}"
 log_file="$log_dir/eigrp-named-uut.log"
 assertions=0
 

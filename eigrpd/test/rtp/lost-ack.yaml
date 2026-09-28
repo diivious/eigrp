@@ -1,0 +1,11 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: rtp-lost-ack
+steps:
+  - fault-add: {name: lose-r2-ack, action: drop, source_uut: r2, destination_uut: r1, source_interface: eth0, destination_interface: eth0, segment: transit, afi: 4, multicast: false, ack: 1, count: 2}
+  - packet-mark: fault-window
+  - start: all
+  - validate-fault: {name: lose-r2-ack, hits: 1, timeout: 4}
+  - validate-packet: {since: fault-window, source_uut: r2, destination_uut: r1, ack: 1, event: dropped, min: 1, timeout: 4}
+  - validate-retry: {since: fault-window, source_uut: r1, opcode: update, timeout: 5}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0, timeout: 7}

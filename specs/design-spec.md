@@ -56,17 +56,24 @@ that needs correction. Host-framework convenience is not protocol authority.
 
 ```text
 eigrp/
-  eigrpd/         portable/common EIGRP protocol code
-  frr/            FRR-specific adapters/integration
+  eigrpd/
+    code/         portable/common EIGRP protocol code
+    test/         portable EIGRP tests
+  frr/
+    code/         FRR-specific adapters/integration
+    test/
+      build/      FRR-backed compile/smoke harness
+      eigrpd/     payload staged to FRR/tests/eigrpd/
+      topotests/  payload staged to FRR/tests/topotests/
+      source-inspection/  repository-layout FRR pytest guards
     patch/        managed FRR-wide changes
-    test/         FRR-native integration/UUT material
-  bird/           reserved BIRD adapter location
-  test/
-    build/        lightweight compile-smoke harness
-    common/       shared host-independent fixtures
-    portable/     host-independent tests
-  specs/          project specifications and protocol references
-  tools/          host staging/build/UUT/packaging orchestration
+    specs/        FRR-specific specifications when needed
+  bird/
+    code/         BIRD-specific adapters/integration
+    test/         BIRD-native tests
+    specs/        BIRD-specific specifications when needed
+  specs/          EIGRP-wide specifications and protocol references
+  tools/          repository-wide/platform orchestration
 ```
 
 The project tree is canonical. A staged FRR `eigrpd/` directory is generated
@@ -97,7 +104,7 @@ host CLI/configuration
 The platform adapter must convert host/system objects, values, and events to or from EIGRP-owned types, abstract host/system calls and services, and provide only the host mechanisms portable EIGRP requires. This boundary must prevent EIGRP behavior from being reimplemented separately for each host platform. It does not own protocol decisions that should be identical on every platform.
 
 If FRR, BIRD, macOS, and another host should reach the same decision from equivalent
-normalized inputs, that decision belongs in `eigrpd/`.
+normalized inputs, that decision belongs in `eigrpd/code/`.
 
 ### 4.1 Boundary validation
 
@@ -404,10 +411,10 @@ MAF design exists.
 For FRR, the normal ownership is:
 
 ```text
-frr/eigrp_cli_classic.[c|h]  classic configuration front end
-frr/eigrp_cli_named.[c|h]    named configuration and named EXEC front end
-frr/eigrp_vty.[c|h]          classic operational VTY surface
-frr/eigrp_northbound.c + eigrp_northbound_ipv4.c + eigrp_northbound_ipv6.c      committed FRR configuration -> EIGRP adapter
+frr/code/eigrp_cli_classic.[c|h]  classic configuration front end
+frr/code/eigrp_cli_named.[c|h]    named configuration and named EXEC front end
+frr/code/eigrp_vty.[c|h]          classic operational VTY surface
+frr/code/eigrp_northbound.c + eigrp_northbound_ipv4.c + eigrp_northbound_ipv6.c      committed FRR configuration -> EIGRP adapter
 ```
 
 ### 9.1 Operational output conventions
@@ -526,34 +533,57 @@ portable protocol implementations.
 
 ## 15. Testing contract
 
-```text
-test/build/           lightweight compile/syntax/prototype smoke
-test/common/          portable EIGRP behavior; IPv4/IPv6 specifics live below it
-test/platform/frr/    FRR adapter/boundary tests runnable from the project tree
-frr/test/             FRR-native integration/UUT tests, family-grouped where useful
-bird/test/            BIRD-native integration/UUT tests
-```
-
-Normal source-change gate:
+The root Makefile owns the standalone portable/core developer pipeline. Normal
+macOS/Linux protocol development is:
 
 ```text
-1. make test
-2. relevant host stage/build/link succeeds
-3. relevant host-native/live UUT coverage succeeds
+edit eigrpd/code
+make
+make test
 ```
 
-CLI/configuration changes validate parsing, mutation, writeback, and applicable
-`no` forms. Packet changes validate encode/decode, bounds, endian behavior, and
-reliable-transport effects appropriate to the changed path.
+`make` builds the portable EIGRP core in `eigrpd/code/` and the native Unix host
+implementation in `unix/code/`. It does not require FRR or BIRD.
 
-Portable tests under `test/common/` must run without FRR or BIRD and must not
-depend on host types when the behavior under test is protocol-owned. Shared
-behavior stays directly under `test/common/`; address-family-specific behavior
-lives under `test/common/ipv4/` or `test/common/ipv6/`. Tests that inspect or
-exercise an adapter live under `test/platform/<host>/`. Host-native integration
-and UUT tests remain in the owning integration tree. A future standalone Unix
-adapter and smoke harness must consume EIGRP-owned APIs rather than introducing
-NETCONF/YANG or other management-framework dependencies into portable code.
+Test ownership is:
+
+```text
+eigrpd/test/                portable EIGRP behavior and host-independent fixtures
+unix/test/                  standalone Unix host-contract/runtime tests
+eigrpd/test/uut/            unprivileged portable core/UUT orchestration
+frr/test/build/             FRR-backed compile/syntax/prototype smoke
+frr/test/uut/               FRR adapter/boundary source-inspection pytest guards
+frr/test/eigrpd/            FRR-native tests staged to FRR/tests/eigrpd/
+frr/test/topotests/         FRR topotests staged to FRR/tests/topotests/
+bird/test/                  BIRD-native integration/UUT tests
+```
+
+The authoritative root `make test` pipeline includes:
+
+```text
+1. standalone portable build/compile validation
+2. eigrpd/test
+3. unix/test
+4. IPv4 Basic Core Gate
+5. IPv6 Basic Core Gate
+6. RTP Core Gate
+```
+
+That pipeline must run without an FRR checkout, BIRD checkout, FRR/BIRD VM, root
+privileges, or host VLAN configuration. It must not invoke `tools/frr.sh`,
+`tools/bird.sh`, or future platform tooling implicitly. Generated standalone
+build/UUT artifacts are temporary and gitignored.
+
+Platform validation is a later explicit step. For FRR, use `tools/frr.sh --uut`
+to validate the EIGRP/FRR shim boundary and FRR's native test framework for
+material supplied under `frr/test/`. BIRD validation likewise remains under
+`tools/bird.sh` and BIRD-native tests.
+
+Portable tests must not depend on host-only types or lifecycle when the behavior
+under test is protocol-owned. CLI/configuration changes validate parsing,
+mutation, writeback, and applicable `no` forms in the owning host-native suite.
+Packet changes validate encode/decode, bounds, endian behavior, and RTP effects
+appropriate to the changed path.
 
 ## 16. Development order for named mode
 

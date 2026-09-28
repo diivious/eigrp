@@ -15,7 +15,7 @@ eigrp_root="$(cd "$script_dir/.." && pwd)"
 uut_if="${EIGRP_UUT_INTERFACE:-enp0s8}"
 name_a="EIGRP-NAV-A"
 name_b="EIGRP-NAV-B"
-log_dir="${EIGRP_UUT_LOG_DIR:-$eigrp_root/test/build/logs}"
+log_dir="${EIGRP_UUT_LOG_DIR:-$eigrp_root/frr/test/build/logs}"
 log_file="$log_dir/eigrp-cli-navigation-uut.log"
 assertions=0
 
@@ -167,6 +167,11 @@ assert_named_mode_line() {
 }
 
 cleanup() {
+	# The navigation and named-mode live UUTs share the same daemon.  Clear
+	# every EIGRP identity owned by those tests so an interrupted or retained
+	# prior named-mode run cannot block classic AS 4453 during preflight.
+	vty_cleanup "configure terminal" "no router eigrp savage" "end"
+	vty_cleanup "configure terminal" "no router eigrp SAVAGE" "end"
 	vty_cleanup "configure terminal" "no router eigrp 10" "end"
 	vty_cleanup "configure terminal" "no router eigrp 4453" "end"
 	vty_cleanup "configure terminal" "no router eigrp $name_a" "end"

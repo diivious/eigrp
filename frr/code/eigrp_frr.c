@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * EIGRP FRR datatype adaptation.
+ * Copyright (C) 2026 Donnie V. Savage
+ */
+
+#include <string.h>
+
+#include "eigrp_frr.h"
+#include "eigrp_const.h"
+
+static eigrp_afi_t eigrp_frr_address_family_import(uint8_t family)
+{
+	switch (family) {
+	case AF_INET:
+		return EIGRP_AFI_IPV4;
+	case AF_INET6:
+		return EIGRP_AFI_IPV6;
+	default:
+		return 0;
+	}
+}
+
+static uint8_t eigrp_frr_address_family_export(eigrp_afi_t afi)
+{
+	switch (afi) {
+	case EIGRP_AFI_IPV4:
+		return AF_INET;
+	case EIGRP_AFI_IPV6:
+		return AF_INET6;
+	default:
+		return AF_UNSPEC;
+	}
+}
+
+eigrp_result_t eigrp_frr_prefix_import(const struct prefix *host,
+				       eigrp_prefix_t *prefix)
+{
+	eigrp_afi_t afi;
+	size_t address_bytes;
+	uint8_t max_prefix_length;
+
+	if (!host || !prefix)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	afi = eigrp_frr_address_family_import(host->family);
+	if (!afi)
+		return EIGRP_RESULT_UNSUPPORTED;
+
+	if (afi == EIGRP_AFI_IPV4) {
+		address_bytes = sizeof(host->u.prefix4);
+		max_prefix_length = EIGRP_IPV4_MAX_BITLEN;
+	} else {
+		address_bytes = sizeof(host->u.prefix6);
+		max_prefix_length = 128;
+	}
+	if (host->prefixlen > max_prefix_length)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	memset(prefix, 0, sizeof(*prefix));
+	prefix->address.afi = afi;
+	prefix->prefix_length = host->prefixlen;
+	if (afi == EIGRP_AFI_IPV4)
+		memcpy(prefix->address.bytes, &host->u.prefix4, address_bytes);
+	else
+		memcpy(prefix->address.bytes, &host->u.prefix6, address_bytes);
+
+	return EIGRP_RESULT_SUCCESS;
+}
+
+eigrp_result_t eigrp_frr_prefix_export(const eigrp_prefix_t *prefix,
+				       struct prefix *host)
+{
+	uint8_t family;
+	size_t address_bytes;
+	uint8_t max_prefix_length;
+
+	if (!prefix || !host)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	family = eigrp_frr_address_family_export(prefix->address.afi);
+	if (family == AF_UNSPEC)
+		return EIGRP_RESULT_UNSUPPORTED;
+
+	if (prefix->address.afi == EIGRP_AFI_IPV4) {
+		address_bytes = sizeof(host->u.prefix4);
+		max_prefix_length = EIGRP_IPV4_MAX_BITLEN;
+	} else {
+		address_bytes = sizeof(host->u.prefix6);
+		max_prefix_length = 128;
+	}
+	if (prefix->prefix_length > max_prefix_length)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	memset(host, 0, sizeof(*host));
+	host->family = family;
+	host->prefixlen = prefix->prefix_length;
+	if (prefix->address.afi == EIGRP_AFI_IPV4)
+		memcpy(&host->u.prefix4, prefix->address.bytes, address_bytes);
+	else
+		memcpy(&host->u.prefix6, prefix->address.bytes, address_bytes);
+
+	return EIGRP_RESULT_SUCCESS;
+}
+
+uint8_t eigrp_frr_interface_type(const struct interface *ifp)
+{
+	if (!ifp)
+		return EIGRP_IFTYPE_BROADCAST;
+	if (if_is_pointopoint(ifp))
+		return EIGRP_IFTYPE_POINTOPOINT;
+	if (if_is_loopback(ifp))
+		return EIGRP_IFTYPE_LOOPBACK;
+	return EIGRP_IFTYPE_BROADCAST;
+}
+
+eigrp_result_t eigrp_frr_interface_state_import(
+	const struct interface *ifp, const struct prefix *address, bool secondary,
+	eigrp_intf_runtime_state_t *state)
+{
+	eigrp_result_t result;
+
+	if (!ifp || !address || !state)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+
+	memset(state, 0, sizeof(*state));
+	result = eigrp_frr_prefix_import(address, &state->address);
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	state->interface_name = ifp->name;
+	state->ifindex = ifp->ifindex;
+	state->type = eigrp_frr_interface_type(ifp);
+	state->secondary = secondary;
+	state->operative = if_is_operative(ifp);
+	state->bandwidth = ifp->bandwidth;
+	state->mtu = ifp->mtu;
+	return EIGRP_RESULT_SUCCESS;
+}

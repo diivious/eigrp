@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* Portable EIGRP Unix UUT process. Copyright (C) 2026 Donnie V. Savage */
+#define _POSIX_C_SOURCE 200809L
+#include <arpa/inet.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "eigrpd.h"
+#include "eigrp_cli.h"
+#include "eigrp_mgnt.h"
+#include "eigrp_sys.h"
+#include "eigrp_unix.h"
+#include "eigrp_unix_interface.h"
+#include "eigrp_unix_rib.h"
+#include "eigrp_unix_segment.h"
+
+#define LINE 1024
+
+/* Unix policy services are not implemented by the authority shim yet.  The UUT
+ * host supplies neutral base-host behavior through the existing public system
+ * contract; no portable protocol API is added for testing. */
+void eigrp_sys_policy_init(void) {}
+void eigrp_sys_policy_finish(void) {}
+eigrp_result_t eigrp_sys_policy_instance_create(eigrp_instance_t *eigrp){(void)eigrp;return EIGRP_RESULT_SUCCESS;}
+void eigrp_sys_policy_instance_delete(eigrp_instance_t *eigrp){(void)eigrp;}
+eigrp_result_t eigrp_sys_filter_evaluate(eigrp_instance_t *eigrp,eigrp_distribute_list_type_t type,const char *name,const eigrp_prefix_t *prefix,eigrp_filter_decision_t *decision){(void)eigrp;(void)type;(void)name;(void)prefix;if(!decision)return EIGRP_RESULT_INVALID_ARGUMENT;*decision=EIGRP_FILTER_DECISION_PERMIT;return EIGRP_RESULT_SUCCESS;}
+eigrp_result_t eigrp_sys_redistribute_route_map_evaluate(eigrp_instance_t *eigrp,const char *name,const eigrp_rib_source_route_t *route,eigrp_filter_decision_t *decision){(void)eigrp;(void)name;(void)route;if(!decision)return EIGRP_RESULT_INVALID_ARGUMENT;*decision=EIGRP_FILTER_DECISION_PERMIT;return EIGRP_RESULT_SUCCESS;}
+bool eigrp_sys_auth_key_lookup(const char *name,uint32_t *id,char *key,size_t size){(void)name;(void)id;(void)key;(void)size;return false;}
+static eigrp_af_instance_t *af;
+static eigrp_instance_t *runtime;
+static char instance_name[256];
+static uint16_t asn;
+static eigrp_afi_t afi = EIGRP_AFI_IPV4;
+
+static void die(const char *what, eigrp_result_t r){fprintf(stderr,"%s: result=%d\n",what,(int)r);exit(2);}
+static eigrp_prefix_t prefix_parse(const char *s){eigrp_prefix_t p={0};char b[128],*slash;size_t n=strlen(s);if(n>=sizeof(b)){fprintf(stderr,"bad prefix\n");exit(2);}memcpy(b,s,n+1);slash=strchr(b,'/');if(!slash){fprintf(stderr,"prefix needs length: %s\n",s);exit(2);}*slash++='\0';p.prefix_length=(uint8_t)strtoul(slash,NULL,10);p.address.afi=strchr(b,':')?EIGRP_AFI_IPV6:EIGRP_AFI_IPV4;if(inet_pton(p.address.afi==EIGRP_AFI_IPV4?AF_INET:AF_INET6,b,p.address.bytes)!=1){fprintf(stderr,"bad address: %s\n",b);exit(2);}return p;}
+static void addr_text(const eigrp_address_t *a,char *b,size_t n){inet_ntop(a->afi==EIGRP_AFI_IPV4?AF_INET:AF_INET6,a->bytes,b,(socklen_t)n);}
+static void prefix_text(const eigrp_prefix_t *p,char *b,size_t n){char a[INET6_ADDRSTRLEN];addr_text(&p->address,a,sizeof(a));snprintf(b,n,"%s/%u",a,p->prefix_length);}
+
+static eigrp_result_t nbr_cb(const eigrp_nbr_state_t *s,void *arg){char a[INET6_ADDRSTRLEN];(void)arg;addr_text(&s->address,a,sizeof(a));printf("NBR|%s|%s|%s|%u|%lu|%u|%u|%u|%llu\n",a,s->interface_name?s->interface_name:"-",s->state_name?s->state_name:"-",s->runtime_present?1:0,s->reliable_queue_count,s->rto_msec,s->srtt_valid?1:0,s->srtt_msec,(unsigned long long)s->retransmit_count);return EIGRP_RESULT_SUCCESS;}
+static eigrp_result_t intf_cb(const eigrp_intf_state_t *s,void *arg){(void)arg;printf("INTF|%s|%u|%u|%u|%lu|%lu\n",s->interface_name?s->interface_name:"-",s->runtime_present?1:0,s->shutdown?1:0,s->peer_count,s->output_queue_count,s->reliable_queue_count);return EIGRP_RESULT_SUCCESS;}
+static eigrp_result_t topo_pfx_cb(const eigrp_topology_prefix_state_t *s,void *arg){char p[160];(void)arg;prefix_text(&s->destination,p,sizeof(p));printf("TOPO|%s|%u|%u|%u\n",p,s->active?1:0,s->feasible_distance,s->successor_count);return EIGRP_RESULT_SUCCESS;}
+static eigrp_result_t topo_route_cb(const eigrp_topology_route_state_t *s,void *arg){char a[INET6_ADDRSTRLEN];(void)arg;addr_text(&s->next_hop,a,sizeof(a));printf("PATH|%s|%s|%u|%u|%u|%u\n",a,s->interface_name?s->interface_name:"-",s->connected?1:0,s->successor?1:0,s->distance,s->reported_distance);return EIGRP_RESULT_SUCCESS;}
+static void source_cb(const eigrp_rib_source_route_t *r,void *arg){char p[160];(void)arg;prefix_text(&r->prefix,p,sizeof(p));printf("SRC|%s|%u|%llu\n",p,(unsigned)r->source.protocol,(unsigned long long)r->metric);}
+static void rib_cb(eigrp_instance_t *e,const eigrp_rib_route_t *r,void *arg){char p[160],nh[INET6_ADDRSTRLEN]="-";(void)arg;if(e!=runtime)return;prefix_text(&r->prefix,p,sizeof(p));if(r->nexthop_count&&r->nexthops[0].gateway_present)addr_text(&r->nexthops[0].gateway,nh,sizeof(nh));printf("RIB|%s|%s|%llu|%u\n",p,nh,(unsigned long long)r->metric,r->administrative_distance);}
+static void state(void){eigrp_instance_context_t c={0};if(eigrp_af_instance_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|%s|%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);(void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);puts("END");fflush(stdout);}
+
+static void load(const char *path){FILE *f=fopen(path,"r");char line[LINE],op[32],a[256],b[256],c[256];unsigned x,y,z;if(!f){perror(path);exit(2);}eigrp_sys_runtime_init();eigrp_init();while(fgets(line,sizeof(line),f)){if(line[0]=='#'||line[0]=='\n')continue;if(sscanf(line,"%31s %255s %255s %255s %u %u %u",op,a,b,c,&x,&y,&z)<1)continue;if(!strcmp(op,"router")){snprintf(instance_name,sizeof(instance_name),"%s",a);asn=(uint16_t)strtoul(b,NULL,10);}else if(!strcmp(op,"afi")){afi=!strcmp(a,"ipv6")?EIGRP_AFI_IPV6:EIGRP_AFI_IPV4;}else if(!strcmp(op,"interface")){eigrp_unix_interface_t *ui=NULL;eigrp_result_t r=eigrp_unix_interface_create(a,(eigrp_ifindex_t)strtoul(b,NULL,10),true,(uint32_t)strtoul(c,NULL,10),x,&ui);if(r!=EIGRP_RESULT_SUCCESS)die("interface create",r);}else if(!strcmp(op,"address")){eigrp_prefix_t p=prefix_parse(b);eigrp_result_t r=eigrp_unix_interface_address_add(a,&p,false);if(r!=EIGRP_RESULT_SUCCESS)die("address add",r);}else if(!strcmp(op,"segment")){eigrp_unix_segment_t *s=eigrp_unix_segment_find(b);if(!s){eigrp_result_t r=eigrp_unix_segment_create(b,&s);if(r!=EIGRP_RESULT_SUCCESS)die("segment create",r);}eigrp_unix_interface_t *ui=eigrp_unix_interface_find(a);if(!ui)die("segment interface",EIGRP_RESULT_NOT_FOUND);{eigrp_result_t r=eigrp_unix_segment_interface_attach(s,instance_name,ui);if(r!=EIGRP_RESULT_SUCCESS)die("segment attach",r);}}else if(!strcmp(op,"up")){eigrp_result_t r=eigrp_unix_interface_up(a);if(r!=EIGRP_RESULT_SUCCESS)die("interface up",r);}}
+ fclose(f);if(!instance_name[0]||!asn){fprintf(stderr,"missing router definition\n");exit(2);}if(eigrp_af_instance_create(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn)!=EIGRP_RESULT_SUCCESS)die("af create",EIGRP_RESULT_INTERNAL_FAILURE);af=eigrp_af_instance_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn);if(!af)die("af read",EIGRP_RESULT_NOT_FOUND);{eigrp_instance_context_t ctx={0};eigrp_result_t r=eigrp_af_instance_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&ctx);if(r!=EIGRP_RESULT_SUCCESS)die("context",r);runtime=ctx.runtime;f=fopen(path,"r");if(!f){perror(path);exit(2);}while(fgets(line,sizeof(line),f)){if(sscanf(line,"%31s %255s %255s",op,a,b)<1)continue;if(!strcmp(op,"router-id")){struct in_addr v;if(inet_pton(AF_INET,a,&v)!=1)exit(2);r=eigrp_instance_router_id_update(EIGRP_SET,&ctx,ntohl(v.s_addr));if(r!=EIGRP_RESULT_SUCCESS)die("router-id",r);}else if(!strcmp(op,"network")){eigrp_prefix_t p=prefix_parse(a);r=eigrp_network_create(&ctx,&p);if(r!=EIGRP_RESULT_SUCCESS)die("network",r);}else if(!strcmp(op,"source")){eigrp_rib_source_route_t sr={0};sr.prefix=prefix_parse(a);sr.source.protocol=EIGRP_REDISTRIBUTE_PROTOCOL_STATIC;sr.metric=(uint64_t)strtoull(b,NULL,10);r=eigrp_unix_rib_source_route_update(&sr);if(r!=EIGRP_RESULT_SUCCESS)die("source route",r);}}fclose(f);}}
+
+int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){fprintf(stderr,"usage: %s config\n",argv[0]);return 2;}load(argv[1]);puts("READY");fflush(stdout);while(fgets(line,sizeof(line),stdin)){if(sscanf(line,"%31s %255s",verb,ifname)<1)continue;if(!strcmp(verb,"STATE"))state();else if(!strcmp(verb,"UP")){printf("RESULT|%d\n",(int)eigrp_unix_interface_up(ifname));fflush(stdout);}else if(!strcmp(verb,"DOWN")){printf("RESULT|%d\n",(int)eigrp_unix_interface_down(ifname));fflush(stdout);}else if(!strcmp(verb,"STOP"))break;}if(instance_name[0])(void)eigrp_instance_parent_delete(instance_name);eigrp_unix_segment_model_reset();eigrp_unix_interface_model_reset();eigrp_rib_finish();eigrp_sys_runtime_finish();return 0;}

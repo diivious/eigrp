@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * EIGRP main header.
+ * Copyright (C) 2013-2014
+ * Authors:
+ *   Donnie Savage
+ *   Jan Janovic
+ *   Matej Perina
+ *   Peter Orsag
+ *   Peter Paluch
+ *
+ */
+
+#ifndef _ZEBRA_EIGRPD_H
+#define _ZEBRA_EIGRPD_H
+
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <time.h>
+
+#include "eigrp_log.h"
+// everyone needs these - include then here once and for all
+#include "eigrp_const.h"
+#include "eigrp_types.h"
+
+/* Release 2 / Wide Metrics is the default local EIGRP capability. */
+#define EIGRP_MAJOR_VERSION 2
+#define EIGRP_MINOR_VERSION 2
+
+#define EIGRP_TLV_32B_VERSION 1 // Original 32bit scaled metrics
+#define EIGRP_TLV_64B_VERSION 2 // Current 64bit 'wide' metrics
+#define EIGRP_TLV_MTR_VERSION 3 // MTR TLVs with 32bit metric *Not Supported
+#define EIGRP_TLV_SAF_VERSION 4 // SAF TLVs with 64bit metric *Not Supported
+
+/* EIGRPD system wide configuration and variables. */
+typedef struct eigrpd {
+	/* EIGRP instance. */
+	eigrp_list_t *eigrp;
+
+	/* EIGRP start time. */
+	time_t start_time;
+
+	/* Various EIGRP global configuration. */
+	uint8_t options;
+
+#define EIGRPD_SHUTDOWN (1 << 0) /* deferred-shutdown */
+} eigrpd_t;
+
+/* Extern variables. */
+extern struct eigrpd *eigrp_om;
+
+/* Prototypes */
+extern void eigrp_init(void);
+extern void eigrp_terminate(void);
+extern void eigrp_instance_delete(eigrp_instance_t *);
+extern void eigrp_instance_delete_final(eigrp_instance_t *);
+
+extern eigrp_instance_t *eigrp_instance_lookup_or_create(uint16_t as, eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_instance_lookup_or_create_by_af(eigrp_afi_t afi, uint16_t as,
+					eigrp_vrf_id_t vrf_id, bool data_path_ready);
+extern eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id);
+extern eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_afi_t afi,
+					       uint16_t as, eigrp_vrf_id_t vrf_id);
+extern void eigrp_name_update(eigrp_operation_t, eigrp_instance_t *, const char *);
+
+extern void eigrp_router_id_update(eigrp_instance_t *);
+
+#endif /* _ZEBRA_EIGRPD_H */

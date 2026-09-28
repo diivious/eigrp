@@ -88,7 +88,7 @@ find "$backup_dir" \
 		rm -rf "$path"
 	done
 
-rm -rf "$backup_dir/test/build/obj" "$backup_dir/test/build/logs"
+rm -rf "$backup_dir/frr/test/build/obj" "$backup_dir/frr/test/build/logs"
 rm -f "$zip_path"
 (
 	cd "$download_dir"

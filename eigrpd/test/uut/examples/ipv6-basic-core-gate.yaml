@@ -1,0 +1,49 @@
+schema: eigrp-uut-test/v1
+topology: ipv6-basic-core.yaml
+name: IPv6 Three-Router Basic Core Gate
+steps:
+  - start: all
+  - validate-packet: {uut: r1, interface: eth12, opcode: hello, min: 1, timeout: 7}
+  - validate-packet: {uut: r2, interface: eth23, opcode: hello, min: 1, timeout: 7}
+  - validate-neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 'fe80::1', interface: eth21, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 'fe80::3', interface: eth23, timeout: 7}
+  - validate-neighbor: {uut: r3, neighbor: 'fe80::2', interface: eth32, timeout: 7}
+  - validate-packet: {uut: r2, opcode: update, min: 1, timeout: 7}
+  - validate-packet: {uut: r1, opcode: ack, min: 1, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 'fe80:3::1/128', table: rib, next_hop: 'fe80::2', metric: 7864320, distance: 90}
+        - route: {uut: r3, prefix: 'fe80:1::1/128', table: rib, next_hop: 'fe80::2', metric: 7864320, distance: 90}
+        - route: {uut: r1, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r3, prefix: 'fe80:1::1/128', table: topology, active: false, successors: 1, fd: 7864320}
+  - packet-mark: failure
+  - link-down: {uut: r2, interface: eth23}
+  - link-down: {uut: r3, interface: eth32}
+  - validate-neighbor: {uut: r2, neighbor: 'fe80::3', interface: eth23, state: down, timeout: 3}
+  - validate-neighbor: {uut: r3, neighbor: 'fe80::2', interface: eth32, state: down, timeout: 3}
+  - validate-packet: {uut: r2, interface: eth21, opcode: query, since: failure, min: 1, timeout: 3}
+  - validate-packet: {uut: r1, interface: eth12, opcode: reply, since: failure, min: 1, timeout: 3}
+  - validate-convergence:
+      timeout: 5
+      expect:
+        - route: {uut: r1, prefix: 'fe80:3::1/128', table: rib, present: false}
+        - route: {uut: r2, prefix: 'fe80:3::1/128', table: rib, present: false}
+        - route: {uut: r3, prefix: 'fe80:1::1/128', table: rib, present: false}
+        - route: {uut: r1, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 0}
+        - route: {uut: r2, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 0}
+        - route: {uut: r3, prefix: 'fe80:1::1/128', table: topology, active: false, successors: 0}
+  - packet-mark: recovery
+  - link-up: {uut: r2, interface: eth23}
+  - link-up: {uut: r3, interface: eth32}
+  - validate-neighbor: {uut: r2, neighbor: 'fe80::3', interface: eth23, timeout: 7}
+  - validate-neighbor: {uut: r3, neighbor: 'fe80::2', interface: eth32, timeout: 7}
+  - validate-packet: {uut: r2, interface: eth23, opcode: update, since: recovery, min: 1, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 'fe80:3::1/128', table: rib, next_hop: 'fe80::2', metric: 7864320, distance: 90}
+        - route: {uut: r3, prefix: 'fe80:1::1/128', table: rib, next_hop: 'fe80::2', metric: 7864320, distance: 90}
+        - route: {uut: r1, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r3, prefix: 'fe80:1::1/128', table: topology, active: false, successors: 1, fd: 7864320}

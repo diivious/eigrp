@@ -14,15 +14,22 @@ __pycache__/
 
 # C/build output
 *.o
+*.a
 *.lo
 *.la
 .deps/
 .dirstamp
 .libs/
 
-# Standalone compile-smoke generated output
-test/build/obj/
-test/build/logs/
+# Test / UUT generated output
+*.log
+*.logs
+/eigrpd/test/uut/eigrp-uut-node
+/unix/code/eigrp-wire
+
+# FRR test build output
+/frr/test/build/obj/
+/frr/test/build/logs/
 
 # FRR/generated daemon artifacts when this tree is staged inside FRR
 eigrpd/.deps/

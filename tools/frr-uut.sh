@@ -78,8 +78,8 @@ examples:
   tools/frr-uut.sh --build-only --frr-root ~/devel/frr
 
 layout:
-  portable tests:       test/common/ (shared + ipv4/ipv6 portable)
-  FRR test source:      frr/test/
+  portable tests:       eigrpd/test/
+  FRR test source:      frr/test/eigrpd/
   FRR installed tests:  frr/tests/eigrpd/
 USAGE
 }
@@ -157,16 +157,14 @@ has_frr_tests() {
 
 print_available_tests() {
 	echo "portable tests:"
-	find "$eigrp_root/test" \
-		\( -path "$eigrp_root/test/build" -o -path "$eigrp_root/test/build/*" \) -prune -o \
-		-mindepth 1 -maxdepth 4 -type d ! -name __pycache__ -print \
-		| sed "s#^$eigrp_root/test/##" | sort
+	find "$eigrp_root/eigrpd/test" -mindepth 1 -maxdepth 4 -type d ! -name __pycache__ -print \
+		| sed "s#^$eigrp_root/eigrpd/test/##" | sort
 
 	echo
 	echo "FRR-native test payload:"
-	if has_frr_tests "$eigrp_root/frr/test"; then
-		find "$eigrp_root/frr/test" -mindepth 1 -maxdepth 2 -type f \
-			| sed "s#^$eigrp_root/frr/test/#  #" | sort
+	if has_frr_tests "$eigrp_root/frr/test/eigrpd"; then
+		find "$eigrp_root/frr/test/eigrpd" -mindepth 1 -maxdepth 2 -type f \
+			| sed "s#^$eigrp_root/frr/test/eigrpd/#  #" | sort
 	else
 		echo "  none"
 	fi
@@ -209,8 +207,8 @@ sync_remote_project() {
 		--exclude '*.lo' \
 		--exclude '*.la' \
 		--exclude '*~' \
-		--exclude 'test/build/obj/' \
-		--exclude 'test/build/logs/' \
+		--exclude 'frr/test/build/obj/' \
+		--exclude 'frr/test/build/logs/' \
 		"$eigrp_root"/ "$host:$remote_project"/
 }
 
@@ -641,14 +639,15 @@ fi
 
 case "$test_mode" in
 	all)
-		run_portable_tests test/common test/platform/frr
+		run_portable_tests eigrpd/test
+		run_portable_tests frr/test/uut
 		run_frr_tests
 		;;
 	packet)
-		run_portable_tests test/common/packet test/common/ipv4/packet test/common/ipv6/packet test/platform/frr/ipv4/packet test/platform/frr/ipv6/packet
+		run_portable_tests eigrpd/test/packet eigrpd/test/ipv4/packet eigrpd/test/ipv6/packet frr/test/uut/ipv4/packet frr/test/uut/ipv6/packet
 		;;
 	portable)
-		run_portable_tests test/common
+		run_portable_tests eigrpd/test
 		;;
 	frr)
 		run_frr_tests

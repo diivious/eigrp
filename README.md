@@ -1,5 +1,7 @@
 # EIGRP
 
+[![EIGRP Core CI](https://github.com/diivious/eigrp/actions/workflows/core.yml/badge.svg)](https://github.com/diivious/eigrp/actions/workflows/core.yml)
+
 Portable EIGRP implementation based on RFC 7868.
 
 RFC 7868 and Donnie V. Savage's protocol design decisions define EIGRP
@@ -19,7 +21,7 @@ open random source files.
 |---|---|---|
 | New contributor | `CONTRIBUTING.md` | this README, `specs/design-spec.md`, and `specs/refactor-work.md` for open items |
 | Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md` for UUT and vtysh notes |
-| Platform integrator | `specs/integration-spec.md` and the five public headers in `eigrpd/` | `frr/README.md` and `specs/EIGRP-Config-Guide.md` |
+| Platform integrator | `specs/integration-spec.md` and the five public headers in `eigrpd/code/` | `frr/README.md` and `specs/EIGRP-Config-Guide.md` |
 | Portable protocol developer | `specs/design-spec.md` | `dual.md`, `rtp-spec.md`, `rfc7868.md`, config guide, `refactor-work.md` |
 | FRR adapter developer | this README workflow plus `frr/README.md` and `frr/patch/README.md` | `specs/integration-spec.md`, config guide, `specs/design-spec.md` |
 
@@ -102,6 +104,8 @@ FRR's path through that shim is drawn in `frr/README.md`.
 
 - `specs/design-spec.md` - contributor spec for portable core: ownership,
   naming, instance model, testing.
+- `specs/github-core-ci.md` - GitHub Actions contract for the Linux/macOS
+  portable/core `make test` gate.
 - `specs/integration-spec.md` - public black-box contract for a routing
   platform that wants to host this code.
 - `specs/EIGRP-Config-Guide.md` - operator CLI/EXEC guide. Integrators use it
@@ -115,8 +119,8 @@ FRR's path through that shim is drawn in `frr/README.md`.
 
 ## Development rules
 
-Portable protocol behavior belongs in `eigrpd/`.
-FRR-specific CLI, YANG, management, and Zebra/RIB belong under `frr/`.
+Portable protocol behavior belongs in `eigrpd/code/`.
+FRR-specific CLI, YANG, management, and Zebra/RIB belong under `frr/code/`.
 BIRD-specific integration belongs under `bird/` when that work exists.
 
 Portable APIs use EIGRP-owned types and structured result codes. FRR VTY, YANG,
@@ -152,38 +156,52 @@ inside the published, unencumbered protocol.
 
 ## Normal development workflow
 
-### 1. Work in the canonical project tree
+### 1. Develop and build standalone on macOS/Linux
 
-Make source changes in `eigrpd/`, `frr/`, or `bird/` according to ownership.
-Changes required outside FRR's `eigrpd/` directory are exceptional and are
-carried as managed patches under `frr/patch/`.
-
-### 2. Run the local fast gate
+Portable protocol work belongs in `eigrpd/code/`; the native standalone host
+implementation lives in `unix/code/`. Normal core development does not require
+an FRR checkout, BIRD checkout, VM, root privileges, or host VLAN setup.
 
 From the repository root:
+
+```sh
+make
+```
+
+The root Makefile owns this standalone build and builds the portable EIGRP core
+plus the Unix host target. Generated objects, libraries, UUT binaries, and test
+caches are temporary and gitignored.
+
+### 2. Run the authoritative portable/core gate
 
 ```sh
 make test
 ```
 
-That runs:
+The root test pipeline performs portable compile/build validation, the
+`eigrpd/test` and `unix/test` suites, the IPv4 Basic Core Gate, the IPv6 Basic
+Core Gate, and the RTP Core Gate. These tests use the unprivileged Unix/UUT
+host and do not invoke FRR or BIRD tooling.
 
-```text
-make smoke          standalone compile-smoke harness
-make portable-test  host-independent pytest suite
-```
-
-Use the narrower targets while iterating:
+Useful narrower targets are:
 
 ```sh
-make smoke
+make portable-build
 make portable-test
+make uut
+make ipv4-basic-core
+make ipv6-basic-core
+make rtp-core
 ```
 
-The smoke harness catches syntax and prototype drift. It does not replace the
-full FRR build/link gate.
+Platform integration is deliberately separate. Root `make test` never silently
+runs `tools/frr.sh`, `tools/bird.sh`, or another platform tool.
 
-### 3. Stage into an FRR checkout
+GitHub Actions runs this same `make test` gate on Linux and macOS. See
+`specs/github-core-ci.md` for the CI ownership, dependency, and diagnostics
+contract.
+
+### 3. Validate FRR only when platform work requires it
 
 Keep the EIGRP and FRR repositories as siblings when practical:
 
@@ -201,7 +219,7 @@ tools/frr.sh --install --frr-root ../frr
 The projection is:
 
 ```text
-eigrpd/ + FRR adapter files in frr/  -> ../frr/eigrpd/
+eigrpd/code/ + FRR adapter files in frr/code/  -> ../frr/eigrpd/
 frr/test/                            -> ../frr/tests/eigrpd/
 ```
 
