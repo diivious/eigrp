@@ -24,8 +24,10 @@ __pycache__/
 # Test / UUT generated output
 *.log
 *.logs
+*.dSYM/
 /eigrpd/test/uut/eigrp-uut-node
 /unix/code/eigrp-wire
+
 
 # FRR test build output
 /frr/test/build/obj/
