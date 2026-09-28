@@ -37,6 +37,8 @@ jobs:
 
       - name: Run portable/core gate
         shell: bash
+        env:
+          EIGRP_PYTHON: python3
         run: |
           set -o pipefail
           make test 2>&1 | tee make-test.log
