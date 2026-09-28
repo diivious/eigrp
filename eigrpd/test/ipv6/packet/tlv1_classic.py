@@ -7,6 +7,7 @@
 from pathlib import Path
 import os
 import subprocess
+import sys
 import textwrap
 
 
@@ -323,7 +324,7 @@ def test_ipv6_classic_tlv1_codec_round_trip_and_rejection(tmp_path):
             str(ROOT / "eigrpd" / "code" / "eigrp_ipv6.c"),
             str(ROOT / "eigrpd" / "code" / "eigrp_stream.c"),
             str(ROOT / "eigrpd" / "code" / "eigrp_prefix.c"),
-            "-Wl,--gc-sections",
+            *( ["-Wl,-dead_strip"] if sys.platform == "darwin" else ["-Wl,--gc-sections"] ),
             "-o",
             str(binary),
         ],

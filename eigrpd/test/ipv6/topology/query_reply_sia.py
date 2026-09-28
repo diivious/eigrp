@@ -4,6 +4,7 @@
 from pathlib import Path
 import os
 import subprocess
+import sys
 import textwrap
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
@@ -62,7 +63,7 @@ def test_multiple_neighbor_reply_status_bookkeeping_executes(tmp_path):
         f"-I{ROOT}", f"-I{ROOT / 'test' / 'build' / 'include'}",
         str(source), str(ROOT / "eigrpd" / "code" / "eigrp_fsm.c"),
         str(ROOT / "eigrpd" / "code" / "eigrp_list.c"),
-        "-Wl,--gc-sections", "-o", str(binary),
+        *( ["-Wl,-dead_strip"] if sys.platform == "darwin" else ["-Wl,--gc-sections"] ), "-o", str(binary),
     ], cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert result.returncode == 0, result.stderr
     run = subprocess.run([str(binary)], cwd=ROOT, text=True,

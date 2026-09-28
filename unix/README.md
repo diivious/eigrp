@@ -27,9 +27,10 @@ simulators: they carry membership only, with no VLAN, switching, MAC learning,
 ARP, or IPv6 ND behavior.
 
 Protocol packet delivery over those segments is provided by `eigrp-wire`, a
-local Unix-domain `SOCK_SEQPACKET` broker. Each UUT has an independent broker
-connection. The small versioned envelope carries only segment/interface/AF/address
-metadata and the unchanged EIGRP packet bytes. Multicast fans out within one
+local Unix-domain `SOCK_STREAM` broker. Each UUT has an independent broker
+connection. The small versioned envelope carries segment/interface/AF/address
+metadata, explicit frame lengths, and the unchanged EIGRP packet bytes, so message
+boundaries are preserved over the byte stream on both macOS and Linux. Multicast fans out within one
 segment and unicast is delivered only to the registered destination interface.
 The broker forwarding function is the boundary reserved for later drop/delay/
 duplicate/disconnect fault injection. Policy integration and full UUT

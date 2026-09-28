@@ -7,6 +7,26 @@ import collections, heapq, os, selectors, socket, struct, threading, time
 HDR=struct.Struct("!BBBBIHHHH16s16s"); REGISTER=1; PACKET=2; MULTICAST=1; CR_FLAG=0x02
 OPCODES={1:"update",2:"request",3:"query",4:"reply",5:"hello",6:"ipxsap",7:"probe",8:"ack",10:"sia-query",11:"sia-reply"}
 
+def send_frame(sock, frame):
+    sock.sendall(frame)
+
+def recv_frame(sock):
+    header = bytearray()
+    while len(header) < HDR.size:
+        chunk = sock.recv(HDR.size - len(header))
+        if not chunk:
+            return b""
+        header.extend(chunk)
+    _, _, _, _, _, sl, il, pl, _, _, _ = HDR.unpack(header)
+    body_len = sl + il + pl
+    body = bytearray()
+    while len(body) < body_len:
+        chunk = sock.recv(body_len - len(body))
+        if not chunk:
+            return b""
+        body.extend(chunk)
+    return bytes(header + body)
+
 class WireFaultError(ValueError): pass
 
 def _packet_meta(payload):
@@ -58,7 +78,7 @@ class Broker(threading.Thread):
         return actions
     def _send(self,endpoint,frame,meta,event="delivered"):
         c,_,eif,_,_,_,_=endpoint; out=bytearray(frame); struct.pack_into("!I",out,4,eif)
-        try: c.send(out); self.journal.append({**meta,"event":event})
+        try: send_frame(c,out); self.journal.append({**meta,"event":event})
         except OSError: self.journal.append({**meta,"event":"send-error"})
     def _queue_delay(self,when,endpoint,frame,meta):
         self._delay_serial+=1; heapq.heappush(self._delayed,(when,self._delay_serial,endpoint,bytes(frame),dict(meta)))
@@ -73,15 +93,15 @@ class Broker(threading.Thread):
         try:
             try: os.unlink(self.path)
             except FileNotFoundError: pass
-            ls=socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET); ls.bind(self.path); ls.listen(); ls.setblocking(False)
+            ls=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); ls.bind(self.path); ls.listen(); ls.setblocking(False)
             sel=selectors.DefaultSelector(); sel.register(ls,selectors.EVENT_READ,("listen",None)); endpoints=[]; self.ready.set()
             while not self.stop_event.is_set():
                 self._flush_delayed()
                 for key,_ in sel.select(.02):
                     if key.data[0]=="listen":
-                        c,_=ls.accept(); c.setblocking(False); sel.register(c,selectors.EVENT_READ,("client",c)); continue
+                        c,_=ls.accept(); c.setblocking(True); sel.register(c,selectors.EVENT_READ,("client",c)); continue
                     c=key.data[1]
-                    try: frame=c.recv(70000)
+                    try: frame=recv_frame(c)
                     except OSError: frame=b""
                     if not frame:
                         endpoints[:]=[e for e in endpoints if e[0] is not c]

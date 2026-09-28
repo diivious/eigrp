@@ -7,6 +7,7 @@
 from pathlib import Path
 import os
 import subprocess
+import sys
 import textwrap
 
 
@@ -250,7 +251,7 @@ def test_redistribution_seed_metric_precedence_executes(tmp_path):
             f"-I{ROOT}",
             f"-I{ROOT / 'test' / 'build' / 'include'}",
             str(source),
-            "-Wl,--gc-sections",
+            *( ["-Wl,-dead_strip"] if sys.platform == "darwin" else ["-Wl,--gc-sections"] ),
             "-o",
             str(binary),
         ],

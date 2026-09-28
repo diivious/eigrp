@@ -1,3 +1,4 @@
+PYTHON ?= ../../../tools/python
 CC ?= cc
 CFLAGS ?= -O2 -g
 CPPFLAGS += -DEIGRP_DISABLE_SNMP  -I../../../eigrpd/code -I../../../unix/code
@@ -19,25 +20,25 @@ clean:
 
 .PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core all-scenarios
 ipv4-basic-core: eigrp-uut-node
-	python3 run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml
+	$(PYTHON) run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml
 
 
 ipv6-basic-core: eigrp-uut-node
-	python3 run.py examples/ipv6-basic-core.yaml examples/ipv6-basic-core-gate.yaml
+	$(PYTHON) run.py examples/ipv6-basic-core.yaml examples/ipv6-basic-core-gate.yaml
 
 basic-core: eigrp-uut-node
 	@status=0; \
-	python3 run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml || status=$$?; \
-	python3 run.py examples/ipv6-basic-core.yaml examples/ipv6-basic-core-gate.yaml || status=$$?; \
+	$(PYTHON) run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml || status=$$?; \
+	$(PYTHON) run.py examples/ipv6-basic-core.yaml examples/ipv6-basic-core-gate.yaml || status=$$?; \
 	exit $$status
 
 rtp-core: eigrp-uut-node
 	@status=0; \
-	python3 run.py ../rtp/two-router.yaml ../rtp/srtt-rto.yaml || status=$$?; \
-	python3 run.py ../rtp/two-router.yaml ../rtp/lost-reliable-packet.yaml || status=$$?; \
-	python3 run.py ../rtp/two-router.yaml ../rtp/lost-ack.yaml || status=$$?; \
-	python3 run.py ../rtp/three-router-shared.yaml ../rtp/reliable-multicast-peer-retry.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/srtt-rto.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/lost-reliable-packet.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/lost-ack.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/three-router-shared.yaml ../rtp/reliable-multicast-peer-retry.yaml || status=$$?; \
 	exit $$status
 
 all-scenarios: eigrp-uut-node
-	python3 run_all.py
+	$(PYTHON) run_all.py

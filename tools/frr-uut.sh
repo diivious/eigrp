@@ -14,6 +14,7 @@ set -euo pipefail
 script_name="$(basename "$0")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 eigrp_root="$(cd "$script_dir/.." && pwd)"
+python_runner="$eigrp_root/tools/python"
 
 test_mode="all"
 test_mode_set=0
@@ -100,6 +101,11 @@ set_test_mode() {
 
 require_command() {
 	command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+run_python() {
+	[[ -x "$python_runner" ]] || fail "Python launcher is not executable: $python_runner"
+	"$python_runner" "$@"
 }
 
 is_abs_path() {
@@ -263,10 +269,9 @@ build_local_uut() {
 }
 
 run_portable_tests() {
-	require_command python3
 	(
 		cd "$eigrp_root"
-		python3 -m pytest "$@" "${pytest_args[@]}"
+		run_python -m pytest "$@" "${pytest_args[@]}"
 	)
 }
 
@@ -511,10 +516,9 @@ run_frr_tests() {
 		return 0
 	fi
 
-	require_command python3
 	(
 		cd "$frr_root"
-		python3 tests/runtests.py -v tests/eigrpd "${pytest_args[@]}"
+		run_python tests/runtests.py -v tests/eigrpd "${pytest_args[@]}"
 	)
 	assert_eigrpd_uut_alive
 	stop_eigrpd_uut

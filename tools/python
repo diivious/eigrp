@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: ISC
+#
+# Copyright (C) 2026 Donnie V. Savage
+#
+# Select the Python interpreter used by EIGRP development and test tooling.
+# EIGRP_PYTHON lets CI or a caller provide an explicit interpreter.
+
+set -eu
+
+if [ -n "${EIGRP_PYTHON:-}" ]; then
+	exec "$EIGRP_PYTHON" "$@"
+fi
+
+# Homebrew Python is externally managed on macOS. For local Darwin development,
+# prefer Apple's system Python when it is available.
+if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ] && [ -x /usr/bin/python3 ]; then
+	exec /usr/bin/python3 "$@"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+	exec python3 "$@"
+fi
+
+echo "error: no usable python3 interpreter found" >&2
+exit 127

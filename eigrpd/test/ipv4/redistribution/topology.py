@@ -7,6 +7,7 @@
 from pathlib import Path
 import os
 import subprocess
+import sys
 import textwrap
 
 
@@ -389,7 +390,7 @@ def test_redistributed_candidate_external_topology_lifecycle_executes(tmp_path):
             str(ROOT / "eigrpd" / "code" / "eigrp_list.c"),
             str(ROOT / "eigrpd" / "code" / "eigrp_table.c"),
             str(ROOT / "eigrpd" / "code" / "eigrp_prefix.c"),
-            "-Wl,--gc-sections",
+            *( ["-Wl,-dead_strip"] if sys.platform == "darwin" else ["-Wl,--gc-sections"] ),
             "-o",
             str(binary),
         ],
