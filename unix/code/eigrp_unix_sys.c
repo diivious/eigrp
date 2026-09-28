@@ -100,9 +100,12 @@ static uint64_t eigrp_unix_monotime_msec(void)
 static void eigrp_unix_wake(void)
 {
 	char byte = 0;
+	ssize_t written;
 
-	if (runtime.wake_write >= 0)
-		(void)write(runtime.wake_write, &byte, sizeof(byte));
+	if (runtime.wake_write >= 0) {
+		written = write(runtime.wake_write, &byte, sizeof(byte));
+		(void)written;
+	}
 }
 
 static void eigrp_unix_wake_drain(void)
