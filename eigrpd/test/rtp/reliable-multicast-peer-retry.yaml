@@ -2,10 +2,10 @@ schema: eigrp-uut-test/v1
 topology: three-router-shared.yaml
 name: rtp-reliable-multicast-peer-retry
 steps:
- - fault-add: {name: lose-ack, action: drop, source_uut: r2, destination_uut: r1, ack: 1, count: 2}
- - fault-add: {name: lose-query-r1, action: drop, source_uut: r2, destination_uut: r1, multicast: true, opcode: query, count: 1}
+ - fault-add: {name: lose-ack, action: drop, source_uut: r1, destination_uut: r2, ack: 1, count: 2}
+ - fault-add: {name: lose-query-r3, action: drop, source_uut: r2, destination_uut: r3, multicast: true, opcode: query, count: 1}
  - packet-mark: m
  - start: all
  - validate-packet: {since: m, source_uut: r2, opcode: query, multicast: true, event: sent, min: 1, timeout: 8}
- - validate-fault: {name: lose-query-r1, hits: 1, remaining: 0, timeout: 8}
- - validate-retransmission: {since: m, source_uut: r2, destination_uut: r1, opcode: query, timeout: 8}
+ - validate-fault: {name: lose-query-r3, hits: 1, remaining: 0, timeout: 8}
+ - validate-retransmission: {since: m, source_uut: r2, destination_uut: r3, opcode: query, timeout: 8}
