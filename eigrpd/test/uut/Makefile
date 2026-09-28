@@ -17,6 +17,7 @@ eigrp-uut-node: node.c $(CORE) $(UNIX)
 
 clean:
 	rm -f eigrp-uut-node
+	rm -rf logs
 
 .PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core all-scenarios
 ipv4-basic-core: eigrp-uut-node

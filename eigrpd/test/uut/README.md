@@ -19,6 +19,8 @@ make uut
 
 Every `eigrp-uut-test/v1` document names its topology with the `topology` key. The aggregate runner recursively discovers these scenario documents under `eigrpd/test/`; an invalid or missing topology is a gate failure rather than silently dead coverage.
 
+The aggregate runner writes one durable report per scenario under `eigrpd/test/uut/logs/<test-case-name>.log`. Each report records the scenario name/path, exact runner command, a repository-root rerun command, exit status, verbose scenario operations, `show eigrp tech-support` state, `show eigrp events` state, complete UUT debug/stderr output, self-describing management records, traffic counters, the complete packet journal since the most recent scenario packet mark, explicit fault-match records, and the final 20 packet events for trailing context. The aggregate run continues after a scenario failure so every scenario receives a report; its final exit status is nonzero when any scenario failed. `make clean` removes generated UUT logs.
+
 Run a scenario from the repository root:
 
 ```
@@ -30,7 +32,7 @@ python3 eigrpd/test/uut/run.py \
 The runner builds `eigrp-uut-node` on demand.  No root privileges, network
 namespaces, kernel routes, FRR, or BIRD are required.  A test-side broker uses
 the existing Unix wire envelope to connect arbitrary shared segments and keeps
-a bounded packet journal for validation/diagnostics.
+the scenario packet journal for validation/diagnostics.
 
 Topology YAML is data only.  Interface names and router names are arbitrary;
 segments may have any number of attachments.  `attached_networks` create
@@ -47,7 +49,7 @@ specific failure/recovery boundary.  `validate-convergence` contains declarative
 and/or route expectations and polls until all are true or the timeout expires.
 
 Failures print the failing UUT and expectation plus a diagnostic snapshot:
-interfaces, neighbors, topology, Unix RIB, and recent packet journal entries.
+interfaces, neighbors, topology, Unix RIB, traffic counters, the packet journal since the latest mark, explicit fault matches, and trailing packet context. Diagnostic state records use `key=value` fields so every value is self-describing.
 
 ## IPv4 Basic Core Gate
 

@@ -79,7 +79,7 @@ def validate_scenario(s):
     return s
 
 class Node:
-    def __init__(self,name,config,sock): self.name=name; self.config=config; self.sock=sock; self.p=None; self.stderr=collections.deque(maxlen=80); self.err_thread=None
+    def __init__(self,name,config,sock): self.name=name; self.config=config; self.sock=sock; self.p=None; self.stderr=[]; self.err_thread=None
     def start(self):
         if self.p and self.p.poll() is None: return
         env=os.environ.copy(); env["EIGRP_UNIX_WIRE_SOCKET"]=self.sock
@@ -111,13 +111,13 @@ class Node:
     def state(self):
         rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"topology":[],"paths":[],"rib":[],"source":[]}
         for row in rows:
-            f=row.split("|"); typ=f[0]
-            if typ=="INTF": st["interfaces"].append({"interface":f[1],"runtime":f[2]=="1","shutdown":f[3]=="1","peers":int(f[4]),"output_q":int(f[5]),"reliable_q":int(f[6])})
-            elif typ=="NBR": st["neighbors"].append({"address":f[1],"interface":f[2],"state":f[3],"runtime":f[4]=="1","reliable_q":int(f[5]),"rto":int(f[6]),"srtt_valid":f[7]=="1","srtt":int(f[8]),"retransmissions":int(f[9])})
-            elif typ=="TOPO": st["topology"].append({"prefix":f[1],"active":f[2]=="1","fd":int(f[3]),"successors":int(f[4])})
-            elif typ=="PATH": st["paths"].append({"next_hop":f[1],"interface":f[2],"connected":f[3]=="1","successor":f[4]=="1","distance":int(f[5]),"rd":int(f[6])})
-            elif typ=="RIB": st["rib"].append({"prefix":f[1],"next_hop":f[2],"metric":int(f[3]),"distance":int(f[4])})
-            elif typ=="SRC": st["source"].append({"prefix":f[1],"protocol":int(f[2]),"metric":int(f[3])})
+            f=row.split("|"); typ=f[0]; kv=dict(part.split("=",1) for part in f[1:] if "=" in part)
+            if typ=="INTF": st["interfaces"].append({"interface":kv["name"],"runtime":kv["runtime_present"]=="1","shutdown":kv["shutdown"]=="1","peers":int(kv["peer_count"]),"output_q":int(kv["output_queue"]),"reliable_q":int(kv["reliable_queue"])})
+            elif typ=="NBR": st["neighbors"].append({"address":kv["address"],"interface":kv["interface"],"state":kv["state"],"runtime":kv["runtime_present"]=="1","reliable_q":int(kv["reliable_queue"]),"rto":int(kv["rto_ms"]),"srtt_valid":kv["srtt_valid"]=="1","srtt":int(kv["srtt_ms"]),"retransmissions":int(kv["retransmits"])})
+            elif typ=="TOPO": st["topology"].append({"prefix":kv["prefix"],"active":kv["active"]=="1","fd":int(kv["feasible_distance"]),"successors":int(kv["successors"])})
+            elif typ=="PATH": st["paths"].append({"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
+            elif typ=="RIB": st["rib"].append({"prefix":kv["prefix"],"next_hop":kv["next_hop"],"metric":int(kv["metric"]),"distance":int(kv["admin_distance"])})
+            elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
     def link(self,up,ifname):
         r=self.cmd(("UP" if up else "DOWN")+" "+ifname)
@@ -131,7 +131,7 @@ class Node:
         except subprocess.TimeoutExpired: self.p.kill(); self.p.wait()
 
 class Runner:
-    def __init__(self,t,s,work,verbose=False): self.t=t; self.s=s; self.work=Path(work); self.verbose=verbose; self.nodes={}; self.broker=None; self.packet_marks={}
+    def __init__(self,t,s,work,verbose=False,report=False): self.t=t; self.s=s; self.work=Path(work); self.verbose=verbose; self.report=report; self.report_emitted=False; self.nodes={}; self.broker=None; self.packet_marks={}
     def build(self): subprocess.run(["make","-C",str(Path(__file__).parent)],cwd=ROOT,check=True,stdout=None if self.verbose else subprocess.DEVNULL)
     def configs(self):
         owners={}; next_if=1; afi=topology_afi(self.t)
@@ -163,12 +163,35 @@ class Runner:
         out=[]
         for n in names:
             node=self.nodes[n]
-            try: st=node.state()
-            except Exception as e: st={"state_error":str(e),"stderr":list(node.stderr)}
-            out.append(f"UUT {n}: {st}")
-        packets=list(self.broker.journal)[-20:] if self.broker else []
-        out.append(f"recent packets: {packets}")
+            out.append(f"===== UUT {n}: show eigrp tech-support =====")
+            try: out.extend(node.cmd("TECH",until="END",timeout=3))
+            except Exception as e: out.append(f"tech-support unavailable: {e}")
+            out.append(f"===== UUT {n}: show eigrp events =====")
+            try: out.extend(node.cmd("EVENTS",until="END",timeout=3))
+            except Exception as e: out.append(f"events unavailable: {e}")
+            out.append(f"===== UUT {n}: debug output =====")
+            out.extend(node.stderr if node.stderr else ["<none>"])
+        packets=list(self.broker.journal) if self.broker else []
+        if self.packet_marks:
+            mark,index=max(self.packet_marks.items(),key=lambda item:item[1])
+            out.append(f"===== packet journal since mark {mark!r} =====")
+            marked=packets[index:]
+            out.extend(self._packet_line(packet) for packet in marked)
+            if not marked: out.append("<none>")
+        out.append("===== packet journal (last 20) =====")
+        tail=packets[-20:]
+        out.extend(self._packet_line(packet) for packet in tail)
+        if not tail: out.append("<none>")
         return "\n".join(out)
+    @staticmethod
+    def _packet_line(packet):
+        keys=("time","event","source_uut","source_interface","destination_uut","destination_interface","segment","afi","opcode","length","multicast","sequence","ack","cr","copy","fault","action","fault_hit","fault_remaining")
+        fields=[]
+        for key in keys:
+            if key in packet: fields.append(f"{key}={packet[key]}")
+        for key in sorted(set(packet)-set(keys)):
+            fields.append(f"{key}={packet[key]}")
+        return "PACKET|"+"|".join(fields)
     def neighbor_ok(self,e):
         st=self.nodes[e["uut"]].state(); addr=e.get("neighbor"); iface=e.get("interface"); state=e.get("state","up").lower()
         matches=[n for n in st["neighbors"] if (not addr or n["address"].lower()==str(addr).lower()) and (not iface or n["interface"]==iface)]
@@ -218,9 +241,9 @@ class Runner:
         while time.monotonic()<deadline:
             if okfn(e): return
             time.sleep(.1)
-        raise AssertionError(f"validate-{kind} failed: expected {e}\n{self.diagnostics(e.get('uut'))}")
+        raise AssertionError(f"validate-{kind} failed: expected {e}")
     def step(self,op,arg):
-        if self.verbose: print(f"-- {op}: {arg}")
+        if self.verbose: print(f"-- {op}: {arg}",flush=True)
         if op=="start":
             names=list(self.nodes) if arg in (None,"all") else ([arg] if isinstance(arg,str) else arg.get("uuts",list(self.nodes)))
             for n in names: self.nodes[n].start()
@@ -245,24 +268,30 @@ class Runner:
             while time.monotonic()<deadline:
                 if all((self.neighbor_ok(v) if k=="neighbor" else self.route_ok(v) if k=="route" else self.packet_ok(v)) for x in expectations for k,v in x.items()): return
                 time.sleep(.1)
-            raise AssertionError(f"validate-convergence failed: {arg}\n{self.diagnostics(arg.get('uut'))}")
+            raise AssertionError(f"validate-convergence failed: {arg}")
     def run(self):
         self.build(); owners=self.configs(); self.broker=Broker(str(self.work/"wire.sock"),owners); self.broker.start(); self.broker.ready.wait(2)
         if self.broker.error: raise self.broker.error
         try:
             for i,step in enumerate(self.s["steps"],1):
                 op,arg=next(iter(step.items()))
+                if self.report and op=="stop" and arg in (None,"all") and not self.report_emitted:
+                    print(self.diagnostics(),flush=True)
+                    self.report_emitted=True
                 try: self.step(op,arg)
-                except Exception as e: raise RuntimeError(f"step {i} ({op}) failed: {e}") from e
+                except Exception as e: raise RuntimeError(f"step {i} ({op}) failed: {e}\n{self.diagnostics()}") from e
+            if self.report and not self.report_emitted:
+                print(self.diagnostics(),flush=True)
+                self.report_emitted=True
         finally:
             for n in self.nodes.values(): n.stop()
             self.broker.close()
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("topology"); ap.add_argument("scenario"); ap.add_argument("-v","--verbose",action="store_true"); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("topology"); ap.add_argument("scenario"); ap.add_argument("-v","--verbose",action="store_true"); ap.add_argument("--report",action="store_true",help="emit final tech-support, events, debug, and packet diagnostics"); a=ap.parse_args()
     try:
         t=validate_topology(load_yaml(a.topology)); s=validate_scenario(load_yaml(a.scenario))
-        with tempfile.TemporaryDirectory(prefix="eigrp-uut-") as d: Runner(t,s,d,a.verbose).run()
+        with tempfile.TemporaryDirectory(prefix="eigrp-uut-") as d: Runner(t,s,d,a.verbose,a.report).run()
         print(f"PASS: {s.get('name',Path(a.scenario).name)}")
         return 0
     except Exception as e:

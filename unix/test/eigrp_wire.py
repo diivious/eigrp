@@ -41,7 +41,7 @@ class Broker(threading.Thread):
     """Shared-segment delivery broker. Faults affect delivery only, never EIGRP state."""
     def __init__(self,path,address_owner):
         super().__init__(daemon=True); self.path=path; self.address_owner=address_owner
-        self.stop_event=threading.Event(); self.ready=threading.Event(); self.journal=collections.deque(maxlen=2048); self.error=None
+        self.stop_event=threading.Event(); self.ready=threading.Event(); self.journal=[]; self.error=None
         self._lock=threading.Lock(); self._faults={}; self._next_fault=1; self._delayed=[]; self._delay_serial=0; self._disconnected=set()
     def add_fault(self,spec):
         if not isinstance(spec,dict): raise WireFaultError("fault must be a mapping")
@@ -132,7 +132,7 @@ class Broker(threading.Thread):
                         meta={**base,"destination_uut":e[6],"destination_interface":e[4]}; actions=self._actions(meta)
                         copies=1; delay=0.0; drop=False
                         for f in actions:
-                            self.journal.append({**meta,"event":"fault","fault":f["name"],"action":f["action"]})
+                            self.journal.append({**meta,"event":"fault","fault":f["name"],"action":f["action"],"fault_hit":f["hits"],"fault_remaining":f["remaining"]})
                             if f["action"]=="drop": drop=True
                             elif f["action"]=="delay": delay=max(delay,float(f.get("delay_ms",0))/1000.0)
                             elif f["action"]=="duplicate": copies+=int(f.get("copies",1))
