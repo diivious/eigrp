@@ -542,6 +542,8 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 				continue;
 
 			eigrp_route_descriptor_t wire_route = *selected_route;
+			if (!summarized)
+				wire_route.metric = selected_route->total_metric;
 			eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
 					  &wire_prefix->destination, &wire_route.metric);
 			encoded = eigrp_packet_route_encode_append(
@@ -571,6 +573,7 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 			    && !eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
 						   &prefix->destination)) {
 				eigrp_route_descriptor_t leak_route = *route;
+				leak_route.metric = route->total_metric;
 				eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
 						  &prefix->destination, &leak_route.metric);
 				encoded = eigrp_packet_route_encode_append(

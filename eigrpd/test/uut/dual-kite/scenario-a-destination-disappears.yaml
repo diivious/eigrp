@@ -1,0 +1,42 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-kite.yaml
+name: DUAL Kite Scenario A - Downstream Destination Disappears
+steps:
+  - start: r3
+  - start: r1
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, timeout: 7}
+  - validate-route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 7864320, timeout: 7}
+  - start: r2
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: path, next_hop: 10.12.0.2, successor: false, feasible_successor: false, distance: 8519680, rd: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.23.0.3, metric: 7864320}
+  - packet-mark: n1-down
+  - link-down: {uut: r3, interface: lan3}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, present: false}
+        - route: {uut: r3, prefix: 10.3.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r3, prefix: 10.3.0.0/24, table: rib, present: false}
+  - validate-packet: {opcode: query, prefix: 10.3.0.0/24, since: n1-down, min: 1, timeout: 2}
+  - validate-packet: {opcode: reply, prefix: 10.3.0.0/24, since: n1-down, min: 1, timeout: 2}
+  - packet-mark: n1-up
+  - link-up: {uut: r3, interface: lan3}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.23.0.3, metric: 7864320}
+        - route: {uut: r3, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7208960}

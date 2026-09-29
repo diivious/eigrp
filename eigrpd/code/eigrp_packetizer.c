@@ -94,18 +94,16 @@ static eigrp_route_descriptor_t *eigrp_packetizer_route_select(
 	uint8_t opcode, bool *owned)
 {
 	eigrp_route_descriptor_t *route = route_hint;
-	eigrp_list_t *successors = NULL;
 
 	*owned = false;
 	if (route)
 		return route;
 
 	if (opcode == EIGRP_OPC_QUERY) {
-		successors = eigrp_topology_successors_read(prefix);
-		if (successors)
-			route = eigrp_list_item_data(eigrp_list_first(successors));
-		if (successors)
-			eigrp_list_delete(&successors);
+		/* RFC 7868 section 4.2: a QUERY advertises the destination as
+		 * unreachable while asking neighbors for alternate information. */
+		route = eigrp_packetizer_poison_route_create(prefix);
+		*owned = route != NULL;
 	} else if (prefix) {
 		route = eigrp_topology_route_read(prefix);
 	}
@@ -113,6 +111,21 @@ static eigrp_route_descriptor_t *eigrp_packetizer_route_select(
 	if (!route) {
 		route = eigrp_packetizer_poison_route_create(prefix);
 		*owned = route != NULL;
+	} else if (!route_hint && !*owned) {
+		eigrp_route_descriptor_t *wire_route;
+
+		/* A learned route keeps the neighbor-advertised vector in metric and
+		 * our accumulated vector in total_metric.  EIGRP advertises our
+		 * distance, not the predecessor's reported distance, so never put the
+		 * learned metric back on the wire for normal UPDATE/QUERY/REPLY work.
+		 */
+		wire_route = eigrp_topology_route_create(route->ei);
+		if (!wire_route)
+			return NULL;
+		*wire_route = *route;
+		wire_route->metric = route->total_metric;
+		route = wire_route;
+		*owned = true;
 	}
 	return route;
 }
@@ -361,6 +374,23 @@ static void eigrp_packetizer_neighbor_route_send(eigrp_instance_t *eigrp,
 					      work->opcode, &owned);
 	if (!route)
 		return;
+
+	/* A REPLY cannot advertise the querying neighbor back to itself as the
+	 * path to the destination.  If that neighbor owns the selected RDB, the
+	 * only valid response on this adjacency is unreachable. */
+	if ((work->flags & EIGRP_PACKETIZER_WORK_F_POISON)
+	    || ((work->opcode == EIGRP_OPC_REPLY || work->opcode == EIGRP_OPC_SIAREPLY)
+		&& route->adv_router == nbr)) {
+		eigrp_route_descriptor_t *poison =
+			eigrp_packetizer_poison_route_create(work->prefix);
+
+		if (owned)
+			eigrp_topology_route_free(route);
+		route = poison;
+		owned = poison != NULL;
+		if (!route)
+			return;
+	}
 
 	eigrp_packetizer_builder_init(&builder, eigrp, nbr->ei, nbr,
 				      work->opcode, 0);

@@ -19,7 +19,7 @@ clean:
 	rm -f eigrp-uut-node
 	rm -rf logs
 
-.PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core dual-diamond all-scenarios
+.PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core dual-diamond kite-topology all-scenarios
 ipv4-basic-core: eigrp-uut-node
 	$(PYTHON) run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml
 
@@ -35,6 +35,13 @@ basic-core: eigrp-uut-node
 
 dual-diamond: eigrp-uut-node
 	$(PYTHON) run.py dual-diamond/ipv4-diamond-fs.yaml dual-diamond/scenario-a-feasible-successor.yaml
+
+kite-topology: eigrp-uut-node
+	@status=0; \
+	for scenario in dual-kite/scenario-*.yaml; do \
+		$(PYTHON) run.py dual-kite/ipv4-kite.yaml $$scenario || status=$$?; \
+	done; \
+	exit $$status
 
 rtp-core: eigrp-uut-node
 	@status=0; \
