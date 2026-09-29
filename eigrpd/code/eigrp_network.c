@@ -266,7 +266,7 @@ static void eigrp_network_intf_update(
 
 void eigrp_network_intfs_update(eigrp_instance_t *eigrp)
 {
-	if (!eigrp || !eigrp->data_path_ready
+	if (!eigrp
 	    || eigrp->router_id.s_addr == INADDR_ANY)
 		return;
 	(void)eigrp_sys_interface_walk(
@@ -284,7 +284,7 @@ void eigrp_sys_interface_state_update(
 		return;
 
 	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, eigrp)) {
-		if (eigrp->vrf_id != vrf_id || !eigrp->data_path_ready)
+		if (eigrp->vrf_id != vrf_id)
 			continue;
 		/* Interface/address discovery can complete after the AF runtime is
 		 * created.  Retry automatic router-ID selection before rejecting

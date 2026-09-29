@@ -248,7 +248,6 @@ typedef struct eigrp_status_protocol_state {
 	bool router_id_configured;
 	uint32_t router_id;
 	bool runtime_present;
-	bool data_path_ready;
 } eigrp_status_protocol_state_t;
 
 typedef eigrp_result_t (*eigrp_status_protocol_cb)(

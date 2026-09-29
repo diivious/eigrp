@@ -447,7 +447,7 @@ static char *eigrp_auth_string_dup(const char *value)
  *   Named: af-interface mode through the same EIGRP target
  * Description:
  * Selects or removes packet authentication for a named EIGRP interface.
- * MD5 and plaintext direct-password HMAC-SHA-256 have live runtime paths; type-7 HMAC text remains retained-only until portable decoding is defined.
+ * MD5 and plaintext direct-password HMAC-SHA-256 have live runtime paths.
  */
 eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_context_t *context, eigrp_authentication_mode_t mode, const eigrp_auth_hmac_config_t *hmac)
 {
@@ -485,10 +485,12 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 
 	if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256) {
 		if (context->config
-		    && (!hmac
-			|| (hmac->encryption_type != 0 && hmac->encryption_type != 7)
-			|| !hmac->password || !hmac->password[0]
+		    && (!hmac || !hmac->password || !hmac->password[0]
 			|| strlen(hmac->password) > 32))
+			return EIGRP_RESULT_INVALID_ARGUMENT;
+		if (context->config && hmac->encryption_type == 7)
+			return EIGRP_RESULT_UNSUPPORTED;
+		if (context->config && hmac->encryption_type != 0)
 			return EIGRP_RESULT_INVALID_ARGUMENT;
 
 		if (context->config) {
@@ -496,10 +498,7 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 			if (!config_password)
 				return EIGRP_RESULT_INTERNAL_FAILURE;
 		}
-		/* Type 7 is retained configuration representation.  This project has
-		 * no portable type-7 decoder, so never use the encoded text as an HMAC
-		 * key. */
-		if (context->runtime && context->config && hmac->encryption_type == 0) {
+		if (context->runtime && context->config) {
 			runtime_password = eigrp_auth_string_dup(hmac->password);
 			if (!runtime_password) {
 				free(config_password);
@@ -529,9 +528,6 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 			mode == EIGRP_AUTHENTICATION_HMAC_SHA256
 				? EIGRP_AUTH_TYPE_SHA256 : EIGRP_AUTH_TYPE_MD5;
 
-		if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config
-		    && hmac->encryption_type == 7)
-			return EIGRP_RESULT_NOT_IMPLEMENTED;
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -546,7 +542,7 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
  *   Named: af-interface mode through the same EIGRP target
  * Description:
  * Selects or removes packet authentication for a named EIGRP interface.
- * MD5 and plaintext direct-password HMAC-SHA-256 have live runtime paths; type-7 HMAC text remains retained-only until portable decoding is defined.
+ * MD5 and plaintext direct-password HMAC-SHA-256 have live runtime paths.
  */
 
 

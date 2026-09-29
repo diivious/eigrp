@@ -326,19 +326,19 @@ Configuration must not create an ambiguous receive identity for the same
 
 ### 8.2 Runtime capability
 
-A configured address family always has configuration/control identity. Runtime
-packet/RIB operation may be capability-gated. `data_path_ready` records whether
-that AF may perform packet, adjacency, interface-I/O, packetizer, RTP, and RIB
-operations.
+A configured address family has retained configuration/control identity. A bound
+`eigrp_instance_t` is a live protocol runtime: portable runtime creation requires
+the complete AF packet vectors and host packet/socket services. There is no
+per-instance data-path readiness flag and no config-only form of a protocol
+runtime.
 
-Configuration and runtime ownership are separate. Configuration may be retained
-when the data path is unavailable.
+Image-level AF support is reported through the feature/capability API. Host
+integration failures are returned by the owning host service or runtime creation
+path; they are not represented by a partially live EIGRP instance. IPv4 and IPv6
+use the same lifecycle rule.
 
-When `data_path_ready` is false, retained configuration remains valid but packet,
-adjacency, interface-I/O, packetizer/RTP, multicast, and RIB data-path work does
-not start for that address family. The gate is capability-based rather than an
-IPv6 policy: IPv4 and IPv6 named address families both create live runtimes when
-their required AF vectors and host packet services are available.
+Retained configuration and runtime ownership remain separate so management code
+can distinguish a configured AF from its bound runtime through `runtime_present`.
 
 ### 8.3 Lifecycle ordering
 
@@ -350,7 +350,7 @@ named parent
   -> resolve host VRF/context
   -> create/bind eigrp_instance_t
   -> apply retained child configuration
-  -> start data path when capability and shutdown state permit
+  -> start protocol runtime when shutdown state permits
 ```
 
 Deletion:
@@ -402,11 +402,11 @@ Operational show/state is exported through public management snapshots or
 walkers. Clear/debug/admin actions call real EIGRP operational targets after
 host argument normalization.
 
-Where named EXEC grammar includes the `multicast` selector, it selects EIGRP's
-Multicast Address Family (MAF), VRID `0x0001`. It is not normal EIGRP packet
-multicast transport. The project configuration/runtime model is unicast; a MAF
-request remains an explicit unsupported/not implemented semantic result until a
-MAF design exists.
+The current FRR and BIRD integrations expose only the unicast address-family
+form. They do not install a multicast address-family configuration or operational
+selector. Portable EIGRP may retain the address-family/topology distinction so a
+future or different integrator can implement and expose multicast behavior without
+requiring a new common API.
 
 For FRR, the normal ownership is:
 

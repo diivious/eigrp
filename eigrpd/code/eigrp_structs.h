@@ -48,9 +48,6 @@ typedef struct eigrp_extdata {
 struct eigrp_instance {
 	eigrp_vrf_id_t vrf_id;
 	eigrp_af_vectors_t af_vectors;
-	/* Runtime packet/socket capability for this address family. */
-	bool data_path_ready;
-
 	uint16_t AS;	     /* Autonomous system number */
 	uint16_t vrid;	     /* Virtual Router ID */
 	uint8_t k_values[6]; /*Array for K values configuration*/
@@ -427,7 +424,7 @@ typedef struct eigrp_prefix_descriptor {
 /* EIGRP Topology table record structure */
 typedef struct eigrp_route_descriptor {
 	uint16_t type;
-	eigrp_topology_id_t topology_id; /* Multiprotocol TID; only base is supported. */
+	eigrp_topology_id_t topology_id; /* Multiprotocol topology identifier. */
 	eigrp_prefix_t dest;			// destination address
 	eigrp_addr_t nexthop;			// address of advertised by peer
 

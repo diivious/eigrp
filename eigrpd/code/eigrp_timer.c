@@ -139,8 +139,6 @@ eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context->runtime)
 		return EIGRP_RESULT_SUCCESS;
-	if (!context->runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	for (EIGRP_LIST_ITERATE_RO(context->runtime->eiflist, interface_node,
 				  interface)) {

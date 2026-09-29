@@ -173,8 +173,6 @@ eigrp_result_t eigrp_intf_state_iterate(
 
 	if (!callback || (!config && !runtime))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (runtime && !runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	if (runtime && runtime->eiflist) {
 		for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, node, ei)) {
@@ -462,7 +460,7 @@ static bool eigrp_intf_context_valid(const eigrp_intf_context_t *context)
  *   Named: af-interface mode
  * Description:
  * Retains the configured EIGRP bandwidth percentage for interface pacing.
- * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
+ * Updates retained and live runtime bandwidth-percent state.
  */
 eigrp_result_t eigrp_intf_bandwidth_percent_update(eigrp_operation_t operation, eigrp_intf_context_t *context, uint32_t percent)
 {
@@ -504,7 +502,7 @@ eigrp_result_t eigrp_intf_bandwidth_percent_update(eigrp_operation_t operation, 
  *   Named: af-interface mode
  * Description:
  * Retains the configured EIGRP bandwidth percentage for interface pacing.
- * The real target reports NOT_IMPLEMENTED when live pacing application is not yet complete.
+ * Updates retained and live runtime bandwidth-percent state.
  */
 
 
@@ -800,7 +798,7 @@ eigrp_result_t eigrp_intf_passive_update(eigrp_operation_t operation, eigrp_intf
  *   Named: af-interface mode
  * Description:
  * Controls EIGRP next-hop-self behavior for the interface.
- * The target owns retained/runtime state and reports NOT_IMPLEMENTED if the live packet path cannot apply the setting yet.
+ * Updates retained and live runtime next-hop-self state.
  */
 eigrp_result_t eigrp_intf_nexthop_self_update(eigrp_operation_t operation, eigrp_intf_context_t *context)
 {

@@ -108,8 +108,7 @@ static eigrp_redist_config_t *eigrp_redist_config_lookup(
 
 static bool eigrp_redist_runtime_result_committable(eigrp_result_t result)
 {
-	return result == EIGRP_RESULT_SUCCESS
-	       || result == EIGRP_RESULT_NOT_IMPLEMENTED;
+	return result == EIGRP_RESULT_SUCCESS;
 }
 
 static bool eigrp_redist_native_vector_usable(
@@ -188,9 +187,7 @@ eigrp_result_t eigrp_redist_add(
 	}
 
 	result = EIGRP_RESULT_SUCCESS;
-	if (context->runtime && !eigrp_instance_data_path_ready(context->runtime))
-		result = EIGRP_RESULT_NOT_IMPLEMENTED;
-	else if (context->runtime)
+	if (context->runtime)
 		result = eigrp_rib_redistribute_add(context->runtime, source);
 	if (!eigrp_redist_runtime_result_committable(result)) {
 		free(new_route_map);
@@ -246,20 +243,15 @@ eigrp_result_t eigrp_redist_remove(
 	}
 
 	if (context->runtime) {
-		if (!eigrp_instance_data_path_ready(context->runtime))
-			result = EIGRP_RESULT_NOT_IMPLEMENTED;
-		else {
-			eigrp_result_t withdraw_result =
-				eigrp_topology_redistributed_source_remove(context->runtime, source);
+		eigrp_result_t withdraw_result =
+			eigrp_topology_redistributed_source_remove(context->runtime, source);
 
-			if (withdraw_result != EIGRP_RESULT_SUCCESS
-			    && withdraw_result != EIGRP_RESULT_NOT_FOUND)
-				return withdraw_result;
-			result = eigrp_rib_redistribute_remove(context->runtime, source);
-		}
+		if (withdraw_result != EIGRP_RESULT_SUCCESS
+		    && withdraw_result != EIGRP_RESULT_NOT_FOUND)
+			return withdraw_result;
+		result = eigrp_rib_redistribute_remove(context->runtime, source);
 		if (result != EIGRP_RESULT_SUCCESS
-		    && result != EIGRP_RESULT_NOT_FOUND
-		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
+		    && result != EIGRP_RESULT_NOT_FOUND)
 			return result;
 	}
 
@@ -335,8 +327,6 @@ static eigrp_result_t eigrp_redist_source_route_receive(
 
 	if (!runtime || !route || !eigrp_redist_source_valid(&route->source))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp_instance_data_path_ready(runtime))
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	af = eigrp_instance_runtime_config(runtime);
 	if (!af)
 		return EIGRP_RESULT_NOT_FOUND;
@@ -405,7 +395,7 @@ void eigrp_redist_policy_update_all(void)
 	if (!eigrp_om || !eigrp_om->eigrp)
 		return;
 	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, runtime)) {
-		if (!runtime || !eigrp_instance_data_path_ready(runtime))
+		if (!runtime)
 			continue;
 		af = eigrp_instance_runtime_config(runtime);
 		if (!af)

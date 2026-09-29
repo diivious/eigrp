@@ -73,9 +73,6 @@ eigrp_result_t eigrp_instance_parent_delete(const char *name);
 eigrp_result_t eigrp_af_instance_create(
 	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn);
-eigrp_result_t eigrp_af_instance_create_with_data_path(
-	const char *name, eigrp_afi_t afi, const char *vrf_name,
-	uint16_t asn, bool data_path_ready);
 eigrp_af_instance_t *eigrp_af_instance_read(
 	const char *name, eigrp_afi_t afi, const char *vrf_name,
 	uint16_t asn);
@@ -102,7 +99,6 @@ eigrp_result_t eigrp_af_instance_shutdown_update(eigrp_operation_t operation,
 	eigrp_af_instance_t *af);
 eigrp_result_t eigrp_af_instance_start(eigrp_instance_t *runtime);
 eigrp_result_t eigrp_af_instance_stop(eigrp_instance_t *runtime);
-bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
 
 eigrp_result_t eigrp_instance_parent_shutdown_update(eigrp_operation_t operation,
 	eigrp_instance_parent_config_t *parent);

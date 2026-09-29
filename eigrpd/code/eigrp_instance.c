@@ -54,7 +54,7 @@ static bool eigrp_instance_afi_valid(eigrp_afi_t afi)
 }
 
 static eigrp_result_t eigrp_af_instance_runtime_create(
-	const char *name, eigrp_af_instance_t *af, bool data_path_ready)
+	const char *name, eigrp_af_instance_t *af)
 {
 	eigrp_instance_t *runtime;
 	eigrp_vrf_id_t vrf_id;
@@ -75,8 +75,7 @@ static eigrp_result_t eigrp_af_instance_runtime_create(
 		if (!runtime->name || strcmp(runtime->name, name) != 0)
 			return EIGRP_RESULT_CONFLICT;
 	} else {
-		runtime = eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id,
-						       data_path_ready);
+		runtime = eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id);
 		if (!runtime)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		eigrp_name_update(EIGRP_SET, runtime, name);
@@ -248,9 +247,9 @@ eigrp_result_t eigrp_af_instance_context_read(
  * Creates or removes one named EIGRP address-family and its EIGRP-owned runtime context.
  * IPv4 and IPv6 retain separate AF state while sharing the named parent.
  */
-eigrp_result_t eigrp_af_instance_create_with_data_path(
+eigrp_result_t eigrp_af_instance_create(
 	const char *name, eigrp_afi_t afi, const char *vrf_name,
-	uint16_t asn, bool data_path_ready)
+	uint16_t asn)
 {
 	eigrp_instance_parent_config_t *parent;
 	eigrp_af_instance_t *af;
@@ -306,7 +305,7 @@ eigrp_result_t eigrp_af_instance_create_with_data_path(
 		break;
 	}
 
-	result = eigrp_af_instance_runtime_create(name, af, data_path_ready);
+	result = eigrp_af_instance_runtime_create(name, af);
 	if (result != EIGRP_RESULT_SUCCESS) {
 		free(af->vrf_name);
 		free(af);
@@ -326,14 +325,6 @@ eigrp_result_t eigrp_af_instance_create_with_data_path(
 	if (!parent->shutdown && !af->shutdown)
 		(void)eigrp_af_instance_start(af->runtime);
 	return EIGRP_RESULT_SUCCESS;
-}
-
-eigrp_result_t eigrp_af_instance_create(
-	const char *name, eigrp_afi_t afi, const char *vrf_name,
-	uint16_t asn)
-{
-	return eigrp_af_instance_create_with_data_path(
-		name, afi, vrf_name, asn, true);
 }
 
 static void eigrp_af_instance_free(eigrp_af_instance_t *af)
@@ -466,15 +457,8 @@ eigrp_result_t eigrp_af_instance_iterate(
 	if (request->afi != EIGRP_AFI_IPV4
 	    && request->afi != EIGRP_AFI_IPV6)
 		return EIGRP_RESULT_UNSUPPORTED;
-	/*
-	 * The CLI token selects EIGRP's Multicast Address Family (VRID 0x0001),
-	 * not normal multicast packet transport.  The MAF config/runtime model
-	 * is intentionally deferred, so keep the grammar but terminate the real
-	 * state target truthfully here.
-	 */
 	if (request->multicast)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
-
+		return EIGRP_RESULT_UNSUPPORTED;
 	/* A normal show request without an explicit VRF is scoped to default. */
 	vrf_name = request->vrf_name ? request->vrf_name : "default";
 
@@ -581,16 +565,7 @@ static void eigrp_instance_router_id_runtime_update(eigrp_instance_t *runtime)
 {
 	if (!runtime)
 		return;
-	if (!runtime->data_path_ready) {
-		runtime->router_id = runtime->router_id_static;
-		return;
-	}
 	eigrp_router_id_update(runtime);
-}
-
-bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime)
-{
-	return runtime && runtime->data_path_ready;
 }
 
 void eigrp_sys_router_id_update(eigrp_vrf_id_t vrf_id)
@@ -613,8 +588,6 @@ eigrp_result_t eigrp_af_instance_stop(eigrp_instance_t *runtime)
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, node, ei)) {
 		if (!ei->t_hello)
@@ -634,8 +607,6 @@ eigrp_result_t eigrp_af_instance_start(eigrp_instance_t *runtime)
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (runtime->router_id.s_addr == INADDR_ANY)
 		eigrp_router_id_update(runtime);
 	if (runtime->router_id.s_addr == INADDR_ANY) {
@@ -758,9 +729,7 @@ eigrp_result_t eigrp_af_instance_shutdown_update(eigrp_operation_t operation, ei
 	result = shutdown
 		 ? eigrp_af_instance_stop(af->runtime)
 		 : eigrp_af_instance_start(af->runtime);
-	/* NOT_IMPLEMENTED is a truthful data-path boundary, not config failure. */
-	if (result != EIGRP_RESULT_SUCCESS
-	    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
+	if (result != EIGRP_RESULT_SUCCESS)
 		af->shutdown = !shutdown;
 	return result;
 }
@@ -808,14 +777,8 @@ eigrp_result_t eigrp_instance_parent_shutdown_update(eigrp_operation_t operation
 				  : eigrp_af_instance_start(af->runtime);
 		if (result == EIGRP_RESULT_SUCCESS)
 			continue;
-		if (result == EIGRP_RESULT_NOT_IMPLEMENTED) {
-			if (aggregate == EIGRP_RESULT_SUCCESS)
-				aggregate = result;
-			continue;
-		}
-		/* Keep deterministic retained state; report the first hard failure. */
-		if (aggregate == EIGRP_RESULT_SUCCESS
-		    || aggregate == EIGRP_RESULT_NOT_IMPLEMENTED)
+		/* Keep deterministic retained state; report the first failure. */
+		if (aggregate == EIGRP_RESULT_SUCCESS)
 			aggregate = result;
 	}
 	return aggregate;

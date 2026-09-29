@@ -818,10 +818,9 @@ key-chain/authentication lookup
 host/platform/software identification where required
 ```
 
-The current packet-I/O envelope in this header is IPv4. Named IPv6
-configuration uses the same public semantic/configuration model, but the IPv6
-runtime/data path remains capability-gated and does not add a second
-host-specific integration model.
+IPv4 and IPv6 use the same public semantic/configuration and host-integration
+model. A created protocol runtime requires its AF packet-I/O services; there is
+no per-instance data-path readiness flag or alternate config-only runtime.
 
 The contract describes the service EIGRP requires. It does not prescribe FRR events, BIRD timers, Unix `fork()`, threads, processes, kqueue, epoll, or any other implementation mechanism.
 
@@ -1339,7 +1338,7 @@ Common argument conventions used by the function-family entries below:
 | `eigrp_redistribute_protocol_t` | EIGRP-owned redistribution source protocol selector: connected, static, RIP, OSPF, IS-IS, BGP, EIGRP, or unspecified for invalid/uninitialized state. |
 | `eigrp_route_instance_t` | 32-bit normalized route-instance value identifying one source-protocol process/instance where applicable. |
 | `eigrp_redistribute_source_t` | Exact redistribution source identity `{protocol, route_instance}`. Route instance zero is an ordinary identity value, not a wildcard. |
-| `eigrp_state_request_t` | Operational state selector carrying AF, optional VRF name, AS (0 means all), all_vrfs, and Cisco MAF multicast selector. |
+| `eigrp_state_request_t` | Operational state selector carrying AF, optional VRF name, AS (0 means all), all_vrfs, and a portable multicast-address-family selector. Current FRR/BIRD CLI surfaces do not expose the multicast selector. |
 | `eigrp_instance_t` | Opaque portable EIGRP runtime instance identity. Host code may pass the handle but may not inspect its layout. |
 | `eigrp_interface_t` | Opaque portable EIGRP interface runtime identity. Host code may pass the handle only through documented APIs. |
 | `eigrp_neighbor_t` | Opaque neighbor identity forward declaration. The current five-header contract does not otherwise expose neighbor objects to host code. |
@@ -1379,7 +1378,6 @@ eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp);
 eigrp_afi_t eigrp_instance_address_family(const eigrp_instance_t *eigrp);
 uint16_t eigrp_instance_asn(const eigrp_instance_t *eigrp);
 const char *eigrp_instance_name(const eigrp_instance_t *eigrp);
-bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
 eigrp_ifindex_t eigrp_interface_ifindex(const eigrp_interface_t *ei);
 const char *eigrp_interface_name(const eigrp_interface_t *ei);
 eigrp_result_t eigrp_interface_address_read(const eigrp_interface_t *ei, eigrp_prefix_t *address);
@@ -1578,7 +1576,7 @@ eigrp_result_t eigrp_summary_metric_update(eigrp_operation_t operation, eigrp_in
 **Implemented by:** Portable EIGRP
 **Ownership/lifetime:** Context and metric/weight inputs are borrowed. Retained values are copied.
 **Execution context:** Synchronous. Targets update retained state and, where implemented, the bound runtime.
-**Ordering:** Applies to the selected address-family/topology context. Runtime-dependent effects remain capability-gated without discarding valid retained configuration.
+**Ordering:** Applies to the selected address-family/topology context. Runtime-dependent effects apply through the bound runtime; retained configuration remains separate from runtime ownership.
 `traffic-share balanced` does not select successors and does not relax the
 Feasibility Condition or variance rules. It supplies proportional forwarding
 weights in the public RIB snapshot for the successor set already selected by
@@ -1693,7 +1691,7 @@ const char *eigrp_debug_packet_category_cli_name(eigrp_debug_packet_category_t c
 | `eigrp_statistics_accounting_state_t` | Per-neighbor accounting snapshot: neighbor address, interface, neighbor state string, and prefix count. |
 | `eigrp_statistics_accounting_cb` | Synchronous callback for one accounting snapshot. |
 | `eigrp_status_capability_state_t` | Read-only image capability snapshot used by technical-support: release, TLV/wide-metric support, address-family support, and optional BFD/MANET/MTR/EVN/SNMP capabilities. |
-| `eigrp_status_protocol_state_t` | Protocol summary snapshot for one configured AF: local instance name, opaque config identity, AF/VRF/AS, shutdown/router-ID state, runtime presence, and data-path capability. |
+| `eigrp_status_protocol_state_t` | Protocol summary snapshot for one configured AF: local instance name, opaque config identity, AF/VRF/AS, shutdown/router-ID state, and runtime presence. |
 | `eigrp_status_protocol_cb` | Synchronous callback for one protocol summary/tech-support snapshot. |
 | `eigrp_debug_address_family_state_t` | Stored address-family debug selector snapshot: used flag, AF/AS/VRF scope, category, and optional neighbor. |
 
@@ -1861,7 +1859,7 @@ eigrp_result_t eigrp_statistics_traffic_show( const eigrp_instance_context_t *co
 
 **Execution context:** Synchronous walker over configured protocol contexts.
 
-**Ordering:** May report configured contexts without a live data path. Consumers must honor runtime_present and data_path_ready.
+**Ordering:** May report configured contexts without a bound runtime. Consumers must honor `runtime_present` before requesting runtime-only state.
 
 Exact prototypes:
 
@@ -1978,7 +1976,7 @@ eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp, const eigr
 
 **Execution context:** Synchronous ingress callback from the host RIB adapter.
 
-**Ordering:** Requires a live runtime and matching redistribution subscription. `route->source` carries the exact `{source protocol, route-instance}` identity of the originating host protocol/process within the runtime VRF. Add represents appearance/change; remove represents withdrawal. A source-route add for an entry carrying a route-map name reports `EIGRP_RESULT_NOT_IMPLEMENTED` until route-map evaluation is implemented; it must not be imported unfiltered.
+**Ordering:** Requires a live runtime and matching redistribution subscription. `route->source` carries the exact `{source protocol, route-instance}` identity of the originating host protocol/process within the runtime VRF. Add represents appearance/change; remove represents withdrawal. A source-route add for an entry carrying a route-map name reports `EIGRP_RESULT_UNSUPPORTED` until route-map evaluation is available; it must not be imported unfiltered.
 
 For an add/change, portable redistribution selects the EIGRP seed vector in
 this order: an explicit metric on the matching `redistribute` configuration;

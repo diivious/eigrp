@@ -24,8 +24,6 @@ eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
 		return EIGRP_RESULT_NOT_FOUND;
 	if (!context->runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!context->runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	return EIGRP_RESULT_SUCCESS;
 }
 

@@ -1863,8 +1863,6 @@ eigrp_result_t eigrp_topology_state_iterate(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (!runtime->topology_table)
 		return EIGRP_RESULT_NOT_FOUND;
 
@@ -1951,8 +1949,6 @@ eigrp_topology_context_validate(const eigrp_instance_context_t *context)
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 
-	if (context->topology_id != EIGRP_TOPOLOGY_ID_BASE)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -1972,9 +1968,9 @@ eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context)
 	eigrp_result_t result;
 
 	/*
-	 * Step 1 implements only TID 0.  Keep the public lifecycle generic so a
-	 * future non-zero TID does not require a second portable API family.
-	 * Runtime support for additional topologies is not part of this cleanup.
+	 * Topology IDs are a portable EIGRP protocol identity.  Host integrations
+	 * may expose only the base topology, but the common API must not reject a
+	 * valid non-base TID merely because a particular CLI does not expose it.
 	 */
 	result = eigrp_topology_context_validate(context);
 	if (result != EIGRP_RESULT_SUCCESS)
@@ -2058,7 +2054,7 @@ static void eigrp_topology_default_information_refresh(
 {
 	eigrp_nbr_clear_request_t request;
 
-	if (!eigrp || !eigrp_instance_data_path_ready(eigrp))
+	if (!eigrp)
 		return;
 
 	if (direction == EIGRP_DEFAULT_INFORMATION_OUT) {

@@ -13,7 +13,6 @@ static unsigned parent_calls;
 static unsigned af_calls;
 static unsigned router_id_calls;
 static unsigned shutdown_calls;
-static bool af_data_path_ready;
 static bool af_shutdown;
 static uint32_t configured_router_id;
 static int fake_af;
@@ -26,16 +25,15 @@ eigrp_result_t eigrp_instance_parent_create(const char *name)
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_af_instance_create_with_data_path(
+eigrp_result_t eigrp_af_instance_create(
 	const char *name, eigrp_afi_t afi, const char *vrf_name,
-	uint16_t asn, bool data_path_ready)
+	uint16_t asn)
 {
 	assert(strcmp(name, "savage") == 0);
 	assert(afi == EIGRP_AFI_IPV4);
 	assert(strcmp(vrf_name, "default") == 0);
 	assert(asn == 4453);
 	af_calls++;
-	af_data_path_ready = data_path_ready;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -102,7 +100,6 @@ int main(void)
 	assert(error_line == 0);
 	assert(parent_calls == 1);
 	assert(af_calls == 1);
-	assert(!af_data_path_ready);
 	assert(router_id_calls == 1);
 	assert(configured_router_id == 0x0a2c3501U);
 	assert(shutdown_calls == 2);

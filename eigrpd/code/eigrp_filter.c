@@ -150,7 +150,7 @@ static void eigrp_filter_soft_resync(eigrp_instance_t *eigrp,
 {
 	eigrp_nbr_clear_request_t request;
 
-	if (!eigrp || !eigrp_instance_data_path_ready(eigrp))
+	if (!eigrp)
 		return;
 	memset(&request, 0, sizeof(request));
 	request.interface_name = interface_name;
@@ -394,7 +394,7 @@ void eigrp_offset_metric_update(eigrp_instance_t *eigrp,
  *   Named: topology base mode
  * Description:
  * Creates, updates, or removes EIGRP offset-list configuration.
- * The real filter target remains explicit and reports NOT_IMPLEMENTED until offset application is wired into metric processing.
+ * Offset application is wired into EIGRP metric processing through the retained delay vector.
  */
 eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context,
 				   const char *access_list,
@@ -462,7 +462,7 @@ eigrp_result_t eigrp_offset_add(eigrp_instance_context_t *context,
  *   Named: topology base mode
  * Description:
  * Creates, updates, or removes EIGRP offset-list configuration.
- * The real filter target remains explicit and reports NOT_IMPLEMENTED until offset application is wired into metric processing.
+ * Offset application is wired into EIGRP metric processing through the retained delay vector.
  */
 eigrp_result_t eigrp_offset_remove(eigrp_instance_context_t *context,
 				   const char *access_list,
@@ -593,8 +593,7 @@ static eigrp_result_t eigrp_distribute_list_validate(
 
 static bool eigrp_distribute_runtime_result_committable(eigrp_result_t result)
 {
-	return result == EIGRP_RESULT_SUCCESS
-	       || result == EIGRP_RESULT_NOT_IMPLEMENTED;
+	return result == EIGRP_RESULT_SUCCESS;
 }
 
 static eigrp_result_t eigrp_filter_runtime_reference_update(
@@ -771,8 +770,7 @@ eigrp_result_t eigrp_distribute_remove(
 		result = eigrp_filter_runtime_reference_update(
 			context->runtime, type, name, direction, interface_name, true);
 		if (result != EIGRP_RESULT_SUCCESS
-		    && result != EIGRP_RESULT_NOT_FOUND
-		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
+		    && result != EIGRP_RESULT_NOT_FOUND)
 			return result;
 	}
 

@@ -396,8 +396,7 @@ static eigrp_route_descriptor_t *eigrp_tlv2_decoder(eigrp_instance_t *eigrp,
 	rid = eigrp_stream_getl(pkt);
 	bytes += EIGRP_TLV2_HEADER_EXT_SIZE;
 
-	if (afi != eigrp->af_vectors.multiprotocol_afi
-	    || tid != EIGRP_TOPOLOGY_ID_BASE) {
+	if (afi != eigrp->af_vectors.multiprotocol_afi) {
 		eigrp_stream_set_endp(pkt, packet_end);
 		eigrp_tlv2_decode_skip(pkt, tlv_end);
 		return NULL;
@@ -471,9 +470,6 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 
 	if (!eigrp || !pkt || !route)
 		return 0;
-	if (route->topology_id != EIGRP_TOPOLOGY_ID_BASE)
-		return 0;
-
 	if (!ei && nbr)
 		ei = nbr->ei;
 	if (!ei)

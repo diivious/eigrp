@@ -47,19 +47,12 @@ def test_address_family_configuration_owns_runtime_binding():
     header = read(INSTANCE_H)
     instance = read(INSTANCE_C)
     create = function_body(instance, "eigrp_af_instance_create")
-    create_with_data_path = function_body(
-        instance, "eigrp_af_instance_create_with_data_path"
-    )
     runtime_create = function_body(
         instance, "eigrp_af_instance_runtime_create"
     )
 
     assert "eigrp_instance_t *runtime;" in header
-    assert "eigrp_af_instance_create_with_data_path(" in create
-    assert "name, afi, vrf_name, asn, true" in " ".join(create.split())
-    assert "eigrp_af_instance_runtime_create(name, af, data_path_ready)" in (
-        " ".join(create_with_data_path.split())
-    )
+    assert "eigrp_af_instance_runtime_create(name, af)" in " ".join(create.split())
     assert "eigrp_sys_vrf_resolve(" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
     assert "eigrp_instance_lookup_or_create_by_af(" in runtime_create
@@ -70,9 +63,7 @@ def test_address_family_configuration_owns_runtime_binding():
 
 def test_failed_implicit_address_family_creation_does_not_leave_empty_parent():
     instance = read(INSTANCE_C)
-    create = function_body(
-        instance, "eigrp_af_instance_create_with_data_path"
-    )
+    create = function_body(instance, "eigrp_af_instance_create")
 
     assert "bool parent_created = false;" in create
     assert "parent_created = true;" in create
@@ -232,9 +223,7 @@ def test_runtime_binding_does_not_prevent_retained_summary_configuration():
     )
 
     assert "context->config->summaries = summary;" in create
-    assert create.index("context->config->summaries = summary;") < create.rindex(
-        "EIGRP_RESULT_NOT_IMPLEMENTED"
-    )
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in create
     assert "*cursor = summary->next;" in delete
     assert "eigrp_summary_withdraw(context->runtime->eigrp, &summary->prefix);" in delete
     assert "eigrp_summary_runtime_update(context->runtime->eigrp);" in delete
@@ -264,10 +253,7 @@ def test_named_runtime_identity_and_start_stop_are_address_family_generic():
 
     create_words = " ".join(create.split())
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in create
-    assert (
-        "eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id, "
-        "data_path_ready);"
-    ) in create_words
+    assert "eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id);" in create_words
     assert "EIGRP_AFI_IPV4" not in create
     assert "EIGRP_AFI_IPV6" not in create
     assert "EIGRP_AFI_IPV4" not in start
@@ -277,9 +263,9 @@ def test_named_runtime_identity_and_start_stop_are_address_family_generic():
     assert "EIGRP_AFI_IPV6" not in stop
 
 
-def test_protocol_status_reports_runtime_and_datapath_capability():
+def test_protocol_status_reports_runtime_presence():
     status = read(ROOT / "eigrpd" / "code" / "eigrp_status.c")
     snapshot = function_body(status, "eigrp_status_af")
 
     assert ".runtime_present = af->runtime != NULL" in snapshot
-    assert ".data_path_ready = eigrp_instance_data_path_ready(af->runtime)" in snapshot
+    assert "data_path_ready" not in snapshot

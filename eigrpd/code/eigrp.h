@@ -169,7 +169,7 @@ typedef struct eigrp_state_request {
 	const char *vrf_name;
 	uint16_t asn; /* zero means all configured AS contexts */
 	bool all_vrfs;
-	/* Cisco selector for EIGRP Multicast Address Family (MAF). */
+	/* Multicast address-family selector; current FRR/BIRD CLIs do not expose it. */
 	bool multicast;
 } eigrp_state_request_t;
 
@@ -208,7 +208,6 @@ eigrp_vrf_id_t eigrp_instance_vrf_id(const eigrp_instance_t *eigrp);
 eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *eigrp);
 uint16_t eigrp_instance_asn(const eigrp_instance_t *eigrp);
 const char *eigrp_instance_name(const eigrp_instance_t *eigrp);
-bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime);
 eigrp_ifindex_t eigrp_intf_ifindex(const eigrp_intf_t *ei);
 const char *eigrp_intf_name(const eigrp_intf_t *ei);
 eigrp_result_t eigrp_intf_address_read(const eigrp_intf_t *ei,

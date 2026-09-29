@@ -126,10 +126,12 @@ The legacy `metric holddown` configuration surface has been removed; it is not a
 7 also remains a capability boundary because the project has no portable type-7
 decoder; encoded configuration text must never be used as the HMAC key.
 
-Show/state walkers and runtime actions may return `NOT_IMPLEMENTED` when
-`data_path_ready` is false.  This is the process-model capability gate, not a
-feature stub.  MAF (VRID 0x0001) and non-base topology IDs remain explicitly
-unsupported as defined by `cli-spec.md` and the base-topology model.
+Protocol runtimes no longer carry a per-instance data-path readiness flag. AF
+support is an image/host integration capability, and a created runtime requires
+its packet/RIB services rather than exposing a config-only runtime mode. Current
+FRR/BIRD CLI surfaces expose only the unicast address-family and base topology.
+Those host CLI limits must not become portable-core prohibitions: topology IDs
+remain protocol identities carried by the common API and multiprotocol TLVs.
 
 Stub routing stays out of scope.
 

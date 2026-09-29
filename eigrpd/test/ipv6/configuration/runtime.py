@@ -77,9 +77,7 @@ def test_distance_and_active_timer_runtime_paths_are_shared_by_af():
     assert "EIGRP_AFI_IPV4" not in active
 
 
-def test_remaining_incomplete_features_are_explicit_not_silent_storage():
-    # These policies still own real feature targets and explicitly report the
-    # runtime capability gap; they do not masquerade as successful runtime work.
+def test_runtime_feature_targets_do_not_hide_incomplete_work():
     neighbor = read(NEIGHBOR)
     topology = read(TOPOLOGY)
     auth = read(AUTH)
@@ -87,4 +85,7 @@ def test_remaining_incomplete_features_are_explicit_not_silent_storage():
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in body(neighbor, "eigrp_nbr_max_prefix_update")
     assert "eigrp_topology_prefix_admit" in topology
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in body(topology, "eigrp_topology_max_prefix_update")
-    assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config" in body(auth, "eigrp_auth_mode_update")
+    auth_mode = body(auth, "eigrp_auth_mode_update")
+    assert "hmac->encryption_type == 7" in auth_mode
+    assert "return EIGRP_RESULT_UNSUPPORTED;" in auth_mode
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in auth_mode

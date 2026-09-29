@@ -468,8 +468,7 @@ static int eigrp_zebra_redistribute_route(ZAPI_CALLBACK_ARGS)
 				 ? eigrp_rib_source_route_add(state->eigrp, &source)
 				 : eigrp_rib_source_route_remove(state->eigrp, &source);
 		if (result != EIGRP_RESULT_SUCCESS
-		    && result != EIGRP_RESULT_NOT_FOUND
-		    && result != EIGRP_RESULT_NOT_IMPLEMENTED)
+		    && result != EIGRP_RESULT_NOT_FOUND)
 			eigrp_log(EIGRP_LOG_ERROR,
 				  "FRR Zebra redistribute %s %s source %s instance %u failed (result %u)",
 				  cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD ? "add"

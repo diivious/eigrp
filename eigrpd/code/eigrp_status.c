@@ -47,7 +47,6 @@ static eigrp_result_t eigrp_status_af(
 		.router_id_configured = af->router_id_configured,
 		.router_id = af->router_id,
 		.runtime_present = af->runtime != NULL,
-		.data_path_ready = eigrp_instance_data_path_ready(af->runtime),
 	};
 
 	return context->callback(&state, context->arg);

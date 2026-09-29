@@ -8,9 +8,9 @@ RFC 7868 and Donnie V. Savage's protocol design decisions define EIGRP
 behavior. FRR and BIRD are host frameworks. Neither is the protocol authority.
 
 This tree is in active development. FRR is the working host integration. BIRD
-is a reserved layout, not a second implementation yet. IPv4 is the runtime data
-path that is being brought up. Named IPv6 configuration uses the same semantic
-model, but the IPv6 packet path is still capability-gated.
+is a reserved layout, not a second implementation yet. Portable IPv4 and IPv6
+runtimes share the same semantic model and both require their complete packet
+and RIB integration contracts when a runtime is created.
 
 ## Start here by role
 

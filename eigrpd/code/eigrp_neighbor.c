@@ -549,8 +549,6 @@ eigrp_result_t eigrp_nbr_state_iterate(
 
 	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
 	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, ei)) {
 		const char *name = eigrp_intf_name_string(ei);
@@ -1053,8 +1051,6 @@ eigrp_result_t eigrp_nbr_clear(
 		*affected_count = 0;
 	if (!runtime || !request)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!runtime->data_path_ready)
-		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (request->interface_name && request->address)
 		return EIGRP_RESULT_CONFLICT;
 	if (request->address

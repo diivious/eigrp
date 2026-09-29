@@ -79,7 +79,7 @@ static void eigrpd_named_prefix_limit_get(const struct lyd_node *dnode,
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_instance_parent_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_create(struct nb_cb_create_args *args)
 {
@@ -108,7 +108,7 @@ static int eigrpd_named_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_instance_parent_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_destroy(struct nb_cb_destroy_args *args)
 {
@@ -148,7 +148,7 @@ eigrpd_named_address_family_afi(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_af_instance_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int
 eigrpd_named_address_family_create(struct nb_cb_create_args *args)
@@ -181,7 +181,7 @@ eigrpd_named_address_family_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_af_instance_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int
 eigrpd_named_address_family_destroy(struct nb_cb_destroy_args *args)
@@ -363,7 +363,7 @@ static bool eigrpd_named_prefix_parse(const char *text,
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_instance_router_id_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
 {
@@ -402,7 +402,7 @@ static int eigrpd_named_router_id_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_instance_router_id_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_router_id_destroy(struct nb_cb_destroy_args *args)
 {
@@ -433,7 +433,7 @@ static int eigrpd_named_router_id_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_network_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_network_create(struct nb_cb_create_args *args)
 {
@@ -466,7 +466,7 @@ static int eigrpd_named_network_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_network_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
 {
@@ -500,7 +500,7 @@ static int eigrpd_named_network_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_static_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
 {
@@ -536,7 +536,7 @@ static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_static_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
 {
@@ -574,7 +574,7 @@ static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_af_instance_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 {
@@ -602,7 +602,7 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_af_instance_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 {
@@ -659,7 +659,7 @@ static bool eigrpd_named_af_interface_context(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_config_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
 {
@@ -690,7 +690,7 @@ static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_config_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 {
@@ -725,7 +725,7 @@ static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_bandwidth_percent_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_bandwidth_percent_modify(struct nb_cb_modify_args *args)
 {
@@ -755,7 +755,7 @@ static int eigrpd_named_af_interface_bandwidth_percent_modify(struct nb_cb_modif
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_bandwidth_percent_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_destroy_args *args)
 {
@@ -785,7 +785,7 @@ static int eigrpd_named_af_interface_bandwidth_percent_destroy(struct nb_cb_dest
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_bandwidth_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *args)
 {
@@ -815,7 +815,7 @@ static int eigrpd_named_af_interface_bandwidth_modify(struct nb_cb_modify_args *
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_bandwidth_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args *args)
 {
@@ -845,7 +845,7 @@ static int eigrpd_named_af_interface_bandwidth_destroy(struct nb_cb_destroy_args
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_delay_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_delay_modify(struct nb_cb_modify_args *args)
 {
@@ -875,7 +875,7 @@ static int eigrpd_named_af_interface_delay_modify(struct nb_cb_modify_args *args
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_delay_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_delay_destroy(struct nb_cb_destroy_args *args)
 {
@@ -905,7 +905,7 @@ static int eigrpd_named_af_interface_delay_destroy(struct nb_cb_destroy_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_hello_interval_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args)
 {
@@ -937,7 +937,7 @@ static int eigrpd_named_af_interface_hello_modify(struct nb_cb_modify_args *args
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_hello_interval_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_hello_destroy(struct nb_cb_destroy_args *args)
 {
@@ -969,7 +969,7 @@ static int eigrpd_named_af_interface_hello_destroy(struct nb_cb_destroy_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_hold_time_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_hold_modify(struct nb_cb_modify_args *args)
 {
@@ -1001,7 +1001,7 @@ static int eigrpd_named_af_interface_hold_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_hold_time_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_hold_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1033,7 +1033,7 @@ static int eigrpd_named_af_interface_hold_destroy(struct nb_cb_destroy_args *arg
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_passive_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_passive_create(struct nb_cb_create_args *args)
 {
@@ -1065,7 +1065,7 @@ static int eigrpd_named_af_interface_passive_create(struct nb_cb_create_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_passive_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_passive_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1134,7 +1134,7 @@ static int eigrpd_named_af_interface_authentication_apply(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_af_interface_authentication_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_authentication_modify(
     struct nb_cb_modify_args *args)
@@ -1154,7 +1154,7 @@ static int eigrpd_named_af_interface_authentication_modify(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_af_interface_authentication_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_authentication_detail_modify(
     struct nb_cb_modify_args *args)
@@ -1174,7 +1174,7 @@ static int eigrpd_named_af_interface_authentication_detail_modify(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_authentication_detail_destroy(
 	struct nb_cb_destroy_args *args)
@@ -1195,7 +1195,7 @@ static int eigrpd_named_af_interface_authentication_detail_destroy(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_auth_mode_update(EIGRP_RESET, 0, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_authentication_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1227,7 +1227,7 @@ static int eigrpd_named_af_interface_authentication_destroy(struct nb_cb_destroy
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_auth_keychain_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_keychain_modify(struct nb_cb_modify_args *args)
 {
@@ -1259,7 +1259,7 @@ static int eigrpd_named_af_interface_keychain_modify(struct nb_cb_modify_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_auth_keychain_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_keychain_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1291,7 +1291,7 @@ static int eigrpd_named_af_interface_keychain_destroy(struct nb_cb_destroy_args 
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_nexthop_self_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_next_hop_modify(struct nb_cb_modify_args *args)
 {
@@ -1324,7 +1324,7 @@ static int eigrpd_named_af_interface_next_hop_modify(struct nb_cb_modify_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_split_horizon_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_split_horizon_modify(struct nb_cb_modify_args *args)
 {
@@ -1389,7 +1389,7 @@ static int eigrpd_named_af_interface_summary_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_af_interface_summary_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *args)
 {
@@ -1407,7 +1407,7 @@ static int eigrpd_named_af_interface_summary_create(struct nb_cb_create_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_af_interface_summary_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_summary_modify(struct nb_cb_modify_args *args)
 {
@@ -1425,7 +1425,7 @@ static int eigrpd_named_af_interface_summary_modify(struct nb_cb_modify_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_af_interface_summary_apply_options()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_summary_detail_destroy(
 	struct nb_cb_destroy_args *args)
@@ -1453,7 +1453,7 @@ static int eigrpd_named_af_interface_summary_detail_destroy(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_summary_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1486,7 +1486,7 @@ static int eigrpd_named_af_interface_summary_destroy(struct nb_cb_destroy_args *
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *args)
 {
@@ -1516,7 +1516,7 @@ static int eigrpd_named_af_interface_shutdown_create(struct nb_cb_create_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_intf_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1547,7 +1547,7 @@ static int eigrpd_named_af_interface_shutdown_destroy(struct nb_cb_destroy_args 
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_policy_create(struct nb_cb_create_args *args)
 {
@@ -1563,7 +1563,7 @@ static int eigrpd_named_neighbor_policy_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_policy_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1579,7 +1579,7 @@ static int eigrpd_named_neighbor_policy_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_description_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_description_modify(struct nb_cb_modify_args *args)
 {
@@ -1606,7 +1606,7 @@ static int eigrpd_named_neighbor_description_modify(struct nb_cb_modify_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_description_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_description_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1650,7 +1650,7 @@ static int eigrpd_named_neighbor_prefix_limit_apply(const struct lyd_node *dnode
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_neighbor_prefix_limit_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_apply(args->dnode) : NB_OK; }
@@ -1663,7 +1663,7 @@ static int eigrpd_named_neighbor_prefix_limit_create(struct nb_cb_create_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_neighbor_prefix_limit_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_apply(lyd_parent(args->dnode)) : NB_OK; }
@@ -1675,7 +1675,7 @@ static int eigrpd_named_neighbor_prefix_limit_modify(struct nb_cb_modify_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_empty_create(struct nb_cb_create_args *args)
 {
@@ -1691,7 +1691,7 @@ static int eigrpd_named_neighbor_prefix_limit_empty_create(struct nb_cb_create_a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_detail_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1727,7 +1727,7 @@ static void eigrpd_named_neighbor_prefix_limit_apply_finish(struct nb_cb_apply_f
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_max_prefix_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1766,7 +1766,7 @@ static int eigrpd_named_neighbor_prefix_limit_all_apply(const struct lyd_node *d
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_neighbor_prefix_limit_all_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_all_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_all_apply(args->dnode) : NB_OK; }
@@ -1782,7 +1782,7 @@ static int eigrpd_named_neighbor_prefix_limit_all_create(struct nb_cb_create_arg
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_neighbor_prefix_limit_all_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_all_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_neighbor_prefix_limit_all_apply(lyd_parent(args->dnode)) : NB_OK; }
@@ -1795,7 +1795,7 @@ static int eigrpd_named_neighbor_prefix_limit_all_modify(struct nb_cb_modify_arg
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_all_empty_create(struct nb_cb_create_args *args)
 {
@@ -1815,7 +1815,7 @@ static int eigrpd_named_neighbor_prefix_limit_all_empty_create(struct nb_cb_crea
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_all_detail_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1852,7 +1852,7 @@ static void eigrpd_named_neighbor_prefix_limit_all_apply_finish(struct nb_cb_app
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_max_prefix_all_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_neighbor_prefix_limit_all_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1871,7 +1871,7 @@ static int eigrpd_named_neighbor_prefix_limit_all_destroy(struct nb_cb_destroy_a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_log_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *args)
 {
@@ -1890,7 +1890,7 @@ static int eigrpd_named_log_neighbor_changes_modify(struct nb_cb_modify_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_log_update(EIGRP_RESET, 0, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_log_neighbor_changes_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1919,7 +1919,7 @@ static int eigrpd_named_log_neighbor_warnings_apply(const struct lyd_node *dnode
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_log_neighbor_warnings_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_log_neighbor_warnings_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_log_neighbor_warnings_apply(args->dnode) : NB_OK; }
@@ -1932,7 +1932,7 @@ static int eigrpd_named_log_neighbor_warnings_create(struct nb_cb_create_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_log_neighbor_warnings_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_log_neighbor_warnings_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_log_neighbor_warnings_apply(lyd_parent(args->dnode)) : NB_OK; }
@@ -1944,7 +1944,7 @@ static int eigrpd_named_log_neighbor_warnings_modify(struct nb_cb_modify_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_log_neighbor_warnings_interval_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1981,7 +1981,7 @@ static void eigrpd_named_log_neighbor_warnings_apply_finish(struct nb_cb_apply_f
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_nbr_log_update(EIGRP_RESET, 0, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_log_neighbor_warnings_destroy(struct nb_cb_destroy_args *args)
 {
@@ -1995,7 +1995,6 @@ static int eigrpd_named_log_neighbor_warnings_destroy(struct nb_cb_destroy_args 
 static int eigrpd_named_config_result(eigrp_result_t result, bool removing)
 {
 	if (result == EIGRP_RESULT_SUCCESS
-	    || result == EIGRP_RESULT_NOT_IMPLEMENTED
 	    || (removing && result == EIGRP_RESULT_NOT_FOUND))
 		return NB_OK;
 	return NB_ERR_INCONSISTENCY;
@@ -2079,7 +2078,7 @@ static bool eigrpd_named_summary_prefix_get(const struct lyd_node *dnode,
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_topology_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_topology_create(struct nb_cb_create_args *args)
 {
@@ -2105,7 +2104,7 @@ static int eigrpd_named_topology_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_topology_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_topology_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2131,7 +2130,7 @@ static int eigrpd_named_topology_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_summary_auto_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_auto_summary_create(struct nb_cb_create_args *args)
 {
@@ -2157,7 +2156,7 @@ static int eigrpd_named_auto_summary_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_summary_auto_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_auto_summary_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2212,7 +2211,7 @@ static int eigrpd_named_default_information_apply(const struct lyd_node *dnode,
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_in_create(
 	struct nb_cb_create_args *args)
@@ -2230,7 +2229,7 @@ static int eigrpd_named_default_information_in_create(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_in_destroy(
 	struct nb_cb_destroy_args *args)
@@ -2248,7 +2247,7 @@ static int eigrpd_named_default_information_in_destroy(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_out_create(
 	struct nb_cb_create_args *args)
@@ -2266,7 +2265,7 @@ static int eigrpd_named_default_information_out_create(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_out_destroy(
 	struct nb_cb_destroy_args *args)
@@ -2284,7 +2283,7 @@ static int eigrpd_named_default_information_out_destroy(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_in_modify(struct nb_cb_modify_args *args)
 {
@@ -2301,7 +2300,7 @@ static int eigrpd_named_default_information_in_modify(struct nb_cb_modify_args *
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_information_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_out_modify(struct nb_cb_modify_args *args)
 {
@@ -2319,7 +2318,7 @@ static int eigrpd_named_default_information_out_modify(struct nb_cb_modify_args 
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_information_access_list_destroy(
 	struct nb_cb_destroy_args *args)
@@ -2401,7 +2400,7 @@ static int eigrpd_named_default_metric_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_metric_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_metric_create(struct nb_cb_create_args *args)
 {
@@ -2422,7 +2421,7 @@ static int eigrpd_named_default_metric_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_default_metric_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_metric_modify(struct nb_cb_modify_args *args)
 {
@@ -2439,7 +2438,7 @@ static int eigrpd_named_default_metric_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_default_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_default_metric_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2481,7 +2480,7 @@ static int eigrpd_named_distance_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_distance_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distance_create(struct nb_cb_create_args *args)
 {
@@ -2499,7 +2498,7 @@ static int eigrpd_named_distance_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_distance_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distance_modify(struct nb_cb_modify_args *args)
 {
@@ -2516,7 +2515,7 @@ static int eigrpd_named_distance_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_instance_distance_update(EIGRP_RESET, 0, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distance_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2558,7 +2557,7 @@ static int eigrpd_named_maximum_prefix_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_prefix_create(struct nb_cb_create_args *args)
 {
@@ -2578,7 +2577,7 @@ static int eigrpd_named_maximum_prefix_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_prefix_modify(struct nb_cb_modify_args *args)
 {
@@ -2595,7 +2594,7 @@ static int eigrpd_named_maximum_prefix_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_prefix_empty_create(struct nb_cb_create_args *args)
 {
@@ -2616,7 +2615,7 @@ static int eigrpd_named_maximum_prefix_empty_create(struct nb_cb_create_args *ar
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_prefix_detail_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2654,7 +2653,7 @@ static void eigrpd_named_maximum_prefix_apply_finish(struct nb_cb_apply_finish_a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_topology_max_prefix_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2680,7 +2679,7 @@ static int eigrpd_named_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_topology_maximum_paths_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_paths_modify(struct nb_cb_modify_args *args)
 {
@@ -2704,7 +2703,7 @@ static int eigrpd_named_maximum_paths_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_topology_maximum_paths_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_maximum_paths_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2728,7 +2727,7 @@ static int eigrpd_named_maximum_paths_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_maximum_hops_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_metric_maximum_hops_modify(struct nb_cb_modify_args *args)
 {
@@ -2752,7 +2751,7 @@ static int eigrpd_named_metric_maximum_hops_modify(struct nb_cb_modify_args *arg
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_maximum_hops_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_metric_maximum_hops_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2804,7 +2803,7 @@ static int eigrpd_named_metric_version_32bit_destroy(struct nb_cb_destroy_args *
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_eventlog_size_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
 {
@@ -2828,7 +2827,7 @@ static int eigrpd_named_event_log_size_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_eventlog_size_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_event_log_size_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2877,7 +2876,7 @@ static int eigrpd_named_metric_weights_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_metric_weights_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_metric_weights_create(struct nb_cb_create_args *args)
 {
@@ -2900,7 +2899,7 @@ static int eigrpd_named_metric_weights_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_metric_weights_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_metric_weights_modify(struct nb_cb_modify_args *args)
 {
@@ -2917,7 +2916,7 @@ static int eigrpd_named_metric_weights_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_weights_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_metric_weights_K6_destroy(struct nb_cb_destroy_args *args)
 {
@@ -2956,7 +2955,7 @@ static int eigrpd_named_metric_weights_K6_destroy(struct nb_cb_destroy_args *arg
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_weights_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_metric_weights_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3008,7 +3007,7 @@ static int eigrpd_named_offset_list_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_offset_list_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_offset_list_create(struct nb_cb_create_args *args)
 {
@@ -3025,7 +3024,7 @@ static int eigrpd_named_offset_list_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_offset_list_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_offset_list_modify(struct nb_cb_modify_args *args)
 {
@@ -3042,7 +3041,7 @@ static int eigrpd_named_offset_list_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_offset_remove()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_offset_list_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3175,7 +3174,7 @@ static int eigrpd_named_redistribute_apply(const struct lyd_node *dnode,
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_redistribute_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_create(struct nb_cb_create_args *args)
 {
@@ -3252,7 +3251,7 @@ static void eigrpd_named_redistribute_apply_finish(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_redist_remove()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3292,7 +3291,7 @@ static int eigrpd_named_redistribute_maximum_prefix_apply(const struct lyd_node 
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_redistribute_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_maximum_prefix_create(struct nb_cb_create_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_redistribute_maximum_prefix_apply(args->dnode) : NB_OK; }
@@ -3308,7 +3307,7 @@ static int eigrpd_named_redistribute_maximum_prefix_create(struct nb_cb_create_a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_redistribute_maximum_prefix_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_maximum_prefix_modify(struct nb_cb_modify_args *args)
 { return args->event == NB_EV_APPLY ? eigrpd_named_redistribute_maximum_prefix_apply(lyd_parent(args->dnode)) : NB_OK; }
@@ -3321,7 +3320,7 @@ static int eigrpd_named_redistribute_maximum_prefix_modify(struct nb_cb_modify_a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_maximum_prefix_empty_create(struct nb_cb_create_args *args)
 {
@@ -3341,7 +3340,7 @@ static int eigrpd_named_redistribute_maximum_prefix_empty_create(struct nb_cb_cr
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_maximum_prefix_detail_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3379,7 +3378,7 @@ static void eigrpd_named_redistribute_maximum_prefix_apply_finish(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_redist_max_prefix_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_redistribute_maximum_prefix_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3398,7 +3397,7 @@ static int eigrpd_named_redistribute_maximum_prefix_destroy(struct nb_cb_destroy
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distribute_list_entry_create(struct nb_cb_create_args *args)
 {
@@ -3414,7 +3413,7 @@ static int eigrpd_named_distribute_list_entry_create(struct nb_cb_create_args *a
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distribute_list_entry_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3433,7 +3432,7 @@ static int eigrpd_named_distribute_list_entry_destroy(struct nb_cb_destroy_args 
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_distribute_add()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distribute_list_modify(struct nb_cb_modify_args *args)
 {
@@ -3466,7 +3465,7 @@ static int eigrpd_named_distribute_list_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_distribute_remove()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_distribute_list_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3522,7 +3521,7 @@ static int eigrpd_named_summary_metric_apply(const struct lyd_node *dnode)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_summary_metric_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_summary_metric_create(struct nb_cb_create_args *args)
 {
@@ -3544,7 +3543,7 @@ static int eigrpd_named_summary_metric_create(struct nb_cb_create_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback delegates to `eigrpd_named_summary_metric_apply()`, which reaches the EIGRP-owned target for the command.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_summary_metric_modify(struct nb_cb_modify_args *args)
 {
@@ -3566,7 +3565,7 @@ static int eigrpd_named_summary_metric_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This node is structural, so the child callback owns the EIGRP target when protocol state has to change.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_summary_metric_detail_destroy(
 	struct nb_cb_destroy_args *args)
@@ -3606,7 +3605,7 @@ static void eigrpd_named_summary_metric_apply_finish(
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_summary_metric_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_summary_metric_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3637,7 +3636,7 @@ static int eigrpd_named_summary_metric_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_timer_active_time_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_active_time_modify(struct nb_cb_modify_args *args)
 {
@@ -3663,7 +3662,7 @@ static int eigrpd_named_active_time_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_timer_active_time_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_active_time_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3689,7 +3688,7 @@ static int eigrpd_named_active_time_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_traffic_share_balanced_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_traffic_share_modify(struct nb_cb_modify_args *args)
 {
@@ -3717,7 +3716,7 @@ static int eigrpd_named_traffic_share_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback restores the balanced default with `eigrp_traffic_share_balanced_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_traffic_share_destroy(struct nb_cb_destroy_args *args)
 {
@@ -3744,7 +3743,7 @@ static int eigrpd_named_traffic_share_destroy(struct nb_cb_destroy_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_variance_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_variance_modify(struct nb_cb_modify_args *args)
 {
@@ -3770,7 +3769,7 @@ static int eigrpd_named_variance_modify(struct nb_cb_modify_args *args)
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
  * This callback calls `eigrp_metric_variance_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
+ * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
 static int eigrpd_named_variance_destroy(struct nb_cb_destroy_args *args)
 {

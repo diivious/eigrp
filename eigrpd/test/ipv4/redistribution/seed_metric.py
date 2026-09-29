@@ -96,11 +96,6 @@ def test_redistribution_seed_metric_precedence_executes(tmp_path):
                 return EIGRP_RESULT_SUCCESS;
             }
 
-            bool eigrp_instance_data_path_ready(const eigrp_instance_t *runtime)
-            {
-                return runtime != NULL;
-            }
-
             eigrp_afi_t
             eigrp_instance_afi(const eigrp_instance_t *runtime)
             {

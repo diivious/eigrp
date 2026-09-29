@@ -260,6 +260,7 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
                 eigrp_tlv_codec_t codec = {0};
                 eigrp_tlv_codec_t tlv1 = {0};
                 eigrp_route_descriptor_t route;
+                eigrp_route_descriptor_t *decoded;
                 eigrp_stream_t *valid;
                 eigrp_stream_t *mixed;
                 uint8_t short_header[] = {0x04, 0x02, 0x00};
@@ -313,13 +314,17 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
                 assert(valid->getp == valid->endp);
                 eigrp_stream_free(valid);
 
-                /* A non-default TID belongs to unsupported MTR and must be discarded. */
+                /* Multiprotocol TIDs are portable protocol identities, not CLI capability gates. */
                 valid = eigrp_stream_create(128);
                 assert(valid != NULL);
                 route_set(&route, false, 64);
+                route.topology_id = 1;
                 assert(codec.encoder(&eigrp, &interface, &neighbor, valid, &route) == 72);
-                valid->data[7] = 1;
-                assert(codec.decoder(&eigrp, &neighbor, valid, (uint16_t)valid->endp) == NULL);
+                assert(valid->data[6] == 0x00 && valid->data[7] == 0x01);
+                valid->getp = 0;
+                decoded = codec.decoder(&eigrp, &neighbor, valid, (uint16_t)valid->endp);
+                assert(decoded != NULL);
+                assert(decoded->topology_id == 1);
                 assert(valid->getp == valid->endp);
                 eigrp_stream_free(valid);
 

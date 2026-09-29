@@ -35,8 +35,7 @@
 static struct eigrpd eigrpd;
 struct eigrpd *eigrp_om;
 
-static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors,
-				       bool data_path_ready)
+static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors)
 {
 #define EIGRP_AF_VECTOR_REQUIRE(_field)                                      \
 	do {                                                                   \
@@ -72,10 +71,8 @@ static bool eigrp_af_vectors_runtime_validate(const eigrp_af_vectors_t *vectors,
 	EIGRP_AF_VECTOR_REQUIRE(addr_snprintf);
 	EIGRP_AF_VECTOR_REQUIRE(summary_auto_prefix);
 
-	if (data_path_ready) {
-		EIGRP_AF_VECTOR_REQUIRE(packet_send);
-		EIGRP_AF_VECTOR_REQUIRE(packet_receive);
-	}
+	EIGRP_AF_VECTOR_REQUIRE(packet_send);
+	EIGRP_AF_VECTOR_REQUIRE(packet_receive);
 
 #undef EIGRP_AF_VECTOR_REQUIRE
 	return true;
@@ -284,7 +281,7 @@ void eigrp_init(void)
 
 /* Allocate a protocol runtime/control context. */
 static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
-				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
+				   eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp = calloc(1, sizeof(struct eigrp_instance));
 	eigrp_addr_t src = {0};
@@ -297,7 +294,6 @@ static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
 
 	/* Initialize address-family-independent control state first. */
 	eigrp->vrf_id = vrf_id;
-	eigrp->data_path_ready = data_path_ready;
 	switch (afi) {
 	case EIGRP_AFI_IPV4:
 		eigrp_ipv4_init(&eigrp->af_vectors);
@@ -309,8 +305,7 @@ static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
 		free(eigrp);
 		return NULL;
 	}
-	if (!eigrp_af_vectors_runtime_validate(&eigrp->af_vectors,
-					       data_path_ready)) {
+	if (!eigrp_af_vectors_runtime_validate(&eigrp->af_vectors)) {
 		free(eigrp);
 		return NULL;
 	}
@@ -353,8 +348,6 @@ static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
 	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);
 	(void)eigrp_sys_policy_instance_create(eigrp);
 
-	if (!data_path_ready)
-		return eigrp;
 
 	if (eigrp_sys_socket_open(eigrp) != EIGRP_RESULT_SUCCESS) {
 		eigrp_log(EIGRP_LOG_ERROR,
@@ -411,13 +404,13 @@ eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id)
 }
 
 eigrp_instance_t *eigrp_instance_lookup_or_create_by_af(eigrp_afi_t afi, uint16_t as,
-				   eigrp_vrf_id_t vrf_id, bool data_path_ready)
+				   eigrp_vrf_id_t vrf_id)
 {
 	eigrp_instance_t *eigrp;
 
 	eigrp = eigrp_lookup_by_af_as_vrf(afi, as, vrf_id);
 	if (eigrp == NULL) {
-		eigrp = eigrp_instance_create(afi, as, vrf_id, data_path_ready);
+		eigrp = eigrp_instance_create(afi, as, vrf_id);
 		if (!eigrp)
 			return NULL;
 		eigrp_list_add(eigrp_om->eigrp, eigrp);
@@ -427,7 +420,7 @@ eigrp_instance_t *eigrp_instance_lookup_or_create_by_af(eigrp_afi_t afi, uint16_
 
 eigrp_instance_t *eigrp_instance_lookup_or_create(uint16_t as, eigrp_vrf_id_t vrf_id)
 {
-	return eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id, true);
+	return eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id);
 }
 
 void eigrp_name_update(eigrp_operation_t operation, eigrp_instance_t *eigrp, const char *name)

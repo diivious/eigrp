@@ -58,7 +58,7 @@ extern void eigrp_instance_delete_final(eigrp_instance_t *);
 
 extern eigrp_instance_t *eigrp_instance_lookup_or_create(uint16_t as, eigrp_vrf_id_t vrf_id);
 extern eigrp_instance_t *eigrp_instance_lookup_or_create_by_af(eigrp_afi_t afi, uint16_t as,
-					eigrp_vrf_id_t vrf_id, bool data_path_ready);
+					eigrp_vrf_id_t vrf_id);
 extern eigrp_instance_t *eigrp_lookup(eigrp_vrf_id_t vrf_id);
 extern eigrp_instance_t *eigrp_lookup_by_as_vrf(uint16_t as, eigrp_vrf_id_t vrf_id);
 extern eigrp_instance_t *eigrp_lookup_by_af_as_vrf(eigrp_afi_t afi,

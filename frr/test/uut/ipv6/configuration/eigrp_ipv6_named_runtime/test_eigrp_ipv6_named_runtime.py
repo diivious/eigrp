@@ -41,10 +41,7 @@ def test_named_ipv6_creates_a_real_control_runtime():
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
     runtime_words = " ".join(runtime_create.split())
     assert "eigrp_instance_lookup_or_create_by_af(" in runtime_create
-    assert (
-        "eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id, "
-        "data_path_ready);"
-    ) in runtime_words
+    assert "eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id);" in runtime_words
     assert "af->runtime = runtime;" in runtime_create
 
 
@@ -54,7 +51,7 @@ def test_runtime_identity_is_af_vrf_as_and_legacy_lookup_stays_ipv4():
     assert "eigrp_lookup_by_af_as_vrf(eigrp_afi_t afi" in eigrpd
     assert "eigrp->af_vectors.afi == afi && eigrp->AS == as" in eigrpd
     assert "eigrp_lookup_by_af_as_vrf(EIGRP_AFI_IPV4, as, vrf_id)" in eigrpd
-    assert "eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id, true)" in eigrpd
+    assert "eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id)" in eigrpd
 
 
 def test_ipv6_runtime_uses_the_normal_live_datapath_lifecycle():
@@ -62,31 +59,28 @@ def test_ipv6_runtime_uses_the_normal_live_datapath_lifecycle():
     ipv6 = read(ROOT / "eigrpd" / "code" / "eigrp_ipv6.c")
     sys_header = read(ROOT / "eigrpd" / "code" / "eigrp_sys.h")
 
-    assert "eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id, true)" in eigrpd
+    assert "eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id)" in eigrpd
     assert "vectors->packet_send = eigrp_ipv6_packet_send;" in ipv6
     assert "vectors->packet_receive = eigrp_ipv6_packet_receive;" in ipv6
     assert "eigrp_sys_ipv6_packet_send" in sys_header
     assert "eigrp_sys_ipv6_packet_receive" in sys_header
 
 
-def test_capability_gate_remains_generic_not_ipv6_specific():
+def test_runtime_has_no_per_instance_data_path_capability_gate():
     instance = read(INSTANCE)
     eigrpd = read(EIGRPD)
+    structs = read(STRUCTS)
 
-    assert "bool data_path_ready;" in read(STRUCTS)
-    assert "if (!runtime->data_path_ready)" in instance
-    assert "if (!data_path_ready)\n\t\treturn eigrp;" in eigrpd
-    runtime_create = instance[
-        instance.index("static eigrp_result_t eigrp_af_instance_runtime_create"):
-        instance.index("static eigrp_result_t eigrp_af_instance_runtime_delete")
-    ]
-    assert "EIGRP_AFI_IPV4" not in runtime_create
-
+    assert "data_path_ready" not in instance
+    assert "data_path_ready" not in eigrpd
+    assert "data_path_ready" not in structs
+    assert "EIGRP_AF_VECTOR_REQUIRE(packet_send);" in eigrpd
+    assert "EIGRP_AF_VECTOR_REQUIRE(packet_receive);" in eigrpd
 
 def test_router_id_refresh_uses_live_runtime_path_for_both_families():
     instance = read(INSTANCE)
     start = instance.index("static void eigrp_instance_router_id_runtime_update")
-    end = instance.index("bool eigrp_instance_data_path_ready", start)
+    end = instance.index("void eigrp_sys_router_id_update", start)
     block = instance[start:end]
     assert "eigrp_router_id_update(runtime);" in block
 
@@ -150,9 +144,9 @@ def test_managed_patch_and_design_spec_record_ipv6_control_runtime_contract():
     assert 'type eigrp-redistribution-protocol;' in yang_patch
     assert 'type eigrp-redistribution-route-instance;' in yang_patch
     assert "A BGP ASN or IS-IS area tag is a protocol" in yang_patch
-    assert "When `data_path_ready` is false" in process
+    assert "per-instance data-path readiness flag" in process
     assert "EIGRP Stub routing is explicitly outside project scope" in design
-    assert "IPv4 and IPv6 named address families both create live runtimes" in process_words
+    assert "IPv4 and IPv6 use the same lifecycle rule" in process_words
 
 
 def _function_body(source: str, name: str) -> str:
@@ -177,11 +171,11 @@ def test_ipv6_operational_state_uses_the_same_common_targets_as_ipv4():
     for path, name in targets:
         body = _function_body(read(path), name)
         assert "config->afi == EIGRP_AFI_IPV6" not in body
-        assert "EIGRP_RESULT_NOT_IMPLEMENTED" in body  # generic data-path capability gate
+        assert "data_path_ready" not in body
 
     validate = _function_body(read(STATISTICS), "eigrp_statistics_context_validate")
     assert "EIGRP_AFI_IPV6" not in validate
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in validate  # generic data-path capability gate
+    assert "data_path_ready" not in validate
 
 
 def test_ipv4_only_network_and_auto_summary_are_rejected_from_ipv6_named_contexts():

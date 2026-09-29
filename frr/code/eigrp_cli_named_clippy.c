@@ -107,7 +107,7 @@ DEFUN_CMD_FUNC_TEXT(eigrp_named_redistribute_eigrp)
 	return eigrp_named_redistribute_eigrp_magic(self, vty, argc, argv, no, route_instance, route_instance_str, bw, bw_str, delay, delay_str, rlbt, rlbt_str, load, load_str, mtu, mtu_str, route_map);
 }
 
-/* show_eigrp_interface => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail" */
+/* show_eigrp_interface => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] interfaces [IFNAME$ifname] [detail]$detail" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_interface)
 #define funcdecl_show_eigrp_interface static int show_eigrp_interface_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -180,7 +180,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_interface)
 	return show_eigrp_interface_magic(self, vty, argc, argv, afi, vrf, as, as_str, ifname, detail);
 }
 
-/* show_eigrp_neighbor => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] neighbors [static] [detail]$detail [IFNAME$ifname]" */
+/* show_eigrp_neighbor => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors [static] [detail]$detail [IFNAME$ifname]" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_neighbor)
 #define funcdecl_show_eigrp_neighbor static int show_eigrp_neighbor_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -253,7 +253,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_neighbor)
 	return show_eigrp_neighbor_magic(self, vty, argc, argv, afi, vrf, as, as_str, detail, ifname);
 }
 
-/* show_eigrp_topology_all => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] [all-links]$all" */
+/* show_eigrp_topology_all => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] topology [(1-65535)$as] [all-links]$all" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_topology_all)
 #define funcdecl_show_eigrp_topology_all static int show_eigrp_topology_all_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -321,7 +321,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_topology_all)
 	return show_eigrp_topology_all_magic(self, vty, argc, argv, afi, vrf, as, as_str, all);
 }
 
-/* show_eigrp_topology => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] WORD$target [all-links]$all" */
+/* show_eigrp_topology => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] topology [(1-65535)$as] WORD$target [all-links]$all" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_topology)
 #define funcdecl_show_eigrp_topology static int show_eigrp_topology_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -398,7 +398,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_topology)
 	return show_eigrp_topology_magic(self, vty, argc, argv, afi, vrf, as, as_str, target, all);
 }
 
-/* show_eigrp_accounting => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] accounting" */
+/* show_eigrp_accounting => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] accounting" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_accounting)
 #define funcdecl_show_eigrp_accounting static int show_eigrp_accounting_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -461,7 +461,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_accounting)
 	return show_eigrp_accounting_magic(self, vty, argc, argv, afi, vrf, as, as_str);
 }
 
-/* show_eigrp_event => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] events" */
+/* show_eigrp_event => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] events" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_event)
 #define funcdecl_show_eigrp_event static int show_eigrp_event_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -524,7 +524,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_event)
 	return show_eigrp_event_magic(self, vty, argc, argv, afi, vrf, as, as_str);
 }
 
-/* show_eigrp_timer => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] timers" */
+/* show_eigrp_timer => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] timers" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_timer)
 #define funcdecl_show_eigrp_timer static int show_eigrp_timer_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\
@@ -587,7 +587,7 @@ DEFUN_CMD_FUNC_TEXT(show_eigrp_timer)
 	return show_eigrp_timer_magic(self, vty, argc, argv, afi, vrf, as, as_str);
 }
 
-/* show_eigrp_traffic => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] traffic" */
+/* show_eigrp_traffic => "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] traffic" */
 DEFUN_CMD_FUNC_DECL(show_eigrp_traffic)
 #define funcdecl_show_eigrp_traffic static int show_eigrp_traffic_magic(\
 	const struct cmd_element *self __attribute__ ((unused)),\

@@ -499,7 +499,7 @@ void eigrp_summary_policy_update_all(void)
 	if (!eigrp_om || !eigrp_om->eigrp)
 		return;
 	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, runtime)) {
-		if (!runtime || !eigrp_instance_data_path_ready(runtime))
+		if (!runtime)
 			continue;
 		eigrp_summary_runtime_update(runtime);
 	}

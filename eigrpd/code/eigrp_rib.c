@@ -34,7 +34,7 @@ eigrp_result_t eigrp_rib_routes_replay_instance(eigrp_instance_t *eigrp)
 
 	if (!eigrp)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!eigrp->data_path_ready || !eigrp->topology_table)
+	if (!eigrp->topology_table)
 		return EIGRP_RESULT_SUCCESS;
 
 	for (rn = eigrp_table_first(eigrp->topology_table); rn;

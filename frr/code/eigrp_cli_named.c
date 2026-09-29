@@ -812,9 +812,6 @@ int eigrp_cli_result_render(struct vty *vty, const char *operation,
 	switch (result) {
 	case EIGRP_RESULT_SUCCESS:
 		return CMD_SUCCESS;
-	case EIGRP_RESULT_NOT_IMPLEMENTED:
-		vty_out(vty, "%% EIGRP %s is not currently implemented\n", operation);
-		return CMD_SUCCESS;
 	case EIGRP_RESULT_INVALID_ARGUMENT:
 		vty_out(vty, "%% Invalid EIGRP %s configuration\n", operation);
 		return CMD_WARNING;
@@ -826,6 +823,9 @@ int eigrp_cli_result_render(struct vty *vty, const char *operation,
 		return CMD_WARNING;
 	case EIGRP_RESULT_UNSUPPORTED:
 		vty_out(vty, "%% EIGRP %s is not supported for this address family or capability\n", operation);
+		return CMD_WARNING;
+	case EIGRP_RESULT_NOT_IMPLEMENTED:
+		vty_out(vty, "%% EIGRP %s is not implemented\n", operation);
 		return CMD_WARNING;
 	case EIGRP_RESULT_INTERNAL_FAILURE:
 	default:
@@ -2146,20 +2146,19 @@ DEFUN(no_eigrp_af_interface_hold_time,
 }
 
 /*
- * Syntax: `authentication mode <md5|hmac-sha-256 <0|7> WORD>`
+ * Syntax: `authentication mode <md5|hmac-sha-256 0 WORD>`
  * Mode: Named af-interface
  * XPath: /frr-eigrpd:eigrpd/named/address-family/af-interface/authentication-mode
  * Target: eigrp_auth_mode_update(EIGRP_SET)
  */
 DEFUN(eigrp_af_interface_authentication_mode,
       eigrp_af_interface_authentication_mode_cmd,
-      "authentication mode <md5|hmac-sha-256 <0|7> WORD>",
+      "authentication mode <md5|hmac-sha-256 0 WORD>",
       "Authentication subcommands\n"
       "Authentication mode\n"
       "Keyed message digest\n"
       "HMAC SHA256 algorithm\n"
       "Unencrypted password\n"
-      "Cisco type-7 encoded password\n"
       "Authentication password\n")
 {
 	const char *mode = NULL;
@@ -2174,8 +2173,7 @@ DEFUN(eigrp_af_interface_authentication_mode,
 	else if (eigrp_cli_token_present(argc, argv, "hmac-sha-256")) {
 		mode = "hmac-sha-256";
 		encryption = eigrp_cli_token_after(argc, argv, "hmac-sha-256");
-		if (!encryption || (strcmp(encryption, "0") != 0
-				   && strcmp(encryption, "7") != 0))
+		if (!encryption || strcmp(encryption, "0") != 0)
 			return CMD_WARNING;
 		password = eigrp_cli_token_after(argc, argv, encryption);
 		if (!password || !password[0])

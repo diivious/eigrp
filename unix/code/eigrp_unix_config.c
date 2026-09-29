@@ -80,12 +80,9 @@ static eigrp_result_t eigrp_unix_config_af_apply(
 	if (asn == 0 || asn > UINT16_MAX)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	/* Unix packet/interface services are deliberately later work.  Create the
-	 * real portable control runtime without claiming a data-path capability.
-	 */
-	result = eigrp_af_instance_create_with_data_path(
+	result = eigrp_af_instance_create(
 		config->instance_name, afi, EIGRP_UNIX_DEFAULT_VRF_NAME,
-		(uint16_t)asn, false);
+		(uint16_t)asn);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	config->address_family = eigrp_af_instance_read(
@@ -190,8 +187,7 @@ eigrp_result_t eigrp_unix_config_apply_file(eigrp_unix_config_t *config,
 			return EIGRP_RESULT_INVALID_ARGUMENT;
 		}
 		result = eigrp_unix_config_line_apply(config, line);
-		if (result != EIGRP_RESULT_SUCCESS
-		    && result != EIGRP_RESULT_NOT_IMPLEMENTED) {
+		if (result != EIGRP_RESULT_SUCCESS) {
 			if (error_line)
 				*error_line = line_number;
 			return result;

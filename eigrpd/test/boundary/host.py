@@ -51,6 +51,6 @@ def test_packet_identity_demux_keeps_vrf_vrid_and_tid_explicit():
     assert "meta->ingress_vrf_id != eigrp->vrf_id" in ipv6
     assert "eigrp->vrid = EIGRP_VRID_AF_BASE;" in daemon
     assert "eigrp_topology_id_t topology_id;" in structs
-    assert "tid != EIGRP_TOPOLOGY_ID_BASE" in tlv2
+    assert "tid != EIGRP_TOPOLOGY_ID_BASE" not in tlv2
     assert "route->topology_id = (eigrp_topology_id_t)tid;" in tlv2
-    assert "route->topology_id != EIGRP_TOPOLOGY_ID_BASE" in tlv2
+    assert "route->topology_id != EIGRP_TOPOLOGY_ID_BASE" not in tlv2
