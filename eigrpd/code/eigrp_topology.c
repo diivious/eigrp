@@ -378,7 +378,7 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 				.prefix = node->destination,
 				.nexthops = &nexthop,
 				.nexthop_count = 1,
-				.metric = node->fdistance,
+				.metric = node->distance,
 				.administrative_distance =
 					eigrp_topology_route_external(route)
 						? eigrp->distance_external
@@ -588,8 +588,11 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
 	eigrp_list_t *routes = eigrp_topology_route_class_queue(node, route);
 
 	if (eigrp_list_lookup(routes, route) != NULL) {
+		bool installed = (route->flags & EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG) != 0;
+
 		eigrp_list_delete_data(routes, route);
-		(void)eigrp_rib_route_remove(eigrp, &node->destination);
+		if (installed)
+			(void)eigrp_rib_route_remove(eigrp, &node->destination);
 		free(route);
 	}
 }
@@ -1257,6 +1260,17 @@ void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 	eigrp_route_descriptor_t *route;
 	size_t nexthop_count;
 
+	/* INTABLE describes the current southbound successor set, not historical
+	 * ownership. Clear stale flags before replacing the RIB snapshot so a
+	 * retired former successor cannot later remove the replacement route. */
+	{
+		eigrp_topology_route_iterator_t iterator;
+
+		for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
+		     route = eigrp_topology_route_iterator_next(&iterator))
+			route->flags &= ~EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG;
+	}
+
 	successors = eigrp_topology_successors_max_read(prefix, eigrp->max_paths);
 
 	if (successors) {
@@ -1267,7 +1281,7 @@ void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 				.prefix = prefix->destination,
 				.nexthops = nexthops,
 				.nexthop_count = nexthop_count,
-				.metric = prefix->fdistance,
+				.metric = prefix->distance,
 				.administrative_distance = eigrp->distance_internal,
 				.type = EIGRP_RIB_ROUTE_INTERNAL,
 			};

@@ -11,6 +11,9 @@ def test_example_schemas():
     m.validate_scenario(m.load_yaml(root/"ipv4-basic-core-gate.yaml"))
     m.validate_topology(m.load_yaml(root/"ipv6-basic-core.yaml"))
     m.validate_scenario(m.load_yaml(root/"ipv6-basic-core-gate.yaml"))
+    diamond=root.parent/"dual-diamond"
+    m.validate_topology(m.load_yaml(diamond/"ipv4-diamond-fs.yaml"))
+    m.validate_scenario(m.load_yaml(diamond/"scenario-a-feasible-successor.yaml"))
 
 def test_arbitrary_shared_segment_width():
     t={"schema":m.TOPOLOGY_SCHEMA,"segments":{"lan":{}},"routers":{}}

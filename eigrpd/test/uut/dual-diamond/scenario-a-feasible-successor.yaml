@@ -1,0 +1,53 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-diamond-fs.yaml
+name: DUAL Diamond Scenario A - Feasible Successor Immediate Failover
+# N1 = 10.4.0.0/24 at R4.
+# Initial R1 successor via R2: FD = 8519680.
+# R3 alternate as advertised to R1: RD = 7208960; total distance = 9175040.
+# Therefore RD(R3) < FD(R1), so R3 is feasible but not a successor at variance 1.
+# Expected successor count: 1 before failure, 1 after immediate FS failover.
+steps:
+  # Bring the diamond up from the destination outward. This avoids making
+  # initial-adjacency timing part of the route-selection qualification.
+  - start: r4
+  - start: r2
+  - validate-neighbor: {uut: r2, neighbor: 10.24.0.4, interface: eth24, timeout: 7}
+  - start: r3
+  - validate-neighbor: {uut: r3, neighbor: 10.34.0.4, interface: eth34, timeout: 7}
+  - start: r1
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.12.0.2, successor: true, feasible_successor: false, distance: 8519680, rd: 7208960}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.13.0.3, successor: false, feasible_successor: true, distance: 9175040, rd: 7208960}
+  - packet-mark: r1-r2-failure
+  - link-down: {uut: r1, interface: eth12}
+  - link-down: {uut: r2, interface: eth21}
+  - validate-convergence:
+      timeout: 3
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 9175040, distance: 90}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.13.0.3, successor: true, distance: 9175040, rd: 7208960}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: r1-r2-failure, min: 0, max: 0, timeout: 2}
+  # Recheck after the full negative-packet observation window: N1 never fell out
+  # of the RIB while R1 remained on the feasible successor.
+  - validate-convergence:
+      timeout: 1
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 9175040, distance: 90}
+  - packet-mark: r1-r2-recovery
+  - link-up: {uut: r2, interface: eth21}
+  - link-up: {uut: r1, interface: eth12}
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.13.0.3, successor: false, feasible_successor: true, distance: 9175040, rd: 7208960}
