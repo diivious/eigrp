@@ -60,6 +60,7 @@
 #include "eigrp_network.h"
 #include "eigrp_topology.h"
 #include "eigrp_eventlog.h"
+#include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
 #include "eigrp_fsm.h"
 #include "eigrp_debug.h"
@@ -428,6 +429,17 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 	case EIGRP_FSM_STATE_PASSIVE: {
 		eigrp_route_descriptor_t *head = eigrp_topology_route_read(prefix);
 
+		/* An advertisement that does not change topology cannot make a
+		 * PASSIVE destination require a diffusing computation.  This is
+		 * especially important for an already-unreachable destination:
+		 * infinity is not less than an infinite FD, but receiving infinity
+		 * again is still no change.  QUERY handling remains in KEEP_STATE,
+		 * which returns the appropriate REPLY while staying PASSIVE.
+		 */
+		if (change == METRIC_SAME || (head->distance == EIGRP_MAX_METRIC
+				       && prefix->fdistance == EIGRP_MAX_METRIC))
+			return EIGRP_FSM_KEEP_STATE;
+
 		if (head->reported_distance < prefix->fdistance) {
 			return EIGRP_FSM_KEEP_STATE;
 		}
@@ -667,8 +679,13 @@ int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
 		eigrp_update_routing_table(eigrp, prefix);
 	}
 
-	if (msg->packet_type == EIGRP_OPC_QUERY)
-		eigrp_reply_send(eigrp, msg->adv_router, prefix);
+	if (msg->packet_type == EIGRP_OPC_QUERY) {
+		if (prefix->state == EIGRP_FSM_STATE_PASSIVE)
+			eigrp_reply_send(eigrp, msg->adv_router, prefix);
+		else
+			eigrp_reply_send_route(eigrp, msg->adv_router, prefix, NULL,
+				EIGRP_PACKETIZER_WORK_F_POISON);
+	}
 
 	return 1;
 }

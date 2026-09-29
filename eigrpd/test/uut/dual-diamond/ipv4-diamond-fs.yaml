@@ -9,9 +9,9 @@ routers:
     asn: 4453
     router_id: 10.255.0.1
     interfaces:
-      # R1-R2 delay 20 makes the preferred N1 FD 8519680.
+      # R1-R2 delay 20 makes the preferred N1 FD 9175040.
       eth12: {segment: r1-r2, ipv4: 10.12.0.1/24, delay: 20}
-      # R1-R3 delay 30 makes the alternate total distance 9175040.
+      # R1-R3 delay 30 makes the alternate total distance 9830400.
       eth13: {segment: r1-r3, ipv4: 10.13.0.1/24, delay: 30}
   r2:
     asn: 4453

@@ -1309,6 +1309,14 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 	}
 	prefix = eigrp_topology_table_lookup(eigrp->topology_table, &destination);
 
+	if (prefix != NULL) {
+		eigrp_route_descriptor_t *old_local;
+
+		old_local = eigrp_prefix_descriptor_lookup(prefix, eigrp->neighbor_self);
+		if (old_local && old_local->ei == ei)
+			eigrp_route_descriptor_delete(eigrp, prefix, old_local);
+	}
+
 	if (prefix == NULL) {
 		prefix = eigrp_topology_prefix_create();
 		prefix->serno = eigrp->serno;
@@ -1342,6 +1350,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 		msg.prefix = prefix;
 
 		eigrp_fsm_event(&msg);
+		eigrp_update_send_all(eigrp, NULL);
 	}
 
 	return 1;

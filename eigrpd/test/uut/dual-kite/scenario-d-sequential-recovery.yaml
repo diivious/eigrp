@@ -1,0 +1,35 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-kite.yaml
+name: DUAL Kite Scenario D - Sequential Failures and Recovery
+steps:
+  - start: r3
+  - start: r1
+  - validate-route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, timeout: 7}
+  - start: r2
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, timeout: 7}
+  - packet-mark: r1-r3-down
+  - link-down: {uut: r1, interface: eth13}
+  - link-down: {uut: r3, interface: eth31}
+  - validate-convergence: {timeout: 7, expect: [{route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680}}, {route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1}}]}
+  - packet-mark: r1-r3-up
+  - link-up: {uut: r3, interface: eth31}
+  - link-up: {uut: r1, interface: eth13}
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, timeout: 7}
+  - validate-convergence: {timeout: 7, expect: [{route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 7864320}}, {route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1}}]}
+  - packet-mark: r2-r3-down
+  - link-down: {uut: r2, interface: eth23}
+  - link-down: {uut: r3, interface: eth32}
+  - validate-convergence: {timeout: 7, expect: [{route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.1, metric: 8519680}}, {route: {uut: r2, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1}}]}
+  - packet-mark: r2-r3-up
+  - link-up: {uut: r3, interface: eth32}
+  - link-up: {uut: r2, interface: eth23}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: path, next_hop: 10.12.0.2, successor: false, feasible_successor: false, distance: 8519680, rd: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.23.0.3, metric: 7864320}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: path, next_hop: 10.12.0.1, successor: false, feasible_successor: false, distance: 8519680, rd: 7864320}

@@ -1319,10 +1319,9 @@ void eigrp_topology_connected_interface_down(eigrp_instance_t *eigrp,
 	eigrp_table_node_t *rn;
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
-	eigrp_route_descriptor_t *best;
 	eigrp_topology_route_iterator_t iterator;
 	eigrp_list_t *owned;
-	eigrp_list_item_t *node, *nnode;
+	eigrp_list_item_t *node;
 
 	if (!eigrp || !ei)
 		return;
@@ -1333,59 +1332,37 @@ void eigrp_topology_connected_interface_down(eigrp_instance_t *eigrp,
 		if (!prefix)
 			continue;
 
-		/* The interface owns its locally originated connected RDB. Neighbor
-		 * teardown handles neighbor-owned RDBs separately. Retire only this
-		 * interface's descriptors so interface-up cannot duplicate them. */
+		/* Preserve the failed connected successor long enough for DUAL to
+		 * process the distance increase.  Deleting it first bypasses the FSM
+		 * and turns a local destination loss into a silent PASSIVE poison,
+		 * so neighbors never participate in the required diffusing
+		 * computation.  Interface-up retires this poisoned local descriptor
+		 * before installing the recovered connected route. */
 		owned = eigrp_list_create();
 		for (route = eigrp_topology_route_iterator_first(prefix, &iterator);
 		     route; route = eigrp_topology_route_iterator_next(&iterator)) {
 			if (route->adv_router == eigrp->neighbor_self && route->ei == ei)
 				eigrp_list_add(owned, route);
 		}
-		if (owned->count == 0) {
-			eigrp_list_delete(&owned);
-			continue;
-		}
-		for (EIGRP_LIST_ITERATE(owned, node, nnode, route)) {
-			eigrp_list_delete_data(owned, route);
-			eigrp_route_descriptor_delete(eigrp, prefix, route);
-		}
-		eigrp_list_delete(&owned);
 
-		best = eigrp_topology_route_read(prefix);
-		if (best && best->distance != EIGRP_MAX_METRIC) {
+		for (EIGRP_LIST_ITERATE_RO(owned, node, route)) {
 			eigrp_fsm_action_message_t msg = {0};
 
+			msg.metrics = route->reported_metric;
+			msg.metrics.delay = EIGRP_MAX_METRIC;
 			msg.packet_type = EIGRP_OPC_UPDATE;
 			msg.eigrp = eigrp;
-			msg.data_type = eigrp_topology_route_external(best)
-						? EIGRP_EXT : EIGRP_INT;
-			msg.metrics = best->reported_metric;
-			msg.adv_router = best->adv_router;
-			msg.route = best;
+			msg.data_type = EIGRP_INT;
+			msg.adv_router = eigrp->neighbor_self;
+			msg.route = route;
 			msg.prefix = prefix;
 			eigrp_fsm_event(&msg);
-			continue;
 		}
-
-		{
-			uint8_t old_state = prefix->state;
-
-			prefix->state = EIGRP_FSM_STATE_PASSIVE;
-			if (old_state != prefix->state)
-				(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
-					&prefix->destination, old_state, prefix->state, 0, 0);
-		}
-		prefix->distance = EIGRP_MAX_METRIC;
-		prefix->fdistance = EIGRP_MAX_METRIC;
-		prefix->rdistance = EIGRP_MAX_METRIC;
-		prefix->reported_metric.delay = EIGRP_MAX_METRIC;
-		prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
-		if (!eigrp_list_lookup(eigrp->topology_changes, prefix))
-			eigrp_list_add(eigrp->topology_changes, prefix);
-		eigrp_topology_update_node_flags(eigrp, prefix);
-		eigrp_update_routing_table(eigrp, prefix);
+		eigrp_list_delete(&owned);
 	}
+
+	eigrp_query_send_all(eigrp);
+	eigrp_update_send_all(eigrp, ei);
 }
 
 void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)

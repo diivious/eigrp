@@ -14,10 +14,10 @@ steps:
   - validate-convergence:
       timeout: 7
       expect:
-        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 7864320, distance: 90}
-        - route: {uut: r3, prefix: 10.1.0.0/24, table: rib, next_hop: 10.23.0.2, metric: 7864320, distance: 90}
-        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
-        - route: {uut: r3, prefix: 10.1.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
+        - route: {uut: r3, prefix: 10.1.0.0/24, table: rib, next_hop: 10.23.0.2, metric: 8519680, distance: 90}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r3, prefix: 10.1.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
   - packet-mark: failure
   - link-down: {uut: r2, interface: eth23}
   - link-down: {uut: r3, interface: eth32}
@@ -43,7 +43,7 @@ steps:
   - validate-convergence:
       timeout: 7
       expect:
-        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 7864320, distance: 90}
-        - route: {uut: r3, prefix: 10.1.0.0/24, table: rib, next_hop: 10.23.0.2, metric: 7864320, distance: 90}
-        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
-        - route: {uut: r3, prefix: 10.1.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
+        - route: {uut: r3, prefix: 10.1.0.0/24, table: rib, next_hop: 10.23.0.2, metric: 8519680, distance: 90}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r3, prefix: 10.1.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
