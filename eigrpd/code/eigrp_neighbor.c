@@ -28,6 +28,7 @@
 #include "eigrp_packet.h"
 #include "eigrp_network.h"
 #include "eigrp_topology.h"
+#include "eigrp_eventlog.h"
 #include "eigrp_debug.h"
 #include "eigrp_metric.h"
 
@@ -847,6 +848,14 @@ void eigrp_nbr_state_update(eigrp_operation_t operation, eigrp_nbr_t *nbr, uint8
 		eigrp_intf_encoder_peer_remove(nbr->ei, nbr->tlv_version);
 
 	nbr->state = state;
+	if (old_state != nbr->state && nbr->ei && nbr->ei->eigrp) {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+		(void)eigrp_eventlog_msg_add(nbr->ei->eigrp,
+			EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE, &peer_addr,
+			old_state, nbr->state, nbr->ei->ifindex, 0);
+	}
 	eigrp_debug_neighbor_state(nbr, old_state, state);
 	if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP)
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_PEERDOWN,

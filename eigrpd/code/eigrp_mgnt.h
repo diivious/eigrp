@@ -147,10 +147,16 @@ eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context
 
 /* Event log. */
 #define EIGRP_EVENTLOG_DEFAULT_SIZE 500U
+typedef uintptr_t eventmsg_arg_t;
+
 typedef struct eigrp_eventlog_msg {
-	unsigned long opcode;
-	unsigned long arg1;
-	unsigned long arg2;
+	uint64_t timestamp;
+	uint16_t opcode;
+	eigrp_prefix_t addr;
+	eventmsg_arg_t arg1;
+	eventmsg_arg_t arg2;
+	eventmsg_arg_t arg3;
+	eventmsg_arg_t arg4;
 } eigrp_eventlog_msg_t;
 
 typedef struct eigrp_eventlog_state {

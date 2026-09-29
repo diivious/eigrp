@@ -213,6 +213,7 @@ def test_subscription_parameters_and_route_normalization_execute(tmp_path):
                 vrf_id_t vrf_id;
                 eigrp_ifindex_t ifindex;
                 union g_addr gate;
+                uint64_t weight;
             };
 
             struct prefix {

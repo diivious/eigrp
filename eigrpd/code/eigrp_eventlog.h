@@ -21,16 +21,20 @@
 typedef enum eigrp_eventlog_opcode {
 	EIGRP_EVENTLOG_OPCODE_NONE = 0,
 	EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID,
+	EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+	EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE,
+	EIGRP_EVENTLOG_OPCODE_PACKET_RX,
+	EIGRP_EVENTLOG_OPCODE_PACKET_TX,
+	EIGRP_EVENTLOG_OPCODE_RTP_ACK,
+	EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT,
+	EIGRP_EVENTLOG_OPCODE_RTP_RETRY_LIMIT,
 } eigrp_eventlog_opcode_t;
 
 /*
- * Keep the per-event footprint fixed at exactly three machine words.  The
- * opcode is an index into the static event-format table; arg1 and arg2 are
- * the two values consumed by that format when the event is rendered.
- *
- * Do not add timestamps, pointers, flags, or sequence numbers to this
- * structure.  If future event encodings need additional metadata, encode it
- * into the existing words or keep it outside the per-entry ring storage.
+ * Event entries are self-contained snapshots.  addr is the primary address or
+ * prefix for the event; scalar arguments must never retain pointers to mutable
+ * EIGRP objects.  A logical operation may emit multiple compact records when
+ * more context is required.
  */
 /* Runtime ring lifecycle. */
 eigrp_result_t eigrp_eventlog_init(eigrp_instance_t *eigrp, uint32_t capacity);
@@ -38,11 +42,16 @@ void eigrp_eventlog_delete(eigrp_instance_t *eigrp);
 eigrp_result_t eigrp_eventlog_resize(eigrp_instance_t *eigrp,
 				     uint32_t capacity);
 
-/* Future event producers use this API; no protocol event sites are wired yet. */
+/* Append one self-contained event snapshot to the bounded ring. */
 eigrp_result_t eigrp_eventlog_msg_add(eigrp_instance_t *eigrp,
-				     unsigned long opcode,
-				     unsigned long arg1,
-				     unsigned long arg2);
+				     uint16_t opcode,
+				     const eigrp_prefix_t *addr,
+				     eventmsg_arg_t arg1,
+				     eventmsg_arg_t arg2,
+				     eventmsg_arg_t arg3,
+				     eventmsg_arg_t arg4);
+void eigrp_eventlog_addr_from_legacy(eigrp_prefix_t *prefix,
+				     const eigrp_addr_t *addr);
 
 /* Operational/configuration targets. */
 eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context);

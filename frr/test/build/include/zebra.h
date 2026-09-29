@@ -154,7 +154,7 @@ struct zclient;
 typedef int zclient_handler();
 union g_addr { struct in_addr ipv4; struct in6_addr ipv6; };
 struct zclient { void (*zebra_connected)(struct zclient *); void *context; int sock; struct stream *ibuf; int redist[3][ZEBRA_ROUTE_MAX + 1]; int default_information[3]; };
-struct zapi_nexthop { int type; vrf_id_t vrf_id; ifindex_t ifindex; union g_addr gate; };
+struct zapi_nexthop { int type; vrf_id_t vrf_id; ifindex_t ifindex; union g_addr gate; uint64_t weight; };
 struct zapi_route { int type; unsigned short instance; int safi; int vrf_id; struct prefix prefix; uint8_t distance; uint32_t metric; uint32_t mtu; uint32_t tag; uint32_t message; struct zapi_nexthop nexthops[8]; int nexthop_num; };
 struct zebra_dplane_ctx { int dummy; };
 struct nexthop { int dummy; };

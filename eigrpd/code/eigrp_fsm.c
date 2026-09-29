@@ -59,6 +59,7 @@
 #include "eigrp_metric.h"
 #include "eigrp_network.h"
 #include "eigrp_topology.h"
+#include "eigrp_eventlog.h"
 #include "eigrp_prefix.h"
 #include "eigrp_fsm.h"
 #include "eigrp_debug.h"
@@ -590,7 +591,11 @@ int eigrp_fsm_event_nq_fcn(eigrp_fsm_action_message_t *msg)
 	 * update was already recorded as route/CD state by
 	 * eigrp_topology_update_distance().
 	 */
+	uint8_t old_state = prefix->state;
 	prefix->state = EIGRP_FSM_STATE_ACTIVE_1;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+		&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_NQ_FCN,
+		eigrp_nbr_count(eigrp));
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
 
@@ -615,7 +620,11 @@ int eigrp_fsm_event_q_fcn(eigrp_fsm_action_message_t *msg)
 	 * can move the destination into ACTIVE, but the successor, FD, RD,
 	 * current distance, and advertised metric remain frozen until PASSIVE.
 	 */
+	uint8_t old_state = prefix->state;
 	prefix->state = EIGRP_FSM_STATE_ACTIVE_3;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+		&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_Q_FCN,
+		eigrp_nbr_count(eigrp));
 	prefix->query_origin = msg->adv_router;
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
@@ -680,7 +689,12 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
-	prefix->state = EIGRP_FSM_STATE_PASSIVE;
+	{
+		uint8_t old_state = prefix->state;
+		prefix->state = EIGRP_FSM_STATE_PASSIVE;
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_LR, 0);
+	}
 	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
 	eigrp_list_add(eigrp->topology_changes, prefix);
 	eigrp_topology_update_node_flags(eigrp, prefix);
@@ -698,9 +712,14 @@ int eigrp_fsm_event_dinc(eigrp_fsm_action_message_t *msg)
 	 * origin flag. Destination-level distance/FD/RD data stays frozen
 	 * until the route returns to PASSIVE.
 	 */
-	msg->prefix->state = msg->prefix->state == EIGRP_FSM_STATE_ACTIVE_1
+	{
+		uint8_t old_state = msg->prefix->state;
+		msg->prefix->state = msg->prefix->state == EIGRP_FSM_STATE_ACTIVE_1
 				     ? EIGRP_FSM_STATE_ACTIVE_0
 				     : EIGRP_FSM_STATE_ACTIVE_2;
+		(void)eigrp_eventlog_msg_add(msg->eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&msg->prefix->destination, old_state, msg->prefix->state, EIGRP_FSM_EVENT_DINC, 0);
+	}
 	if (!msg->prefix->rij->count)
 		(*(NSM[msg->prefix->state][eigrp_fsm_event_select(msg)].func))(
 			msg);
@@ -719,6 +738,8 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
 	prefix->state = EIGRP_FSM_STATE_PASSIVE;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+		&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_LR_FCS, 0);
 	prefix->distance = prefix->rdistance = route->distance;
 	prefix->reported_metric = route->total_metric;
 	prefix->fdistance = prefix->fdistance > prefix->distance
@@ -747,9 +768,14 @@ int eigrp_fsm_event_lr_fcn(eigrp_fsm_action_message_t *msg)
 	 * another diffusing computation. Do not adopt a new successor or
 	 * rewrite destination FD/RD/distance while ACTIVE.
 	 */
-	prefix->state = (prefix->state == EIGRP_FSM_STATE_ACTIVE_0)
+	{
+		uint8_t old_state = prefix->state;
+		prefix->state = (prefix->state == EIGRP_FSM_STATE_ACTIVE_0)
 				? EIGRP_FSM_STATE_ACTIVE_1
 				: EIGRP_FSM_STATE_ACTIVE_3;
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_LR_FCN, 0);
+	}
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
 
@@ -771,7 +797,12 @@ int eigrp_fsm_event_qact(eigrp_fsm_action_message_t *msg)
 	 * the DUAL origin flag. Destination-level distance/FD/RD data stays
 	 * frozen until PASSIVE.
 	 */
-	msg->prefix->state = EIGRP_FSM_STATE_ACTIVE_2;
+	{
+		uint8_t old_state = msg->prefix->state;
+		msg->prefix->state = EIGRP_FSM_STATE_ACTIVE_2;
+		(void)eigrp_eventlog_msg_add(msg->eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&msg->prefix->destination, old_state, msg->prefix->state, EIGRP_FSM_EVENT_QACT, 0);
+	}
 	msg->prefix->query_origin = msg->adv_router;
 
 	return 1;

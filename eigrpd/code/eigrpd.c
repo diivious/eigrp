@@ -231,8 +231,8 @@ void eigrp_router_id_update(eigrp_instance_t *eigrp)
 	    && eigrp_instance_afi(eigrp) == EIGRP_AFI_IPV6) {
 		if (!eigrp->router_id_missing_event_logged) {
 			(void)eigrp_eventlog_msg_add(
-				eigrp, EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID,
-				eigrp->AS, 0);
+				eigrp, EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID, NULL,
+				eigrp->AS, 0, 0, 0);
 			eigrp->router_id_missing_event_logged = true;
 		}
 	} else {

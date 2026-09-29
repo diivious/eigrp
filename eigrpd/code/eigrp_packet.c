@@ -26,6 +26,7 @@
 #include "eigrp_debug.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
+#include "eigrp_eventlog.h"
 /* Packet Type String. */
 const eigrp_message_t eigrp_packet_type_str[] = {
 	{EIGRP_OPC_UPDATE, "Update"},
@@ -126,6 +127,13 @@ static bool eigrp_packet_destination_is_multicast(const eigrp_packet_t *packet)
 	if (packet->dst.afi == AF_INET6)
 		return IN6_IS_ADDR_MULTICAST(&packet->dst.ip.v6);
 	return false;
+}
+
+static bool eigrp_packet_eventlog_opcode(uint8_t opcode)
+{
+	return opcode == EIGRP_OPC_UPDATE || opcode == EIGRP_OPC_QUERY
+	       || opcode == EIGRP_OPC_REPLY || opcode == EIGRP_OPC_SIAQUERY
+	       || opcode == EIGRP_OPC_SIAREPLY;
 }
 
 static void eigrp_packet_send_stats_update(eigrp_intf_t *ei,
@@ -307,6 +315,13 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 		eigrp_nbr_srtt_update(nbr, packet);
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, nbr->ei, nbr,
 				   "ACK %u matched reliable sequence", ack);
+		{
+			eigrp_prefix_t peer_addr;
+
+			eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+			(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RTP_ACK,
+				&peer_addr, ack, nbr->retrans_queue->count, 0, 0);
+		}
 		packet = eigrp_packet_dequeue(nbr->retrans_queue);
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
 				   "unlinked ACKed seq %u from reliable queue (depth %lu)",
@@ -447,6 +462,14 @@ void eigrp_packet_write(void *arg)
 	eigrp_debug_packet_send(ei, packet, ret);
 	if (ret >= 0) {
 		eigrp_packet_send_stats_update(ei, packet, eigrph);
+		if (eigrp_packet_eventlog_opcode(eigrph->opcode)) {
+			eigrp_prefix_t peer_addr;
+
+			eigrp_eventlog_addr_from_legacy(&peer_addr, &packet->dst);
+			(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_PACKET_TX,
+				&peer_addr, eigrph->opcode, ntohl(eigrph->sequence),
+				ntohl(eigrph->ack), packet->length);
+		}
 		eigrp_packet_reliable_send_update(ei, packet);
 	} else
 		eigrp_packet_reliable_send_failure_update(ei, packet);
@@ -626,6 +649,13 @@ void eigrp_packet_read(void *arg)
 	}
 
 	eigrp_packet_receive_stats_update(ei, eigrph);
+	if (eigrp_packet_eventlog_opcode(opcode)) {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &src);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_PACKET_RX,
+			&peer_addr, opcode, ntohl(eigrph->sequence), ntohl(eigrph->ack), length);
+	}
 	if (ntohl(eigrph->ack))
 		eigrp_packet_ack(eigrp, eigrph, nbr);
 
@@ -1225,6 +1255,11 @@ void eigrp_packet_unack_retrans(void *arg)
 	/* Give the peer all 16 retries.  Tear it down only after retry 16
 	 * has itself gone unacknowledged. */
 	if (packet->retrans_counter >= EIGRP_TRANSPORT_RETRANS_MAX) {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+		(void)eigrp_eventlog_msg_add(nbr->ei->eigrp, EIGRP_EVENTLOG_OPCODE_RTP_RETRY_LIMIT,
+			&peer_addr, packet->sequence_number, packet->retrans_counter, 0, 0);
 		eigrp_packet_retransmit_limit_exceeded(nbr);
 		return;
 	}
@@ -1239,6 +1274,13 @@ void eigrp_packet_unack_retrans(void *arg)
 			   packet->sequence_number, packet->retrans_counter + 1);
 	}
 	eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
+	{
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+		(void)eigrp_eventlog_msg_add(nbr->ei->eigrp, EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT,
+			&peer_addr, packet->sequence_number, packet->retrans_counter + 1, 0, 0);
+	}
 	duplicate = eigrp_packet_dup(packet, nbr);
 	duplicate->retransmission = true;
 	if (eigrp_packet_destination_is_multicast(packet))

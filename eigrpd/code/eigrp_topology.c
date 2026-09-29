@@ -28,6 +28,7 @@
 #include "eigrp_debug.h"
 #include "eigrp_network.h"
 #include "eigrp_topology.h"
+#include "eigrp_eventlog.h"
 #include "eigrp_fsm.h"
 #include "eigrp_metric.h"
 #include "eigrp_sys.h"
@@ -1353,7 +1354,14 @@ void eigrp_topology_connected_interface_down(eigrp_instance_t *eigrp,
 			continue;
 		}
 
-		prefix->state = EIGRP_FSM_STATE_PASSIVE;
+		{
+			uint8_t old_state = prefix->state;
+
+			prefix->state = EIGRP_FSM_STATE_PASSIVE;
+			if (old_state != prefix->state)
+				(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+					&prefix->destination, old_state, prefix->state, 0, 0);
+		}
 		prefix->distance = EIGRP_MAX_METRIC;
 		prefix->fdistance = EIGRP_MAX_METRIC;
 		prefix->rdistance = EIGRP_MAX_METRIC;

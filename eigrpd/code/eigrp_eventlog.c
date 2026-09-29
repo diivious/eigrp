@@ -5,7 +5,6 @@
  * Copyright (C) 2026 Donnie V. Savage
  */
 
-#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -15,6 +14,8 @@
 #include "eigrpd.h"
 #include "eigrp_structs.h"
 #include "eigrp_eventlog.h"
+#include "eigrp_prefix.h"
+#include "eigrp_sys.h"
 
 struct eigrp_eventlog {
 	eigrp_eventlog_msg_t *entries;
@@ -23,14 +24,20 @@ struct eigrp_eventlog {
 	uint32_t next;
 };
 
-/* The opcode stored in each three-word ring entry is the direct index into
- * this table.  Keep protocol wording here so all management adapters render
- * the same event text.
+/* The opcode stored in each fixed ring entry is the direct index into this
+ * table. Keep protocol wording here so all management adapters render the
+ * same event text.
  */
 static const char *const eigrp_eventlog_formats[] = {
 	[EIGRP_EVENTLOG_OPCODE_NONE] = NULL,
-	[EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID] =
-		"EIGRP: Ignored HELLO, no routerid for IPv6 AS(%lu)",
+	[EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID] = "Ignored HELLO, no routerid for IPv6 AS",
+	[EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE] = "State change",
+	[EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE] = "Peer state change",
+	[EIGRP_EVENTLOG_OPCODE_PACKET_RX] = "Packet received",
+	[EIGRP_EVENTLOG_OPCODE_PACKET_TX] = "Packet transmitted",
+	[EIGRP_EVENTLOG_OPCODE_RTP_ACK] = "RTP ACK",
+	[EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT] = "RTP retransmit",
+	[EIGRP_EVENTLOG_OPCODE_RTP_RETRY_LIMIT] = "RTP retry limit exceeded",
 };
 
 static const eigrp_eventlog_msg_t *
@@ -53,40 +60,94 @@ const char *eigrp_eventlog_format_read(unsigned long opcode)
 	return eigrp_eventlog_formats[opcode];
 }
 
-/*
- * Event formats are selected only from the private static table above.  Keep
- * the dynamic printf handling here rather than in CLI adapters: vsnprintf()
- * accepts a va_list, so FRR builds with -Wformat-nonliteral remain clean while
- * preserving the compact opcode + two-word event representation.
- */
-static int eigrp_eventlog_format_update(char *buffer, size_t buffer_size,
-				       const char *format, ...)
+static const char *eigrp_eventlog_dual_state_name(eventmsg_arg_t state)
 {
-	va_list ap;
-	int written;
+	switch (state) {
+	case EIGRP_FSM_STATE_PASSIVE: return "PASSIVE";
+	case EIGRP_FSM_STATE_ACTIVE_0: return "ACTIVE_0";
+	case EIGRP_FSM_STATE_ACTIVE_1: return "ACTIVE_1";
+	case EIGRP_FSM_STATE_ACTIVE_2: return "ACTIVE_2";
+	case EIGRP_FSM_STATE_ACTIVE_3: return "ACTIVE_3";
+	default: return "UNKNOWN";
+	}
+}
 
-	va_start(ap, format);
-	written = vsnprintf(buffer, buffer_size, format, ap);
-	va_end(ap);
-	return written;
+static const char *eigrp_eventlog_neighbor_state_name(eventmsg_arg_t state)
+{
+	switch (state) {
+	case EIGRP_NEIGHBOR_DOWN: return "DOWN";
+	case EIGRP_NEIGHBOR_PENDING: return "PENDING";
+	case EIGRP_NEIGHBOR_UP: return "UP";
+	default: return "UNKNOWN";
+	}
+}
+
+static const char *eigrp_eventlog_opcode_name(eventmsg_arg_t opcode)
+{
+	switch (opcode) {
+	case EIGRP_OPC_UPDATE: return "UPDATE";
+	case EIGRP_OPC_QUERY: return "QUERY";
+	case EIGRP_OPC_REPLY: return "REPLY";
+	case EIGRP_OPC_SIAQUERY: return "SIA-QUERY";
+	case EIGRP_OPC_SIAREPLY: return "SIA-REPLY";
+	default: return "UNKNOWN";
+	}
 }
 
 eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 					 char *buffer, size_t buffer_size)
 {
-	const char *format;
+	char addr[EIGRP_PREFIX_STRLEN] = "-";
 
 	if (!entry || !buffer || !buffer_size)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (eigrp_prefix_valid(&entry->addr))
+		eigrp_prefix_snprintf(addr, sizeof(addr), &entry->addr);
 
-	format = eigrp_eventlog_format_read(entry->opcode);
-	if (format)
-		(void)eigrp_eventlog_format_update(buffer, buffer_size, format,
-					  entry->arg1, entry->arg2);
-	else
-		(void)snprintf(buffer, buffer_size, "opcode %lu args %lu %lu",
-			       entry->opcode, entry->arg1, entry->arg2);
-
+	switch (entry->opcode) {
+	case EIGRP_EVENTLOG_OPCODE_IPV6_NO_ROUTER_ID:
+		(void)snprintf(buffer, buffer_size,
+			       "Ignored HELLO, no routerid for IPv6 AS(%lu)",
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE:
+		(void)snprintf(buffer, buffer_size, "State change for %s From %s to %s",
+			       addr, eigrp_eventlog_dual_state_name(entry->arg1),
+			       eigrp_eventlog_dual_state_name(entry->arg2));
+		break;
+	case EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE:
+		(void)snprintf(buffer, buffer_size, "Peer %s: %s -> %s ifindex %lu",
+			       addr, eigrp_eventlog_neighbor_state_name(entry->arg1),
+			       eigrp_eventlog_neighbor_state_name(entry->arg2),
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_PACKET_RX:
+	case EIGRP_EVENTLOG_OPCODE_PACKET_TX:
+		(void)snprintf(buffer, buffer_size, "%s %s %s seq %lu ack %lu len %lu",
+			       entry->opcode == EIGRP_EVENTLOG_OPCODE_PACKET_RX ? "Rcv" : "Send",
+			       eigrp_eventlog_opcode_name(entry->arg1), addr,
+			       (unsigned long)entry->arg2, (unsigned long)entry->arg3,
+			       (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_ACK:
+		(void)snprintf(buffer, buffer_size, "RTP ACK from %s seq %lu queue %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT:
+		(void)snprintf(buffer, buffer_size, "RTP retransmit to %s seq %lu retry %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_RETRY_LIMIT:
+		(void)snprintf(buffer, buffer_size, "RTP retry limit exceeded for %s seq %lu retries %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	default:
+		(void)snprintf(buffer, buffer_size,
+			       "opcode %u addr %s args %lu %lu %lu %lu", entry->opcode, addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -174,10 +235,32 @@ eigrp_result_t eigrp_eventlog_resize(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_SUCCESS;
 }
 
+void eigrp_eventlog_addr_from_legacy(eigrp_prefix_t *prefix,
+				     const eigrp_addr_t *addr)
+{
+	if (!prefix)
+		return;
+	memset(prefix, 0, sizeof(*prefix));
+	if (!addr)
+		return;
+	if (addr->afi == AF_INET) {
+		prefix->address.afi = EIGRP_AFI_IPV4;
+		memcpy(prefix->address.bytes, &addr->ip.v4, 4);
+		prefix->prefix_length = 32;
+	} else if (addr->afi == AF_INET6) {
+		prefix->address.afi = EIGRP_AFI_IPV6;
+		memcpy(prefix->address.bytes, &addr->ip.v6, 16);
+		prefix->prefix_length = 128;
+	}
+}
+
 eigrp_result_t eigrp_eventlog_msg_add(eigrp_instance_t *eigrp,
-				     unsigned long opcode,
-				     unsigned long arg1,
-				     unsigned long arg2)
+				     uint16_t opcode,
+				     const eigrp_prefix_t *addr,
+				     eventmsg_arg_t arg1,
+				     eventmsg_arg_t arg2,
+				     eventmsg_arg_t arg3,
+				     eventmsg_arg_t arg4)
 {
 	eigrp_eventlog_t *log;
 	eigrp_eventlog_msg_t *entry;
@@ -189,9 +272,15 @@ eigrp_result_t eigrp_eventlog_msg_add(eigrp_instance_t *eigrp,
 		return EIGRP_RESULT_SUCCESS;
 
 	entry = &log->entries[log->next];
+	memset(entry, 0, sizeof(*entry));
+	entry->timestamp = eigrp_sys_monotime_msec();
 	entry->opcode = opcode;
+	if (addr)
+		entry->addr = *addr;
 	entry->arg1 = arg1;
 	entry->arg2 = arg2;
+	entry->arg3 = arg3;
+	entry->arg4 = arg4;
 	log->next = (log->next + 1U) % log->capacity;
 	if (log->count < log->capacity)
 		log->count++;
