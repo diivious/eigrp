@@ -489,6 +489,13 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 			eigrp_list_t *routes = eigrp_topology_route_queue(prefix, q);
 			for (EIGRP_LIST_ITERATE(routes, node, nnode, route)) {
 			int encoded;
+
+			/* An UPDATE advertises the destination's selected distance, not
+			 * every RDB learned for that destination. Sending alternates in
+			 * the initial/EOT walk can overwrite the same neighbor descriptor
+			 * at the receiver and makes adjacency recovery order-dependent. */
+			if (route != eigrp_topology_route_read(prefix))
+				continue;
 			eigrp_prefix_descriptor_t summary_prefix;
 			eigrp_route_descriptor_t summary_route;
 			eigrp_prefix_descriptor_t *wire_prefix = prefix;

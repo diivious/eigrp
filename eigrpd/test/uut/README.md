@@ -48,6 +48,31 @@ Scenario operations in v1 are `start`, `stop`, `link-up`, `link-down`, `wait`,
 specific failure/recovery boundary.  `validate-convergence` contains declarative neighbor
 and/or route expectations and polls until all are true or the timeout expires.
 
+Topology interfaces may specify `delay` to drive the real EIGRP-owned interface-delay
+configuration target after the address family and networks exist. `validate-route` also
+supports `table: path` with `next_hop`, `interface`, `successor`,
+`feasible_successor`, `distance`, and `rd` fields for per-neighbor topology paths.
+
+`validate-packet` supports `min` and `max`. A negative assertion such as `max: 0`
+observes the complete requested `timeout` window and fails if a matching packet appears
+at any point. For route-bearing IPv4 packets, `prefix` restricts the match to packets
+whose classic or multiprotocol internal-route TLV carries that destination. This allows
+DUAL tests to prove, for example, that no QUERY for one prefix was emitted after a
+packet mark without forbidding unrelated QUERY traffic.
+
+## DUAL Diamond Gate
+
+Run the reusable four-router DUAL route-selection qualification with:
+
+```
+make -C eigrpd/test/uut dual-diamond
+```
+
+The first scenario qualifies feasible-successor immediate failover: R2 is R1's
+preferred successor to N1, R3 satisfies `RD < FD` as a higher-cost feasible successor,
+and loss of R1-R2 must switch forwarding to R3 while remaining Passive and emitting no
+QUERY for N1. The scenario restores R1-R2 and verifies deterministic recovery.
+
 Failures print the failing UUT and expectation plus a diagnostic snapshot:
 interfaces, neighbors, topology, Unix RIB, traffic counters, the packet journal since the latest mark, explicit fault matches, and trailing packet context. Diagnostic state records use `key=value` fields so every value is self-describing.
 

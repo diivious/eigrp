@@ -37,7 +37,7 @@ def validate_topology(t):
         ipaddress.IPv4Address(r.get("router_id"))
         if not isinstance(r.get("interfaces",{}),dict): raise SpecError(f"router {rn}.interfaces must be a mapping")
         for name,i in r.get("interfaces",{}).items():
-            check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","up"},f"{rn}.{name}")
+            check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","delay","up"},f"{rn}.{name}")
             if i.get("segment") not in t.get("segments",{}): raise SpecError(f"{rn}.{name}: unknown segment {i.get('segment')}")
             for key in ("ipv4","ipv6"):
                 vals=i.get(key,[]); vals=[vals] if isinstance(vals,str) else vals
@@ -88,7 +88,7 @@ class Node:
             for line in self.p.stderr: self.stderr.append(line.rstrip())
         self.err_thread=threading.Thread(target=drain,daemon=True); self.err_thread.start()
         line=self._readline(5)
-        if line!="READY": raise RuntimeError(f"{self.name}: failed to start: {line!r}; stderr={list(self.stderr)}")
+        if line!="READY": raise RuntimeError(f"{self.name}: failed to start: {line!r}; returncode={self.p.poll()}; stderr={list(self.stderr)}")
     def _readline(self,timeout):
         sel=selectors.DefaultSelector(); sel.register(self.p.stdout,selectors.EVENT_READ); events=sel.select(timeout); sel.close()
         if not events: raise TimeoutError(f"{self.name}: response timeout")
@@ -109,13 +109,14 @@ class Node:
             row=self.p.stdout.readline().rstrip("\n")
             if not row and self.p.poll() is not None: raise RuntimeError(f"{self.name}: exited during response")
     def state(self):
-        rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"topology":[],"paths":[],"rib":[],"source":[]}
+        rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"topology":[],"paths":[],"rib":[],"source":[]}; current_prefix=None
         for row in rows:
             f=row.split("|"); typ=f[0]; kv=dict(part.split("=",1) for part in f[1:] if "=" in part)
             if typ=="INTF": st["interfaces"].append({"interface":kv["name"],"runtime":kv["runtime_present"]=="1","shutdown":kv["shutdown"]=="1","peers":int(kv["peer_count"]),"output_q":int(kv["output_queue"]),"reliable_q":int(kv["reliable_queue"])})
             elif typ=="NBR": st["neighbors"].append({"address":kv["address"],"interface":kv["interface"],"state":kv["state"],"runtime":kv["runtime_present"]=="1","reliable_q":int(kv["reliable_queue"]),"rto":int(kv["rto_ms"]),"srtt_valid":kv["srtt_valid"]=="1","srtt":int(kv["srtt_ms"]),"retransmissions":int(kv["retransmits"])})
-            elif typ=="TOPO": st["topology"].append({"prefix":kv["prefix"],"active":kv["active"]=="1","fd":int(kv["feasible_distance"]),"successors":int(kv["successors"])})
-            elif typ=="PATH": st["paths"].append({"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
+            elif typ=="TOPO":
+                current_prefix=kv["prefix"]; st["topology"].append({"prefix":current_prefix,"active":kv["active"]=="1","fd":int(kv["feasible_distance"]),"successors":int(kv["successors"])})
+            elif typ=="PATH": st["paths"].append({"prefix":current_prefix,"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","feasible_successor":kv.get("feasible_successor")=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
             elif typ=="RIB": st["rib"].append({"prefix":kv["prefix"],"next_hop":kv["next_hop"],"metric":int(kv["metric"]),"distance":int(kv["admin_distance"])})
             elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
@@ -156,6 +157,8 @@ class Runner:
             for n in r.get("attached_networks",[]):
                 p=ipaddress.ip_interface(n["prefix"])
                 if p.version==4: lines.append(f"network {p.network}")
+            for name,i in r.get("interfaces",{}).items():
+                if "delay" in i: lines.append(f"delay {name} {int(i['delay'])}")
             path=self.work/f"{rn}.conf"; path.write_text("\n".join(lines)+"\n"); self.nodes[rn]=Node(rn,path,str(self.work/"wire.sock"))
         return owners
     def diagnostics(self,focus=None):
@@ -201,16 +204,16 @@ class Runner:
             return False
         return all(k not in e or n.get(k)==e[k] for n in matches for k in ("reliable_q","rto","srtt_valid","srtt","retransmissions"))
     def route_ok(self,e):
-        st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["topology"]
+        st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["paths"] if table=="path" else st["topology"]
         matches=[r for r in rows if r["prefix"].lower()==prefix.lower()]
         if not e.get("present",True): return not matches
         if not matches: return False
-        keys=("next_hop","metric","distance") if table=="rib" else (("active","fd","successors") if table=="topology" else ("protocol","metric"))
+        keys=("next_hop","metric","distance") if table=="rib" else (("active","fd","successors") if table=="topology" else (("next_hop","interface","connected","successor","feasible_successor","distance","rd") if table=="path" else ("protocol","metric")))
         return any(all(k not in e or r.get(k)==e[k] for k in keys) for r in matches)
     def packet_ok(self,e):
         rows=list(self.broker.journal); mark=e.get("since"); rows=rows[self.packet_marks.get(mark,0):] if mark else rows
-        fields={"uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","ack":"ack","cr":"cr","event":"event"}
-        count=sum(1 for p in rows if all(k not in e or p.get(v)==e[k] for k,v in fields.items()))
+        fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","ack":"ack","cr":"cr","event":"event"}
+        count=sum(1 for p in rows if all(k not in e or ((str(e[k]).lower() in [str(x).lower() for x in p.get("prefixes",[])]) if k=="prefix" else p.get(v)==e[k]) for k,v in fields.items()))
         return count>=int(e.get("min",1)) and ("max" not in e or count<=int(e["max"]))
     def fault_ok(self,e):
         f=self.broker.fault_state(e["name"]); return bool(f) and ("hits" not in e or f["hits"]>=int(e["hits"])) and ("remaining" not in e or f["remaining"]==int(e["remaining"]))
@@ -238,6 +241,11 @@ class Runner:
         return False
     def expect(self,kind,e):
         timeout=float(e.get("timeout",5)); deadline=time.monotonic()+timeout; okfn={"neighbor":self.neighbor_ok,"route":self.route_ok,"packet":self.packet_ok,"fault":self.fault_ok,"retransmission":self.retransmission_ok,"retry":self.retry_ok}[kind]
+        if kind=="packet" and int(e.get("max",-1))==0:
+            while time.monotonic()<deadline:
+                if not okfn(e): raise AssertionError(f"validate-{kind} failed: expected {e}")
+                time.sleep(.05)
+            return
         while time.monotonic()<deadline:
             if okfn(e): return
             time.sleep(.1)
@@ -246,7 +254,11 @@ class Runner:
         if self.verbose: print(f"-- {op}: {arg}",flush=True)
         if op=="start":
             names=list(self.nodes) if arg in (None,"all") else ([arg] if isinstance(arg,str) else arg.get("uuts",list(self.nodes)))
-            for n in names: self.nodes[n].start()
+            for n in names:
+                try: self.nodes[n].start()
+                except Exception:
+                    if self.broker and self.broker.error: raise RuntimeError(f"wire broker failed: {self.broker.error}")
+                    raise
         elif op=="stop":
             names=list(self.nodes) if arg in (None,"all") else ([arg] if isinstance(arg,str) else arg.get("uuts",list(self.nodes)))
             for n in names: self.nodes[n].stop()

@@ -29,13 +29,36 @@ def recv_frame(sock):
 
 class WireFaultError(ValueError): pass
 
-def _packet_meta(payload):
+def _route_prefixes(payload, afi):
+    """Return classic internal route destinations carried by an EIGRP packet."""
+    out=[]; off=20
+    while off+4 <= len(payload):
+        typ,length=struct.unpack_from("!HH",payload,off)
+        if length < 4 or off+length > len(payload): break
+        poff=None
+        if afi==4 and typ==0x0102 and length>=25:
+            poff=off+24
+        elif afi==4 and typ==0x0602 and length>=37:
+            metric=off+12
+            attr_len=payload[metric]*2
+            candidate=metric+24+attr_len
+            if candidate < off+length: poff=candidate
+        if poff is not None:
+            plen=payload[poff]; n=(plen+7)//8
+            if plen<=32 and poff+1+n<=off+length:
+                raw=payload[poff+1:poff+1+n]+b"\0"*(4-n)
+                out.append(f"{socket.inet_ntop(socket.AF_INET,raw)}/{plen}")
+        off += length
+    return out
+
+def _packet_meta(payload, afi):
     opcode=payload[1] if len(payload)>1 else -1
     flags=struct.unpack_from("!I",payload,4)[0] if len(payload)>=16 else 0
     sequence=struct.unpack_from("!I",payload,8)[0] if len(payload)>=16 else 0
     ack=struct.unpack_from("!I",payload,12)[0] if len(payload)>=16 else 0
     return {"opcode":"ack" if opcode==5 and ack else OPCODES.get(opcode,str(opcode)),
-            "sequence":sequence,"ack":ack,"cr":bool(flags&CR_FLAG)}
+            "sequence":sequence,"ack":ack,"cr":bool(flags&CR_FLAG),
+            "prefixes":_route_prefixes(payload,afi)}
 
 class Broker(threading.Thread):
     """Shared-segment delivery broker. Faults affect delivery only, never EIGRP state."""
@@ -118,7 +141,7 @@ class Broker(threading.Thread):
                         if not any(e[:6]==item[:6] for e in endpoints): endpoints.append(item)
                         continue
                     if typ!=PACKET: continue
-                    pm=_packet_meta(payload); mc=bool(flags&MULTICAST)
+                    pm=_packet_meta(payload,afi); mc=bool(flags&MULTICAST)
                     sent=set(); destinations=[]
                     for e in list(endpoints):
                         ec,eafi,eif,eseg,eifname,eaddr,eowner=e
@@ -126,7 +149,7 @@ class Broker(threading.Thread):
                         if not mc and eaddr[:4 if afi==4 else 16]!=dst[:4 if afi==4 else 16]: continue
                         if mc and (id(ec),eif) in sent: continue
                         sent.add((id(ec),eif)); destinations.append(e)
-                    base={"time":time.monotonic(),"uut":owner,"source_uut":owner,"interface":ifname,"source_interface":ifname,"segment":seg,"afi":afi,"opcode":pm["opcode"],"length":len(payload),"multicast":mc,"sequence":pm["sequence"],"ack":pm["ack"],"cr":pm["cr"]}
+                    base={"time":time.monotonic(),"uut":owner,"source_uut":owner,"interface":ifname,"source_interface":ifname,"segment":seg,"afi":afi,"opcode":pm["opcode"],"length":len(payload),"multicast":mc,"sequence":pm["sequence"],"ack":pm["ack"],"cr":pm["cr"],"prefixes":pm["prefixes"]}
                     self.journal.append({**base,"destination_uut":None,"destination_interface":None,"event":"sent"})
                     for e in destinations:
                         meta={**base,"destination_uut":e[6],"destination_interface":e[4]}; actions=self._actions(meta)
