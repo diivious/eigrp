@@ -99,6 +99,38 @@ typedef struct eigrp_prefix_limit {
 	uint16_t restart_count;
 } eigrp_prefix_limit_t;
 
+static inline bool eigrp_prefix_limit_runtime_supported(
+	const eigrp_prefix_limit_t *limit)
+{
+	return limit && !limit->dampened && !limit->reset_time_minutes
+	       && !limit->restart_minutes && !limit->restart_count;
+}
+
+static inline bool eigrp_prefix_limit_allows(const eigrp_prefix_limit_t *limit,
+	uint32_t current, bool already_present)
+{
+	if (!limit || already_present || limit->warning_only
+	    || !eigrp_prefix_limit_runtime_supported(limit))
+		return true;
+	return current < limit->maximum;
+}
+
+static inline bool eigrp_prefix_limit_threshold_crossed(
+	const eigrp_prefix_limit_t *limit, uint32_t current)
+{
+	uint64_t before;
+	uint64_t after;
+	uint64_t boundary;
+
+	if (!limit || !limit->threshold || current >= limit->maximum)
+		return false;
+	before = (uint64_t)current * 100U;
+	after = (uint64_t)(current + 1U) * 100U;
+	boundary = (uint64_t)limit->maximum * limit->threshold;
+	return before < boundary && after >= boundary;
+}
+
+
 typedef enum eigrp_offset_direction {
 	EIGRP_OFFSET_IN = 0,
 	EIGRP_OFFSET_OUT,

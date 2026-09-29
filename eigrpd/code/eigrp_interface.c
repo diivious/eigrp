@@ -1098,6 +1098,7 @@ eigrp_intf_t *eigrp_intf_runtime_create(
 	ei->params.load = EIGRP_LOAD_DEFAULT;
 	ei->params.auth_type = EIGRP_AUTH_TYPE_NONE;
 	ei->params.auth_keychain = NULL;
+	ei->params.auth_password = NULL;
 
 	return ei;
 }
@@ -1258,6 +1259,10 @@ void eigrp_del_intf_params(eigrp_intf_params_t *eip)
 {
 	if (eip->auth_keychain)
 		free(eip->auth_keychain);
+	if (eip->auth_password) {
+		memset(eip->auth_password, 0, strlen(eip->auth_password));
+		free(eip->auth_password);
+	}
 }
 
 int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)

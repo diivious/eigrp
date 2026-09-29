@@ -158,6 +158,15 @@ eigrp_result_t eigrp_nbr_log_update(eigrp_operation_t operation,
 	eigrp_nbr_log_type_t type,
 	bool enabled,
 	uint16_t seconds);
+bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
+	const eigrp_prefix_t *prefix);
+bool eigrp_nbr_warning_should_emit(eigrp_instance_t *runtime,
+	const eigrp_nbr_t *neighbor, const char *reason);
+void eigrp_nbr_warning_state_clear(eigrp_instance_t *runtime);
+#ifdef EIGRP_TESTING
+bool eigrp_nbr_warning_should_emit_test(eigrp_instance_t *runtime,
+	const eigrp_nbr_t *neighbor, const char *reason, uint64_t now_msec);
+#endif
 void eigrp_nbr_policy_delete_all(eigrp_af_instance_t *af);
 
 #endif /* _ZEBRA_EIGRP_NEIGHBOR_H */

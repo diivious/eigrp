@@ -115,45 +115,23 @@ rather than preserving module prefixes by habit.
 This review should produce a finite rename set and be committed separately from
 protocol feature changes.
 
-## 4. Incomplete feature targets
+## 4. Intentional incomplete capability boundaries
 
-These targets keep retained configuration and return
-`EIGRP_RESULT_NOT_IMPLEMENTED` when the live path is missing. That is
-intentional. Do not add a generic stub dispatcher. Finish the real target.
+The broad feature-completion list that previously lived here became stale as the
+feature work landed.  TASK1-8 audits the remaining `EIGRP_RESULT_NOT_IMPLEMENTED`
+paths individually in `task1-8-not-implemented-audit.md`.  Do not use this section
+as a backlog of already-completed features.
 
-IPv6 named config uses the same targets. IPv6 now owns a live runtime and host
-packet-I/O foundation; adjacency completion remains separate protocol work.
+The legacy `metric holddown` configuration surface has been removed; it is not an EIGRP feature target. Named HMAC-SHA-256 encryption type
+7 also remains a capability boundary because the project has no portable type-7
+decoder; encoded configuration text must never be used as the HMAC key.
 
-| Target | What works today | What is still missing |
-|---|---|---|
-| `eigrp_auth_mode_update` HMAC-SHA-256 with a named direct password | config retained; MD5 runtime works; classic HMAC via key-chain works | named direct-password key material and receive validation |
-| `eigrp_offset_add` / `eigrp_offset_remove` | config retained | apply offset into metric processing |
-| `eigrp_instance_parent_shutdown_update` | config retained | parent-wide runtime shutdown semantics |
-| `eigrp_instance_distance_update` | config retained | RIB administrative-distance application |
-| `eigrp_interface_bandwidth_percent_set` | config retained | live pacing application |
-| `eigrp_interface_next_hop_self_set` | config retained | live packet-path application |
-| `eigrp_metric_traffic_share_balanced_update` | config retained | forwarding/runtime application |
-| `eigrp_summary_create` / `_delete` | config retained | advertise/withdraw manual summaries |
-| `eigrp_summary_auto_update` | config retained | auto-summary runtime |
-| `eigrp_summary_metric_update` | config retained | use the override when originating a summary |
-| `eigrp_neighbor_maximum_prefix_set` / `_all_*` | config retained | enforce the prefix limit on a neighbor |
-| `eigrp_topology_create` / `_delete` | config/identity retained | non-base topology runtime |
-| `eigrp_topology_default_information_update` | config retained | originate/accept default by that policy |
-| `eigrp_topology_maximum_prefix_update` | config retained | enforce the topology prefix limit |
-| `eigrp_rib_redistribute_add` / FRR `eigrp_zebra_redistribute_update` | Zebra subscribe happens | install source routes into topology and apply route-map |
-| IPv6 adjacency | live IPv6 runtime, proto-88 socket, multicast, packet send/receive | AF-correct HELLO/adjacency bring-up and end-to-end neighbor validation |
-| `eigrp_init` / `eigrp_terminate` | FRR main calls them from `eigrpd.h` | move process init into the public `eigrp.h` contract |
+Show/state walkers and runtime actions may return `NOT_IMPLEMENTED` when
+`data_path_ready` is false.  This is the process-model capability gate, not a
+feature stub.  MAF (VRID 0x0001) and non-base topology IDs remain explicitly
+unsupported as defined by `cli-spec.md` and the base-topology model.
 
-Rules for Section 4 work:
-
-- Keep the existing target. Do not invent a parallel API.
-- Keep valid retained config even while you fill in runtime.
-- Add or extend a test that fails if the path goes back to `NOT_IMPLEMENTED`.
-- IPv6 adjacency must continue through the shared runtime/packet model; do not invent a second integration model for it.
-- Stub routing stays out of scope. Do not add it here.
-
-Show/state walkers return `NOT_IMPLEMENTED` when `data_path_ready` is false.
-That remains a generic capability gate, not an IPv6-specific show API.
+Stub routing stays out of scope.
 
 ## 5. Packet-path and parser hardening
 

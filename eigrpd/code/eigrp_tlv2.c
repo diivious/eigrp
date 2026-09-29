@@ -410,6 +410,7 @@ static eigrp_route_descriptor_t *eigrp_tlv2_decoder(eigrp_instance_t *eigrp,
 		return NULL;
 	}
 
+	route->topology_id = (eigrp_topology_id_t)tid;
 	route->type = external ? eigrp->af_vectors.classic_external_tlv_type
 			       : eigrp->af_vectors.classic_internal_tlv_type;
 	route->extdata.orig = rid;
@@ -470,6 +471,8 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 
 	if (!eigrp || !pkt || !route)
 		return 0;
+	if (route->topology_id != EIGRP_TOPOLOGY_ID_BASE)
+		return 0;
 
 	if (!ei && nbr)
 		ei = nbr->ei;
@@ -492,7 +495,7 @@ static uint16_t eigrp_tlv2_encoder(eigrp_instance_t *eigrp,
 	eigrp_stream_putw(pkt, type);
 	eigrp_stream_putw(pkt, 0);
 	eigrp_stream_putw(pkt, eigrp->af_vectors.multiprotocol_afi);
-	eigrp_stream_putw(pkt, EIGRP_TOPOLOGY_ID_BASE);
+	eigrp_stream_putw(pkt, route->topology_id);
 	eigrp_stream_putl(pkt, eigrp_tlv2_router_id_host(eigrp));
 
 	encoded = eigrp_tlv2_metric_encode(eigrp, pkt, route, type == EIGRP_TLV_MP_EXT);

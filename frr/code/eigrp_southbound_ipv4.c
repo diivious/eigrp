@@ -252,6 +252,13 @@ bool eigrp_sys_ipv4_packet_receive(eigrp_instance_t *eigrp,
 	memcpy(source->bytes, &iph->ip_src, sizeof(iph->ip_src));
 	memcpy(destination->bytes, &iph->ip_dst, sizeof(iph->ip_dst));
 	*ifindex = (eigrp_ifindex_t)getsockopt_ifindex(AF_INET, &msgh);
+	{
+		struct interface *ifp = if_lookup_by_index((ifindex_t)*ifindex,
+			(vrf_id_t)eigrp_instance_vrf_id(eigrp));
+		if (!ifp || !ifp->vrf)
+			return false;
+		meta->ingress_vrf_id = (eigrp_vrf_id_t)ifp->vrf->vrf_id;
+	}
 	*received_length = (size_t)ret;
 	meta->network_header_length = header_length;
 	meta->eigrp_length = ip_length - header_length;

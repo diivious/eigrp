@@ -205,21 +205,36 @@ static bool eigrp_topology_southbound_nexthop(
 }
 
 static size_t eigrp_topology_southbound_nexthops(
-	const eigrp_list_t *routes, eigrp_rib_nexthop_t *nexthops,
-	size_t capacity)
+	const eigrp_instance_t *eigrp, const eigrp_list_t *routes,
+	eigrp_rib_nexthop_t *nexthops, size_t capacity)
 {
 	eigrp_route_descriptor_t *route;
 	eigrp_list_item_t *node;
+	uint64_t largest_metric = 0;
 	size_t count = 0;
 
-	if (!routes || !nexthops || capacity == 0)
+	if (!eigrp || !routes || !nexthops || capacity == 0)
 		return 0;
+
+	if (eigrp->traffic_share_balanced) {
+		for (EIGRP_LIST_ITERATE_RO(routes, node, route)) {
+			if (route->distance != EIGRP_MAX_METRIC
+			    && route->distance > largest_metric)
+				largest_metric = route->distance;
+		}
+	}
 
 	for (EIGRP_LIST_ITERATE_RO(routes, node, route)) {
 		if (count == capacity)
 			break;
 		if (!eigrp_topology_southbound_nexthop(route, &nexthops[count]))
 			continue;
+		if (eigrp->traffic_share_balanced && largest_metric
+		    && route->distance && route->distance != EIGRP_MAX_METRIC) {
+			nexthops[count].weight = largest_metric / route->distance;
+			if (!nexthops[count].weight)
+				nexthops[count].weight = 1;
+		}
 		count++;
 	}
 
@@ -1150,6 +1165,26 @@ void eigrp_topology_multipath_update(eigrp_instance_t *eigrp)
 	}
 }
 
+void eigrp_topology_traffic_share_update(eigrp_instance_t *eigrp)
+{
+	eigrp_table_node_t *rn;
+	eigrp_prefix_descriptor_t *prefix;
+
+	if (!eigrp || !eigrp->topology_table)
+		return;
+	for (rn = eigrp_table_first(eigrp->topology_table); rn;
+	     rn = eigrp_table_next(rn)) {
+		prefix = rn->info;
+		/* A forwarding-hint change must not alter or reinstall frozen Active
+		 * destination state. Passive destinations retain their existing
+		 * successor set; only the RIB snapshot weights are refreshed.
+		 */
+		if (!prefix || prefix->state != EIGRP_FSM_STATE_PASSIVE)
+			continue;
+		eigrp_update_routing_table(eigrp, prefix);
+	}
+}
+
 static void eigrp_topology_route_queue_resort(eigrp_list_t *routes)
 {
 	eigrp_list_item_t *a, *b;
@@ -1225,7 +1260,7 @@ void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 
 	if (successors) {
 		nexthop_count = eigrp_topology_southbound_nexthops(
-			successors, nexthops, EIGRP_MAX_PATHS_MAX);
+			eigrp, successors, nexthops, EIGRP_MAX_PATHS_MAX);
 		if (nexthop_count != 0) {
 			eigrp_rib_route_t rib_route = {
 				.prefix = prefix->destination,
@@ -1342,6 +1377,12 @@ void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
 
 		if (!pe)
 			continue;
+
+		/* A neighbor that originated a deferred QUERY no longer needs a
+		 * REPLY after it goes down. Clear the DUAL origin before processing
+		 * its poisoned path so the prefix never retains a freed neighbor. */
+		if (pe->query_origin == nbr)
+			pe->query_origin = NULL;
 
 		route = eigrp_prefix_descriptor_lookup(pe, nbr);
 		if (route) {
@@ -1820,11 +1861,8 @@ eigrp_result_t eigrp_topology_state_iterate(
 
 	if (!prefix_callback || !route_callback || (!config && !runtime))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!runtime) {
-		if (config && config->afi == EIGRP_AFI_IPV6)
-			return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	}
 	if (!runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	if (!runtime->topology_table)
@@ -1941,7 +1979,9 @@ eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context)
 	result = eigrp_topology_context_validate(context);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config)
+		context->config->topology_base_configured = true;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -1961,7 +2001,9 @@ eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context)
 	result = eigrp_topology_context_validate(context);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config)
+		context->config->topology_base_configured = false;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -1971,17 +2013,74 @@ eigrp_result_t eigrp_topology_delete(eigrp_instance_context_t *context)
  * Placement:
  *   Named: topology base mode
  * Description:
- * Controls retained default-information policy for the named topology.
- * The command terminates at a real topology target and reports NOT_IMPLEMENTED until runtime policy handling is complete.
+ * Controls default-route acceptance/advertisement for the named topology.
+ * A configured access list is evaluated by the host policy adapter.  Policy
+ * lookup/evaluation failure is fail-closed for the default route.
  */
-eigrp_result_t eigrp_topology_default_information_update(eigrp_operation_t operation, eigrp_instance_context_t *context, eigrp_default_information_direction_t direction, const char *access_list)
+static bool eigrp_topology_default_prefix(const eigrp_prefix_t *prefix)
 {
+	return prefix && prefix->prefix_length == 0
+	       && (prefix->address.afi == EIGRP_AFI_IPV4
+		   || prefix->address.afi == EIGRP_AFI_IPV6);
+}
+
+bool eigrp_topology_default_information_denies(
+	eigrp_instance_t *eigrp, eigrp_default_information_direction_t direction,
+	const eigrp_prefix_t *prefix)
+{
+	eigrp_af_instance_t *af;
+	eigrp_filter_decision_t decision = EIGRP_FILTER_DECISION_DENY;
+	eigrp_result_t result;
+	const char *access_list;
+
+	if (!eigrp_topology_default_prefix(prefix))
+		return false;
+	if (!eigrp || (direction != EIGRP_DEFAULT_INFORMATION_IN
+		       && direction != EIGRP_DEFAULT_INFORMATION_OUT))
+		return true;
+
+	af = eigrp_instance_runtime_config(eigrp);
+	if (!af || !af->default_information_enabled[direction])
+		return true;
+
+	access_list = af->default_information_access_list[direction];
+	if (!access_list)
+		return false;
+
+	result = eigrp_sys_filter_evaluate(eigrp, EIGRP_DISTRIBUTE_ACCESS_LIST,
+					   access_list, prefix, &decision);
+	return result != EIGRP_RESULT_SUCCESS
+	       || decision != EIGRP_FILTER_DECISION_PERMIT;
+}
+
+static void eigrp_topology_default_information_refresh(
+	eigrp_instance_t *eigrp, eigrp_default_information_direction_t direction)
+{
+	eigrp_nbr_clear_request_t request;
+
+	if (!eigrp || !eigrp_instance_data_path_ready(eigrp))
+		return;
+
+	if (direction == EIGRP_DEFAULT_INFORMATION_OUT) {
+		eigrp_update_send_process_GR(eigrp, EIGRP_GR_FILTER);
+		return;
+	}
+
+	memset(&request, 0, sizeof(request));
+	request.soft = true;
+	(void)eigrp_nbr_clear(eigrp, &request, NULL, NULL, NULL);
+}
+
+eigrp_result_t eigrp_topology_default_information_update(
+	eigrp_operation_t operation, eigrp_instance_context_t *context,
+	eigrp_default_information_direction_t direction, const char *access_list)
+{
+	eigrp_af_instance_t *af;
+	char *replacement = NULL;
 	bool enabled;
 
 	if (operation != EIGRP_SET && operation != EIGRP_RESET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	enabled = operation == EIGRP_SET;
-	(void)enabled;
 	if (direction != EIGRP_DEFAULT_INFORMATION_IN
 	    && direction != EIGRP_DEFAULT_INFORMATION_OUT)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -1989,9 +2088,28 @@ eigrp_result_t eigrp_topology_default_information_update(eigrp_operation_t opera
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
-}
 
+	af = context->config;
+	if (!af && context->runtime)
+		af = eigrp_instance_runtime_config(context->runtime);
+	if (!af)
+		return EIGRP_RESULT_NOT_FOUND;
+
+	enabled = operation == EIGRP_SET;
+	if (enabled && access_list) {
+		replacement = strdup(access_list);
+		if (!replacement)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
+
+	free(af->default_information_access_list[direction]);
+	af->default_information_access_list[direction] = replacement;
+	af->default_information_enabled[direction] = enabled;
+
+	if (context->runtime)
+		eigrp_topology_default_information_refresh(context->runtime, direction);
+	return EIGRP_RESULT_SUCCESS;
+}
 
 
 
@@ -2006,24 +2124,67 @@ eigrp_result_t eigrp_topology_default_information_update(eigrp_operation_t opera
  *   Named: topology base mode
  * Description:
  * Sets or removes the topology prefix-limit policy.
- * Configuration is retained even where runtime enforcement is still incomplete.
+ * Configuration is retained and supported runtime limit semantics are enforced.
  */
+static uint32_t eigrp_topology_prefix_count(eigrp_instance_t *runtime)
+{
+	eigrp_table_node_t *node;
+	uint32_t count = 0;
+
+	if (!runtime || !runtime->topology_table)
+		return 0;
+	for (node = eigrp_table_first(runtime->topology_table); node;
+	     node = eigrp_table_next(node))
+		if (node->info)
+			count++;
+	return count;
+}
+
+bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
+	const eigrp_prefix_t *prefix)
+{
+	eigrp_af_instance_t *af;
+	const eigrp_prefix_limit_t *limit;
+
+	if (!runtime || !prefix)
+		return false;
+	if (eigrp_topology_table_lookup(runtime->topology_table, prefix))
+		return true;
+	af = eigrp_instance_runtime_config(runtime);
+	if (!af || !af->topology_maximum_prefix_configured)
+		return true;
+	limit = &af->topology_maximum_prefix;
+	{
+		uint32_t count = eigrp_topology_prefix_count(runtime);
+		if (eigrp_prefix_limit_threshold_crossed(limit, count))
+			eigrp_log(EIGRP_LOG_WARNING,
+				  "EIGRP topology maximum-prefix threshold reached (%u/%u)",
+				  count + 1U, limit->maximum);
+		return eigrp_prefix_limit_allows(limit, count, false);
+	}
+}
+
 eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
+	if (!context || (!context->config && !context->runtime))
+		return EIGRP_RESULT_NOT_FOUND;
 	if (operation == EIGRP_RESET) {
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+		if (!context->config || !context->config->topology_maximum_prefix_configured)
+			return EIGRP_RESULT_NOT_FOUND;
+		context->config->topology_maximum_prefix_configured = false;
+		memset(&context->config->topology_maximum_prefix, 0,
+		       sizeof(context->config->topology_maximum_prefix));
+		return EIGRP_RESULT_SUCCESS;
 	}
-
-	if (operation != EIGRP_SET)
+	if (operation != EIGRP_SET || !limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	if (!limit || !limit->maximum || limit->threshold > 100)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (context->config) {
+		context->config->topology_maximum_prefix = *limit;
+		context->config->topology_maximum_prefix_configured = true;
+	}
+	return context->runtime && (limit->dampened || limit->reset_time_minutes
+		|| limit->restart_minutes || limit->restart_count)
+		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -2086,6 +2247,6 @@ eigrp_result_t eigrp_topology_maximum_paths_update(eigrp_operation_t operation, 
  *   Named: topology base mode
  * Description:
  * Sets or removes the topology prefix-limit policy.
- * Configuration is retained even where runtime enforcement is still incomplete.
+ * Configuration is retained and supported runtime limit semantics are enforced.
  */
 

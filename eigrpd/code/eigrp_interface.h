@@ -21,6 +21,7 @@
 #include "eigrp_cli.h"
 #include "eigrp_mgnt.h"
 #include "eigrp_types.h"
+#include "eigrp_structs.h"
 
 struct eigrp_intf_config {
 	char *interface_name;

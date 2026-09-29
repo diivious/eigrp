@@ -43,6 +43,7 @@ typedef enum eigrp_intf_remove_reason {
 } eigrp_intf_remove_reason_t;
 
 typedef struct eigrp_packet_rx_meta {
+	eigrp_vrf_id_t ingress_vrf_id;
 	uint16_t network_header_length;
 	uint16_t eigrp_length;
 	bool destination_multicast;
@@ -161,6 +162,9 @@ eigrp_result_t eigrp_sys_filter_evaluate(
 eigrp_result_t eigrp_sys_redistribute_route_map_evaluate(
 	eigrp_instance_t *eigrp, const char *name,
 	const eigrp_rib_source_route_t *route,
+	eigrp_filter_decision_t *decision);
+eigrp_result_t eigrp_sys_summary_leak_map_evaluate(
+	eigrp_instance_t *eigrp, const char *name, const eigrp_prefix_t *prefix,
 	eigrp_filter_decision_t *decision);
 bool eigrp_sys_auth_key_lookup(const char *keychain_name,
 			       uint32_t *key_id, char *key_string,

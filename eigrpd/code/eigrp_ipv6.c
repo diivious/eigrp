@@ -180,6 +180,8 @@ static bool eigrp_ipv6_packet_receive(eigrp_instance_t *eigrp,
 		    eigrp, eigrp_stream_data(stream), stream->size, &received_length,
 		    &ifindex, &public_source, &public_destination, meta))
 		return false;
+	if (meta->ingress_vrf_id != eigrp->vrf_id)
+		return false;
 	if (public_source.afi != EIGRP_AFI_IPV6
 	    || public_destination.afi != EIGRP_AFI_IPV6
 	    || received_length > stream->size)

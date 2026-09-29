@@ -469,7 +469,6 @@ The full grammar also supports `dampened`, `reset-time`, `restart`, and
 
 ```text
 metric maximum-hops 100
-metric holddown
 traffic-share balanced
 ```
 

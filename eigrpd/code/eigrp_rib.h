@@ -18,6 +18,8 @@ typedef struct eigrp_rib_nexthop {
 	eigrp_ifindex_t ifindex;
 	bool gateway_present;
 	eigrp_address_t gateway;
+	/* Forwarding share hint. Zero means host-default/unweighted behavior. */
+	uint64_t weight;
 } eigrp_rib_nexthop_t;
 
 typedef struct eigrp_rib_route {

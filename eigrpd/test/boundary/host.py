@@ -36,3 +36,21 @@ def test_vrid_wire_state_remains_portable_runtime_state():
     assert "uint16_t vrid;" in structs
     assert "eigrph->vrid = htons(eigrp->vrid);" in packet
     assert "ntohs(eigrph->vrid) != ei->eigrp->vrid" in packet
+
+
+def test_packet_identity_demux_keeps_vrf_vrid_and_tid_explicit():
+    sys_header = (PORTABLE / "eigrp_sys.h").read_text()
+    structs = (PORTABLE / "eigrp_structs.h").read_text()
+    ipv4 = (PORTABLE / "eigrp_ipv4.c").read_text()
+    ipv6 = (PORTABLE / "eigrp_ipv6.c").read_text()
+    tlv2 = (PORTABLE / "eigrp_tlv2.c").read_text()
+    daemon = (PORTABLE / "eigrpd.c").read_text()
+
+    assert "eigrp_vrf_id_t ingress_vrf_id;" in sys_header
+    assert "meta->ingress_vrf_id != eigrp->vrf_id" in ipv4
+    assert "meta->ingress_vrf_id != eigrp->vrf_id" in ipv6
+    assert "eigrp->vrid = EIGRP_VRID_AF_BASE;" in daemon
+    assert "eigrp_topology_id_t topology_id;" in structs
+    assert "tid != EIGRP_TOPOLOGY_ID_BASE" in tlv2
+    assert "route->topology_id = (eigrp_topology_id_t)tid;" in tlv2
+    assert "route->topology_id != EIGRP_TOPOLOGY_ID_BASE" in tlv2

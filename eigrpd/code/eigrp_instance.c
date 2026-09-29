@@ -323,7 +323,7 @@ eigrp_result_t eigrp_af_instance_create_with_data_path(
 	 * inability (for example, no usable IPv6 router ID yet) must not reject
 	 * retained configuration.
 	 */
-	if (!af->shutdown)
+	if (!parent->shutdown && !af->shutdown)
 		(void)eigrp_af_instance_start(af->runtime);
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -352,6 +352,8 @@ static void eigrp_af_instance_free(eigrp_af_instance_t *af)
 	eigrp_summary_state_delete_all(af);
 	eigrp_timer_config_delete_all(af);
 	eigrp_nbr_policy_delete_all(af);
+	free(af->default_information_access_list[EIGRP_DEFAULT_INFORMATION_IN]);
+	free(af->default_information_access_list[EIGRP_DEFAULT_INFORMATION_OUT]);
 	free(af->vrf_name);
 	free(af);
 }
@@ -777,19 +779,46 @@ eigrp_result_t eigrp_af_instance_shutdown_update(eigrp_operation_t operation, ei
  *   Named: router EIGRP parent mode
  * Description:
  * Represents administrative shutdown of the named parent rather than one address-family.
- * The real target remains in place and reports NOT_IMPLEMENTED until parent-wide runtime semantics are defined.
+ * Retained parent state is committed first.  Each child keeps its own shutdown
+ * state; parent no-shutdown therefore restarts only administratively enabled
+ * child address families.
  */
 eigrp_result_t eigrp_instance_parent_shutdown_update(eigrp_operation_t operation, eigrp_instance_parent_config_t *parent)
 {
+	eigrp_af_instance_t *af;
+	eigrp_result_t result;
+	eigrp_result_t aggregate = EIGRP_RESULT_SUCCESS;
 	bool shutdown;
 
 	if (operation != EIGRP_SET && operation != EIGRP_RESET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	shutdown = operation == EIGRP_SET;
-	(void)shutdown;
 	if (!parent)
 		return EIGRP_RESULT_NOT_FOUND;
-	return EIGRP_RESULT_NOT_IMPLEMENTED;
+
+	shutdown = operation == EIGRP_SET;
+	if (parent->shutdown == shutdown)
+		return EIGRP_RESULT_SUCCESS;
+
+	/* Parent configuration is retained even when one child data path is absent. */
+	parent->shutdown = shutdown;
+	for (af = parent->address_families; af; af = af->next) {
+		if (!af->runtime || (!shutdown && af->shutdown))
+			continue;
+		result = shutdown ? eigrp_af_instance_stop(af->runtime)
+				  : eigrp_af_instance_start(af->runtime);
+		if (result == EIGRP_RESULT_SUCCESS)
+			continue;
+		if (result == EIGRP_RESULT_NOT_IMPLEMENTED) {
+			if (aggregate == EIGRP_RESULT_SUCCESS)
+				aggregate = result;
+			continue;
+		}
+		/* Keep deterministic retained state; report the first hard failure. */
+		if (aggregate == EIGRP_RESULT_SUCCESS
+		    || aggregate == EIGRP_RESULT_NOT_IMPLEMENTED)
+			aggregate = result;
+	}
+	return aggregate;
 }
 
 

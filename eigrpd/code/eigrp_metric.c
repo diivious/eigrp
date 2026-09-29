@@ -24,7 +24,6 @@ struct eigrp_metric_config {
 	bool traffic_share_balanced;
 	bool maximum_hops_configured;
 	uint8_t maximum_hops;
-	bool holddown_enabled;
 	bool version_32bit;
 };
 
@@ -210,7 +209,6 @@ static eigrp_metric_config_t *eigrp_metric_config_create(
 		if (!af->metric_config)
 			return NULL;
 		af->metric_config->traffic_share_balanced = true;
-		af->metric_config->holddown_enabled = true;
 	}
 	return af->metric_config;
 }
@@ -428,30 +426,34 @@ eigrp_result_t eigrp_metric_variance_update(eigrp_operation_t operation, eigrp_i
  * Placement:
  *   Named: topology base mode
  * Description:
- * Selects retained balanced traffic-sharing behavior.
- * The target reports NOT_IMPLEMENTED until the forwarding/runtime application path exists.
+ * Selects proportional forwarding weights for the already-selected successor set.
+ * Feasibility, variance, maximum-paths, and DUAL successor selection are unchanged.
  */
 eigrp_result_t eigrp_traffic_share_balanced_update(eigrp_operation_t operation, eigrp_instance_context_t *context)
 {
 	bool enabled;
+	eigrp_metric_config_t *config;
 
 	if (operation != EIGRP_SET && operation != EIGRP_RESET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	enabled = operation == EIGRP_SET;
-	eigrp_metric_config_t *config;
-
 	if (!eigrp_metric_context_valid(context))
 		return EIGRP_RESULT_NOT_FOUND;
+
+	/* SET selects balanced sharing; RESET is the explicit `no` form. The
+	 * northbound destroy path restores the default by calling SET. */
+	enabled = operation == EIGRP_SET;
 	if (context->config) {
 		config = eigrp_metric_config_create(context->config);
 		if (!config)
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		config->traffic_share_balanced = enabled;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	if (context->runtime) {
+		context->runtime->traffic_share_balanced = enabled;
+		eigrp_topology_traffic_share_update(context->runtime);
+	}
+	return EIGRP_RESULT_SUCCESS;
 }
-
 
 
 
@@ -512,51 +514,6 @@ eigrp_result_t eigrp_metric_maximum_hops_update(eigrp_operation_t operation, eig
  * Description:
  * Sets or resets the configured EIGRP maximum-hop metric constraint.
  * The target retains the real feature endpoint even while live enforcement is incomplete.
- */
-
-
-/*
- * Syntax:
- *   Named: `metric holddown` / `no metric holddown`
- * Supported: Named
- * Placement:
- *   Named: topology base mode
- * Description:
- * Sets or resets retained metric holddown configuration.
- * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
- */
-eigrp_result_t eigrp_metric_holddown_update(eigrp_operation_t operation, eigrp_instance_context_t *context, bool enabled)
-{
-	if (operation == EIGRP_RESET) {
-	return eigrp_metric_holddown_update(EIGRP_SET, context, true);
-	}
-
-	if (operation != EIGRP_SET)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	eigrp_metric_config_t *config;
-
-	if (!eigrp_metric_context_valid(context))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		config = eigrp_metric_config_create(context->config);
-		if (!config)
-			return EIGRP_RESULT_INTERNAL_FAILURE;
-		config->holddown_enabled = enabled;
-	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
-}
-
-/*
- * Syntax:
- *   Named: `metric holddown` / `no metric holddown`
- * Supported: Named
- * Placement:
- *   Named: topology base mode
- * Description:
- * Sets or resets retained metric holddown configuration.
- * The target returns NOT_IMPLEMENTED when no corresponding runtime behavior exists.
  */
 
 

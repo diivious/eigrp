@@ -695,10 +695,10 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_intf_t *ei,
 
 		// encode Authentication TLV
 		if ((ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)
-		    && (ei->params.auth_keychain != NULL)) {
+		    && eigrp_auth_material_available(ei)) {
 			length += eigrp_auth_tlv_md5_encode(packet->s, ei);
 		} else if ((ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
-			   && (ei->params.auth_keychain != NULL)) {
+			   && eigrp_auth_material_available(ei)) {
 			length += eigrp_auth_tlv_sha256_encode(packet->s, ei);
 		}
 
@@ -736,11 +736,11 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_intf_t *ei,
 		packet->dst = *destination;
 
 		if ((ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)
-		    && (ei->params.auth_keychain != NULL)) {
+		    && eigrp_auth_material_available(ei)) {
 			eigrp_make_md5_digest(ei, packet->s,
 					      EIGRP_AUTH_BASIC_HELLO_FLAG);
 		} else if ((ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
-			   && (ei->params.auth_keychain != NULL)) {
+			   && eigrp_auth_material_available(ei)) {
 			eigrp_make_sha256_digest(ei, packet->s,
 						 EIGRP_AUTH_BASIC_HELLO_FLAG);
 		}

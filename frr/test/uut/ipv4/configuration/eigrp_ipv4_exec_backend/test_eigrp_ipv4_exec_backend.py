@@ -157,31 +157,18 @@ def test_accounting_and_traffic_have_real_ipv4_backend_data():
         assert f"state->{field}" in statistics
 
 
-def test_multicast_exec_selector_is_retained_as_maf_not_transport_multicast():
+def test_mtr_multicast_exec_selector_is_not_exposed():
     types = read(PUBLIC_H)
     instance = read(INSTANCE)
     vty = read(VTY)
-    cli_spec = read(CLI_SPEC)
 
-    # Cisco named EXEC grammar keeps the selector on the operational views.
-    assert vty.count("[multicast]") >= 8
+    # MTR/VRID support is retained in the portable core for future use, but
+    # the unsupported multicast-topology selector must not be exposed by CLI.
+    assert "[multicast]" not in vty
+    assert "eigrp_vty_multicast_requested" not in vty
+    assert "request.multicast =" not in vty
+
+    # Do not remove the underlying TID/VRID capability while hiding its CLI.
     assert "bool multicast;" in types
-    assert vty.count("request.multicast = eigrp_vty_multicast_requested") >= 8
-
-    # The portable instance target owns the current incomplete capability.
-    multicast_guard = instance[
-        instance.index("The CLI token selects EIGRP's Multicast Address Family"):
-        instance.index("/* A normal show request", instance.index("The CLI token selects EIGRP's Multicast Address Family"))
-    ]
-    assert "VRID 0x0001" in multicast_guard
-    assert "if (request->multicast)" in multicast_guard
-    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in multicast_guard
-
-    # It must not be confused with normal EIGRP multicast packet transport.
-    show_region = vty[vty.index("DEFPY(show_eigrp_interface,"):vty.index("struct eigrp_vty_protocol_show")]
-    assert "multicast topology state" not in show_region
-    assert "EIGRP_RESULT_UNSUPPORTED" not in show_region
-    assert "Multicast Address Family (MAF)" in cli_spec
-    assert "VRID `0x0001`" in cli_spec
-    assert "project configuration/runtime model is unicast" in cli_spec
-    assert "unsupported/not implemented" in cli_spec
+    assert "if (request->multicast)" in instance
+    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in instance

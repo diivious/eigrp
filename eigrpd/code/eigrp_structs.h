@@ -55,6 +55,7 @@ struct eigrp_instance {
 	uint16_t vrid;	     /* Virtual Router ID */
 	uint8_t k_values[6]; /*Array for K values configuration*/
 	uint8_t variance;    /*Metric variance multiplier*/
+	bool traffic_share_balanced; /* Proportional forwarding hint for selected paths. */
 	uint8_t max_paths;   /*Maximum allowed paths for 1 prefix*/
 	uint8_t max_hops;    /*Maximum accepted path hop count*/
 	uint8_t distance_internal; /* Host RIB administrative distance. */
@@ -63,6 +64,7 @@ struct eigrp_instance {
 	bool log_neighbor_changes;
 	bool log_neighbor_warnings;
 	uint16_t log_neighbor_warning_interval;
+	eigrp_nbr_warning_state_t *neighbor_warning_state;
 
 	/*Name of this EIGRP instance*/
 	char *name;
@@ -132,6 +134,7 @@ typedef struct eigrp_intf_params {
 	uint8_t load;
 
 	char *auth_keychain; /* Associated keychain with interface*/
+	char *auth_password; /* Runtime-owned direct HMAC-SHA-256 key material */
 	int auth_type;	     /* EIGRP authentication type */
 } eigrp_intf_params_t;
 
@@ -410,6 +413,7 @@ typedef struct eigrp_prefix_descriptor {
 	uint8_t req_action; // required action
 	eigrp_event_t *t_active;
 	eigrp_instance_t *active_eigrp;
+	eigrp_nbr_t *query_origin; /* Neighbor awaiting deferred DUAL REPLY. */
 
 	// If network type is REMOTE_EXTERNAL, pointer will have reference to
 	// its external TLV
@@ -423,6 +427,7 @@ typedef struct eigrp_prefix_descriptor {
 /* EIGRP Topology table record structure */
 typedef struct eigrp_route_descriptor {
 	uint16_t type;
+	eigrp_topology_id_t topology_id; /* Multiprotocol TID; only base is supported. */
 	eigrp_prefix_t dest;			// destination address
 	eigrp_addr_t nexthop;			// address of advertised by peer
 

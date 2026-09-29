@@ -33,6 +33,8 @@
 /*
  * These externs need to cleaned up
  */
+bool eigrp_auth_material_available(const eigrp_intf_t *ei);
+
 extern int eigrp_make_md5_digest(eigrp_intf_t *, eigrp_stream_t *, uint8_t);
 extern int eigrp_check_md5_digest(eigrp_stream_t *,
 				  struct TLV_MD5_Authentication_Type *,

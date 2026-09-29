@@ -25,6 +25,7 @@
 #include "eigrp_packet.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
+#include "eigrp_topology.h"
 
 struct eigrp_offset_config {
 	char *access_list;
@@ -263,6 +264,13 @@ bool eigrp_filter_prefix_update(eigrp_instance_t *eigrp,
 	if (!eigrp || !ei || !prefix || direction < 0
 	    || direction >= EIGRP_FILTER_MAX)
 		return false;
+
+	if (eigrp_topology_default_information_denies(
+		    eigrp, direction == EIGRP_FILTER_IN
+			       ? EIGRP_DEFAULT_INFORMATION_IN
+			       : EIGRP_DEFAULT_INFORMATION_OUT,
+		    prefix))
+		return true;
 
 	if (eigrp_filter_runtime_state_denies(eigrp, &eigrp->filter, direction,
 					       prefix))

@@ -22,6 +22,10 @@ eigrp_result_t eigrp_policy_filter_evaluate(
         const char *name, const eigrp_prefix_t *prefix,
         eigrp_filter_decision_t *decision);
 
+eigrp_result_t eigrp_policy_summary_leak_map_evaluate(
+        eigrp_instance_t *eigrp, const char *name, const eigrp_prefix_t *prefix,
+        eigrp_filter_decision_t *decision);
+
 eigrp_result_t eigrp_policy_redistribute_route_map_evaluate(
         eigrp_instance_t *eigrp, const char *name,
         const eigrp_rib_source_route_t *route,

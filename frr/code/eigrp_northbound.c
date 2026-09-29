@@ -2768,54 +2768,6 @@ static int eigrpd_named_metric_maximum_hops_destroy(struct nb_cb_destroy_args *a
     return eigrpd_named_config_result(eigrp_metric_maximum_hops_update(EIGRP_RESET, &context, 0), true);
 }
 
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_metric_holddown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
-static int eigrpd_named_metric_holddown_create(struct nb_cb_create_args *args)
-{
-    const char *name, *vrf;
-    eigrp_afi_t afi;
-    eigrp_instance_context_t context;
-    uint16_t asn;
-    if (args->event != NB_EV_APPLY)
-        return NB_OK;
-    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
-        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
-        return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_metric_holddown_update(EIGRP_SET, &context, true), false);
-}
-
-/*
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Description:
- * This is the FRR northbound edge for the named-mode node above.
- * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
- * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_metric_holddown_update(EIGRP_RESET, 0)` instead of carrying protocol behavior in the FRR layer.
- * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
- * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
- */
-static int eigrpd_named_metric_holddown_destroy(struct nb_cb_destroy_args *args)
-{
-    const char *name, *vrf;
-    eigrp_afi_t afi;
-    eigrp_instance_context_t context;
-    uint16_t asn;
-    if (args->event != NB_EV_APPLY)
-        return NB_OK;
-    if (!eigrpd_named_topology_child_context(args->dnode, &name, &afi, &vrf, &asn)
-        || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn, &context))
-        return NB_ERR_INCONSISTENCY;
-    return eigrpd_named_config_result(eigrp_metric_holddown_update(EIGRP_RESET, &context, 0), true);
-}
-
 static int eigrpd_named_metric_version_32bit_create(struct nb_cb_create_args *args)
 {
     const char *name, *vrf;
@@ -3763,7 +3715,7 @@ static int eigrpd_named_traffic_share_modify(struct nb_cb_modify_args *args)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_traffic_share_balanced_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
+ * This callback restores the balanced default with `eigrp_traffic_share_balanced_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status, including NOT_IMPLEMENTED when the real runtime path is still incomplete.
  */
@@ -3780,7 +3732,8 @@ static int eigrpd_named_traffic_share_destroy(struct nb_cb_destroy_args *args)
 	    || !eigrpd_named_instance_context_resolve(name, afi, vrf, asn,
 						      &context))
 		return NB_ERR_INCONSISTENCY;
-	return eigrpd_named_config_result(eigrp_traffic_share_balanced_update(EIGRP_RESET, &context), true);
+	/* Absence of the leaf restores the protocol default: balanced sharing. */
+	return eigrpd_named_config_result(eigrp_traffic_share_balanced_update(EIGRP_SET, &context), true);
 }
 
 /*
@@ -4312,14 +4265,6 @@ const struct frr_yang_module_info frr_eigrpd_info = {
 				.modify = eigrpd_named_metric_maximum_hops_modify,
 				.destroy = eigrpd_named_metric_maximum_hops_destroy,
 				.cli_show = eigrp_cli_named_show_metric_maximum_hops,
-			}
-		},
-		{
-			.xpath = "/frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown",
-			.cbs = {
-				.create = eigrpd_named_metric_holddown_create,
-				.destroy = eigrpd_named_metric_holddown_destroy,
-				.cli_show = eigrp_cli_named_show_metric_holddown,
 			}
 		},
 		{

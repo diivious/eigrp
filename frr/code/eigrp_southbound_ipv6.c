@@ -220,6 +220,13 @@ bool eigrp_sys_ipv6_packet_receive(eigrp_instance_t *eigrp,
 	}
 	if (!*ifindex)
 		return false;
+	{
+		struct interface *ifp = if_lookup_by_index((ifindex_t)*ifindex,
+			(vrf_id_t)eigrp_instance_vrf_id(eigrp));
+		if (!ifp || !ifp->vrf)
+			return false;
+		meta->ingress_vrf_id = (eigrp_vrf_id_t)ifp->vrf->vrf_id;
+	}
 	*received_length = (size_t)ret;
 	meta->network_header_length = 0;
 	meta->eigrp_length = (uint16_t)ret;

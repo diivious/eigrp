@@ -19,6 +19,7 @@
 #include "eigrp_table.h"
 #include "eigrp_topology.h"
 #include "eigrp_summary.h"
+#include "eigrp_sys.h"
 
 struct eigrp_summary_config {
 	eigrp_prefix_t prefix;
@@ -126,8 +127,6 @@ static eigrp_summary_config_t *eigrp_summary_match(
 	if (!config || !destination)
 		return NULL;
 	for (summary = config->summaries; summary; summary = summary->next) {
-		if (summary->leak_map)
-			continue;
 		if (summary->prefix.address.afi != destination->address.afi
 		    || summary->prefix.prefix_length >= destination->prefix_length
 		    || !eigrp_prefix_address_match(&summary->prefix,
@@ -154,6 +153,58 @@ static const eigrp_summary_metric_config_t *eigrp_summary_metric_lookup(
 	return NULL;
 }
 
+static bool eigrp_summary_auto_enabled(eigrp_instance_t *eigrp)
+{
+	eigrp_af_instance_t *af = eigrp_instance_runtime_config(eigrp);
+
+	return af && af->summary_state && af->summary_state->auto_summary;
+}
+
+static bool eigrp_summary_auto_match(eigrp_instance_t *eigrp,
+				     const eigrp_intf_t *ei,
+				     const eigrp_prefix_t *component,
+				     eigrp_prefix_t *summary)
+{
+	eigrp_prefix_t interface_major;
+
+	if (!eigrp || !ei || !component || !summary
+	    || !eigrp_summary_auto_enabled(eigrp)
+	    || !eigrp->af_vectors.summary_auto_prefix)
+		return false;
+	if (eigrp->af_vectors.summary_auto_prefix(component, summary)
+	    != EIGRP_RESULT_SUCCESS)
+		return false;
+	if (eigrp->af_vectors.summary_auto_prefix(&ei->address, &interface_major)
+	    != EIGRP_RESULT_SUCCESS)
+		return false;
+
+	/* Automatic summarization is a classful-boundary operation.  Keep
+	 * subnet detail inside the same major network and advertise the major
+	 * network only when the outgoing interface belongs to another one. */
+	return !eigrp_summary_prefix_match(summary, &interface_major);
+}
+
+bool eigrp_summary_specific_leak(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
+				 const eigrp_prefix_t *destination)
+{
+	eigrp_summary_config_t *summary;
+	eigrp_filter_decision_t decision = EIGRP_FILTER_DECISION_DENY;
+
+	if (!eigrp || !ei || !destination)
+		return false;
+	summary = eigrp_summary_match(eigrp, ei, destination);
+	if (!summary || !summary->leak_map)
+		return false;
+
+	/* A missing policy or evaluation failure fails closed: the configured
+	 * aggregate remains advertised, but no covered specific leaks. */
+	if (eigrp_sys_summary_leak_map_evaluate(eigrp, summary->leak_map,
+					       destination, &decision)
+	    != EIGRP_RESULT_SUCCESS)
+		return false;
+	return decision == EIGRP_FILTER_DECISION_PERMIT;
+}
+
 bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 			       const eigrp_prefix_descriptor_t *prefix,
 			       const eigrp_route_descriptor_t *route,
@@ -166,10 +217,13 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 	if (!eigrp || !ei || !prefix || !route || !summary_prefix || !summary_route)
 		return false;
 	summary = eigrp_summary_match(eigrp, ei, &prefix->destination);
-	if (!summary)
+	memset(summary_prefix, 0, sizeof(*summary_prefix));
+	if (summary)
+		summary_prefix->destination = summary->prefix;
+	else if (!eigrp_summary_auto_match(eigrp, ei, &prefix->destination,
+					  &summary_prefix->destination))
 		return false;
 
-	memset(summary_prefix, 0, sizeof(*summary_prefix));
 	memset(summary_route, 0, sizeof(*summary_route));
 	*summary_route = *route;
 	/* A summary represents the current aggregate, not whichever component
@@ -184,9 +238,9 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 			eigrp_prefix_descriptor_t *candidate = rn->info;
 			eigrp_route_descriptor_t *candidate_route;
 			if (!candidate
-			    || candidate->destination.address.afi != summary->prefix.address.afi
-			    || candidate->destination.prefix_length <= summary->prefix.prefix_length
-			    || !eigrp_prefix_address_match(&summary->prefix,
+			    || candidate->destination.address.afi != summary_prefix->destination.address.afi
+			    || candidate->destination.prefix_length <= summary_prefix->destination.prefix_length
+			    || !eigrp_prefix_address_match(&summary_prefix->destination,
 						   &candidate->destination.address))
 				continue;
 			candidate_route = eigrp_topology_route_read(candidate);
@@ -200,13 +254,12 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 		else
 			summary_route->metric.delay = EIGRP_MAX_METRIC;
 	}
-	summary_prefix->destination = summary->prefix;
 	summary_prefix->reported_metric = summary_route->metric;
 	summary_prefix->state = EIGRP_FSM_STATE_PASSIVE;
 	summary_route->prefix = summary_prefix;
-	summary_route->dest = summary->prefix;
+	summary_route->dest = summary_prefix->destination;
 
-	metric_config = eigrp_summary_metric_lookup(eigrp, &summary->prefix);
+	metric_config = eigrp_summary_metric_lookup(eigrp, &summary_prefix->destination);
 	if (metric_config && metric_config->metric_configured) {
 		eigrp_metric_values_convert(&metric_config->metric, &summary_route->metric);
 		summary_route->reported_metric = summary_route->metric;
@@ -276,7 +329,7 @@ static void eigrp_summary_withdraw(eigrp_instance_t *eigrp,
  *   Named: af-interface mode
  * Description:
  * Creates or removes manual EIGRP interface summarization state.
- * The common target retains configuration and applies manual summary advertisement at the portable packetizer boundary; leak-map selection remains capability-gated until portable leak policy is defined.
+ * The common target retains configuration and applies manual summary advertisement at the portable packetizer boundary; leak-map policy selectively permits covered specifics on that same packetization path.
  */
 eigrp_result_t eigrp_summary_create(
 	eigrp_intf_context_t *context, const eigrp_prefix_t *prefix,
@@ -293,8 +346,7 @@ eigrp_result_t eigrp_summary_create(
 	if (options && options->leak_map && !options->leak_map[0])
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (!context->config)
-		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-					: EIGRP_RESULT_NOT_FOUND;
+		return EIGRP_RESULT_NOT_FOUND;
 	if (options && options->leak_map) {
 		leak_map = strdup(options->leak_map);
 		if (!leak_map)
@@ -310,10 +362,9 @@ eigrp_result_t eigrp_summary_create(
 		summary->administrative_distance =
 			options ? options->administrative_distance : 0;
 		summary->leak_map = leak_map;
-		if (context->runtime && !summary->leak_map)
+		if (context->runtime)
 			eigrp_summary_runtime_update(context->runtime->eigrp);
-		return context->runtime && summary->leak_map
-			       ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_SUCCESS;
+		return EIGRP_RESULT_SUCCESS;
 	}
 
 	summary = calloc(1, sizeof(*summary));
@@ -326,10 +377,9 @@ eigrp_result_t eigrp_summary_create(
 	summary->leak_map = leak_map;
 	summary->next = context->config->summaries;
 	context->config->summaries = summary;
-	if (context->runtime && !summary->leak_map)
+	if (context->runtime)
 		eigrp_summary_runtime_update(context->runtime->eigrp);
-	return context->runtime && summary->leak_map
-		       ? EIGRP_RESULT_NOT_IMPLEMENTED : EIGRP_RESULT_SUCCESS;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -342,7 +392,7 @@ eigrp_result_t eigrp_summary_create(
  *   Named: af-interface mode
  * Description:
  * Creates or removes manual EIGRP interface summarization state.
- * The common target retains configuration and applies manual summary advertisement at the portable packetizer boundary; leak-map selection remains capability-gated until portable leak policy is defined.
+ * The common target retains configuration and applies manual summary advertisement at the portable packetizer boundary; leak-map policy selectively permits covered specifics on that same packetization path.
  */
 eigrp_result_t eigrp_summary_delete(
 	eigrp_intf_context_t *context, const eigrp_prefix_t *prefix)
@@ -356,8 +406,7 @@ eigrp_result_t eigrp_summary_delete(
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (!context->config)
-		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-					: EIGRP_RESULT_NOT_FOUND;
+		return EIGRP_RESULT_NOT_FOUND;
 
 	normalized = *prefix;
 	eigrp_summary_prefix_normalize(&normalized);
@@ -367,7 +416,7 @@ eigrp_result_t eigrp_summary_delete(
 		if (!eigrp_summary_prefix_match(&summary->prefix, &normalized))
 			continue;
 		*cursor = summary->next;
-		if (context->runtime && !summary->leak_map)
+		if (context->runtime)
 			eigrp_summary_withdraw(context->runtime->eigrp, &summary->prefix);
 		free(summary->leak_map);
 		free(summary);
@@ -437,8 +486,23 @@ eigrp_result_t eigrp_summary_auto_update(eigrp_operation_t operation, eigrp_inst
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 		state->auto_summary = enabled;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	if (context->runtime)
+		eigrp_summary_runtime_update(context->runtime);
+	return EIGRP_RESULT_SUCCESS;
+}
+
+void eigrp_summary_policy_update_all(void)
+{
+	eigrp_instance_t *runtime;
+	eigrp_list_item_t *node;
+
+	if (!eigrp_om || !eigrp_om->eigrp)
+		return;
+	for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp, node, runtime)) {
+		if (!runtime || !eigrp_instance_data_path_ready(runtime))
+			continue;
+		eigrp_summary_runtime_update(runtime);
+	}
 }
 
 

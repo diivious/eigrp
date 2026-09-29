@@ -22,6 +22,8 @@ void eigrp_redist_policy_update_all(void);
 eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation,
 	eigrp_instance_context_t *context,
 	const eigrp_prefix_limit_t *limit);
+bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
+	const eigrp_rib_source_route_t *route);
 void eigrp_redist_policy_delete_all(eigrp_af_instance_t *af);
 
 #endif /* EIGRPD_EIGRP_REDISTRIBUTE_H_ */

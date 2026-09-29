@@ -630,6 +630,7 @@ eigrp_result_t eigrp_zebra_route_install(
 		zapi_nexthop_init(api_nh);
 		api_nh->vrf_id = eigrp_instance_vrf_id(eigrp);
 		api_nh->ifindex = nexthop->ifindex;
+		api_nh->weight = nexthop->weight;
 		if (nexthop->gateway_present
 		    && nexthop->gateway.afi == EIGRP_AFI_IPV4) {
 			memcpy(&api_nh->gate.ipv4, nexthop->gateway.bytes,

@@ -132,8 +132,11 @@ static bool eigrp_packetizer_builder_start(eigrp_packetizer_builder_t *builder)
 	eigrp_packet_header_init(builder->opcode, builder->eigrp,
 				 builder->packet->s, builder->flags, sequence, 0);
 	if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-	    && builder->ei->params.auth_keychain != NULL)
+	    && eigrp_auth_material_available(builder->ei))
 		eigrp_auth_tlv_md5_encode(builder->packet->s, builder->ei);
+	else if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
+		 && eigrp_auth_material_available(builder->ei))
+		eigrp_auth_tlv_sha256_encode(builder->packet->s, builder->ei);
 
 	builder->packet->sequence_number = sequence;
 	builder->route_count = 0;
@@ -157,9 +160,11 @@ static void eigrp_packetizer_builder_flush(eigrp_packetizer_builder_t *builder)
 
 	length = (uint16_t)eigrp_stream_get_endp(packet->s);
 	if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-	    && builder->ei->params.auth_keychain != NULL)
-		eigrp_make_md5_digest(builder->ei, packet->s,
-				      EIGRP_AUTH_UPDATE_FLAG);
+	    && eigrp_auth_material_available(builder->ei))
+		eigrp_make_md5_digest(builder->ei, packet->s, EIGRP_AUTH_UPDATE_FLAG);
+	else if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
+		 && eigrp_auth_material_available(builder->ei))
+		eigrp_make_sha256_digest(builder->ei, packet->s, EIGRP_AUTH_UPDATE_FLAG);
 
 	eigrp_packet_checksum(builder->ei, packet->s, length);
 	packet->length = length;
@@ -322,8 +327,14 @@ static void eigrp_packetizer_intf_prefix_send(
 		if (eigrp_packetizer_prefix_allowed(eigrp, ei, wire_prefix, wire_route,
 						    work->opcode)
 		    && eigrp_packetizer_builder_route_add(&builder, wire_route) > 0
-	    && work->opcode == EIGRP_OPC_QUERY)
-		eigrp_packetizer_query_rij_add(work->prefix, ei);
+		    && work->opcode == EIGRP_OPC_QUERY)
+			eigrp_packetizer_query_rij_add(work->prefix, ei);
+		if (wire_prefix != work->prefix
+		    && eigrp_summary_specific_leak(eigrp, ei,
+					   &work->prefix->destination)
+		    && eigrp_packetizer_prefix_allowed(eigrp, ei, work->prefix, route,
+						       work->opcode))
+			(void)eigrp_packetizer_builder_route_add(&builder, route);
 	}
 	eigrp_packetizer_builder_flush(&builder);
 
@@ -394,6 +405,7 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 			eigrp_prefix_descriptor_t summary_prefix;
 			eigrp_route_descriptor_t summary_route;
 			bool summarized = false;
+			bool emit_summary = false;
 			bool owned;
 			size_t i;
 
@@ -419,12 +431,11 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 						      summary_prefix.destination.address.bytes,
 						      sizeof(summary_seen[i].address.bytes)) == 0)
 						break;
-				if (i != summary_seen_count) {
-					if (owned)
-						eigrp_topology_route_free(route);
-					continue;
-				}
-				if (summary_seen_count == summary_seen_capacity) {
+				if (i != summary_seen_count)
+					emit_summary = false;
+				else
+					emit_summary = true;
+				if (emit_summary && summary_seen_count == summary_seen_capacity) {
 					size_t capacity = summary_seen_capacity ? summary_seen_capacity * 2 : 4;
 					eigrp_prefix_t *grown = realloc(summary_seen, capacity * sizeof(*grown));
 					if (!grown) {
@@ -435,14 +446,22 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 					summary_seen = grown;
 					summary_seen_capacity = capacity;
 				}
+				if (emit_summary)
 				summary_seen[summary_seen_count++] = summary_prefix.destination;
 			}
 
-			if (eigrp_packetizer_prefix_allowed(eigrp, ei, wire_prefix, wire_route,
+			if ((!summarized || emit_summary)
+			    && eigrp_packetizer_prefix_allowed(eigrp, ei, wire_prefix, wire_route,
 							    work->opcode)
 			    && eigrp_packetizer_builder_route_add(&builder, wire_route) > 0
 			    && work->opcode == EIGRP_OPC_QUERY && !summarized)
 				eigrp_packetizer_query_rij_add(prefix, ei);
+
+			if (summarized
+			    && eigrp_summary_specific_leak(eigrp, ei, &prefix->destination)
+			    && eigrp_packetizer_prefix_allowed(eigrp, ei, prefix, route,
+						       work->opcode))
+				(void)eigrp_packetizer_builder_route_add(&builder, route);
 
 			if (owned)
 				eigrp_topology_route_free(route);

@@ -81,3 +81,29 @@ def test_design_spec_documents_active_state_freeze_rule():
     assert "DUAL FSM Active-State Invariant" in spec
     assert "successor selection, Feasible Distance, destination reported distance" in spec_words
     assert "While Active" in spec
+
+
+def test_active_query_origin_is_retained_for_deferred_reply_without_successor_lookup():
+    source = read(FSM)
+    structs = read(ROOT / "eigrpd" / "code" / "eigrp_structs.h")
+    topology = read(ROOT / "eigrpd" / "code" / "eigrp_topology.c")
+
+    assert "eigrp_nbr_t *query_origin" in structs
+
+    q_fcn = source[source.rindex("int eigrp_fsm_event_q_fcn("):source.rindex("int eigrp_fsm_event_keep_state(")]
+    qact = source[source.rindex("int eigrp_fsm_event_qact("):]
+    lr = source[source.rindex("int eigrp_fsm_event_lr("):source.rindex("int eigrp_fsm_event_dinc(")]
+    lr_fcs = source[source.rindex("int eigrp_fsm_event_lr_fcs("):source.rindex("int eigrp_fsm_event_lr_fcn(")]
+
+    assert "prefix->query_origin = msg->adv_router;" in q_fcn
+    assert "msg->prefix->query_origin = msg->adv_router;" in qact
+
+    for body in (lr, lr_fcs):
+        assert "eigrp_topology_successors_read" not in body
+        assert "assert(successors)" not in body
+        assert "prefix->query_origin" in body
+        assert "eigrp_reply_send(eigrp, prefix->query_origin, prefix);" in body
+        assert "prefix->query_origin = NULL;" in body
+
+    assert "if (pe->query_origin == nbr)" in topology
+    assert "pe->query_origin = NULL;" in topology

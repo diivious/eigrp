@@ -69,6 +69,7 @@ extern eigrp_list_t *eigrp_nbr_prefixes_lookup(eigrp_instance_t *eigrp,
 						   eigrp_nbr_t *n);
 extern void eigrp_topology_update_all_node_flags(eigrp_instance_t *eigrp);
 void eigrp_topology_multipath_update(eigrp_instance_t *eigrp);
+void eigrp_topology_traffic_share_update(eigrp_instance_t *eigrp);
 void eigrp_topology_metric_update(eigrp_instance_t *eigrp);
 extern void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
 					     eigrp_prefix_descriptor_t *pe);
@@ -148,6 +149,11 @@ eigrp_result_t eigrp_topology_default_information_update(eigrp_operation_t opera
 	eigrp_instance_context_t *context,
 	eigrp_default_information_direction_t direction,
 	const char *access_list);
+bool eigrp_topology_default_information_denies(
+	eigrp_instance_t *eigrp, eigrp_default_information_direction_t direction,
+	const eigrp_prefix_t *prefix);
+bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
+	const eigrp_prefix_t *prefix);
 eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation,
 	eigrp_instance_context_t *context,
 	const eigrp_prefix_limit_t *limit);

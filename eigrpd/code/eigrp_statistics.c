@@ -22,12 +22,8 @@ eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (!context->runtime) {
-		if (context->config
-		    && context->config->afi == EIGRP_AFI_IPV6)
-			return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (!context->runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	}
 	if (!context->runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 	return EIGRP_RESULT_SUCCESS;

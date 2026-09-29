@@ -38,6 +38,7 @@ typedef struct eigrp_metric_config eigrp_metric_config_t;
 typedef struct eigrp_summary_state eigrp_summary_state_t;
 typedef struct eigrp_timer_config eigrp_timer_config_t;
 typedef struct eigrp_nbr_policy_state eigrp_nbr_policy_state_t;
+typedef struct eigrp_nbr_warning_state eigrp_nbr_warning_state_t;
 typedef struct eigrp_redist_policy_config eigrp_redist_policy_config_t;
 
 // basic packet processor definitions

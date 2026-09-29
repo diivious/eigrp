@@ -399,7 +399,7 @@ def test_topology_show_places_optional_as_after_topology_keyword():
 
     assert (
         '"show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] '
-        '[multicast] topology [(1-65535)$as] [all-links]$all"'
+        'topology [(1-65535)$as] [all-links]$all"'
         in named
     )
     assert (
@@ -407,10 +407,11 @@ def test_topology_show_places_optional_as_after_topology_keyword():
         '[all-links$all]"'
         in classic
     )
-    assert "[(1-65535)$as] [multicast] topology" not in named[
+    topology_region = named[
         named.index("DEFPY(show_eigrp_topology_all,"):
         named.index("struct eigrp_vty_accounting_show")
     ]
+    assert "[multicast]" not in topology_region
 
 
 def test_topology_show_uses_common_runtime_instance_walk():

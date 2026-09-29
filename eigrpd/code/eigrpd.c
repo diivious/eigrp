@@ -314,7 +314,7 @@ static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
 		free(eigrp);
 		return NULL;
 	}
-	eigrp->vrid = 0;
+	eigrp->vrid = EIGRP_VRID_AF_BASE;
 	eigrp->AS = as;
 	eigrp->router_id.s_addr = INADDR_ANY;
 	eigrp->router_id_static.s_addr = INADDR_ANY;
@@ -338,6 +338,7 @@ static eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as,
 	eigrp->oi_write_q = eigrp_list_create();
 	eigrp->topology_table = eigrp_topology_table_create();
 	eigrp->variance = EIGRP_VARIANCE_DEFAULT;
+	eigrp->traffic_share_balanced = true;
 	eigrp->max_paths = EIGRP_MAX_PATHS_DEFAULT;
 	eigrp->max_hops = EIGRP_MAX_HOPS;
 	eigrp->distance_internal = EIGRP_DISTANCE_INTERNAL_DEFAULT;
@@ -520,5 +521,6 @@ void eigrp_instance_delete_final(eigrp_instance_t *eigrp)
 	eigrp_sys_policy_instance_delete(eigrp);
 	eigrp_rib_instance_delete(eigrp);
 	eigrp_filter_runtime_state_clear(&eigrp->filter);
+	eigrp_nbr_warning_state_clear(eigrp);
 	free(eigrp);
 }

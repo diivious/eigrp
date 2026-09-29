@@ -105,13 +105,49 @@ def test_keychain_replacement_is_atomic_across_retained_and_runtime_state():
     assert "free(config_copy);" in update
 
 
-def test_named_hmac_direct_password_remains_explicitly_not_implemented_at_runtime():
+def test_named_hmac_direct_password_binds_plaintext_runtime_key_material():
     auth = read(AUTH_C)
     update = function_body(auth, "eigrp_auth_mode_update")
 
-    assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config" in update
-    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in update
+    assert "runtime_password = eigrp_auth_string_dup(hmac->password)" in update
+    assert "context->runtime->params.auth_password = runtime_password;" in update
     assert "EIGRP_AUTH_TYPE_SHA256" in update
+    assert "hmac->encryption_type == 7" in update
+    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in update
+
+
+def test_hmac_packet_path_encodes_and_validates_sha256_digest():
+    auth = read(AUTH_C)
+    packet = read(ROOT / "eigrpd" / "code" / "eigrp_packet.c")
+    packetizer = read(ROOT / "eigrpd" / "code" / "eigrp_packetizer.c")
+
+    make = function_body(auth, "eigrp_make_sha256_digest")
+    check = function_body(auth, "eigrp_check_sha256_digest")
+    assert "eigrp_hmac_sha256_update(&ctx, s->data, backup_end)" in make
+    assert "memset(auth_tlv->digest, 0" in make
+    assert "memcmp(original, digest" in check
+    assert "nbr->crypt_seqnum = authTLV->key_sequence" in check
+    assert "eigrp_check_sha256_digest" in packet
+    assert "eigrp_auth_tlv_sha256_encode" in packetizer
+    assert "eigrp_make_sha256_digest" in packetizer
+
+
+def test_hmac_reset_and_mode_transition_clear_runtime_secret():
+    auth = read(AUTH_C)
+    update = function_body(auth, "eigrp_auth_mode_update")
+
+    assert update.count("memset(context->runtime->params.auth_password, 0") >= 2
+    assert update.count("free(context->runtime->params.auth_password)") >= 2
+    assert "context->runtime->params.auth_password = NULL;" in update
+
+
+def test_hmac_receive_path_rejects_malformed_auth_tlv_shape():
+    auth = read(AUTH_C)
+    check = function_body(auth, "eigrp_check_sha256_digest")
+
+    assert "ntohs(authTLV->length) != EIGRP_AUTH_SHA256_TLV_SIZE" in check
+    assert "ntohs(authTLV->auth_length) != EIGRP_AUTH_TYPE_SHA256_LEN" in check
+    assert "ntohs(authTLV->auth_type) != EIGRP_AUTH_TYPE_SHA256" in check
 
 
 def test_classic_authentication_converges_on_common_eigrp_targets():

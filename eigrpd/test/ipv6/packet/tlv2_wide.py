@@ -225,6 +225,7 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
                 decoded = codec->decoder(eigrp, nbr, stream, (uint16_t)stream->endp);
                 assert(decoded != NULL);
                 assert(decoded->type == (external ? EIGRP_TLV_IPv6_EXT : EIGRP_TLV_IPv6_INT));
+                assert(decoded->topology_id == EIGRP_TOPOLOGY_ID_BASE);
                 assert(decoded->nexthop.afi == AF_INET6);
                 assert(memcmp(&decoded->nexthop.ip.v6, &route.nexthop.ip.v6, 16) == 0);
                 assert(decoded->dest.address.afi == EIGRP_AFI_IPV6);
@@ -308,6 +309,16 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
                 route_set(&route, false, 64);
                 assert(codec.encoder(&eigrp, &interface, &neighbor, valid, &route) == 72);
                 valid->data[37] = 13;
+                assert(codec.decoder(&eigrp, &neighbor, valid, (uint16_t)valid->endp) == NULL);
+                assert(valid->getp == valid->endp);
+                eigrp_stream_free(valid);
+
+                /* A non-default TID belongs to unsupported MTR and must be discarded. */
+                valid = eigrp_stream_create(128);
+                assert(valid != NULL);
+                route_set(&route, false, 64);
+                assert(codec.encoder(&eigrp, &interface, &neighbor, valid, &route) == 72);
+                valid->data[7] = 1;
                 assert(codec.decoder(&eigrp, &neighbor, valid, (uint16_t)valid->endp) == NULL);
                 assert(valid->getp == valid->endp);
                 eigrp_stream_free(valid);

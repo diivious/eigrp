@@ -48,6 +48,7 @@ static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
 					     uint16_t length);
 static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 					     eigrp_nbr_t *nbr,
+					     const eigrp_addr_t *source,
 					     struct eigrp_header *eigrph,
 					     uint16_t length);
 
@@ -573,7 +574,7 @@ void eigrp_packet_read(void *arg)
 	 */
 	nbr = eigrp_nbr_lookup(ei, eigrph, &src);
 	if (opcode == EIGRP_OPC_HELLO) {
-		if (eigrp_packet_auth_digest_validate(ei, nbr, eigrph, length) < 0)
+		if (eigrp_packet_auth_digest_validate(ei, nbr, &src, eigrph, length) < 0)
 			return;
 
 		eigrp_packet_receive_stats_update(ei, eigrph);
@@ -593,7 +594,7 @@ void eigrp_packet_read(void *arg)
 	if (!nbr)
 		return;
 
-	if (eigrp_packet_auth_digest_validate(ei, nbr, eigrph, length) < 0)
+	if (eigrp_packet_auth_digest_validate(ei, nbr, &src, eigrph, length) < 0)
 		return;
 
 	/* RFC 7868 section 5.3.1 refreshes the neighbor hold timer on any
@@ -763,9 +764,13 @@ bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *eigrp,
 		header->flags = htonl(ntohl(header->flags) | EIGRP_CR_FLAG);
 		header->checksum = 0;
 		if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-		    && ei->params.auth_keychain != NULL)
+		    && eigrp_auth_material_available(ei))
 			eigrp_make_md5_digest(ei, packet->s,
 					      EIGRP_AUTH_UPDATE_FLAG);
+		else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
+			 && eigrp_auth_material_available(ei))
+			eigrp_make_sha256_digest(ei, packet->s,
+					 EIGRP_AUTH_UPDATE_FLAG);
 		header->checksum = 0;
 		eigrp_packet_checksum(ei, packet->s, packet->length);
 
@@ -1059,8 +1064,8 @@ static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
 		return 0;
 	}
 
-	if (!ei->params.auth_keychain) {
-		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication configured without keychain",
+	if (!eigrp_auth_material_available(ei)) {
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication configured without key material",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}
@@ -1094,6 +1099,7 @@ static uint8_t eigrp_packet_auth_flags(struct eigrp_header *eigrph)
 
 static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 					     eigrp_nbr_t *nbr,
+					     const eigrp_addr_t *source,
 					     struct eigrp_header *eigrph,
 					     uint16_t length)
 {
@@ -1110,33 +1116,38 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 	if (ret < 0 || !auth_tlv || !auth_first)
 		return -1;
 
-	if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256) {
-		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP SHA256 authentication receive validation is not implemented",
-			  eigrp_intf_name_string(ei));
-		return -1;
-	}
-
-	if (ei->params.auth_type != EIGRP_AUTH_TYPE_MD5)
+	if (ei->params.auth_type != EIGRP_AUTH_TYPE_MD5
+	    && ei->params.auth_type != EIGRP_AUTH_TYPE_SHA256)
 		return -1;
 
 	memset(&tmp_nbr, 0, sizeof(tmp_nbr));
 	if (!nbr) {
+		if (!source)
+			return -1;
 		tmp_nbr.ei = ei;
+		tmp_nbr.src = *source;
 		nbr = &tmp_nbr;
 	}
 
 	auth_stream = eigrp_stream_create(length);
 	eigrp_stream_put(auth_stream, eigrph, length);
 
-	ret = eigrp_check_md5_digest(
-		auth_stream,
-		(struct TLV_MD5_Authentication_Type *)(eigrp_stream_data(auth_stream)
+	if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
+		ret = eigrp_check_sha256_digest(
+			auth_stream,
+			(struct TLV_SHA256_Authentication_Type *)(eigrp_stream_data(auth_stream)
+							      + EIGRP_HEADER_LEN),
+			nbr, eigrp_packet_auth_flags(eigrph));
+	else
+		ret = eigrp_check_md5_digest(
+			auth_stream,
+			(struct TLV_MD5_Authentication_Type *)(eigrp_stream_data(auth_stream)
 							   + EIGRP_HEADER_LEN),
-		nbr, eigrp_packet_auth_flags(eigrph));
+			nbr, eigrp_packet_auth_flags(eigrph));
 
 	eigrp_stream_free(auth_stream);
 	if (!ret) {
-		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP MD5 authentication failed",
+		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication failed",
 			  eigrp_intf_name_string(ei));
 		return -1;
 	}

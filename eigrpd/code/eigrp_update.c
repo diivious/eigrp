@@ -244,6 +244,12 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					eigrp_prefix_descriptor_lookup(prefix, nbr);
 				bool free_received_route = false;
 
+				if (!topology_route
+				    && !eigrp_nbr_prefix_admit(eigrp, nbr, &received_route->dest)) {
+					eigrp_topology_route_free(received_route);
+					continue;
+				}
+
 				if (topology_route) {
 					topology_route->type = received_route->type;
 					topology_route->nexthop = received_route->nexthop;
@@ -280,7 +286,14 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					eigrp_topology_route_free(received_route);
 
 			} else {
-				/*Here comes topology information save*/
+				/* Enforce neighbor and topology limits only for a genuinely new
+				 * accepted destination/path. Duplicate UPDATEs do not consume
+				 * another prefix slot. */
+				if (!eigrp_nbr_prefix_admit(eigrp, nbr, &route->dest)
+				    || !eigrp_topology_prefix_admit(eigrp, &route->dest)) {
+					eigrp_topology_route_free(route);
+					continue;
+				}
 				prefix = eigrp_topology_prefix_create();
 				prefix->serno = eigrp->serno;
 				prefix->destination = route->dest;
@@ -374,8 +387,11 @@ static eigrp_packet_t *eigrp_update_neighbor_packet_create(eigrp_nbr_t *nbr,
 	eigrp_packet_header_init(EIGRP_OPC_UPDATE, eigrp, packet->s, flags,
 				 sequence, nbr->recv_sequence_number);
 	if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-	    && ei->params.auth_keychain != NULL)
+	    && eigrp_auth_material_available(ei))
 		eigrp_auth_tlv_md5_encode(packet->s, ei);
+	else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
+		 && eigrp_auth_material_available(ei))
+		eigrp_auth_tlv_sha256_encode(packet->s, ei);
 
 	packet->sequence_number = sequence;
 	eigrp_addr_cpy(&packet->dst, &nbr->src);
@@ -403,8 +419,11 @@ static void eigrp_update_neighbor_packet_queue(eigrp_nbr_t *nbr,
 			     : EIGRP_AUTH_UPDATE_FLAG;
 	length = (uint16_t)eigrp_stream_get_endp(packet->s);
 	if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-	    && ei->params.auth_keychain != NULL)
+	    && eigrp_auth_material_available(ei))
 		eigrp_make_md5_digest(ei, packet->s, auth_flags);
+	else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
+		 && eigrp_auth_material_available(ei))
+		eigrp_make_sha256_digest(ei, packet->s, auth_flags);
 
 	eigrp_packet_checksum(ei, packet->s, length);
 	packet->length = length;
@@ -474,10 +493,15 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 			eigrp_route_descriptor_t summary_route;
 			eigrp_prefix_descriptor_t *wire_prefix = prefix;
 			eigrp_route_descriptor_t *selected_route = route;
+			bool summarized = false;
+			bool leak_specific = false;
 			size_t i;
 
 			if (eigrp_summary_route_build(eigrp, ei, prefix, route,
 					      &summary_prefix, &summary_route)) {
+				summarized = true;
+				leak_specific = eigrp_summary_specific_leak(
+					eigrp, ei, &prefix->destination);
 				wire_prefix = &summary_prefix;
 				selected_route = &summary_route;
 				for (i = 0; i < summary_seen_count; i++)
@@ -486,8 +510,13 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					    && memcmp(summary_seen[i].address.bytes, summary_prefix.destination.address.bytes,
 						      sizeof(summary_seen[i].address.bytes)) == 0)
 						break;
-				if (i != summary_seen_count)
-					continue;
+				if (i != summary_seen_count) {
+					if (!leak_specific)
+						continue;
+					summarized = false;
+					wire_prefix = prefix;
+					selected_route = route;
+				}
 				if (summary_seen_count == summary_seen_capacity) {
 					size_t capacity = summary_seen_capacity ? summary_seen_capacity * 2 : 4;
 					eigrp_prefix_t *grown = realloc(summary_seen, capacity * sizeof(*grown));
@@ -496,7 +525,8 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					summary_seen = grown;
 					summary_seen_capacity = capacity;
 				}
-				summary_seen[summary_seen_count++] = summary_prefix.destination;
+				if (summarized)
+					summary_seen[summary_seen_count++] = summary_prefix.destination;
 			}
 
 			if (eigrp_nbr_split_horizon(selected_route, ei)
@@ -528,6 +558,36 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 			else if (encoded < 0)
 				eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 					  ei->name, packet_limit);
+
+			if (summarized && leak_specific
+			    && !eigrp_nbr_split_horizon(route, ei)
+			    && !eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
+						   &prefix->destination)) {
+				eigrp_route_descriptor_t leak_route = *route;
+				eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
+						  &prefix->destination, &leak_route.metric);
+				encoded = eigrp_packet_route_encode_append(
+					eigrp, ei, nbr, nbr->encoder, packet->s, &leak_route,
+					packet_limit);
+				if (encoded < 0 && route_count) {
+					eigrp_update_neighbor_packet_queue(nbr, packet);
+					packet = eigrp_update_neighbor_packet_create(nbr, 0);
+					if (!packet) {
+						free(summary_seen);
+						return;
+					}
+					route_count = 0;
+					encoded = eigrp_packet_route_encode_append(
+						eigrp, ei, nbr, nbr->encoder, packet->s, &leak_route,
+						packet_limit);
+				}
+				if (encoded > 0)
+					route_count++;
+				else if (encoded < 0)
+					eigrp_log(EIGRP_LOG_WARNING,
+						  "interface %s: EIGRP route TLV exceeds packet limit %u",
+						  ei->name, packet_limit);
+			}
 			}
 		}
 	}

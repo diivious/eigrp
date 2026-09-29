@@ -5,11 +5,15 @@
  * Copyright (C) 2026 Donnie V. Savage
  */
 
+#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "eigrp_redistribute.h"
+#include "eigrp_structs.h"
+#include "eigrp_table.h"
 #include "eigrp_rib.h"
+#include "eigrp_topology.h"
 #include "eigrpd.h"
 
 eigrp_result_t eigrp_topology_redistributed_route_update(
@@ -269,6 +273,58 @@ eigrp_result_t eigrp_redist_remove(
 	return result;
 }
 
+static uint32_t eigrp_redist_prefix_count(eigrp_instance_t *runtime)
+{
+	eigrp_table_node_t *node;
+	eigrp_prefix_descriptor_t *prefix;
+	eigrp_list_item_t *item;
+	eigrp_route_descriptor_t *route;
+	uint32_t count = 0;
+
+	if (!runtime || !runtime->topology_table || !runtime->neighbor_self)
+		return 0;
+	for (node = eigrp_table_first(runtime->topology_table); node;
+	     node = eigrp_table_next(node)) {
+		prefix = node->info;
+		if (!prefix)
+			continue;
+		for (EIGRP_LIST_ITERATE_RO(prefix->external_routes, item, route)) {
+			if (route->adv_router == runtime->neighbor_self) {
+				count++;
+				break;
+			}
+		}
+	}
+	return count;
+}
+
+bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
+	const eigrp_rib_source_route_t *route)
+{
+	eigrp_af_instance_t *af;
+	eigrp_prefix_descriptor_t *prefix;
+	const eigrp_prefix_limit_t *limit;
+
+	if (!runtime || !route)
+		return false;
+	af = eigrp_instance_runtime_config(runtime);
+	if (!af || !af->redistribute_policy
+	    || !af->redistribute_policy->maximum_prefix_configured)
+		return true;
+	prefix = eigrp_topology_table_lookup(runtime->topology_table, &route->prefix);
+	if (prefix && eigrp_prefix_descriptor_lookup(prefix, runtime->neighbor_self))
+		return true;
+	limit = &af->redistribute_policy->maximum_prefix;
+	{
+		uint32_t count = eigrp_redist_prefix_count(runtime);
+		if (eigrp_prefix_limit_threshold_crossed(limit, count))
+			eigrp_log(EIGRP_LOG_WARNING,
+				  "EIGRP redistribution maximum-prefix threshold reached (%u/%u)",
+				  count + 1U, limit->maximum);
+		return eigrp_prefix_limit_allows(limit, count, false);
+	}
+}
+
 static eigrp_result_t eigrp_redist_source_route_receive(
 	eigrp_instance_t *runtime, const eigrp_rib_source_route_t *route,
 	bool importing)
@@ -305,6 +361,9 @@ static eigrp_result_t eigrp_redist_source_route_receive(
 	if (eigrp_redist_metric_select(af, config, route, &metric)
 	    == EIGRP_REDISTRIBUTE_METRIC_NONE)
 		return EIGRP_RESULT_SUCCESS;
+	if (!eigrp_redist_prefix_admit(runtime, route)
+	    || !eigrp_topology_prefix_admit(runtime, &route->prefix))
+		return EIGRP_RESULT_CONFLICT;
 	return eigrp_topology_redistributed_route_update(runtime, route, &metric);
 }
 
@@ -373,7 +432,7 @@ void eigrp_redist_policy_update_all(void)
  *   Named: topology base mode
  * Description:
  * Sets or removes the redistribution prefix-limit policy.
- * Retained configuration stays here while enforcement remains a structured NOT_IMPLEMENTED runtime path.
+ * Retained configuration stays here while supported runtime limit semantics are enforced.
  */
 eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
@@ -385,8 +444,7 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
 		memset(&context->config->redistribute_policy->maximum_prefix, 0,
 		       sizeof(context->config->redistribute_policy->maximum_prefix));
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	return EIGRP_RESULT_SUCCESS;
 	}
 
 	if (operation != EIGRP_SET)
@@ -406,8 +464,9 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
 		context->config->redistribute_policy->maximum_prefix = *limit;
 		context->config->redistribute_policy->maximum_prefix_configured = true;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	return context->runtime && (limit->dampened || limit->reset_time_minutes
+		|| limit->restart_minutes || limit->restart_count)
+		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -418,7 +477,7 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
  *   Named: topology base mode
  * Description:
  * Sets or removes the redistribution prefix-limit policy.
- * Retained configuration stays here while enforcement remains a structured NOT_IMPLEMENTED runtime path.
+ * Retained configuration stays here while supported runtime limit semantics are enforced.
  */
 
 

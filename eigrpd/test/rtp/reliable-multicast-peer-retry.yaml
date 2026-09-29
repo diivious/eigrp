@@ -2,10 +2,11 @@ schema: eigrp-uut-test/v1
 topology: three-router-shared.yaml
 name: rtp-reliable-multicast-peer-retry
 steps:
- - fault-add: {name: lose-ack, action: drop, source_uut: r1, destination_uut: r2, ack: 1, count: 2}
+ - start: all
+ - validate-convergence: {timeout: 5, expect: [{neighbor: {uut: r2, neighbor: 10.0.0.1, state: up}}, {neighbor: {uut: r2, neighbor: 10.0.0.3, state: up}}, {route: {uut: r2, prefix: 10.1.0.0/24, table: rib}}]}
+ - fault-add: {name: isolate-r1-r2, action: drop, source_uut: r1, destination_uut: r2}
  - fault-add: {name: lose-query-r3, action: drop, source_uut: r2, destination_uut: r3, multicast: true, opcode: query, count: 1}
  - packet-mark: m
- - start: all
- - validate-packet: {since: m, source_uut: r2, opcode: query, multicast: true, event: sent, min: 1, timeout: 8}
- - validate-fault: {name: lose-query-r3, hits: 1, remaining: 0, timeout: 8}
- - validate-retransmission: {since: m, source_uut: r2, destination_uut: r3, opcode: query, timeout: 8}
+ - validate-packet: {since: m, source_uut: r2, opcode: query, multicast: true, event: sent, min: 1, timeout: 20}
+ - validate-fault: {name: lose-query-r3, hits: 1, remaining: 0, timeout: 5}
+ - validate-retransmission: {since: m, source_uut: r2, destination_uut: r3, opcode: query, timeout: 5}

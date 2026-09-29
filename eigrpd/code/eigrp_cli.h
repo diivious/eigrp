@@ -215,9 +215,6 @@ eigrp_result_t eigrp_traffic_share_balanced_update(eigrp_operation_t operation,
 eigrp_result_t eigrp_metric_maximum_hops_update(eigrp_operation_t operation,
 	eigrp_instance_context_t *context,
 	uint8_t maximum_hops);
-eigrp_result_t eigrp_metric_holddown_update(eigrp_operation_t operation,
-	eigrp_instance_context_t *context,
-	bool enabled);
 eigrp_result_t eigrp_metric_version_update(eigrp_operation_t operation,
 	eigrp_instance_context_t *context);
 eigrp_result_t eigrp_topology_create(eigrp_instance_context_t *context);

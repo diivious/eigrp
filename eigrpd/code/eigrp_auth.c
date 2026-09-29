@@ -17,6 +17,56 @@
 #include "eigrp_rib.h"
 static unsigned char zeropad[16] = {0};
 
+bool eigrp_auth_material_available(const eigrp_intf_t *ei)
+{
+	return ei && (ei->params.auth_password || ei->params.auth_keychain);
+}
+
+static bool eigrp_auth_key_get(eigrp_intf_t *ei, uint32_t *key_id,
+			       char *key, size_t key_size)
+{
+	if (!ei || !key || key_size == 0)
+		return false;
+
+	if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
+	    && ei->params.auth_password) {
+		size_t len = strlen(ei->params.auth_password);
+		if (len >= key_size)
+			return false;
+		memcpy(key, ei->params.auth_password, len + 1);
+		if (key_id)
+			*key_id = 0;
+		return true;
+	}
+
+	return ei->params.auth_keychain
+	       && eigrp_sys_auth_key_lookup(ei->params.auth_keychain, key_id,
+					    key, key_size);
+}
+
+static bool eigrp_auth_sha256_source(eigrp_intf_t *ei, eigrp_nbr_t *nbr,
+				     char *text, size_t text_size)
+{
+	const void *address;
+	int af;
+
+	if (nbr) {
+		af = nbr->src.afi;
+		address = af == AF_INET6 ? (const void *)&nbr->src.ip.v6
+					 : (const void *)&nbr->src.ip.v4;
+	} else if (ei && ei->address.address.afi == EIGRP_AFI_IPV6) {
+		af = AF_INET6;
+		address = ei->address.address.bytes;
+	} else if (ei) {
+		af = AF_INET;
+		address = ei->address.address.bytes;
+	} else {
+		return false;
+	}
+
+	return inet_ntop(af, address, text, text_size) != NULL;
+}
+
 int eigrp_make_md5_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
 			  uint8_t flags)
 {
@@ -39,8 +89,7 @@ int eigrp_make_md5_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
 	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_MD5_TLV_SIZE);
 	eigrp_stream_set_getp(s, backup_get);
 
-	if (!eigrp_sys_auth_key_lookup(ei->params.auth_keychain, &key_id,
-	                                       key_string, sizeof(key_string))) {
+	if (!eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		eigrp_auth_tlv_md5_delete(auth_TLV);
 		return EIGRP_AUTH_TYPE_NONE;
 	}
@@ -121,8 +170,7 @@ int eigrp_check_md5_digest(eigrp_stream_t *s,
 	ibuf = s->data;
 	backup_end = s->endp;
 
-	if (!eigrp_sys_auth_key_lookup(nbr->ei->params.auth_keychain, &key_id,
-	                                       key_string, sizeof(key_string))) {
+	if (!eigrp_auth_key_get(nbr->ei, &key_id, key_string, sizeof(key_string))) {
 		eigrp_log(EIGRP_LOG_WARNING,
 			"Interface %s: Expected key value not found in config",
 			nbr->ei->name);
@@ -181,56 +229,52 @@ int eigrp_make_sha256_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
 {
 	char key_string[PLAINTEXT_LENGTH + 1] = {0};
 	uint32_t key_id = 0;
-	char source_ip[INET_ADDRSTRLEN];
-
+	char source_ip[INET6_ADDRSTRLEN] = {0};
 	unsigned char digest[EIGRP_AUTH_TYPE_SHA256_LEN];
-	unsigned char buffer[1 + PLAINTEXT_LENGTH + 45 + 1] = {0};
-
+	unsigned char key_buffer[1 + PLAINTEXT_LENGTH + INET6_ADDRSTRLEN] = {0};
 	eigrp_hmac_sha256_ctx_t ctx;
-	void *ibuf;
-	size_t backup_get, backup_end;
-	struct TLV_SHA256_Authentication_Type *auth_TLV;
+	size_t backup_get, backup_end, key_len;
+	struct TLV_SHA256_Authentication_Type *auth_tlv;
 
-	ibuf = s->data;
+	(void)flags;
+	if (!ei || !s || s->endp < EIGRP_HEADER_LEN + EIGRP_AUTH_SHA256_TLV_SIZE)
+		return 0;
 	backup_end = s->endp;
 	backup_get = s->getp;
-
-	auth_TLV = eigrp_auth_tlv_sha256_create();
+	auth_tlv = eigrp_auth_tlv_sha256_create();
+	if (!auth_tlv)
+		return 0;
 
 	eigrp_stream_set_getp(s, EIGRP_HEADER_LEN);
-	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_SHA256_TLV_SIZE);
+	eigrp_stream_get(auth_tlv, s, EIGRP_AUTH_SHA256_TLV_SIZE);
 	eigrp_stream_set_getp(s, backup_get);
-
-	if (!eigrp_sys_auth_key_lookup(ei->params.auth_keychain, &key_id,
-	                                       key_string, sizeof(key_string))) {
-		eigrp_log(EIGRP_LOG_WARNING,
-			"Interface %s: Expected key value not found in config",
-			ei->name);
-		eigrp_auth_tlv_sha256_delete(auth_TLV);
+	if (!eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))
+	    || !eigrp_auth_sha256_source(ei, NULL, source_ip, sizeof(source_ip))) {
+		eigrp_auth_tlv_sha256_delete(auth_tlv);
 		return 0;
 	}
 
-	inet_ntop(AF_INET, ei->address.address.bytes, source_ip, sizeof(source_ip));
-
-	memset(&ctx, 0, sizeof(ctx));
-	buffer[0] = '\n';
-	memcpy(buffer + 1, key_string, strlen(key_string));
-	memcpy(buffer + 1 + strlen(key_string), source_ip, strlen(source_ip));
-	eigrp_hmac_sha256_init(&ctx, buffer,
-			  1 + strlen(key_string) + strlen(source_ip));
-	eigrp_hmac_sha256_update(&ctx, ibuf, strlen(ibuf));
-	eigrp_hmac_sha256_final(digest, &ctx);
-
-
-	/* Put hmac-sha256 digest to it's place */
-	memcpy(auth_TLV->digest, digest, EIGRP_AUTH_TYPE_SHA256_LEN);
-
+	memset(auth_tlv->digest, 0, sizeof(auth_tlv->digest));
 	eigrp_stream_set_endp(s, EIGRP_HEADER_LEN);
-	eigrp_stream_put(s, auth_TLV, EIGRP_AUTH_SHA256_TLV_SIZE);
+	eigrp_stream_put(s, auth_tlv, EIGRP_AUTH_SHA256_TLV_SIZE);
 	eigrp_stream_set_endp(s, backup_end);
 
-	eigrp_auth_tlv_sha256_delete(auth_TLV);
+	key_buffer[0] = '\n';
+	key_len = strlen(key_string);
+	memcpy(key_buffer + 1, key_string, key_len);
+	memcpy(key_buffer + 1 + key_len, source_ip, strlen(source_ip));
+	eigrp_hmac_sha256_init(&ctx, key_buffer,
+			       1 + key_len + strlen(source_ip));
+	eigrp_hmac_sha256_update(&ctx, s->data, backup_end);
+	eigrp_hmac_sha256_final(digest, &ctx);
 
+	memcpy(auth_tlv->digest, digest, sizeof(digest));
+	eigrp_stream_set_endp(s, EIGRP_HEADER_LEN);
+	eigrp_stream_put(s, auth_tlv, EIGRP_AUTH_SHA256_TLV_SIZE);
+	eigrp_stream_set_endp(s, backup_end);
+	eigrp_auth_tlv_sha256_delete(auth_tlv);
+	memset(key_string, 0, sizeof(key_string));
+	memset(key_buffer, 0, sizeof(key_buffer));
 	return EIGRP_AUTH_TYPE_SHA256_LEN;
 }
 
@@ -238,7 +282,56 @@ int eigrp_check_sha256_digest(eigrp_stream_t *s,
 			      struct TLV_SHA256_Authentication_Type *authTLV,
 			      eigrp_nbr_t *nbr, uint8_t flags)
 {
-	return 1;
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	char source_ip[INET6_ADDRSTRLEN] = {0};
+	unsigned char digest[EIGRP_AUTH_TYPE_SHA256_LEN];
+	unsigned char original[EIGRP_AUTH_TYPE_SHA256_LEN];
+	unsigned char key_buffer[1 + PLAINTEXT_LENGTH + INET6_ADDRSTRLEN] = {0};
+	eigrp_hmac_sha256_ctx_t ctx;
+	struct eigrp_header *header;
+	uint32_t key_id = 0;
+	uint16_t saved_checksum;
+	size_t key_len;
+	int valid;
+
+	(void)flags;
+	if (!s || !authTLV || !nbr || !nbr->ei
+	    || s->endp < EIGRP_HEADER_LEN + EIGRP_AUTH_SHA256_TLV_SIZE)
+		return 0;
+	if (ntohs(authTLV->type) != EIGRP_TLV_AUTH
+	    || ntohs(authTLV->length) != EIGRP_AUTH_SHA256_TLV_SIZE
+	    || ntohs(authTLV->auth_type) != EIGRP_AUTH_TYPE_SHA256
+	    || ntohs(authTLV->auth_length) != EIGRP_AUTH_TYPE_SHA256_LEN)
+		return 0;
+	if (ntohl(nbr->crypt_seqnum) > ntohl(authTLV->key_sequence))
+		return 0;
+	if (!eigrp_auth_key_get(nbr->ei, &key_id, key_string, sizeof(key_string))
+	    || !eigrp_auth_sha256_source(nbr->ei, nbr, source_ip, sizeof(source_ip)))
+		return 0;
+
+	header = (struct eigrp_header *)s->data;
+	saved_checksum = header->checksum;
+	header->checksum = 0;
+	memcpy(original, authTLV->digest, sizeof(original));
+	memset(authTLV->digest, 0, sizeof(authTLV->digest));
+
+	key_buffer[0] = '\n';
+	key_len = strlen(key_string);
+	memcpy(key_buffer + 1, key_string, key_len);
+	memcpy(key_buffer + 1 + key_len, source_ip, strlen(source_ip));
+	eigrp_hmac_sha256_init(&ctx, key_buffer,
+			       1 + key_len + strlen(source_ip));
+	eigrp_hmac_sha256_update(&ctx, s->data, s->endp);
+	eigrp_hmac_sha256_final(digest, &ctx);
+
+	memcpy(authTLV->digest, original, sizeof(original));
+	header->checksum = saved_checksum;
+	valid = memcmp(original, digest, sizeof(original)) == 0;
+	if (valid)
+		nbr->crypt_seqnum = authTLV->key_sequence;
+	memset(key_string, 0, sizeof(key_string));
+	memset(key_buffer, 0, sizeof(key_buffer));
+	return valid;
 }
 
 uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *s, eigrp_intf_t *ei)
@@ -256,8 +349,7 @@ uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *s, eigrp_intf_t *ei)
 	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
-	if (eigrp_sys_auth_key_lookup(ei->params.auth_keychain, &key_id,
-	                                      key_string, sizeof(key_string))) {
+	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = htonl(key_id);
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
 		eigrp_stream_put(s, authTLV,
@@ -287,8 +379,7 @@ uint16_t eigrp_auth_tlv_sha256_encode(eigrp_stream_t *s,
 	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
-	if (eigrp_sys_auth_key_lookup(ei->params.auth_keychain, &key_id,
-	                                      key_string, sizeof(key_string))) {
+	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = 0;
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
 		eigrp_stream_put(s, authTLV,
@@ -356,50 +447,64 @@ static char *eigrp_auth_string_dup(const char *value)
  *   Named: af-interface mode through the same EIGRP target
  * Description:
  * Selects or removes packet authentication for a named EIGRP interface.
- * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
+ * MD5 and plaintext direct-password HMAC-SHA-256 have live runtime paths; type-7 HMAC text remains retained-only until portable decoding is defined.
  */
 eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_context_t *context, eigrp_authentication_mode_t mode, const eigrp_auth_hmac_config_t *hmac)
 {
-	if (operation == EIGRP_RESET) {
+	char *config_password = NULL;
+	char *runtime_password = NULL;
+
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config) {
-		context->config->authentication_mode = EIGRP_AUTHENTICATION_NONE;
-		context->config->authentication_mode_configured = false;
-		context->config->authentication_encryption_type = 0;
-		free(context->config->authentication_password);
-		context->config->authentication_password = NULL;
-	}
-	if (context->runtime)
-		context->runtime->params.auth_type = EIGRP_AUTH_TYPE_NONE;
-	return EIGRP_RESULT_SUCCESS;
+
+	if (operation == EIGRP_RESET) {
+		if (context->config) {
+			context->config->authentication_mode = EIGRP_AUTHENTICATION_NONE;
+			context->config->authentication_mode_configured = false;
+			context->config->authentication_encryption_type = 0;
+			free(context->config->authentication_password);
+			context->config->authentication_password = NULL;
+		}
+		if (context->runtime) {
+			context->runtime->params.auth_type = EIGRP_AUTH_TYPE_NONE;
+			if (context->runtime->params.auth_password) {
+				memset(context->runtime->params.auth_password, 0,
+				       strlen(context->runtime->params.auth_password));
+				free(context->runtime->params.auth_password);
+				context->runtime->params.auth_password = NULL;
+			}
+		}
+		return EIGRP_RESULT_SUCCESS;
 	}
 
 	if (operation != EIGRP_SET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	char *password = NULL;
-
 	if (mode != EIGRP_AUTHENTICATION_MD5
 	    && mode != EIGRP_AUTHENTICATION_HMAC_SHA256)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
+
 	if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256) {
-		/* Named mode carries direct HMAC password details in EIGRP-owned
-		 * retained state.  Classic runtime-only configuration uses the host
-		 * key-chain attachment and therefore has no direct-password object.
-		 */
 		if (context->config
 		    && (!hmac
 			|| (hmac->encryption_type != 0 && hmac->encryption_type != 7)
 			|| !hmac->password || !hmac->password[0]
 			|| strlen(hmac->password) > 32))
 			return EIGRP_RESULT_INVALID_ARGUMENT;
+
 		if (context->config) {
-			password = eigrp_auth_string_dup(hmac->password);
-			if (!password)
+			config_password = eigrp_auth_string_dup(hmac->password);
+			if (!config_password)
 				return EIGRP_RESULT_INTERNAL_FAILURE;
+		}
+		/* Type 7 is retained configuration representation.  This project has
+		 * no portable type-7 decoder, so never use the encoded text as an HMAC
+		 * key. */
+		if (context->runtime && context->config && hmac->encryption_type == 0) {
+			runtime_password = eigrp_auth_string_dup(hmac->password);
+			if (!runtime_password) {
+				free(config_password);
+				return EIGRP_RESULT_INTERNAL_FAILURE;
+			}
 		}
 	} else if (hmac) {
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -409,22 +514,24 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 		context->config->authentication_mode = (uint8_t)mode;
 		context->config->authentication_mode_configured = true;
 		free(context->config->authentication_password);
-		context->config->authentication_password = password;
+		context->config->authentication_password = config_password;
 		context->config->authentication_encryption_type =
-			mode == EIGRP_AUTHENTICATION_HMAC_SHA256
-				? hmac->encryption_type
-				: 0;
+			mode == EIGRP_AUTHENTICATION_HMAC_SHA256 ? hmac->encryption_type : 0;
 	}
 	if (context->runtime) {
-		/* Named direct-password HMAC still needs runtime key-material
-		 * integration.  Classic HMAC uses the existing key-chain runtime.
-		 */
-		if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config)
-			return EIGRP_RESULT_NOT_IMPLEMENTED;
+		if (context->runtime->params.auth_password) {
+			memset(context->runtime->params.auth_password, 0,
+			       strlen(context->runtime->params.auth_password));
+			free(context->runtime->params.auth_password);
+		}
+		context->runtime->params.auth_password = runtime_password;
 		context->runtime->params.auth_type =
 			mode == EIGRP_AUTHENTICATION_HMAC_SHA256
-				? EIGRP_AUTH_TYPE_SHA256
-				: EIGRP_AUTH_TYPE_MD5;
+				? EIGRP_AUTH_TYPE_SHA256 : EIGRP_AUTH_TYPE_MD5;
+
+		if (mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config
+		    && hmac->encryption_type == 7)
+			return EIGRP_RESULT_NOT_IMPLEMENTED;
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -439,7 +546,7 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
  *   Named: af-interface mode through the same EIGRP target
  * Description:
  * Selects or removes packet authentication for a named EIGRP interface.
- * MD5 has a live runtime path; direct-password HMAC-SHA-256 is retained and reports NOT_IMPLEMENTED until key material and receive validation are implemented.
+ * MD5 and plaintext direct-password HMAC-SHA-256 have live runtime paths; type-7 HMAC text remains retained-only until portable decoding is defined.
  */
 
 

@@ -672,6 +672,7 @@ typedef struct eigrp_rib_nexthop {
     eigrp_ifindex_t ifindex;
     bool gateway_present;
     eigrp_address_t gateway;
+    uint64_t weight;
 } eigrp_rib_nexthop_t;
 
 typedef struct eigrp_rib_route {
@@ -1578,6 +1579,14 @@ eigrp_result_t eigrp_summary_metric_update(eigrp_operation_t operation, eigrp_in
 **Ownership/lifetime:** Context and metric/weight inputs are borrowed. Retained values are copied.
 **Execution context:** Synchronous. Targets update retained state and, where implemented, the bound runtime.
 **Ordering:** Applies to the selected address-family/topology context. Runtime-dependent effects remain capability-gated without discarding valid retained configuration.
+`traffic-share balanced` does not select successors and does not relax the
+Feasibility Condition or variance rules. It supplies proportional forwarding
+weights in the public RIB snapshot for the successor set already selected by
+DUAL/topology. The portable weight is a host-forwarding hint; host-specific
+ECMP/UCMP programming remains in the RIB adapter. A zero nexthop weight means
+host-default/unweighted forwarding. Traffic-share reapplication skips Active
+destinations and does not mutate destination-level DUAL state.
+
 Exact prototypes:
 ```c
 eigrp_result_t eigrp_metric_default_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_metric_values_t *metric);
@@ -1585,7 +1594,6 @@ eigrp_result_t eigrp_metric_weights_update(eigrp_operation_t operation, eigrp_in
 eigrp_result_t eigrp_metric_variance_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t variance);
 eigrp_result_t eigrp_metric_traffic_share_balanced_update(eigrp_operation_t operation, eigrp_instance_context_t *context);
 eigrp_result_t eigrp_metric_maximum_hops_update(eigrp_operation_t operation, eigrp_instance_context_t *context, uint8_t maximum_hops);
-eigrp_result_t eigrp_metric_holddown_update(eigrp_operation_t operation, eigrp_instance_context_t *context, bool enabled);
 ```
 
 #### 11.3.10 Topology configuration and clear
@@ -1999,7 +2007,7 @@ eigrp_result_t eigrp_rib_source_route_remove( eigrp_instance_t *eigrp, const eig
 | `eigrp_event_callback_t` | Scheduled event/timer/read/write callback taking the portable caller argument. |
 | `eigrp_interface_runtime_state_t` | Normalized host interface/address fact snapshot: name, ifindex, prefix/address, host type, secondary flag, operative state, bandwidth, and MTU. |
 | `eigrp_interface_remove_reason_t` | Reason for portable interface/address removal: host removal, configuration removal, or final teardown. |
-| `eigrp_packet_rx_meta_t` | IPv4 receive-envelope metadata: network-header length, EIGRP payload length, and whether destination was the EIGRP multicast group. |
+| `eigrp_packet_rx_meta_t` | Receive-envelope metadata: ingress VRF derived by the host from the receiving interface, network-header length, EIGRP payload length, and whether destination was the EIGRP multicast group. Portable receive processing must reject a packet whose ingress VRF does not match the runtime instance. |
 | `eigrp_filter_runtime_snapshot_t` | Two-direction runtime filter-name snapshot containing access-list and prefix-list names for IN/OUT. |
 | `eigrp_sys_interface_walk_cb` | Synchronous callback for one normalized host interface/address snapshot. |
 

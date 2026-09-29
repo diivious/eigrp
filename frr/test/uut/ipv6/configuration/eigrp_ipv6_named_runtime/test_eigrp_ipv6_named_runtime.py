@@ -153,3 +153,47 @@ def test_managed_patch_and_design_spec_record_ipv6_control_runtime_contract():
     assert "When `data_path_ready` is false" in process
     assert "EIGRP Stub routing is explicitly outside project scope" in design
     assert "IPv4 and IPv6 named address families both create live runtimes" in process_words
+
+
+def _function_body(source: str, name: str) -> str:
+    start = source.index(name + "(")
+    brace = source.index("{", start)
+    depth = 0
+    for pos in range(brace, len(source)):
+        if source[pos] == "{":
+            depth += 1
+        elif source[pos] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:pos + 1]
+    raise AssertionError(f"unterminated function {name}")
+
+
+def test_ipv6_operational_state_uses_the_same_common_targets_as_ipv4():
+    targets = (
+        (NEIGHBOR, "eigrp_nbr_state_iterate"),
+        (TOPOLOGY, "eigrp_topology_state_iterate"),
+    )
+    for path, name in targets:
+        body = _function_body(read(path), name)
+        assert "config->afi == EIGRP_AFI_IPV6" not in body
+        assert "EIGRP_RESULT_NOT_IMPLEMENTED" in body  # generic data-path capability gate
+
+    validate = _function_body(read(STATISTICS), "eigrp_statistics_context_validate")
+    assert "EIGRP_AFI_IPV6" not in validate
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in validate  # generic data-path capability gate
+
+
+def test_ipv4_only_network_and_auto_summary_are_rejected_from_ipv6_named_contexts():
+    vty = read(VTY)
+    network = vty[vty.index("DEFUN(eigrp_network_address,"):vty.index("DEFUN(no_eigrp_network_address,")]
+    no_network = vty[vty.index("DEFUN(no_eigrp_network_address,"):vty.index("DEFUN(eigrp_named_neighbor_ipv4,")]
+    auto_summary = vty[vty.index("DEFUN(eigrp_auto_summary,"):vty.index("DEFUN(no_eigrp_auto_summary,")]
+    no_auto_summary = vty[vty.index("DEFUN(no_eigrp_auto_summary,"):vty.index("static int eigrp_cli_default_information_update")]
+
+    for body in (network, no_network):
+        assert 'strcmp(afi, "ipv4") != 0' in body
+        assert "network is valid only under named IPv4 address-family" in body
+    for body in (auto_summary, no_auto_summary):
+        assert 'strcmp(afi, "ipv4") != 0' in body
+        assert "auto-summary is valid only under named IPv4 topology" in body

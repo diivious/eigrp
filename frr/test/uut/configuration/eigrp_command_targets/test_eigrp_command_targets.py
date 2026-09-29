@@ -159,11 +159,11 @@ def test_summary_metric_and_timer_targets_own_retained_state():
     summary_metric = function_body(summary, "eigrp_summary_metric_update")
     default_metric = function_body(metric, "eigrp_metric_default_update")
     traffic_share = function_body(metric, "eigrp_traffic_share_balanced_update")
-    holddown = function_body(metric, "eigrp_metric_holddown_update")
     active_time = function_body(timer, "eigrp_timer_active_time_update")
 
     assert "state->auto_summary = enabled;" in auto_summary
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in auto_summary
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in auto_summary
+    assert "eigrp_summary_runtime_update(context->runtime)" in auto_summary
     assert "state->metrics" in summary_metric
     assert "entry->config = *config;" in summary_metric
     assert "eigrp_summary_runtime_update(context->runtime)" in summary_metric
@@ -173,9 +173,9 @@ def test_summary_metric_and_timer_targets_own_retained_state():
     assert "config->default_metric_configured = true;" in default_metric
     assert "EIGRP_RESULT_SUCCESS" in default_metric
     assert "config->traffic_share_balanced = enabled;" in traffic_share
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in traffic_share
-    assert "config->holddown_enabled = enabled;" in holddown
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in holddown
+    assert "context->runtime->traffic_share_balanced = enabled;" in traffic_share
+    assert "eigrp_topology_traffic_share_update(context->runtime);" in traffic_share
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in traffic_share
 
     assert "context->config->timer_config" in active_time
     assert "active_time_configured = true;" in active_time
@@ -287,7 +287,6 @@ def test_item5_northbound_commands_terminate_at_module_targets():
         "eigrp_metric_variance_update",
         "eigrp_traffic_share_balanced_update",
         "eigrp_metric_maximum_hops_update",
-        "eigrp_metric_holddown_update",
         "eigrp_timer_active_time_update",
         # neighbor policy/logging
         "eigrp_nbr_description_update",

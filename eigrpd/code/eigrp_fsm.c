@@ -616,6 +616,7 @@ int eigrp_fsm_event_q_fcn(eigrp_fsm_action_message_t *msg)
 	 * current distance, and advertised metric remain frozen until PASSIVE.
 	 */
 	prefix->state = EIGRP_FSM_STATE_ACTIVE_3;
+	prefix->query_origin = msg->adv_router;
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
 	if (eigrp_nbr_count(eigrp)) {
@@ -673,15 +674,9 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 		route->distance;
 	prefix->reported_metric = route->total_metric;
 
-	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_3) {
-		eigrp_list_t *successors = eigrp_topology_successors_read(prefix);
-
-		assert(successors); // It's like Napolean and Waterloo
-
-		route = eigrp_list_item_data(eigrp_list_first(successors));
-		eigrp_reply_send(eigrp, route->adv_router, prefix);
-		eigrp_list_delete(&successors);
-	}
+	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_3 && prefix->query_origin)
+		eigrp_reply_send(eigrp, prefix->query_origin, prefix);
+	prefix->query_origin = NULL;
 
 	eigrp_fsm_active_timer_stop(prefix);
 	eigrp_fsm_reply_status_clear(prefix);
@@ -729,16 +724,9 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 	prefix->fdistance = prefix->fdistance > prefix->distance
 				    ? prefix->distance
 				    : prefix->fdistance;
-	if (old_state == EIGRP_FSM_STATE_ACTIVE_2) {
-		eigrp_list_t *successors = eigrp_topology_successors_read(prefix);
-
-		assert(successors); // Having a spoon and all you need is a
-		// knife
-		route = eigrp_list_item_data(eigrp_list_first(successors));
-		eigrp_reply_send(eigrp, route->adv_router, prefix);
-
-		eigrp_list_delete(&successors);
-	}
+	if (old_state == EIGRP_FSM_STATE_ACTIVE_2 && prefix->query_origin)
+		eigrp_reply_send(eigrp, prefix->query_origin, prefix);
+	prefix->query_origin = NULL;
 	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
 	eigrp_list_add(eigrp->topology_changes, prefix);
 	eigrp_topology_update_node_flags(eigrp, prefix);
@@ -784,6 +772,7 @@ int eigrp_fsm_event_qact(eigrp_fsm_action_message_t *msg)
 	 * frozen until PASSIVE.
 	 */
 	msg->prefix->state = EIGRP_FSM_STATE_ACTIVE_2;
+	msg->prefix->query_origin = msg->adv_router;
 
 	return 1;
 }

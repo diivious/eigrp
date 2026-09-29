@@ -27,6 +27,7 @@ eigrp_result_t eigrp_sys_policy_instance_create(eigrp_instance_t *eigrp){(void)e
 void eigrp_sys_policy_instance_delete(eigrp_instance_t *eigrp){(void)eigrp;}
 eigrp_result_t eigrp_sys_filter_evaluate(eigrp_instance_t *eigrp,eigrp_distribute_list_type_t type,const char *name,const eigrp_prefix_t *prefix,eigrp_filter_decision_t *decision){(void)eigrp;(void)type;(void)name;(void)prefix;if(!decision)return EIGRP_RESULT_INVALID_ARGUMENT;*decision=EIGRP_FILTER_DECISION_PERMIT;return EIGRP_RESULT_SUCCESS;}
 eigrp_result_t eigrp_sys_redistribute_route_map_evaluate(eigrp_instance_t *eigrp,const char *name,const eigrp_rib_source_route_t *route,eigrp_filter_decision_t *decision){(void)eigrp;(void)name;(void)route;if(!decision)return EIGRP_RESULT_INVALID_ARGUMENT;*decision=EIGRP_FILTER_DECISION_PERMIT;return EIGRP_RESULT_SUCCESS;}
+eigrp_result_t eigrp_sys_summary_leak_map_evaluate(eigrp_instance_t *eigrp,const char *name,const eigrp_prefix_t *prefix,eigrp_filter_decision_t *decision){(void)eigrp;(void)name;(void)prefix;if(!decision)return EIGRP_RESULT_INVALID_ARGUMENT;*decision=EIGRP_FILTER_DECISION_DENY;return EIGRP_RESULT_SUCCESS;}
 bool eigrp_sys_auth_key_lookup(const char *name,uint32_t *id,char *key,size_t size){(void)name;(void)id;(void)key;(void)size;return false;}
 static eigrp_af_instance_t *af;
 static eigrp_instance_t *runtime;

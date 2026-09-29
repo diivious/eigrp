@@ -33,6 +33,12 @@ def test_redistribution_seed_metric_precedence_executes(tmp_path):
 
             static eigrp_af_instance_t *test_runtime_af;
 
+            void eigrp_log(eigrp_log_level_t level, const char *format, ...)
+            {
+                (void)level;
+                (void)format;
+            }
+
             eigrp_result_t eigrp_topology_redistributed_route_update(
                 eigrp_instance_t *runtime,
                 const eigrp_rib_source_route_t *route,
@@ -51,6 +57,30 @@ def test_redistribution_seed_metric_precedence_executes(tmp_path):
                 (void)runtime;
                 (void)route;
                 return EIGRP_RESULT_SUCCESS;
+            }
+
+            eigrp_prefix_descriptor_t *eigrp_topology_table_lookup(
+                eigrp_table_t *table, const eigrp_prefix_t *prefix)
+            {
+                (void)table;
+                (void)prefix;
+                return NULL;
+            }
+
+            eigrp_route_descriptor_t *eigrp_prefix_descriptor_lookup(
+                eigrp_prefix_descriptor_t *prefix, eigrp_nbr_t *neighbor)
+            {
+                (void)prefix;
+                (void)neighbor;
+                return NULL;
+            }
+
+            bool eigrp_topology_prefix_admit(
+                eigrp_instance_t *runtime, const eigrp_prefix_t *prefix)
+            {
+                (void)runtime;
+                (void)prefix;
+                return true;
             }
 
 

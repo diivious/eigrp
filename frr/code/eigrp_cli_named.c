@@ -560,15 +560,6 @@ void eigrp_cli_named_show_metric_maximum_hops(struct vty *vty,
     vty_out(vty, "   metric maximum-hops %u\n", yang_dnode_get_uint8(dnode, NULL));
 }
 
-void eigrp_cli_named_show_metric_holddown(struct vty *vty,
-                                           const struct lyd_node *dnode,
-                                           bool show_defaults)
-{
-    (void)dnode;
-    (void)show_defaults;
-    vty_out(vty, "   metric holddown\n");
-}
-
 void eigrp_cli_named_show_metric_version_32bit(struct vty *vty,
                                                 const struct lyd_node *dnode,
                                                 bool show_defaults)
@@ -2737,8 +2728,15 @@ DEFUN(no_eigrp_auto_summary,
       NO_STR
       "Enable automatic network summarization\n")
 {
+	char afi[8];
+
 	if (!eigrp_cli_named_topology_required(vty))
 		return CMD_WARNING;
+	if (!eigrp_cli_current_afi(vty, afi, sizeof(afi))
+	    || strcmp(afi, "ipv4") != 0) {
+		vty_out(vty, "%% auto-summary is valid only under named IPv4 topology\n");
+		return CMD_WARNING;
+	}
 	nb_cli_enqueue_change(vty, "./auto-summary", NB_OP_DESTROY, NULL);
 	return nb_cli_apply_changes(vty, NULL);
 }
@@ -3071,40 +3069,6 @@ DEFUN(no_eigrp_metric_maximum_hops,
     if (!eigrp_cli_named_topology_required(vty))
         return CMD_WARNING;
     nb_cli_enqueue_change(vty, "./metric-maximum-hops", NB_OP_DESTROY, NULL);
-    return nb_cli_apply_changes(vty, NULL);
-}
-
-/*
- * Syntax: `metric holddown`
- * Mode: Named topology
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Target: eigrp_metric_holddown_update(EIGRP_SET)
- */
-DEFUN(eigrp_metric_holddown,
-      eigrp_metric_holddown_cmd,
-      "metric holddown",
-      "Modify EIGRP metric behavior\n" "Enable metric holddown behavior\n")
-{
-    if (!eigrp_cli_named_topology_required(vty))
-        return CMD_WARNING;
-    nb_cli_enqueue_change(vty, "./metric-holddown", NB_OP_CREATE, NULL);
-    return nb_cli_apply_changes(vty, NULL);
-}
-
-/*
- * Syntax: `no metric holddown`
- * Mode: Named topology
- * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/metric-holddown
- * Target: eigrp_metric_holddown_update(EIGRP_RESET, 0)
- */
-DEFUN(no_eigrp_metric_holddown,
-      no_eigrp_metric_holddown_cmd,
-      "no metric holddown",
-      NO_STR "Modify EIGRP metric behavior\n" "Enable metric holddown behavior\n")
-{
-    if (!eigrp_cli_named_topology_required(vty))
-        return CMD_WARNING;
-    nb_cli_enqueue_change(vty, "./metric-holddown", NB_OP_DESTROY, NULL);
     return nb_cli_apply_changes(vty, NULL);
 }
 
@@ -3475,7 +3439,7 @@ DEFUN(eigrp_traffic_share_balanced,
  * Syntax: `no traffic-share balanced`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/traffic-share-balanced
- * Target: eigrp_traffic_share_balanced_update(EIGRP_SET)
+ * Target: eigrp_traffic_share_balanced_update(EIGRP_RESET)
  */
 DEFUN(no_eigrp_traffic_share_balanced,
       no_eigrp_traffic_share_balanced_cmd,
@@ -4251,54 +4215,30 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-struct eigrp_vty_topology_instance_walk {
-	struct vty *vty;
-	struct eigrp_vty_topology_context *options;
-};
-
-static eigrp_result_t eigrp_vty_topology_instance_render(
-	eigrp_instance_t *runtime, void *arg)
-{
-	struct eigrp_vty_topology_instance_walk *walk = arg;
-	eigrp_af_instance_t *af = eigrp_instance_runtime_config(runtime);
-
-	return eigrp_vty_topology_context_render(
-		walk->vty, runtime->name, af, runtime, walk->options);
-}
-
 static int eigrp_vty_topology_walk(struct vty *vty,
-				   const eigrp_state_request_t *request,
-				   struct eigrp_vty_topology_context *options)
+                   const eigrp_state_request_t *request,
+                   struct eigrp_vty_topology_context *options)
 {
-	struct eigrp_vty_topology_instance_walk walk = {
-		.vty = vty,
-		.options = options,
-	};
-	struct vrf *vrf;
-	eigrp_result_t result;
+    struct eigrp_vty_named_state_walk walk = {
+        .vty = vty,
+        .callback = eigrp_vty_topology_context_render,
+        .arg = options,
+    };
+    eigrp_result_t result;
 
-	if (request->multicast)
-		return eigrp_cli_result_render(vty, "topology",
-					       EIGRP_RESULT_NOT_IMPLEMENTED);
+    result = eigrp_af_instance_iterate(
+        request, eigrp_vty_named_state_bridge, &walk);
+    if (result == EIGRP_RESULT_NOT_FOUND) {
+        vty_out(vty,
+            "%% EIGRP topology address-family %s autonomous-system %s is not configured%s%s\n",
+            eigrp_vty_afi_name(request->afi),
+            request->asn ? "requested" : "any",
+            request->vrf_name ? " in VRF " : "",
+            request->vrf_name ? request->vrf_name : "");
+        return CMD_SUCCESS;
+    }
 
-	vrf = eigrp_vty_vrf_lookup(vty, request->vrf_name);
-	if (!vrf)
-		return CMD_WARNING;
-
-	result = eigrp_topology_instance_iterate(
-		request->afi, vrf->vrf_id, request->asn,
-		eigrp_vty_topology_instance_render, &walk);
-	if (result == EIGRP_RESULT_NOT_FOUND) {
-		vty_out(vty,
-			"%% EIGRP topology address-family %s autonomous-system %s is not configured%s%s\n",
-			eigrp_vty_afi_name(request->afi),
-			request->asn ? "requested" : "any",
-			request->vrf_name ? " in VRF " : "",
-			request->vrf_name ? request->vrf_name : "");
-		return CMD_SUCCESS;
-	}
-
-	return eigrp_cli_result_render(vty, "topology", result);
+    return eigrp_cli_result_render(vty, "topology", result);
 }
 
 static bool eigrp_vty_state_request_build(
@@ -4318,13 +4258,6 @@ static bool eigrp_vty_state_request_build(
 	request->asn = asn > 0 ? (uint16_t)asn : 0;
 	request->vrf_name = vrf_name;
 	return true;
-}
-
-static bool eigrp_vty_multicast_requested(struct cmd_token *argv[], int argc)
-{
-	int index = 0;
-
-	return argv_find(argv, argc, "multicast", &index);
 }
 
 #ifdef EIGRP_STANDALONE_BUILD
@@ -4397,14 +4330,14 @@ DEFPY(eigrp_named_redistribute_eigrp,
 
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] interfaces [IFNAME$ifname] [detail]$detail`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_intf_state_iterate()
  */
 DEFPY(show_eigrp_interface,
       show_eigrp_interface_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] interfaces [IFNAME$ifname] [detail]$detail",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] interfaces [IFNAME$ifname] [detail]$detail",
       SHOW_STR
       EIGRP_STR
       "Address-family information\n"
@@ -4412,7 +4345,6 @@ DEFPY(show_eigrp_interface,
       "IPv6 address-family\n"
       VRF_CMD_HELP_STR
       AS_STR
-      "Display multicast instances\n"
       "Display EIGRP interfaces\n"
       "Interface name\n"
       "Detailed information\n")
@@ -4425,20 +4357,19 @@ DEFPY(show_eigrp_interface,
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "interfaces",
 					  eigrp_vty_interface_context_render, &options);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] neighbors [static] [detail]$detail [IFNAME$ifname]`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors [static] [detail]$detail [IFNAME$ifname]`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_nbr_state_iterate()
  */
 DEFPY(show_eigrp_neighbor,
       show_eigrp_neighbor_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] neighbors [static] [detail]$detail [IFNAME$ifname]",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] neighbors [static] [detail]$detail [IFNAME$ifname]",
       SHOW_STR
       EIGRP_STR
       "Address-family information\n"
@@ -4446,7 +4377,6 @@ DEFPY(show_eigrp_neighbor,
       "IPv6 address-family\n"
       VRF_CMD_HELP_STR
       AS_STR
-      "Display multicast instances\n"
       "Display EIGRP neighbors\n"
       "Display static neighbors\n"
       "Detailed information\n"
@@ -4462,27 +4392,25 @@ DEFPY(show_eigrp_neighbor,
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "neighbors",
 					  eigrp_vty_neighbor_context_render, &options);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] [all-links]$all`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] topology [(1-65535)$as] [all-links]$all`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_topology_state_iterate()
  */
 DEFPY(show_eigrp_topology_all,
       show_eigrp_topology_all_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] [all-links]$all",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] topology [(1-65535)$as] [all-links]$all",
       SHOW_STR
       EIGRP_STR
       "Address-family information\n"
       "IPv4 address-family\n"
       "IPv6 address-family\n"
       VRF_CMD_HELP_STR
-      "Display multicast instances\n"
       "Display EIGRP topology table\n"
       AS_STR
       "Display all topology links\n")
@@ -4494,26 +4422,24 @@ DEFPY(show_eigrp_topology_all,
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_topology_walk(vty, &request, &options);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] WORD$target [all-links]$all`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] topology [(1-65535)$as] WORD$target [all-links]$all`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_topology_state_iterate()
  */
 DEFPY(show_eigrp_topology,
       show_eigrp_topology_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [multicast] topology [(1-65535)$as] WORD$target [all-links]$all",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] topology [(1-65535)$as] WORD$target [all-links]$all",
       SHOW_STR
       EIGRP_STR
       "Address-family information\n"
       "IPv4 address-family\n"
       "IPv6 address-family\n"
       VRF_CMD_HELP_STR
-      "Display multicast instances\n"
       "Display EIGRP topology table\n"
       AS_STR
       "Network address or prefix\n"
@@ -4528,7 +4454,6 @@ DEFPY(show_eigrp_topology,
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	if (!eigrp_vty_destination_parse(target, request.afi, &destination)) {
 		vty_out(vty, "%% Malformed topology destination: %s\n", target);
 		return CMD_WARNING;
@@ -4753,89 +4678,85 @@ static eigrp_result_t eigrp_vty_event_context_render(
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] accounting`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] accounting`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_statistics_accounting_iterate()
  */
 DEFPY(show_eigrp_accounting,
       show_eigrp_accounting_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] accounting",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] accounting",
       SHOW_STR EIGRP_STR "Address-family information\n"
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
-      "Display multicast instances\n" "Display EIGRP accounting\n")
+      "Display EIGRP accounting\n")
 {
 	eigrp_state_request_t request;
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "accounting",
 					  eigrp_vty_accounting_context_render, NULL);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] events`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] events`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_eventlog_msg_iterate()
  */
 DEFPY(show_eigrp_event,
       show_eigrp_event_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] events",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] events",
       SHOW_STR EIGRP_STR "Address-family information\n"
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
-      "Display multicast instances\n" "Display EIGRP events\n")
+      "Display EIGRP events\n")
 {
 	eigrp_state_request_t request;
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "events",
 					  eigrp_vty_event_context_render, NULL);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] timers`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] timers`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_timer_state_iterate()
  */
 DEFPY(show_eigrp_timer,
       show_eigrp_timer_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] timers",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] timers",
       SHOW_STR EIGRP_STR "Address-family information\n"
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
-      "Display multicast instances\n" "Display EIGRP timers\n")
+      "Display EIGRP timers\n")
 {
 	eigrp_state_request_t request;
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "timers",
 					  eigrp_vty_timer_context_render, NULL);
 }
 
 /*
- * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] traffic`
+ * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] traffic`
  * Mode: EXEC
  * XPath: none; read-only
  * Target: eigrp_statistics_traffic_state_read()
  */
 DEFPY(show_eigrp_traffic,
       show_eigrp_traffic_cmd,
-      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] [multicast] traffic",
+      "show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] traffic",
       SHOW_STR EIGRP_STR "Address-family information\n"
       "IPv4 address-family\n" "IPv6 address-family\n" VRF_CMD_HELP_STR AS_STR
-      "Display multicast instances\n" "Display EIGRP traffic\n")
+      "Display EIGRP traffic\n")
 {
 	eigrp_state_request_t request;
 
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
-	request.multicast = eigrp_vty_multicast_requested(argv, argc);
 	return eigrp_vty_named_state_walk(vty, &request, "traffic",
 					  eigrp_vty_traffic_context_render, NULL);
 }
@@ -5507,8 +5428,6 @@ void eigrp_cli_named_init(void)
     install_element(EIGRP_NODE, &no_eigrp_maximum_prefix_cmd);
     install_element(EIGRP_NODE, &eigrp_metric_maximum_hops_cmd);
     install_element(EIGRP_NODE, &no_eigrp_metric_maximum_hops_cmd);
-    install_element(EIGRP_NODE, &eigrp_metric_holddown_cmd);
-    install_element(EIGRP_NODE, &no_eigrp_metric_holddown_cmd);
     install_element(EIGRP_NODE, &eigrp_metric_version_32bit_cmd);
     install_element(EIGRP_NODE, &no_eigrp_metric_version_32bit_cmd);
     install_element(EIGRP_NODE, &eigrp_event_log_size_cmd);

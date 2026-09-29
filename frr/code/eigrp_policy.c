@@ -21,6 +21,7 @@
 #include "eigrpd.h"
 #include "eigrp_filter.h"
 #include "eigrp_redistribute.h"
+#include "eigrp_summary.h"
 #include "eigrp_structs.h"
 #include "eigrp_frr.h"
 #include "eigrp_policy.h"
@@ -103,6 +104,7 @@ static void eigrp_policy_route_map_changed(const char *name)
 {
 	(void)name;
 	eigrp_redist_policy_update_all();
+	eigrp_summary_policy_update_all();
 }
 
 void eigrp_policy_init(void)
@@ -236,6 +238,29 @@ eigrp_result_t eigrp_policy_filter_evaluate(
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_INVALID_ARGUMENT;
+}
+
+eigrp_result_t eigrp_policy_summary_leak_map_evaluate(
+	eigrp_instance_t *eigrp, const char *name, const eigrp_prefix_t *prefix,
+	eigrp_filter_decision_t *decision)
+{
+	struct route_map *route_map;
+	struct prefix host_prefix;
+	route_map_result_t map_result;
+
+	(void)eigrp;
+	if (!name || !name[0] || !prefix || !decision)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	*decision = EIGRP_FILTER_DECISION_DENY;
+	if (eigrp_frr_prefix_export(prefix, &host_prefix) != EIGRP_RESULT_SUCCESS)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	route_map = route_map_lookup_by_name(name);
+	if (!route_map)
+		return EIGRP_RESULT_NOT_FOUND;
+	map_result = route_map_apply(route_map, &host_prefix, NULL);
+	if (map_result == RMAP_PERMITMATCH)
+		*decision = EIGRP_FILTER_DECISION_PERMIT;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /* FRR route-map adaptation for the portable host-policy contract.

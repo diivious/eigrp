@@ -17,6 +17,7 @@
  */
 struct eigrp_instance_parent_config {
 	char *name;
+	bool shutdown;
 	eigrp_af_instance_t *address_families;
 	eigrp_instance_parent_config_t *next;
 };
@@ -44,6 +45,11 @@ struct eigrp_af_instance {
 	eigrp_timer_config_t *timer_config;
 	eigrp_nbr_policy_state_t *neighbor_policy;
 	eigrp_redist_policy_config_t *redistribute_policy;
+	bool topology_base_configured;
+	bool default_information_enabled[2];
+	char *default_information_access_list[2];
+	bool topology_maximum_prefix_configured;
+	eigrp_prefix_limit_t topology_maximum_prefix;
 	eigrp_af_instance_t *next;
 };
 

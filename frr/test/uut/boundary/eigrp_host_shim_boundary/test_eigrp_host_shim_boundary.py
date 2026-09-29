@@ -161,6 +161,7 @@ def test_frr_management_and_zebra_callbacks_delegate_instead_of_mutating_runtime
     assert "eigrp_sys_router_id_update" in router_id
     assert "ALL_LIST_ELEMENTS" not in router_id
     assert "eigrp_sys_interface_state_update" in address_add
+    assert address_add.count("zebra_interface_address_read(cmd, zclient->ibuf, vrf_id)") == 1
     assert "ALL_LIST_ELEMENTS" not in address_add
     assert "eigrp_sys_interface_address_remove" in address_delete
     assert "ALL_LIST_ELEMENTS" not in address_delete

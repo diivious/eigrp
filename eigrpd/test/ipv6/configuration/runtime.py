@@ -83,6 +83,8 @@ def test_remaining_incomplete_features_are_explicit_not_silent_storage():
     neighbor = read(NEIGHBOR)
     topology = read(TOPOLOGY)
     auth = read(AUTH)
-    assert "return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED" in body(neighbor, "eigrp_nbr_max_prefix_update")
-    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in body(topology, "eigrp_topology_max_prefix_update")
+    assert "eigrp_nbr_prefix_admit" in neighbor
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in body(neighbor, "eigrp_nbr_max_prefix_update")
+    assert "eigrp_topology_prefix_admit" in topology
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in body(topology, "eigrp_topology_max_prefix_update")
     assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256 && context->config" in body(auth, "eigrp_auth_mode_update")

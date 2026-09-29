@@ -174,6 +174,101 @@ static char *eigrp_nbr_string_dup(const char *value)
 	return copy;
 }
 
+
+struct eigrp_nbr_warning_entry {
+	eigrp_addr_t address;
+	char *reason;
+	uint64_t last_msec;
+	struct eigrp_nbr_warning_entry *next;
+};
+
+struct eigrp_nbr_warning_state {
+	struct eigrp_nbr_warning_entry *entries;
+};
+
+static bool eigrp_nbr_warning_address_match(const eigrp_addr_t *a,
+					 const eigrp_addr_t *b)
+{
+	if (!a || !b || a->afi != b->afi)
+		return false;
+	if (a->afi == AF_INET)
+		return memcmp(&a->ip.v4, &b->ip.v4, sizeof(a->ip.v4)) == 0;
+	if (a->afi == AF_INET6)
+		return memcmp(&a->ip.v6, &b->ip.v6, sizeof(a->ip.v6)) == 0;
+	return false;
+}
+
+static bool eigrp_nbr_warning_should_emit_at(eigrp_instance_t *runtime,
+	const eigrp_nbr_t *neighbor, const char *reason, uint64_t now_msec)
+{
+	struct eigrp_nbr_warning_entry *entry;
+	uint64_t interval_msec;
+
+	if (!runtime || !neighbor || !reason || !runtime->log_neighbor_warnings)
+		return false;
+	if (!runtime->neighbor_warning_state) {
+		runtime->neighbor_warning_state = calloc(1, sizeof(*runtime->neighbor_warning_state));
+		if (!runtime->neighbor_warning_state)
+			return false;
+	}
+	for (entry = runtime->neighbor_warning_state->entries; entry; entry = entry->next) {
+		if (eigrp_nbr_warning_address_match(&entry->address, &neighbor->src)
+		    && strcmp(entry->reason, reason) == 0)
+			break;
+	}
+	interval_msec = (uint64_t)runtime->log_neighbor_warning_interval * 1000U;
+	if (entry) {
+		if (now_msec >= entry->last_msec
+		    && now_msec - entry->last_msec < interval_msec)
+			return false;
+		entry->last_msec = now_msec;
+		return true;
+	}
+	entry = calloc(1, sizeof(*entry));
+	if (!entry)
+		return false;
+	entry->reason = eigrp_nbr_string_dup(reason);
+	if (!entry->reason) {
+		free(entry);
+		return false;
+	}
+	entry->address = neighbor->src;
+	entry->last_msec = now_msec;
+	entry->next = runtime->neighbor_warning_state->entries;
+	runtime->neighbor_warning_state->entries = entry;
+	return true;
+}
+
+bool eigrp_nbr_warning_should_emit(eigrp_instance_t *runtime,
+	const eigrp_nbr_t *neighbor, const char *reason)
+{
+	return eigrp_nbr_warning_should_emit_at(runtime, neighbor, reason,
+					 eigrp_sys_monotime_msec());
+}
+
+#ifdef EIGRP_TESTING
+bool eigrp_nbr_warning_should_emit_test(eigrp_instance_t *runtime,
+	const eigrp_nbr_t *neighbor, const char *reason, uint64_t now_msec)
+{
+	return eigrp_nbr_warning_should_emit_at(runtime, neighbor, reason, now_msec);
+}
+#endif
+
+void eigrp_nbr_warning_state_clear(eigrp_instance_t *runtime)
+{
+	struct eigrp_nbr_warning_entry *entry, *next;
+
+	if (!runtime || !runtime->neighbor_warning_state)
+		return;
+	for (entry = runtime->neighbor_warning_state->entries; entry; entry = next) {
+		next = entry->next;
+		free(entry->reason);
+		free(entry);
+	}
+	free(runtime->neighbor_warning_state);
+	runtime->neighbor_warning_state = NULL;
+}
+
 static bool eigrp_nbr_address_match(const eigrp_address_t *a,
 					 const eigrp_address_t *b)
 {
@@ -452,11 +547,8 @@ eigrp_result_t eigrp_nbr_state_iterate(
 		return matched ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_NOT_FOUND;
 	}
 
-	if (!runtime) {
-		if (config && config->afi == EIGRP_AFI_IPV6)
-			return EIGRP_RESULT_NOT_IMPLEMENTED;
+	if (!runtime)
 		return EIGRP_RESULT_NOT_FOUND;
-	}
 	if (!runtime->data_path_ready)
 		return EIGRP_RESULT_NOT_IMPLEMENTED;
 
@@ -1208,11 +1300,54 @@ eigrp_result_t eigrp_nbr_description_update(eigrp_operation_t operation, eigrp_i
  *   Named: address-family mode
  * Description:
  * Sets or removes a per-neighbor maximum-prefix policy.
- * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
+ * The target retains the policy and applies supported runtime prefix-limit semantics.
  */
+static const eigrp_prefix_limit_t *eigrp_nbr_prefix_limit(
+	eigrp_af_instance_t *af, const eigrp_address_t *address)
+{
+	struct eigrp_nbr_policy_entry *entry;
+
+	if (!af || !af->neighbor_policy)
+		return NULL;
+	entry = eigrp_nbr_policy_entry_lookup(af->neighbor_policy, address);
+	if (entry && entry->maximum_prefix_configured)
+		return &entry->maximum_prefix;
+	if (af->neighbor_policy->maximum_prefix_all_configured)
+		return &af->neighbor_policy->maximum_prefix_all;
+	return NULL;
+}
+
+bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
+	const eigrp_prefix_t *prefix)
+{
+	eigrp_af_instance_t *af;
+	eigrp_address_t address;
+	const eigrp_prefix_limit_t *limit;
+	eigrp_prefix_descriptor_t *existing;
+	uint32_t count;
+
+	if (!runtime || !neighbor || !prefix)
+		return false;
+	existing = eigrp_topology_table_lookup(runtime->topology_table, prefix);
+	if (existing && eigrp_prefix_descriptor_lookup(existing, neighbor))
+		return true;
+	af = eigrp_instance_runtime_config(runtime);
+	if (!af)
+		return true;
+	eigrp_nbr_runtime_address(neighbor, &address);
+	limit = eigrp_nbr_prefix_limit(af, &address);
+	count = eigrp_nbr_prefix_count(runtime, neighbor);
+	if (eigrp_prefix_limit_threshold_crossed(limit, count)
+	    && eigrp_nbr_warning_should_emit(runtime, neighbor,
+					     "maximum-prefix threshold"))
+		eigrp_log(EIGRP_LOG_WARNING,
+			  "EIGRP neighbor maximum-prefix threshold reached (%u/%u)",
+			  count + 1U, limit->maximum);
+	return eigrp_prefix_limit_allows(limit, count, false);
+}
+
 eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_address_t *address, const eigrp_prefix_limit_t *limit)
 {
-	if (operation == EIGRP_RESET) {
 	eigrp_nbr_policy_state_t *state;
 	struct eigrp_nbr_policy_entry *entry;
 	eigrp_result_t result;
@@ -1222,34 +1357,20 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
 	result = eigrp_nbr_policy_context_validate(context, address);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
-	if (context->config && context->config->neighbor_policy) {
+	if (operation == EIGRP_RESET) {
+		if (!context->config || !context->config->neighbor_policy)
+			return EIGRP_RESULT_NOT_FOUND;
 		state = context->config->neighbor_policy;
 		entry = eigrp_nbr_policy_entry_lookup(state, address);
-		if (entry && entry->maximum_prefix_configured) {
-			entry->maximum_prefix_configured = false;
-			memset(&entry->maximum_prefix, 0,
-			       sizeof(entry->maximum_prefix));
-			eigrp_nbr_policy_entry_prune(state, entry);
-			return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-						: EIGRP_RESULT_SUCCESS;
-		}
+		if (!entry || !entry->maximum_prefix_configured)
+			return EIGRP_RESULT_NOT_FOUND;
+		entry->maximum_prefix_configured = false;
+		memset(&entry->maximum_prefix, 0, sizeof(entry->maximum_prefix));
+		eigrp_nbr_policy_entry_prune(state, entry);
+		return EIGRP_RESULT_SUCCESS;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_NOT_FOUND;
-	}
-
-	if (operation != EIGRP_SET)
+	if (operation != EIGRP_SET || !limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	struct eigrp_nbr_policy_entry *entry;
-	eigrp_result_t result;
-
-	if (!eigrp_nbr_config_address_valid(address) || !limit
-	    || !limit->maximum || limit->threshold > 100)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_nbr_policy_context_validate(context, address);
-	if (result != EIGRP_RESULT_SUCCESS)
-		return result;
 	if (context->config) {
 		entry = eigrp_nbr_policy_entry_create(context->config, address);
 		if (!entry)
@@ -1257,8 +1378,8 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
 		entry->maximum_prefix = *limit;
 		entry->maximum_prefix_configured = true;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	return context->runtime && !eigrp_prefix_limit_runtime_supported(limit)
+		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -1269,7 +1390,7 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
  *   Named: address-family mode
  * Description:
  * Sets or removes a per-neighbor maximum-prefix policy.
- * The target retains the policy and reports NOT_IMPLEMENTED until enforcement is complete.
+ * The target retains the policy and applies supported runtime prefix-limit semantics.
  */
 
 
@@ -1281,31 +1402,25 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
  *   Named: address-family mode
  * Description:
  * Sets or removes the address-family default maximum-prefix policy for neighbors.
- * The target preserves configuration separately from future enforcement mechanics.
+ * The target preserves configuration and applies the AF-wide default at runtime.
  */
 eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
-	if (operation == EIGRP_RESET) {
+	eigrp_nbr_policy_state_t *state;
+
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->neighbor_policy) {
+	if (operation == EIGRP_RESET) {
+		if (!context->config || !context->config->neighbor_policy
+		    || !context->config->neighbor_policy->maximum_prefix_all_configured)
+			return EIGRP_RESULT_NOT_FOUND;
 		context->config->neighbor_policy->maximum_prefix_all_configured = false;
 		memset(&context->config->neighbor_policy->maximum_prefix_all, 0,
 		       sizeof(context->config->neighbor_policy->maximum_prefix_all));
+		return EIGRP_RESULT_SUCCESS;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
-	}
-
-	if (operation != EIGRP_SET)
+	if (operation != EIGRP_SET || !limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-
-	eigrp_nbr_policy_state_t *state;
-
-	if (!limit || !limit->maximum || limit->threshold > 100)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
 		state = eigrp_nbr_policy_state_create(context->config);
 		if (!state)
@@ -1313,8 +1428,8 @@ eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigr
 		state->maximum_prefix_all = *limit;
 		state->maximum_prefix_all_configured = true;
 	}
-	return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-				: EIGRP_RESULT_SUCCESS;
+	return context->runtime && !eigrp_prefix_limit_runtime_supported(limit)
+		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -1325,7 +1440,7 @@ eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigr
  *   Named: address-family mode
  * Description:
  * Sets or removes the address-family default maximum-prefix policy for neighbors.
- * The target preserves configuration separately from future enforcement mechanics.
+ * The target preserves configuration and applies the AF-wide default at runtime.
  */
 
 
@@ -1365,8 +1480,9 @@ eigrp_result_t eigrp_nbr_log_update(eigrp_operation_t operation, eigrp_instance_
 			context->runtime->log_neighbor_warnings = true;
 			context->runtime->log_neighbor_warning_interval = 10;
 		}
-		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-					: EIGRP_RESULT_SUCCESS;
+		if (context->runtime)
+			eigrp_nbr_warning_state_clear(context->runtime);
+		return EIGRP_RESULT_SUCCESS;
 	default:
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	}
@@ -1407,9 +1523,10 @@ eigrp_result_t eigrp_nbr_log_update(eigrp_operation_t operation, eigrp_instance_
 			context->runtime->log_neighbor_warning_interval =
 				seconds ? seconds : 10;
 		}
-		/* Warning de-duplication/rate limiting is not yet wired. */
-		return context->runtime ? EIGRP_RESULT_NOT_IMPLEMENTED
-					: EIGRP_RESULT_SUCCESS;
+		/* Policy changes start a fresh warning window. */
+		if (context->runtime)
+			eigrp_nbr_warning_state_clear(context->runtime);
+		return EIGRP_RESULT_SUCCESS;
 	default:
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	}
