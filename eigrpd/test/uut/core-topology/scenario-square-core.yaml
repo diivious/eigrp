@@ -1,0 +1,72 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-core-square.yaml
+name: Core Topology A - Square Redundancy
+# N1 = 10.4.0.0/24 at R4. The asymmetric R1 access delays make R2 the
+# deterministic R1 successor and R3 a retained feasible successor.
+steps:
+  - start: r4
+  - start: r2
+  - start: r3
+  - start: r1
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, timeout: 7}
+  # A1 baseline: document successor/FD/RIB on every router and R1's FS.
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.13.0.3, successor: false, feasible_successor: true, distance: 9830400, rd: 7864320}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.24.0.4, metric: 7864320}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4, metric: 7864320}
+        - route: {uut: r4, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 7208960}
+  # A3 R2-R4 loss: R1 uses its FS without querying; R2 must diffuse.
+  - packet-mark: square-r2-r4-down
+  - link-down: {uut: r2, interface: eth24}
+  - link-down: {uut: r4, interface: eth42}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 9830400}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 11141120}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.1, metric: 11141120}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4, metric: 7864320}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: square-r2-r4-down, min: 0, max: 0, timeout: 2}
+  - validate-packet: {uut: r2, opcode: query, prefix: 10.4.0.0/24, since: square-r2-r4-down, min: 1, timeout: 2}
+  - validate-packet: {opcode: reply, prefix: 10.4.0.0/24, since: square-r2-r4-down, min: 1, timeout: 2}
+  - packet-mark: square-r2-r4-up
+  - link-up: {uut: r4, interface: eth42}
+  - link-up: {uut: r2, interface: eth24}
+  - validate-neighbor: {uut: r2, neighbor: 10.24.0.4, interface: eth24, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 9175040}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.24.0.4, metric: 7864320}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4, metric: 7864320}
+  # A4 independent R3-R4 loss: R3 has no FC-qualified alternate and queries.
+  - packet-mark: square-r3-r4-down
+  - link-down: {uut: r3, interface: eth34}
+  - link-down: {uut: r4, interface: eth43}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 9175040}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.24.0.4, metric: 7864320}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 11141120}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.13.0.1, metric: 11141120}
+  - validate-packet: {uut: r3, opcode: query, prefix: 10.4.0.0/24, since: square-r3-r4-down, min: 1, timeout: 2}
+  - validate-packet: {opcode: reply, prefix: 10.4.0.0/24, since: square-r3-r4-down, min: 1, timeout: 2}
+  - link-up: {uut: r4, interface: eth43}
+  - link-up: {uut: r3, interface: eth34}
+  - validate-neighbor: {uut: r3, neighbor: 10.34.0.4, interface: eth34, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 9175040}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.24.0.4, metric: 7864320}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4, metric: 7864320}
