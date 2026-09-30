@@ -185,11 +185,18 @@ def test_passive_fd_and_active_freeze_rules_are_preserved():
     assert "prefix->fdistance = route->distance;" in keep
     assert "prefix->fdistance =\n\t\t\t\tprefix->distance = route->distance" not in keep
 
-    # The least-cost route, not a later feasible route, controls the Passive FC test.
+    # Passive selection must walk CD order until it finds a path satisfying FC.
+    # A lower-CD infeasible path must not hide a higher-CD feasible successor.
     event = fsm[fsm.index("static enum eigrp_fsm_events"):
                 fsm.index("int eigrp_fsm_event(")]
-    assert "eigrp_topology_route_read(prefix)" in event
-    assert "head->reported_distance < prefix->fdistance" in event
+    assert "eigrp_topology_route_select(prefix)" in event
+    assert "if (selected)" in event
+
+    flags_start = topology.index("void eigrp_topology_update_node_flags")
+    flags = topology[
+        flags_start:topology.index("void eigrp_update_routing_table", flags_start)
+    ]
+    assert "eigrp_topology_route_select(dest)" in flags
 
     # Task 13 carries the selected IPv6 successor set through the common RIB path.
     rib = topology[topology.index("void eigrp_update_routing_table"):

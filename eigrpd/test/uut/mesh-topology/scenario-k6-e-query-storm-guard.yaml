@@ -1,0 +1,160 @@
+schema: eigrp-uut-test/v1
+name: k6-single-link-query-storm-guard
+topology: ipv4-dense-mesh-k6.yaml
+steps:
+- start: all
+- validate-convergence:
+    timeout: 12
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 7208960
+    - route:
+        uut: r2
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 7208960
+- validate-convergence:
+    timeout: 12
+    expect:
+    - neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, state: up}
+    - neighbor: {uut: r2, neighbor: 10.12.0.1, interface: eth21, state: up}
+    - neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, state: up}
+    - neighbor: {uut: r3, neighbor: 10.13.0.1, interface: eth31, state: up}
+    - neighbor: {uut: r1, neighbor: 10.14.0.4, interface: eth14, state: up}
+    - neighbor: {uut: r4, neighbor: 10.14.0.1, interface: eth41, state: up}
+    - neighbor: {uut: r1, neighbor: 10.15.0.5, interface: eth15, state: up}
+    - neighbor: {uut: r5, neighbor: 10.15.0.1, interface: eth51, state: up}
+    - neighbor: {uut: r1, neighbor: 10.16.0.6, interface: eth16, state: up}
+    - neighbor: {uut: r6, neighbor: 10.16.0.1, interface: eth61, state: up}
+    - neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, state: up}
+    - neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, state: up}
+    - neighbor: {uut: r2, neighbor: 10.24.0.4, interface: eth24, state: up}
+    - neighbor: {uut: r4, neighbor: 10.24.0.2, interface: eth42, state: up}
+    - neighbor: {uut: r2, neighbor: 10.25.0.5, interface: eth25, state: up}
+    - neighbor: {uut: r5, neighbor: 10.25.0.2, interface: eth52, state: up}
+    - neighbor: {uut: r2, neighbor: 10.26.0.6, interface: eth26, state: up}
+    - neighbor: {uut: r6, neighbor: 10.26.0.2, interface: eth62, state: up}
+    - neighbor: {uut: r3, neighbor: 10.34.0.4, interface: eth34, state: up}
+    - neighbor: {uut: r4, neighbor: 10.34.0.3, interface: eth43, state: up}
+    - neighbor: {uut: r3, neighbor: 10.35.0.5, interface: eth35, state: up}
+    - neighbor: {uut: r5, neighbor: 10.35.0.3, interface: eth53, state: up}
+    - neighbor: {uut: r3, neighbor: 10.36.0.6, interface: eth36, state: up}
+    - neighbor: {uut: r6, neighbor: 10.36.0.3, interface: eth63, state: up}
+    - neighbor: {uut: r4, neighbor: 10.45.0.5, interface: eth45, state: up}
+    - neighbor: {uut: r5, neighbor: 10.45.0.4, interface: eth54, state: up}
+    - neighbor: {uut: r4, neighbor: 10.46.0.6, interface: eth46, state: up}
+    - neighbor: {uut: r6, neighbor: 10.46.0.4, interface: eth64, state: up}
+    - neighbor: {uut: r5, neighbor: 10.56.0.6, interface: eth56, state: up}
+    - neighbor: {uut: r6, neighbor: 10.56.0.5, interface: eth65, state: up}
+    - route: {uut: r3, prefix: 10.12.0.0/24, table: topology, active: false, successors: 1}
+    - route: {uut: r4, prefix: 10.12.0.0/24, table: topology, active: false, successors: 1}
+    - route: {uut: r5, prefix: 10.12.0.0/24, table: topology, active: false, successors: 1}
+    - route: {uut: r6, prefix: 10.12.0.0/24, table: topology, active: false, successors: 1}
+# The route/neighbor state can converge before the reliable startup UPDATE
+# queues are empty.  Start the storm-guard observation from a quiescent
+# topology so delayed startup traffic cannot overlap the injected failure.
+- wait: 1
+- packet-mark: link-prefix-loss
+- links-down:
+  - uut: r1
+    interface: eth12
+  - uut: r2
+    interface: eth21
+- validate-convergence:
+    timeout: 15
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 0
+        fd: 4294967295
+    - route:
+        uut: r2
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 0
+        fd: 4294967295
+    - route:
+        uut: r3
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 0
+        fd: 4294967295
+    - route:
+        uut: r4
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 0
+        fd: 4294967295
+    - route:
+        uut: r5
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 0
+        fd: 4294967295
+    - route:
+        uut: r6
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 0
+        fd: 4294967295
+# DUAL may require one local-origin round followed by one successor-origin
+# round as poison propagates. A third QUERY to the same directed neighbor is
+# treated as an unbounded/restarted diffusion and fails the storm guard.
+- validate-packet:
+    opcode: query
+    prefix: 10.12.0.0/24
+    since: link-prefix-loss
+    event: delivered
+    min: 1
+    max: 60
+    group_by:
+    - source_uut
+    - destination_uut
+    max_per_group: 2
+    timeout: 1
+- validate-packet:
+    opcode: sia-query
+    prefix: 10.12.0.0/24
+    since: link-prefix-loss
+    event: delivered
+    min: 0
+    max: 0
+    timeout: 1
+- links-up:
+  - uut: r1
+    interface: eth12
+  - uut: r2
+    interface: eth21
+- validate-convergence:
+    timeout: 15
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 7208960
+    - route:
+        uut: r2
+        prefix: 10.12.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 7208960
+- stop: all

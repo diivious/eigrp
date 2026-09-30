@@ -30,3 +30,43 @@ def test_single_family_topologies_support_ipv4_and_ipv6():
     root=Path(__file__).resolve().parents[1]/"examples"
     assert m.topology_afi(m.load_yaml(root/"ipv4-basic-core.yaml")) == 4
     assert m.topology_afi(m.load_yaml(root/"ipv6-basic-core.yaml")) == 6
+
+
+def test_batched_link_operations_are_valid_scenario_steps():
+    scenario={
+        "schema":m.TEST_SCHEMA,
+        "name":"batched-links",
+        "topology":"dummy.yaml",
+        "steps":[
+            {"links-down":[{"uut":"r1","interface":"eth0"},{"uut":"r2","interface":"eth0"}]},
+            {"links-up":[{"uut":"r1","interface":"eth0"},{"uut":"r2","interface":"eth0"}]},
+        ],
+    }
+    m.validate_scenario(scenario)
+
+
+def test_route_absence_filters_the_specific_path_not_the_whole_prefix():
+    class Node:
+        def state(self):
+            return {
+                "rib":[], "source":[], "topology":[],
+                "paths":[
+                    {"prefix":"10.0.0.0/24","next_hop":"10.0.1.2","interface":"eth0","connected":False,"successor":True,"feasible_successor":False,"distance":10,"rd":5},
+                    {"prefix":"10.0.0.0/24","next_hop":"10.0.2.2","interface":"eth1","connected":False,"successor":False,"feasible_successor":True,"distance":20,"rd":4},
+                ],
+            }
+    runner=m.Runner.__new__(m.Runner); runner.nodes={"r1":Node()}
+    assert runner.route_ok({"uut":"r1","prefix":"10.0.0.0/24","table":"path","next_hop":"10.0.3.2","present":False})
+    assert not runner.route_ok({"uut":"r1","prefix":"10.0.0.0/24","table":"path","next_hop":"10.0.1.2","present":False})
+    assert runner.route_ok({"uut":"r1","prefix":"10.0.0.0/24","table":"path","count":2})
+
+
+def test_packet_group_upper_bound_detects_duplicate_query_flow():
+    class Broker:
+        journal=[
+            {"event":"delivered","opcode":"query","source_uut":"r1","destination_uut":"r2","prefixes":["10.0.0.0/24"]},
+            {"event":"delivered","opcode":"query","source_uut":"r1","destination_uut":"r2","prefixes":["10.0.0.0/24"]},
+        ]
+    runner=m.Runner.__new__(m.Runner); runner.broker=Broker(); runner.packet_marks={"x":0}
+    spec={"event":"delivered","opcode":"query","prefix":"10.0.0.0/24","since":"x","min":1,"max":4,"group_by":["source_uut","destination_uut"],"max_per_group":1}
+    assert not runner.packet_ok(spec)

@@ -77,7 +77,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list): raise SpecError("scenario.steps must be a list")
-    allowed={"start","stop","link-up","link-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event"}
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
         op=next(iter(step));
@@ -85,7 +85,7 @@ def validate_scenario(s):
     return s
 
 class Node:
-    def __init__(self,name,config,sock): self.name=name; self.config=config; self.sock=sock; self.p=None; self.stderr=[]; self.err_thread=None
+    def __init__(self,name,config,sock): self.name=name; self.config=config; self.sock=sock; self.p=None; self.stderr=[]; self.err_thread=None; self.cmd_lock=threading.Lock()
     def start(self):
         if self.p and self.p.poll() is None: return
         env=os.environ.copy(); env["EIGRP_UNIX_WIRE_SOCKET"]=self.sock
@@ -100,20 +100,24 @@ class Node:
         if not events: raise TimeoutError(f"{self.name}: response timeout")
         return self.p.stdout.readline().rstrip("\n")
     def cmd(self,line,until=None,timeout=3):
-        if not self.p or self.p.poll() is not None: raise RuntimeError(f"{self.name}: UUT is not running")
-        self.p.stdin.write(line+"\n"); self.p.stdin.flush()
-        if until is None: return self._readline(timeout)
-        out=[]
-        deadline=time.monotonic()+timeout
-        row=self._readline(max(.01,deadline-time.monotonic()))
-        while True:
-            if row==until: return out
-            out.append(row)
-            # Once the response starts, the UUT emits the complete snapshot
-            # synchronously.  Read the TextIO buffer directly; select() only
-            # sees the underlying fd and can miss lines already buffered here.
-            row=self.p.stdout.readline().rstrip("\n")
-            if not row and self.p.poll() is not None: raise RuntimeError(f"{self.name}: exited during response")
+        # Batched topology operations may target multiple interfaces on one
+        # UUT. Keep each stdin/stdout transaction atomic per node while
+        # allowing commands to different UUTs to remain concurrent.
+        with self.cmd_lock:
+            if not self.p or self.p.poll() is not None: raise RuntimeError(f"{self.name}: UUT is not running; returncode={None if not self.p else self.p.poll()}; stderr={list(self.stderr)}")
+            self.p.stdin.write(line+"\n"); self.p.stdin.flush()
+            if until is None: return self._readline(timeout)
+            out=[]
+            deadline=time.monotonic()+timeout
+            row=self._readline(max(.01,deadline-time.monotonic()))
+            while True:
+                if row==until: return out
+                out.append(row)
+                # Once the response starts, the UUT emits the complete snapshot
+                # synchronously.  Read the TextIO buffer directly; select() only
+                # sees the underlying fd and can miss lines already buffered here.
+                row=self.p.stdout.readline().rstrip("\n")
+                if not row and self.p.poll() is not None: raise RuntimeError(f"{self.name}: exited during response")
     def state(self):
         rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"topology":[],"paths":[],"rib":[],"source":[]}; current_prefix=None
         for row in rows:
@@ -127,7 +131,10 @@ class Node:
             elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
     def link(self,up,ifname):
-        r=self.cmd(("UP" if up else "DOWN")+" "+ifname)
+        # Link transitions can legitimately block behind an in-flight serialized
+        # protocol callback.  Use a control timeout long enough to observe the
+        # result instead of declaring a live UUT dead under dense-mesh load.
+        r=self.cmd(("UP" if up else "DOWN")+" "+ifname,timeout=10)
         if r!="RESULT|0": raise RuntimeError(f"{self.name}:{ifname}: link operation failed: {r}")
     def stop(self):
         if not self.p: return
@@ -216,16 +223,27 @@ class Runner:
         return all(k not in e or n.get(k)==e[k] for n in matches for k in ("reliable_q","rto","srtt_valid","srtt","retransmissions"))
     def route_ok(self,e):
         st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["paths"] if table=="path" else st["topology"]
-        matches=[r for r in rows if r["prefix"].lower()==prefix.lower()]
-        if not e.get("present",True): return not matches
-        if not matches: return False
         keys=("next_hop","metric","distance") if table=="rib" else (("active","fd","successors") if table=="topology" else (("next_hop","interface","connected","successor","feasible_successor","distance","rd") if table=="path" else ("protocol","metric")))
-        return any(all(k not in e or r.get(k)==e[k] for k in keys) for r in matches)
+        matches=[r for r in rows if r["prefix"].lower()==prefix.lower() and all(k not in e or r.get(k)==e[k] for k in keys)]
+        if not e.get("present",True): return not matches
+        if "count" in e: return len(matches)==int(e["count"])
+        if "min_count" in e and len(matches)<int(e["min_count"]): return False
+        if "max_count" in e and len(matches)>int(e["max_count"]): return False
+        return bool(matches)
     def packet_ok(self,e):
         rows=list(self.broker.journal); mark=e.get("since"); rows=rows[self.packet_marks.get(mark,0):] if mark else rows
         fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","ack":"ack","cr":"cr","event":"event"}
-        count=sum(1 for p in rows if all(k not in e or ((str(e[k]).lower() in [str(x).lower() for x in p.get("prefixes",[])]) if k=="prefix" else p.get(v)==e[k]) for k,v in fields.items()))
-        return count>=int(e.get("min",1)) and ("max" not in e or count<=int(e["max"]))
+        matches=[p for p in rows if all(k not in e or ((str(e[k]).lower() in [str(x).lower() for x in p.get("prefixes",[])]) if k=="prefix" else p.get(v)==e[k]) for k,v in fields.items())]
+        count=len(matches)
+        if count<int(e.get("min",1)) or ("max" in e and count>int(e["max"])): return False
+        group_by=e.get("group_by")
+        if group_by:
+            if isinstance(group_by,str): group_by=[group_by]
+            groups=collections.Counter(tuple(p.get(k) for k in group_by) for p in matches)
+            if "min_groups" in e and len(groups)<int(e["min_groups"]): return False
+            if "max_groups" in e and len(groups)>int(e["max_groups"]): return False
+            if "max_per_group" in e and any(n>int(e["max_per_group"]) for n in groups.values()): return False
+        return True
     def event_ok(self,e):
         rows=self.nodes[e["uut"]].cmd("EVENTS",until="END",timeout=float(e.get("timeout",3)))
         needle=str(e["contains"])
@@ -257,11 +275,13 @@ class Runner:
         return False
     def expect(self,kind,e):
         timeout=float(e.get("timeout",5)); deadline=time.monotonic()+timeout; okfn={"neighbor":self.neighbor_ok,"route":self.route_ok,"packet":self.packet_ok,"fault":self.fault_ok,"retransmission":self.retransmission_ok,"retry":self.retry_ok}[kind]
-        if kind=="packet" and int(e.get("max",-1))==0:
+        if kind=="packet" and any(k in e for k in ("max","max_groups","max_per_group")):
+            upper=dict(e); upper["min"]=0; upper.pop("min_groups",None)
             while time.monotonic()<deadline:
-                if not okfn(e): raise AssertionError(f"validate-{kind} failed: expected {e}")
+                if not okfn(upper): raise AssertionError(f"validate-{kind} upper bound failed: expected {e}")
                 time.sleep(.05)
-            return
+            if okfn(e): return
+            raise AssertionError(f"validate-{kind} failed at end of observation window: expected {e}")
         while time.monotonic()<deadline:
             if okfn(e): return
             time.sleep(.1)
@@ -280,6 +300,18 @@ class Runner:
             for n in names: self.nodes[n].stop()
         elif op in ("link-up","link-down"):
             self.nodes[arg["uut"]].link(op=="link-up",arg["interface"])
+        elif op in ("links-up","links-down"):
+            links=arg if isinstance(arg,list) else arg.get("links",[])
+            errors=[]; gate=threading.Barrier(len(links)) if len(links)>1 else None
+            def change(link):
+                try:
+                    if gate: gate.wait()
+                    self.nodes[link["uut"]].link(op=="links-up",link["interface"])
+                except Exception as exc: errors.append((link,exc))
+            threads=[threading.Thread(target=change,args=(link,)) for link in links]
+            for thread in threads: thread.start()
+            for thread in threads: thread.join()
+            if errors: raise RuntimeError(f"batched link operation failed: {errors}")
         elif op=="wait": time.sleep(float(arg if isinstance(arg,(int,float)) else arg.get("seconds",1)))
         elif op=="packet-mark": self.packet_marks[str(arg)]=len(self.broker.journal)
         elif op=="fault-add": self.broker.add_fault(arg)

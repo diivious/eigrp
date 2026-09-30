@@ -427,7 +427,7 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 
 	switch (actual_state) {
 	case EIGRP_FSM_STATE_PASSIVE: {
-		eigrp_route_descriptor_t *head = eigrp_topology_route_read(prefix);
+		eigrp_route_descriptor_t *selected = eigrp_topology_route_select(prefix);
 
 		/* An advertisement that does not change topology cannot make a
 		 * PASSIVE destination require a diffusing computation.  This is
@@ -436,13 +436,12 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 		 * again is still no change.  QUERY handling remains in KEEP_STATE,
 		 * which returns the appropriate REPLY while staying PASSIVE.
 		 */
-		if (change == METRIC_SAME || (head->distance == EIGRP_MAX_METRIC
+		if (change == METRIC_SAME || (!selected
 				       && prefix->fdistance == EIGRP_MAX_METRIC))
 			return EIGRP_FSM_KEEP_STATE;
 
-		if (head->reported_distance < prefix->fdistance) {
+		if (selected)
 			return EIGRP_FSM_KEEP_STATE;
-		}
 		/*
 		 * if best route doesn't satisfy feasibility condition it means
 		 * move to active state
@@ -458,17 +457,16 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 	}
 	case EIGRP_FSM_STATE_ACTIVE_0: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
-			eigrp_route_descriptor_t *head =
-				eigrp_topology_route_read(prefix);
+			eigrp_route_descriptor_t *selected =
+				eigrp_topology_route_select(prefix);
 
 			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
 			if (prefix->rij->count)
 				return EIGRP_FSM_KEEP_STATE;
 
 			eigrp_log(EIGRP_LOG_INFO, "All reply received");
-			if (head->reported_distance < prefix->fdistance) {
+			if (selected)
 				return EIGRP_FSM_EVENT_LR_FCS;
-			}
 
 			return EIGRP_FSM_EVENT_LR_FCN;
 		} else if (msg->packet_type == EIGRP_OPC_QUERY
@@ -510,18 +508,16 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 	}
 	case EIGRP_FSM_STATE_ACTIVE_2: {
 		if (msg->packet_type == EIGRP_OPC_REPLY) {
-			eigrp_route_descriptor_t *head =
-				eigrp_topology_route_read(prefix);
+			eigrp_route_descriptor_t *selected =
+				eigrp_topology_route_select(prefix);
 
 			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
 			if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
 				eigrp_log(EIGRP_LOG_INFO, "All reply received");
-				if (head->reported_distance
-				    < prefix->fdistance) {
+				if (selected)
 					return EIGRP_FSM_EVENT_LR_FCS;
-				}
 
 				return EIGRP_FSM_EVENT_LR_FCN;
 			}
@@ -655,7 +651,10 @@ int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
+	eigrp_route_descriptor_t *route = eigrp_topology_route_select(prefix);
+
+	if (!route)
+		route = eigrp_topology_route_read(prefix);
 
 	if (prefix->state == EIGRP_FSM_STATE_PASSIVE) {
 		if (!eigrp_metrics_match(prefix->reported_metric,
@@ -749,7 +748,7 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 {
 	eigrp_instance_t *eigrp = msg->eigrp;
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
-	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
+	eigrp_route_descriptor_t *route = eigrp_topology_route_select(prefix);
 
 	uint8_t old_state = prefix->state;
 

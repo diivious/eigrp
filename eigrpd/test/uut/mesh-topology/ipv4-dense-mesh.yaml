@@ -1,0 +1,62 @@
+schema: eigrp-uut-topology/v1
+segments:
+  r1-r2: {}
+  r1-r3: {}
+  r1-r4: {}
+  r1-r5: {}
+  r2-r3: {}
+  r2-r4: {}
+  r2-r5: {}
+  r3-r4: {}
+  r3-r5: {}
+  r4-r5: {}
+routers:
+  r1:
+    asn: 4453
+    router_id: 10.255.0.1
+    interfaces:
+      eth12: {segment: r1-r2, ipv4: 10.12.0.1/24, delay: 10}
+      eth13: {segment: r1-r3, ipv4: 10.13.0.1/24, delay: 20}
+      eth14: {segment: r1-r4, ipv4: 10.14.0.1/24, delay: 80}
+      eth15: {segment: r1-r5, ipv4: 10.15.0.1/24, delay: 80}
+  r2:
+    asn: 4453
+    router_id: 10.255.0.2
+    interfaces:
+      eth21: {segment: r1-r2, ipv4: 10.12.0.2/24, delay: 10}
+      eth23: {segment: r2-r3, ipv4: 10.23.0.2/24, delay: 10}
+      eth24: {segment: r2-r4, ipv4: 10.24.0.2/24, delay: 10}
+      eth25: {segment: r2-r5, ipv4: 10.25.0.2/24, delay: 10}
+    attached_networks:
+      - {prefix: 10.102.0.1/24, interface: n2a, delay: 10}
+      - {prefix: 10.105.0.1/24, interface: n2b, delay: 10}
+  r3:
+    asn: 4453
+    router_id: 10.255.0.3
+    interfaces:
+      eth31: {segment: r1-r3, ipv4: 10.13.0.3/24, delay: 20}
+      eth32: {segment: r2-r3, ipv4: 10.23.0.3/24, delay: 10}
+      eth34: {segment: r3-r4, ipv4: 10.34.0.3/24, delay: 80}
+      eth35: {segment: r3-r5, ipv4: 10.35.0.3/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.103.0.1/24, interface: n3, delay: 10}
+  r4:
+    asn: 4453
+    router_id: 10.255.0.4
+    interfaces:
+      eth41: {segment: r1-r4, ipv4: 10.14.0.4/24, delay: 80}
+      eth42: {segment: r2-r4, ipv4: 10.24.0.4/24, delay: 10}
+      eth43: {segment: r3-r4, ipv4: 10.34.0.4/24, delay: 80}
+      eth45: {segment: r4-r5, ipv4: 10.45.0.4/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.104.0.1/24, interface: n4, delay: 10}
+  r5:
+    asn: 4453
+    router_id: 10.255.0.5
+    interfaces:
+      eth51: {segment: r1-r5, ipv4: 10.15.0.5/24, delay: 80}
+      eth52: {segment: r2-r5, ipv4: 10.25.0.5/24, delay: 10}
+      eth53: {segment: r3-r5, ipv4: 10.35.0.5/24, delay: 80}
+      eth54: {segment: r4-r5, ipv4: 10.45.0.5/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.105.0.1/24, interface: n5, delay: 10}
