@@ -18,7 +18,7 @@ def test_manual_summary_has_runtime_advertisement_and_withdrawal_path():
     assert "eigrp_summary_withdraw" in SUMMARY
     assert "eigrp_summary_route_build" in PACKETIZER
     assert "eigrp_summary_route_build" in UPDATE
-    assert "candidate_route->distance == EIGRP_MAX_METRIC" in SUMMARY
+    assert "candidate->distance < selected_distance" in SUMMARY
 
 
 def test_summary_metric_changes_live_summary_vector():

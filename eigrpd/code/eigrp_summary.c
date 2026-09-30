@@ -19,6 +19,7 @@
 #include "eigrp_table.h"
 #include "eigrp_topology.h"
 #include "eigrp_summary.h"
+#include "eigrp_eventlog.h"
 #include "eigrp_sys.h"
 
 struct eigrp_summary_config {
@@ -184,6 +185,18 @@ static bool eigrp_summary_auto_match(eigrp_instance_t *eigrp,
 	return !eigrp_summary_prefix_match(summary, &interface_major);
 }
 
+bool eigrp_summary_covers(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
+			  const eigrp_prefix_t *destination)
+{
+	eigrp_prefix_t auto_summary;
+
+	if (!eigrp || !ei || !destination)
+		return false;
+	if (eigrp_summary_match(eigrp, ei, destination))
+		return true;
+	return eigrp_summary_auto_match(eigrp, ei, destination, &auto_summary);
+}
+
 bool eigrp_summary_specific_leak(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 				 const eigrp_prefix_t *destination)
 {
@@ -213,6 +226,8 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 {
 	eigrp_summary_config_t *summary;
 	const eigrp_summary_metric_config_t *metric_config;
+	eigrp_prefix_t best_component = {0};
+	uint32_t selected_distance = EIGRP_MAX_METRIC;
 
 	if (!eigrp || !ei || !prefix || !route || !summary_prefix || !summary_route)
 		return false;
@@ -244,10 +259,13 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 						   &candidate->destination.address))
 				continue;
 			candidate_route = eigrp_topology_route_read(candidate);
-			if (!candidate_route || candidate_route->distance == EIGRP_MAX_METRIC)
+			if (!candidate_route)
 				continue;
-			if (!best_route || candidate_route->distance < best_route->distance)
+			if (!best_route || candidate->distance < selected_distance) {
 				best_route = candidate_route;
+				best_component = candidate->destination;
+				selected_distance = candidate->distance;
+			}
 		}
 		if (best_route)
 			*summary_route = *best_route;
@@ -260,12 +278,55 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 	summary_route->dest = summary_prefix->destination;
 
 	metric_config = eigrp_summary_metric_lookup(eigrp, &summary_prefix->destination);
-	if (metric_config && metric_config->metric_configured) {
+	if (metric_config && metric_config->metric_configured
+	    && selected_distance != EIGRP_MAX_METRIC) {
 		eigrp_metric_values_convert(&metric_config->metric, &summary_route->metric);
 		summary_route->reported_metric = summary_route->metric;
 		summary_route->total_metric = summary_route->metric;
 	}
+	if (selected_distance != EIGRP_MAX_METRIC)
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SUMMARY_COMPONENT,
+				       &best_component, selected_distance, 0, 0, 0);
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SUMMARY_METRIC,
+			       &summary_prefix->destination,
+			       eigrp_metric_calculate(eigrp, summary_route->metric), 0, 0, 0);
 	return true;
+}
+
+
+bool eigrp_summary_query_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
+                                     const eigrp_prefix_t *destination,
+                                     eigrp_prefix_descriptor_t *summary_prefix,
+                                     eigrp_route_descriptor_t *summary_route)
+{
+    eigrp_intf_config_t *config;
+    eigrp_summary_config_t *configured;
+    eigrp_table_node_t *rn;
+
+    if (!eigrp || !ei || !destination || !summary_prefix || !summary_route)
+        return false;
+    config = eigrp_summary_intf_config(eigrp, ei);
+    if (!config)
+        return false;
+    for (configured = config->summaries; configured; configured = configured->next)
+        if (eigrp_summary_prefix_match(&configured->prefix, destination))
+            break;
+    if (!configured)
+        return false;
+
+    for (rn = eigrp_table_first(eigrp->topology_table); rn; rn = eigrp_table_next(rn)) {
+        eigrp_prefix_descriptor_t *component = rn->info;
+        eigrp_route_descriptor_t *route;
+        if (!component || component->distance == EIGRP_MAX_METRIC
+            || component->destination.prefix_length <= destination->prefix_length
+            || !eigrp_prefix_address_match(destination, &component->destination.address))
+            continue;
+        route = eigrp_topology_route_read(component);
+        if (route && eigrp_summary_route_build(eigrp, ei, component, route,
+                                               summary_prefix, summary_route))
+            return true;
+    }
+    return false;
 }
 
 void eigrp_summary_runtime_update(eigrp_instance_t *eigrp)
@@ -296,6 +357,8 @@ static void eigrp_summary_withdraw(eigrp_instance_t *eigrp,
 
 	if (!eigrp || !prefix)
 		return;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SUMMARY_WITHDRAW,
+			       prefix, 0, 0, 0, 0);
 	withdraw_prefix = eigrp_topology_prefix_create();
 	withdraw_route = eigrp_topology_route_create(NULL);
 	work = eigrp_packetizer_work_create(EIGRP_OPC_UPDATE);

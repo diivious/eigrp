@@ -38,6 +38,9 @@ static const char *const eigrp_eventlog_formats[] = {
 	[EIGRP_EVENTLOG_OPCODE_RTP_ACK] = "RTP ACK",
 	[EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT] = "RTP retransmit",
 	[EIGRP_EVENTLOG_OPCODE_RTP_RETRY_LIMIT] = "RTP retry limit exceeded",
+	[EIGRP_EVENTLOG_OPCODE_SUMMARY_METRIC] = "Summary metric",
+	[EIGRP_EVENTLOG_OPCODE_SUMMARY_COMPONENT] = "Summary component",
+	[EIGRP_EVENTLOG_OPCODE_SUMMARY_WITHDRAW] = "Summary withdraw",
 };
 
 static const eigrp_eventlog_msg_t *
@@ -140,6 +143,17 @@ eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 	case EIGRP_EVENTLOG_OPCODE_RTP_RETRY_LIMIT:
 		(void)snprintf(buffer, buffer_size, "RTP retry limit exceeded for %s seq %lu retries %lu",
 			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SUMMARY_METRIC:
+		(void)snprintf(buffer, buffer_size, "Summary metric: %s %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SUMMARY_COMPONENT:
+		(void)snprintf(buffer, buffer_size, "Summary component: %s metric %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SUMMARY_WITHDRAW:
+		(void)snprintf(buffer, buffer_size, "Summary withdraw: %s", addr);
 		break;
 	default:
 		(void)snprintf(buffer, buffer_size,

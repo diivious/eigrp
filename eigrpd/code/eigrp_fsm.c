@@ -718,6 +718,7 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 	eigrp_update_routing_table(eigrp, prefix);
 	eigrp_update_topology_table_prefix(eigrp, eigrp->topology_table,
 					   prefix);
+	eigrp_update_send_all(eigrp, NULL);
 
 	return 1;
 }
@@ -771,6 +772,7 @@ int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
 	eigrp_update_routing_table(eigrp, prefix);
 	eigrp_update_topology_table_prefix(eigrp, eigrp->topology_table,
 					   prefix);
+	eigrp_update_send_all(eigrp, NULL);
 
 	return 1;
 }

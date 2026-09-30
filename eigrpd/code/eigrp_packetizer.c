@@ -319,6 +319,13 @@ static void eigrp_packetizer_intf_prefix_send(
 	    || work->exception == ei)
 		return;
 
+	/* A configured summary is a DUAL query boundary for its covered
+	 * components.  Do not add an upstream neighbor to the reply-status
+	 * set for a QUERY that must terminate at this summarizing interface. */
+	if (work->opcode == EIGRP_OPC_QUERY
+	    && eigrp_summary_covers(eigrp, ei, &work->prefix->destination))
+		return;
+
 	route = eigrp_packetizer_route_select(work->prefix, work->route,
 					      work->opcode, &owned);
 	if (!route)
@@ -440,6 +447,9 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 			size_t i;
 
 			if (!(prefix->req_action & action))
+				continue;
+			if (work->opcode == EIGRP_OPC_QUERY
+			    && eigrp_summary_covers(eigrp, ei, &prefix->destination))
 				continue;
 
 			route = eigrp_packetizer_route_select(prefix, NULL,

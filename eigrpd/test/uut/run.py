@@ -32,23 +32,29 @@ def validate_topology(t):
     if not isinstance(t.get("segments",{}),dict): raise SpecError("topology.segments must be a mapping")
     for rn,r in t["routers"].items():
         if not isinstance(r,dict): raise SpecError(f"router {rn} must be a mapping")
-        check_keys(r,{"asn","router_id","interfaces","attached_networks","source_networks"},f"router {rn}")
+        check_keys(r,{"asn","router_id","interfaces","attached_networks","source_networks","summary_metrics"},f"router {rn}")
         if not 1<=int(r.get("asn",0))<=65535: raise SpecError(f"router {rn}: invalid asn")
         ipaddress.IPv4Address(r.get("router_id"))
         if not isinstance(r.get("interfaces",{}),dict): raise SpecError(f"router {rn}.interfaces must be a mapping")
         for name,i in r.get("interfaces",{}).items():
-            check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","delay","up"},f"{rn}.{name}")
+            check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","delay","up","summaries"},f"{rn}.{name}")
+            summaries=i.get("summaries",[])
+            if not isinstance(summaries,list): raise SpecError(f"{rn}.{name}.summaries must be a list")
+            for summary in summaries: ipaddress.ip_network(summary,strict=False)
             if i.get("segment") not in t.get("segments",{}): raise SpecError(f"{rn}.{name}: unknown segment {i.get('segment')}")
             for key in ("ipv4","ipv6"):
                 vals=i.get(key,[]); vals=[vals] if isinstance(vals,str) else vals
                 if not isinstance(vals,list): raise SpecError(f"{rn}.{name}.{key} must be string/list")
                 for p in vals: ipaddress.ip_interface(p)
+        for sm in r.get("summary_metrics",[]):
+            check_keys(sm,{"prefix","bandwidth","delay","reliability","load","mtu"},f"{rn}.summary_metrics")
+            ipaddress.ip_network(sm["prefix"],strict=False)
         for key in ("attached_networks","source_networks"):
             vals=r.get(key,[])
             if not isinstance(vals,list): raise SpecError(f"{rn}.{key} must be a list")
             for n in vals:
                 if not isinstance(n,dict): raise SpecError(f"{rn}.{key} entries must be mappings")
-                check_keys(n,{"prefix","interface","protocol","metric"},f"{rn}.{key}")
+                check_keys(n,{"prefix","interface","protocol","metric","bandwidth","delay","mtu"},f"{rn}.{key}")
                 ipaddress.ip_interface(n["prefix"])
     return t
 
@@ -71,7 +77,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list): raise SpecError("scenario.steps must be a list")
-    allowed={"start","stop","link-up","link-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence"}
+    allowed={"start","stop","link-up","link-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event"}
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
         op=next(iter(step));
@@ -148,7 +154,7 @@ class Runner:
                 if i.get("up",True): lines.append(f"up {name}")
             for idx,n in enumerate(r.get("attached_networks",[]),1):
                 p=ipaddress.ip_interface(n["prefix"]); name=n.get("interface",f"attached{idx}")
-                lines += [f"interface {name} {next_if} 1000000 1500",f"address {name} {p}",f"up {name}"]; next_if+=1
+                lines += [f"interface {name} {next_if} {int(n.get('bandwidth',1000000))} {int(n.get('mtu',1500))}",f"address {name} {p}",f"up {name}"]; next_if+=1
             for n in r.get("source_networks",[]):
                 lines.append(f"source {ipaddress.ip_interface(n['prefix']).network} {int(n.get('metric', 1))}")
             lines.append(f"router-id {r['router_id']}")
@@ -157,8 +163,13 @@ class Runner:
             for n in r.get("attached_networks",[]):
                 p=ipaddress.ip_interface(n["prefix"])
                 if p.version==4: lines.append(f"network {p.network}")
+            for n in r.get("attached_networks",[]):
+                if "delay" in n: lines.append(f"delay {n.get('interface')} {int(n['delay'])}")
             for name,i in r.get("interfaces",{}).items():
                 if "delay" in i: lines.append(f"delay {name} {int(i['delay'])}")
+                for summary in i.get("summaries",[]): lines.append(f"summary {name} {ipaddress.ip_network(summary,strict=False)}")
+            for sm in r.get("summary_metrics",[]):
+                lines.append(f"summary-metric {ipaddress.ip_network(sm['prefix'],strict=False)} {int(sm['bandwidth'])} {int(sm['delay'])} {int(sm.get('reliability',255))} {int(sm.get('load',1))} {int(sm.get('mtu',1500))}")
             path=self.work/f"{rn}.conf"; path.write_text("\n".join(lines)+"\n"); self.nodes[rn]=Node(rn,path,str(self.work/"wire.sock"))
         return owners
     def diagnostics(self,focus=None):
@@ -214,6 +225,11 @@ class Runner:
         rows=list(self.broker.journal); mark=e.get("since"); rows=rows[self.packet_marks.get(mark,0):] if mark else rows
         fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","ack":"ack","cr":"cr","event":"event"}
         count=sum(1 for p in rows if all(k not in e or ((str(e[k]).lower() in [str(x).lower() for x in p.get("prefixes",[])]) if k=="prefix" else p.get(v)==e[k]) for k,v in fields.items()))
+        return count>=int(e.get("min",1)) and ("max" not in e or count<=int(e["max"]))
+    def event_ok(self,e):
+        rows=self.nodes[e["uut"]].cmd("EVENTS",until="END",timeout=float(e.get("timeout",3)))
+        needle=str(e["contains"])
+        count=sum(1 for row in rows if needle in row)
         return count>=int(e.get("min",1)) and ("max" not in e or count<=int(e["max"]))
     def fault_ok(self,e):
         f=self.broker.fault_state(e["name"]); return bool(f) and ("hits" not in e or f["hits"]>=int(e["hits"])) and ("remaining" not in e or f["remaining"]==int(e["remaining"]))
@@ -275,6 +291,8 @@ class Runner:
         elif op=="validate-packet": self.expect("packet",arg)
         elif op=="validate-retransmission": self.expect("retransmission",arg)
         elif op=="validate-retry": self.expect("retry",arg)
+        elif op=="validate-event":
+            if not self.event_ok(arg): raise AssertionError(f"validate-event failed: {arg}")
         elif op=="validate-convergence":
             timeout=float(arg.get("timeout",10)); deadline=time.monotonic()+timeout; expectations=arg.get("expect",[])
             while time.monotonic()<deadline:
