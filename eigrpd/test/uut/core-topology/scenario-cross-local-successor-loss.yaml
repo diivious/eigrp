@@ -1,0 +1,37 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-core-cross.yaml
+name: Core Topology B4 - Local Successor Loss With FS
+steps:
+  - start: r4
+  - start: r2
+  - start: r3
+  - start: r1
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.14.0.4, successor: false, feasible_successor: true, distance: 9830400, rd: 7208960}
+  # R1 loses its own successor adjacency. The direct R4 path already satisfies FC.
+  - packet-mark: r1-successor-down
+  - link-down: {uut: r1, interface: eth12}
+  - link-down: {uut: r2, interface: eth21}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.14.0.4, metric: 9830400}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.24.0.4, metric: 7864320}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: r1-successor-down, min: 0, max: 0, timeout: 2}
+  # Restore the lower metric path and require deterministic successor re-selection.
+  - packet-mark: r1-successor-up
+  - link-up: {uut: r2, interface: eth21}
+  - link-up: {uut: r1, interface: eth12}
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 9175040}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: path, next_hop: 10.14.0.4, successor: false, feasible_successor: true, distance: 9830400, rd: 7208960}

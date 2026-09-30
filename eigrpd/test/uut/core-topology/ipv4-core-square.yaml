@@ -1,0 +1,35 @@
+schema: eigrp-uut-topology/v1
+segments:
+  r1-r2: {}
+  r1-r3: {}
+  r2-r4: {}
+  r3-r4: {}
+routers:
+  r1:
+    asn: 4453
+    router_id: 10.255.0.1
+    interfaces:
+      # R1-R2 delay 20 makes the preferred N1 FD 9175040.
+      eth12: {segment: r1-r2, ipv4: 10.12.0.1/24, delay: 20}
+      # R1-R3 delay 30 makes the alternate total distance 9830400.
+      eth13: {segment: r1-r3, ipv4: 10.13.0.1/24, delay: 30}
+  r2:
+    asn: 4453
+    router_id: 10.255.0.2
+    interfaces:
+      eth21: {segment: r1-r2, ipv4: 10.12.0.2/24, delay: 20}
+      eth24: {segment: r2-r4, ipv4: 10.24.0.2/24, delay: 10}
+  r3:
+    asn: 4453
+    router_id: 10.255.0.3
+    interfaces:
+      eth31: {segment: r1-r3, ipv4: 10.13.0.3/24, delay: 30}
+      eth34: {segment: r3-r4, ipv4: 10.34.0.3/24, delay: 10}
+  r4:
+    asn: 4453
+    router_id: 10.255.0.4
+    interfaces:
+      eth42: {segment: r2-r4, ipv4: 10.24.0.4/24, delay: 10}
+      eth43: {segment: r3-r4, ipv4: 10.34.0.4/24, delay: 10}
+    attached_networks:
+      - {prefix: 10.4.0.1/24, interface: lan4}
