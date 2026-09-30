@@ -1,0 +1,63 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-summary-metric.yaml
+name: Summary Metric Selection and Reselection
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7864320}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, fd: 7864320, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, fd: 13762560, successors: 1}
+  - validate-event: {uut: r2, contains: "Summary component: 10.30.1.0/24 metric 7864320"}
+  - packet-mark: nonbest-down
+  - link-down: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7864320}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+  - validate-packet: {opcode: query, prefix: 10.30.2.0/24, source_uut: r2, destination_uut: r1, since: nonbest-down, min: 0, max: 0, timeout: 1}
+  - link-up: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7864320}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - packet-mark: best-down
+  - link-down: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 13762560}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - validate-event: {uut: r2, contains: "Summary component: 10.30.2.0/24 metric 13762560"}
+  - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 13107200"}
+  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r1, since: best-down, min: 0, max: 0, timeout: 1}
+  - packet-mark: best-up
+  - link-up: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7864320}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - validate-event: {uut: r2, contains: "Summary component: 10.30.1.0/24 metric 7864320"}
+  - link-down: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 13762560}
+  - packet-mark: last-down
+  - link-down: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+  - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 4294967295"}
+  - stop: all

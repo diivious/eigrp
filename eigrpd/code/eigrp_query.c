@@ -20,6 +20,7 @@
 #include "eigrp_fsm.h"
 #include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
+#include "eigrp_summary.h"
 
 
 static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
@@ -121,6 +122,22 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		// should have got route off the packet, but one never knows
 		if (!route)
 			break;
+
+		/* Manual summaries are local query boundaries.  The aggregate is
+		 * synthesized on advertisement, so answer a QUERY for the aggregate
+		 * directly from its currently reachable components. */
+		{
+			eigrp_prefix_descriptor_t *sp = eigrp_topology_prefix_create();
+			eigrp_route_descriptor_t *sr = eigrp_topology_route_create(ei);
+			if (sp && sr && eigrp_summary_query_route_build(eigrp, ei, &route->dest, sp, sr)) {
+				eigrp_reply_send_route(eigrp, nbr, sp, sr,
+					EIGRP_PACKETIZER_WORK_F_OWN_PREFIX | EIGRP_PACKETIZER_WORK_F_OWN_ROUTE);
+				eigrp_topology_route_free(route);
+				continue;
+			}
+			eigrp_topology_prefix_free(sp);
+			eigrp_topology_route_free(sr);
+		}
 
 		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);

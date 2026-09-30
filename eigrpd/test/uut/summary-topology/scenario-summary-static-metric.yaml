@@ -1,0 +1,37 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-summary-static-metric.yaml
+name: Configured Summary Metric Override
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 2094080}
+  - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 1438720"}
+  - packet-mark: best-down-static
+  - link-down: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 2094080}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - wait: 0.5
+  - validate-event: {uut: r2, contains: "Summary component: 10.30.2.0/24 metric 13762560"}
+  - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 1438720"}
+  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r1, since: best-down-static, min: 0, max: 0, timeout: 1}
+  - packet-mark: last-down-static
+  - link-down: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, present: false}
+  - link-up: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 2094080}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 1438720"}
+  - stop: all

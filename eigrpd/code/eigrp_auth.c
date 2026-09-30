@@ -488,9 +488,8 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 		    && (!hmac || !hmac->password || !hmac->password[0]
 			|| strlen(hmac->password) > 32))
 			return EIGRP_RESULT_INVALID_ARGUMENT;
-		if (context->config && hmac->encryption_type == 7)
-			return EIGRP_RESULT_UNSUPPORTED;
-		if (context->config && hmac->encryption_type != 0)
+		if (context->config && hmac->encryption_type != 0
+		    && hmac->encryption_type != 7)
 			return EIGRP_RESULT_INVALID_ARGUMENT;
 
 		if (context->config) {
@@ -498,7 +497,11 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 			if (!config_password)
 				return EIGRP_RESULT_INTERNAL_FAILURE;
 		}
-		if (context->runtime && context->config) {
+		/* Type 7 is retained configuration only until Cisco type-7
+		 * decoding and named HMAC-SHA256 runtime key handling are
+		 * completed.  Never use the encoded text as HMAC key material. */
+		if (context->runtime && context->config
+		    && hmac->encryption_type == 0) {
 			runtime_password = eigrp_auth_string_dup(hmac->password);
 			if (!runtime_password) {
 				free(config_password);
@@ -517,6 +520,14 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 		context->config->authentication_encryption_type =
 			mode == EIGRP_AUTHENTICATION_HMAC_SHA256 ? hmac->encryption_type : 0;
 	}
+	if (context->runtime && mode == EIGRP_AUTHENTICATION_HMAC_SHA256
+	    && context->config && hmac && hmac->encryption_type == 7) {
+		/* Retain Cisco type-7 configuration, but do not treat the encoded
+		 * text as HMAC key material until type-7 decoding is implemented. */
+		free(runtime_password);
+		return EIGRP_RESULT_UNSUPPORTED;
+	}
+
 	if (context->runtime) {
 		if (context->runtime->params.auth_password) {
 			memset(context->runtime->params.auth_password, 0,
@@ -526,8 +537,8 @@ eigrp_result_t eigrp_auth_mode_update(eigrp_operation_t operation, eigrp_intf_co
 		context->runtime->params.auth_password = runtime_password;
 		context->runtime->params.auth_type =
 			mode == EIGRP_AUTHENTICATION_HMAC_SHA256
-				? EIGRP_AUTH_TYPE_SHA256 : EIGRP_AUTH_TYPE_MD5;
-
+				? EIGRP_AUTH_TYPE_SHA256
+				: EIGRP_AUTH_TYPE_MD5;
 	}
 	return EIGRP_RESULT_SUCCESS;
 }

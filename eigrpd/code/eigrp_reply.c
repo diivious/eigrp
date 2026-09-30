@@ -117,4 +117,8 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		if (free_received_route)
 			eigrp_topology_route_free(received_route);
 	}
+
+	/* REPLY processing can complete DUAL and queue further actions. */
+	eigrp_query_send_all(eigrp);
+	eigrp_update_send_all(eigrp, ei);
 }

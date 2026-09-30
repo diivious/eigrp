@@ -112,7 +112,9 @@ def test_production_targets_do_not_return_or_tolerate_not_implemented():
     assert "case EIGRP_RESULT_NOT_IMPLEMENTED:" in renderer
 
 
-def test_frr_named_hmac_cli_exposes_only_plaintext_password_type():
+def test_frr_named_hmac_cli_exposes_plaintext_and_type7_password_forms():
     cli = read(ROOT / "frr/code/eigrp_cli_named.c")
-    assert 'authentication mode <md5|hmac-sha-256 0 WORD>' in cli
-    assert '<0|7>' not in cli
+    assert 'authentication mode <md5|hmac-sha-256 <0|7> WORD>' in cli
+    auth_mode = body(ROOT / "eigrpd/code/eigrp_auth.c", "eigrp_auth_mode_update")
+    assert "hmac->encryption_type == 7" in auth_mode
+    assert "return EIGRP_RESULT_UNSUPPORTED;" in auth_mode

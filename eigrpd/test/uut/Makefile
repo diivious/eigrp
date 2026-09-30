@@ -53,3 +53,9 @@ rtp-core: eigrp-uut-node
 
 all-scenarios: eigrp-uut-node
 	$(PYTHON) run_all.py
+
+.PHONY: summary-topology
+summary-topology: eigrp-uut-node
+	$(PYTHON) run.py summary-topology/ipv4-summary-boundary.yaml summary-topology/scenario-summary-query-boundary.yaml
+	$(PYTHON) run.py summary-topology/ipv4-summary-metric.yaml summary-topology/scenario-summary-metric-selection.yaml
+	$(PYTHON) run.py summary-topology/ipv4-summary-static-metric.yaml summary-topology/scenario-summary-static-metric.yaml

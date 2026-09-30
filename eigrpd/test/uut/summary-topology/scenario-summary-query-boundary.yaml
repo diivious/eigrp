@@ -1,0 +1,65 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-summary-boundary.yaml
+name: Summary Query Boundary and Lifecycle
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
+        - route: {uut: r1, prefix: 10.30.1.0/24, table: rib, present: false}
+        - route: {uut: r1, prefix: 10.30.2.0/24, table: rib, present: false}
+  - packet-mark: n1-down
+  - link-down: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r1, since: n1-down, min: 0, max: 0, timeout: 1}
+  - packet-mark: n2-down
+  - link-down: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+  - packet-mark: n1-up
+  - link-up: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+  - link-up: {uut: r3, interface: n2}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - packet-mark: downstream-link-failure
+  - link-down: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r3, since: downstream-link-failure, min: 1, timeout: 2}
+  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r1, since: downstream-link-failure, min: 0, max: 0, timeout: 1}
+  - link-up: {uut: r3, interface: n1}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
+  - stop: all

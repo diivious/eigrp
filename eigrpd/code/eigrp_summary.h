@@ -29,6 +29,12 @@ eigrp_result_t eigrp_summary_metric_update(eigrp_operation_t operation,
 void eigrp_summary_state_delete_all(eigrp_af_instance_t *af);
 
 /* Runtime advertisement helpers used by UPDATE/packetizer paths. */
+bool eigrp_summary_query_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
+				     const eigrp_prefix_t *summary,
+				     eigrp_prefix_descriptor_t *summary_prefix,
+				     eigrp_route_descriptor_t *summary_route);
+bool eigrp_summary_covers(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
+			  const eigrp_prefix_t *destination);
 bool eigrp_summary_specific_leak(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 				 const eigrp_prefix_t *destination);
 bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
