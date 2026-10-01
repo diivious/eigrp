@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "eigrp_unix.h"
 #include "eigrp_unix_interface.h"
 #include "eigrp_unix_rib.h"
 #include "eigrp_unix_segment.h"
@@ -225,31 +226,47 @@ eigrp_result_t eigrp_unix_interface_delete(const char *name)
 
 eigrp_result_t eigrp_unix_interface_up(const char *name)
 {
-	eigrp_unix_interface_t *interface = eigrp_unix_interface_find(name);
+	eigrp_unix_interface_t *interface;
+	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
 
-	if (!interface)
-		return EIGRP_RESULT_NOT_FOUND;
+	eigrp_unix_runtime_enter();
+	interface = eigrp_unix_interface_find(name);
+	if (!interface) {
+		result = EIGRP_RESULT_NOT_FOUND;
+		goto out;
+	}
 	if (interface->operative)
-		return EIGRP_RESULT_SUCCESS;
+		goto out;
 	interface->operative = true;
 	eigrp_unix_interface_connected_update(interface, true);
 	eigrp_unix_interface_notify(interface);
-	return EIGRP_RESULT_SUCCESS;
+
+out:
+	eigrp_unix_runtime_leave();
+	return result;
 }
 
 eigrp_result_t eigrp_unix_interface_down(const char *name)
 {
-	eigrp_unix_interface_t *interface = eigrp_unix_interface_find(name);
+	eigrp_unix_interface_t *interface;
+	eigrp_result_t result = EIGRP_RESULT_SUCCESS;
 
-	if (!interface)
-		return EIGRP_RESULT_NOT_FOUND;
+	eigrp_unix_runtime_enter();
+	interface = eigrp_unix_interface_find(name);
+	if (!interface) {
+		result = EIGRP_RESULT_NOT_FOUND;
+		goto out;
+	}
 	if (!interface->operative)
-		return EIGRP_RESULT_SUCCESS;
+		goto out;
 	eigrp_unix_interface_connected_update(interface, false);
 	interface->operative = false;
 	eigrp_sys_interface_link_down(EIGRP_VRF_DEFAULT, interface->ifindex,
 		interface->name, 0, interface->bandwidth, interface->mtu);
-	return EIGRP_RESULT_SUCCESS;
+
+out:
+	eigrp_unix_runtime_leave();
+	return result;
 }
 
 eigrp_result_t eigrp_unix_interface_address_add(

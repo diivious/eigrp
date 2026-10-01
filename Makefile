@@ -8,7 +8,7 @@ PYTHON ?= $(CURDIR)/tools/python
 export PYTHON
 
 .PHONY: all help build uut portable-build portable-test portable-pytest \
-	portable-scenarios ipv4-basic-core ipv6-basic-core rtp-core core-topology test clean \
+	portable-scenarios ipv4-basic-core ipv6-basic-core rtp-core core-topology mesh-topology test clean \
 	frr-smoke
 
 all: build ## Build the standalone EIGRP code and Unix platform support.
@@ -45,6 +45,9 @@ rtp-core: build ## Run the RTP core UUT scenario.
 
 core-topology: build ## Run the four-router square and cross-connected core redundancy scenarios.
 	$(MAKE) -C eigrpd/test/uut core-topology
+
+mesh-topology: build ## Run the six-router full-mesh DUAL/query-storm qualification scenarios.
+	$(MAKE) -C eigrpd/test/uut mesh-topology
 
 test: ## Run all test groups and return failure if any group fails.
 	@status=0; \

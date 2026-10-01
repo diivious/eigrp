@@ -82,6 +82,21 @@ static eigrp_unix_runtime_t runtime = {
 	.wake_write = -1,
 };
 
+/* Portable EIGRP callbacks execute on the runtime thread while Unix host
+ * management operations may originate on another thread.  Keep those two
+ * execution contexts out of portable/core state at the same time. */
+static pthread_mutex_t protocol_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void eigrp_unix_runtime_enter(void)
+{
+	pthread_mutex_lock(&protocol_lock);
+}
+
+void eigrp_unix_runtime_leave(void)
+{
+	pthread_mutex_unlock(&protocol_lock);
+}
+
 static void eigrp_unix_log(const char *message)
 {
 	fprintf(stderr, "EIGRP unix: %s\n", message);
@@ -299,6 +314,13 @@ static void *eigrp_unix_runtime_loop(void *unused)
 		if (pollfds[0].revents & POLLIN)
 			eigrp_unix_wake_drain();
 
+		/* Serialize the ready-event handoff with host-side protocol mutations.
+		 * Taking an event and only then waiting for the protocol lock leaves an
+		 * uncancellable in-flight callback: interface-down can remove the state
+		 * that callback owns before it actually runs.  Hold the protocol lock
+		 * before unlinking the event so cancellation either wins first or waits
+		 * for the callback to finish. */
+		eigrp_unix_runtime_enter();
 		pthread_mutex_lock(&runtime.lock);
 		event = eigrp_unix_ready_take_locked(pollfds, map, count,
 						      eigrp_unix_monotime_msec());
@@ -307,13 +329,16 @@ static void *eigrp_unix_runtime_loop(void *unused)
 		pthread_mutex_unlock(&runtime.lock);
 		free(map);
 		free(pollfds);
-		if (!event)
+		if (!event) {
+			eigrp_unix_runtime_leave();
 			continue;
+		}
 
 		callback = event->callback;
 		arg = event->arg;
 		free(event);
 		callback(arg);
+		eigrp_unix_runtime_leave();
 	}
 	return NULL;
 }

@@ -1,0 +1,297 @@
+schema: eigrp-uut-test/v1
+name: k6-simultaneous-double-link-failure
+topology: ipv4-dense-mesh-k6.yaml
+steps:
+- start: all
+- validate-convergence:
+    timeout: 12
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 7864320
+    - route:
+        uut: r1
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+        successors: 2
+        fd: 8519680
+    - route:
+        uut: r1
+        prefix: 10.104.0.0/24
+        table: path
+        next_hop: 10.14.0.4
+        feasible_successor: true
+    - route:
+        uut: r1
+        prefix: 10.105.0.0/24
+        table: path
+        next_hop: 10.15.0.5
+        feasible_successor: true
+    - route:
+        uut: r1
+        prefix: 10.106.0.0/24
+        table: path
+        next_hop: 10.16.0.6
+        feasible_successor: true
+- packet-mark: double-failure
+- links-down:
+  - uut: r1
+    interface: eth12
+  - uut: r2
+    interface: eth21
+  - uut: r1
+    interface: eth13
+  - uut: r3
+    interface: eth31
+- validate-convergence:
+    timeout: 15
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+        successors: 3
+        fd: 13107200
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: path
+        count: 3
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: path
+        next_hop: 10.12.0.2
+        present: false
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: path
+        next_hop: 10.13.0.3
+        present: false
+    - route:
+        uut: r1
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+        successors: 3
+        fd: 13762560
+    - route:
+        uut: r1
+        prefix: 10.103.0.0/24
+        table: path
+        count: 3
+    - route:
+        uut: r1
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 8519680
+    - route:
+        uut: r1
+        prefix: 10.104.0.0/24
+        table: path
+        next_hop: 10.14.0.4
+        successor: true
+    - route:
+        uut: r1
+        prefix: 10.105.0.0/24
+        table: path
+        next_hop: 10.15.0.5
+        successor: true
+    - route:
+        uut: r1
+        prefix: 10.106.0.0/24
+        table: path
+        next_hop: 10.16.0.6
+        successor: true
+- validate-packet:
+    source_uut: r1
+    opcode: query
+    prefix: 10.102.0.0/24
+    since: double-failure
+    event: delivered
+    min: 3
+    max: 4
+    group_by:
+    - source_uut
+    - destination_uut
+    max_per_group: 1
+    timeout: 1
+- validate-packet:
+    source_uut: r1
+    opcode: query
+    prefix: 10.103.0.0/24
+    since: double-failure
+    event: delivered
+    min: 3
+    max: 4
+    group_by:
+    - source_uut
+    - destination_uut
+    max_per_group: 1
+    timeout: 1
+- validate-packet:
+    source_uut: r1
+    opcode: query
+    prefix: 10.104.0.0/24
+    since: double-failure
+    event: delivered
+    min: 0
+    max: 0
+    timeout: 1
+- validate-packet:
+    source_uut: r1
+    opcode: query
+    prefix: 10.105.0.0/24
+    since: double-failure
+    event: delivered
+    min: 0
+    max: 0
+    timeout: 1
+- validate-packet:
+    source_uut: r1
+    opcode: query
+    prefix: 10.106.0.0/24
+    since: double-failure
+    event: delivered
+    min: 0
+    max: 0
+    timeout: 1
+- validate-convergence:
+    timeout: 5
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r1
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r1
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r2
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r2
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r2
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r3
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r3
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r3
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r4
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r4
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r4
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r5
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r5
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r5
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r6
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r6
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+    - route:
+        uut: r6
+        prefix: 10.104.0.0/24
+        table: topology
+        active: false
+- links-up:
+  - uut: r1
+    interface: eth12
+  - uut: r2
+    interface: eth21
+  - uut: r1
+    interface: eth13
+  - uut: r3
+    interface: eth31
+- validate-neighbor:
+    uut: r1
+    neighbor: 10.12.0.2
+    interface: eth12
+    timeout: 10
+- validate-neighbor:
+    uut: r1
+    neighbor: 10.13.0.3
+    interface: eth13
+    timeout: 10
+- validate-convergence:
+    timeout: 15
+    expect:
+    - route:
+        uut: r1
+        prefix: 10.102.0.0/24
+        table: topology
+        active: false
+        successors: 1
+        fd: 7864320
+    - route:
+        uut: r1
+        prefix: 10.103.0.0/24
+        table: topology
+        active: false
+        successors: 2
+        fd: 8519680
+- stop: all

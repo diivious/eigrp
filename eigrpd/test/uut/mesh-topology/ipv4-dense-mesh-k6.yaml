@@ -1,0 +1,95 @@
+schema: eigrp-uut-topology/v1
+segments:
+  r1-r2: {}
+  r1-r3: {}
+  r1-r4: {}
+  r1-r5: {}
+  r1-r6: {}
+  r2-r3: {}
+  r2-r4: {}
+  r2-r5: {}
+  r2-r6: {}
+  r3-r4: {}
+  r3-r5: {}
+  r3-r6: {}
+  r4-r5: {}
+  r4-r6: {}
+  r5-r6: {}
+routers:
+  r1:
+    asn: 4453
+    router_id: 10.255.0.1
+    interfaces:
+      eth12: {segment: r1-r2, ipv4: 10.12.0.1/24, delay: 10}
+      eth13: {segment: r1-r3, ipv4: 10.13.0.1/24, delay: 20}
+      eth14: {segment: r1-r4, ipv4: 10.14.0.1/24, delay: 80}
+      eth15: {segment: r1-r5, ipv4: 10.15.0.1/24, delay: 80}
+      eth16: {segment: r1-r6, ipv4: 10.16.0.1/24, delay: 80}
+  r2:
+    asn: 4453
+    router_id: 10.255.0.2
+    interfaces:
+      eth21: {segment: r1-r2, ipv4: 10.12.0.2/24, delay: 10}
+      eth23: {segment: r2-r3, ipv4: 10.23.0.2/24, delay: 10}
+      eth24: {segment: r2-r4, ipv4: 10.24.0.2/24, delay: 10}
+      eth25: {segment: r2-r5, ipv4: 10.25.0.2/24, delay: 10}
+      eth26: {segment: r2-r6, ipv4: 10.26.0.2/24, delay: 10}
+    attached_networks:
+      - {prefix: 10.102.0.1/24, interface: n2a, delay: 10}
+      - {prefix: 10.105.0.1/24, interface: n2b, delay: 10}
+      - {prefix: 10.120.0.1/24, interface: v120, delay: 10}
+      - {prefix: 10.121.0.1/24, interface: v121, delay: 10}
+      - {prefix: 10.122.0.1/24, interface: v122, delay: 10}
+      - {prefix: 10.123.0.1/24, interface: v123, delay: 10}
+      - {prefix: 10.124.0.1/24, interface: v124, delay: 10}
+      - {prefix: 10.125.0.1/24, interface: v125, delay: 10}
+      - {prefix: 10.126.0.1/24, interface: v126, delay: 10}
+      - {prefix: 10.127.0.1/24, interface: v127, delay: 10}
+  r3:
+    asn: 4453
+    router_id: 10.255.0.3
+    interfaces:
+      eth31: {segment: r1-r3, ipv4: 10.13.0.3/24, delay: 20}
+      eth32: {segment: r2-r3, ipv4: 10.23.0.3/24, delay: 10}
+      eth34: {segment: r3-r4, ipv4: 10.34.0.3/24, delay: 80}
+      eth35: {segment: r3-r5, ipv4: 10.35.0.3/24, delay: 80}
+      eth36: {segment: r3-r6, ipv4: 10.36.0.3/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.103.0.1/24, interface: n3, delay: 10}
+      - {prefix: 10.130.0.1/24, interface: v130, delay: 10}
+      - {prefix: 10.131.0.1/24, interface: v131, delay: 10}
+      - {prefix: 10.132.0.1/24, interface: v132, delay: 10}
+      - {prefix: 10.133.0.1/24, interface: v133, delay: 10}
+  r4:
+    asn: 4453
+    router_id: 10.255.0.4
+    interfaces:
+      eth41: {segment: r1-r4, ipv4: 10.14.0.4/24, delay: 80}
+      eth42: {segment: r2-r4, ipv4: 10.24.0.4/24, delay: 10}
+      eth43: {segment: r3-r4, ipv4: 10.34.0.4/24, delay: 80}
+      eth45: {segment: r4-r5, ipv4: 10.45.0.4/24, delay: 80}
+      eth46: {segment: r4-r6, ipv4: 10.46.0.4/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.104.0.1/24, interface: n4, delay: 10}
+  r5:
+    asn: 4453
+    router_id: 10.255.0.5
+    interfaces:
+      eth51: {segment: r1-r5, ipv4: 10.15.0.5/24, delay: 80}
+      eth52: {segment: r2-r5, ipv4: 10.25.0.5/24, delay: 10}
+      eth53: {segment: r3-r5, ipv4: 10.35.0.5/24, delay: 80}
+      eth54: {segment: r4-r5, ipv4: 10.45.0.5/24, delay: 80}
+      eth56: {segment: r5-r6, ipv4: 10.56.0.5/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.105.0.1/24, interface: n5, delay: 10}
+  r6:
+    asn: 4453
+    router_id: 10.255.0.6
+    interfaces:
+      eth61: {segment: r1-r6, ipv4: 10.16.0.6/24, delay: 80}
+      eth62: {segment: r2-r6, ipv4: 10.26.0.6/24, delay: 10}
+      eth63: {segment: r3-r6, ipv4: 10.36.0.6/24, delay: 80}
+      eth64: {segment: r4-r6, ipv4: 10.46.0.6/24, delay: 80}
+      eth65: {segment: r5-r6, ipv4: 10.56.0.6/24, delay: 80}
+    attached_networks:
+      - {prefix: 10.106.0.1/24, interface: n6, delay: 10}

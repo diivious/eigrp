@@ -536,14 +536,17 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					summary_seen[summary_seen_count++] = summary_prefix.destination;
 			}
 
-			if (eigrp_nbr_split_horizon(selected_route, ei)
-			    || eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
-							 &wire_prefix->destination))
+			if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
+						       &wire_prefix->destination))
 				continue;
 
 			eigrp_route_descriptor_t wire_route = *selected_route;
 			if (!summarized)
 				wire_route.metric = selected_route->total_metric;
+			if (eigrp_nbr_split_horizon(selected_route, ei)) {
+				wire_route.metric.delay = EIGRP_MAX_METRIC;
+				wire_route.metric.flags = 0;
+			}
 			eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
 					  &wire_prefix->destination, &wire_route.metric);
 			encoded = eigrp_packet_route_encode_append(
@@ -556,6 +559,12 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					return;
 				route_count = 0;
 				wire_route = *selected_route;
+				if (!summarized)
+					wire_route.metric = selected_route->total_metric;
+				if (eigrp_nbr_split_horizon(selected_route, ei)) {
+					wire_route.metric.delay = EIGRP_MAX_METRIC;
+					wire_route.metric.flags = 0;
+				}
 				eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
 						  &wire_prefix->destination, &wire_route.metric);
 				encoded = eigrp_packet_route_encode_append(
@@ -569,11 +578,14 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					  ei->name, packet_limit);
 
 			if (summarized && leak_specific
-			    && !eigrp_nbr_split_horizon(route, ei)
 			    && !eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
 						   &prefix->destination)) {
 				eigrp_route_descriptor_t leak_route = *route;
 				leak_route.metric = route->total_metric;
+				if (eigrp_nbr_split_horizon(route, ei)) {
+					leak_route.metric.delay = EIGRP_MAX_METRIC;
+					leak_route.metric.flags = 0;
+				}
 				eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
 						  &prefix->destination, &leak_route.metric);
 				encoded = eigrp_packet_route_encode_append(
@@ -675,7 +687,7 @@ static void eigrp_update_send_GR_part(eigrp_nbr_t *nbr)
 
 		successors = eigrp_topology_successors_read(prefix);
 		route = successors ? eigrp_list_item_data(eigrp_list_first(successors)) : NULL;
-		if (!route || eigrp_nbr_split_horizon(route, ei)) {
+		if (!route) {
 			if (successors)
 				eigrp_list_delete(&successors);
 			eigrp_list_delete_data(prefixes, prefix);
@@ -683,6 +695,10 @@ static void eigrp_update_send_GR_part(eigrp_nbr_t *nbr)
 		}
 
 		eigrp_route_descriptor_t wire_route = *route;
+		if (eigrp_nbr_split_horizon(route, ei)) {
+			wire_route.metric.delay = EIGRP_MAX_METRIC;
+			wire_route.metric.flags = 0;
+		}
 		eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_OUT,
 				  &prefix->destination, &wire_route.metric);
 		encoded = eigrp_packet_route_encode_append(

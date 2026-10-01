@@ -19,4 +19,8 @@
 void eigrp_unix_runtime_fd_set(eigrp_instance_t *eigrp, int fd);
 void eigrp_unix_runtime_fd_clear(eigrp_instance_t *eigrp);
 
+/* Serialize host-side protocol mutations with runtime callbacks. */
+void eigrp_unix_runtime_enter(void);
+void eigrp_unix_runtime_leave(void);
+
 #endif /* EIGRP_UNIX_EIGRP_UNIX_H_ */

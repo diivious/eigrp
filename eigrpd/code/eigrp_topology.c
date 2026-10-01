@@ -1099,13 +1099,13 @@ void eigrp_topology_update_node_flags(eigrp_instance_t *eigrp,
 	if (!eigrp || !dest)
 		return;
 
-	/* The current least-cost reachable route chooses the route class.  DUAL
-	 * may only call this while PASSIVE after that least-cost route has passed
-	 * the Feasibility Condition.  Do not skip an infeasible least-cost
-	 * internal path merely to mark a higher-cost or external path.
+	/* Use the same FC-aware selector as the FSM.  A lower-CD path that fails
+	 * the Feasibility Condition must not hide a later feasible path in the
+	 * same route class.  The selected path determines which class may carry
+	 * successor and feasible-successor flags.
 	 */
-	best = eigrp_topology_route_read(dest);
-	if (best && best->distance != EIGRP_MAX_METRIC)
+	best = eigrp_topology_route_select(dest);
+	if (best)
 		eligible = eigrp_topology_route_class_queue(dest, best);
 	max_paths = eigrp->max_paths ? eigrp->max_paths : EIGRP_MAX_PATHS_DEFAULT;
 

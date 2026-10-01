@@ -283,11 +283,27 @@ static bool eigrp_packetizer_prefix_allowed(eigrp_instance_t *eigrp,
 				      &prefix->destination))
 		return false;
 
-	if ((opcode == EIGRP_OPC_UPDATE || opcode == EIGRP_OPC_QUERY)
-	    && eigrp_nbr_split_horizon(route, ei))
-		return false;
-
+	/* Split horizon is implemented as poison reverse by the UPDATE callers.
+	 * QUERY must not be suppressed on the successor interface because that
+	 * neighbor still belongs to the diffusing computation/reply-status set. */
+	(void)opcode;
 	return true;
+}
+
+static eigrp_route_descriptor_t *eigrp_packetizer_poison_reverse(
+	eigrp_intf_t *ei, uint8_t opcode, eigrp_route_descriptor_t *route,
+	eigrp_route_descriptor_t *poison)
+{
+	if (!route || !poison)
+		return route;
+
+	if (opcode != EIGRP_OPC_UPDATE || !eigrp_nbr_split_horizon(route, ei))
+		return route;
+
+	*poison = *route;
+	poison->metric.delay = EIGRP_MAX_METRIC;
+	poison->metric.flags = 0;
+	return poison;
 }
 
 static void eigrp_packetizer_query_rij_add(eigrp_prefix_descriptor_t *prefix,
@@ -334,6 +350,7 @@ static void eigrp_packetizer_intf_prefix_send(
 	{
 		eigrp_prefix_descriptor_t summary_prefix;
 		eigrp_route_descriptor_t summary_route;
+		eigrp_route_descriptor_t poison_route;
 		eigrp_prefix_descriptor_t *wire_prefix = work->prefix;
 		eigrp_route_descriptor_t *wire_route = route;
 
@@ -343,6 +360,8 @@ static void eigrp_packetizer_intf_prefix_send(
 			wire_prefix = &summary_prefix;
 			wire_route = &summary_route;
 		}
+		wire_route = eigrp_packetizer_poison_reverse(
+			ei, work->opcode, wire_route, &poison_route);
 		eigrp_packetizer_builder_init(&builder, eigrp, ei, NULL, work->opcode, 0);
 		if (eigrp_packetizer_prefix_allowed(eigrp, ei, wire_prefix, wire_route,
 						    work->opcode)
@@ -351,10 +370,16 @@ static void eigrp_packetizer_intf_prefix_send(
 			eigrp_packetizer_query_rij_add(work->prefix, ei);
 		if (wire_prefix != work->prefix
 		    && eigrp_summary_specific_leak(eigrp, ei,
-					   &work->prefix->destination)
-		    && eigrp_packetizer_prefix_allowed(eigrp, ei, work->prefix, route,
-						       work->opcode))
-			(void)eigrp_packetizer_builder_route_add(&builder, route);
+					   &work->prefix->destination)) {
+			eigrp_route_descriptor_t leak_poison;
+			eigrp_route_descriptor_t *leak_route =
+				eigrp_packetizer_poison_reverse(
+					ei, work->opcode, route, &leak_poison);
+
+			if (eigrp_packetizer_prefix_allowed(eigrp, ei, work->prefix,
+						    leak_route, work->opcode))
+				(void)eigrp_packetizer_builder_route_add(&builder, leak_route);
+		}
 	}
 	eigrp_packetizer_builder_flush(&builder);
 
@@ -438,6 +463,7 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 		for (EIGRP_LIST_ITERATE_RO(eigrp->topology_changes, pnode, prefix)) {
 			eigrp_route_descriptor_t *route;
 			eigrp_route_descriptor_t *wire_route;
+			eigrp_route_descriptor_t poison_route;
 			eigrp_prefix_descriptor_t *wire_prefix;
 			eigrp_prefix_descriptor_t summary_prefix;
 			eigrp_route_descriptor_t summary_route;
@@ -489,6 +515,8 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 				if (emit_summary)
 				summary_seen[summary_seen_count++] = summary_prefix.destination;
 			}
+			wire_route = eigrp_packetizer_poison_reverse(
+				ei, work->opcode, wire_route, &poison_route);
 
 			if ((!summarized || emit_summary)
 			    && eigrp_packetizer_prefix_allowed(eigrp, ei, wire_prefix, wire_route,
@@ -498,10 +526,17 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 				eigrp_packetizer_query_rij_add(prefix, ei);
 
 			if (summarized
-			    && eigrp_summary_specific_leak(eigrp, ei, &prefix->destination)
-			    && eigrp_packetizer_prefix_allowed(eigrp, ei, prefix, route,
-						       work->opcode))
-				(void)eigrp_packetizer_builder_route_add(&builder, route);
+			    && eigrp_summary_specific_leak(eigrp, ei, &prefix->destination)) {
+				eigrp_route_descriptor_t leak_poison;
+				eigrp_route_descriptor_t *leak_route =
+					eigrp_packetizer_poison_reverse(
+						ei, work->opcode, route, &leak_poison);
+
+				if (eigrp_packetizer_prefix_allowed(
+						eigrp, ei, prefix, leak_route, work->opcode))
+					(void)eigrp_packetizer_builder_route_add(
+						&builder, leak_route);
+			}
 
 			if (owned)
 				eigrp_topology_route_free(route);

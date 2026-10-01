@@ -42,9 +42,11 @@ They are observable with `validate-route: {table: source, ...}`; advertising the
 through EIGRP still requires explicit redistribution configuration when that
 scenario operation is added, rather than silently treating them as connected.
 
-Scenario operations in v1 are `start`, `stop`, `link-up`, `link-down`, `wait`,
-`packet-mark`, `validate-neighbor`, `validate-route`, `validate-packet`, and
-`validate-convergence`. Packet marks let later phases require packets emitted after a
+Scenario operations in v1 are `start`, `stop`, `link-up`, `link-down`, `links-up`,
+`links-down`, `wait`, `packet-mark`, `validate-neighbor`, `validate-route`,
+`validate-packet`, and `validate-convergence`. `links-up` / `links-down` issue a
+batched physical-event transition to multiple UUT interfaces, which is useful for
+full-mesh and shared-failure qualification. Packet marks let later phases require packets emitted after a
 specific failure/recovery boundary.  `validate-convergence` contains declarative neighbor
 and/or route expectations and polls until all are true or the timeout expires.
 
@@ -52,8 +54,15 @@ Topology interfaces may specify `delay` to drive the real EIGRP-owned interface-
 configuration target after the address family and networks exist. `validate-route` also
 supports `table: path` with `next_hop`, `interface`, `successor`,
 `feasible_successor`, `distance`, and `rd` fields for per-neighbor topology paths.
+`present: false` applies to the fully filtered row, so it can reject a specific stale
+next hop while other paths for the prefix remain. `count` requires an exact number of
+matching rows and is used to reject unexpected extra paths/successors.
 
-`validate-packet` supports `min` and `max`. A negative assertion such as `max: 0`
+`validate-packet` supports `min` and `max`. It also supports `group_by` plus
+`max_per_group` (and `min_groups` / `max_groups`) for bounded fanout checks such as
+"at most one QUERY per source/destination pair." Any upper-bound assertion observes
+the complete requested timeout window instead of returning as soon as its minimum is met.
+A negative assertion such as `max: 0`
 observes the complete requested `timeout` window and fails if a matching packet appears
 at any point. For route-bearing IPv4 packets, `prefix` restricts the match to packets
 whose classic or multiprotocol internal-route TLV carries that destination. This allows
