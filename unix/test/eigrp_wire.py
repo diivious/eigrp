@@ -68,7 +68,7 @@ class Broker(threading.Thread):
         self._lock=threading.Lock(); self._faults={}; self._next_fault=1; self._delayed=[]; self._delay_serial=0; self._disconnected=set()
     def add_fault(self,spec):
         if not isinstance(spec,dict): raise WireFaultError("fault must be a mapping")
-        allowed={"name","action","source_uut","destination_uut","source_interface","destination_interface","segment","afi","multicast","opcode","sequence","ack","cr","delay_ms","copies","count"}
+        allowed={"name","action","source_uut","destination_uut","source_interface","destination_interface","segment","afi","multicast","opcode","prefix","sequence","ack","cr","delay_ms","copies","count"}
         extra=set(spec)-allowed
         if extra: raise WireFaultError(f"unsupported fault keys: {', '.join(sorted(extra))}")
         action=str(spec.get("action","")).lower()
@@ -89,6 +89,7 @@ class Broker(threading.Thread):
     def _matches(self,f,m):
         for k in ("source_uut","destination_uut","source_interface","destination_interface","segment","afi","multicast","opcode","sequence","ack","cr"):
             if k in f and f[k] != m.get(k): return False
+        if "prefix" in f and str(f["prefix"]).lower() not in [str(p).lower() for p in m.get("prefixes",[])]: return False
         return True
     def _actions(self,meta):
         actions=[]

@@ -70,3 +70,19 @@ def test_packet_group_upper_bound_detects_duplicate_query_flow():
     runner=m.Runner.__new__(m.Runner); runner.broker=Broker(); runner.packet_marks={"x":0}
     spec={"event":"delivered","opcode":"query","prefix":"10.0.0.0/24","since":"x","min":1,"max":4,"group_by":["source_uut","destination_uut"],"max_per_group":1}
     assert not runner.packet_ok(spec)
+
+def test_fault_prefix_matches_only_route_bearing_packet():
+    b=m.Broker("/tmp/eigrp-wire-test.sock", {})
+    b.add_fault({"name":"pfx","action":"drop","opcode":"reply","prefix":"10.4.0.0/24"})
+    assert b._actions({"opcode":"reply","prefixes":["10.4.0.0/24"]})
+    assert not b._actions({"opcode":"reply","prefixes":["10.5.0.0/24"]})
+
+
+def test_topology_accepts_configured_active_time():
+    topology={
+        "schema":m.TOPOLOGY_SCHEMA,
+        "segments":{"s":{}},
+        "routers":{"r1":{"asn":4453,"router_id":"10.255.0.1","active_time":4,
+                          "interfaces":{"eth0":{"segment":"s","ipv4":"10.0.0.1/24"}}}},
+    }
+    assert m.validate_topology(topology)["routers"]["r1"]["active_time"] == 4

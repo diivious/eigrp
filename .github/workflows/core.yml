@@ -48,5 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eigrp-core-${{ matrix.os }}-failure-log
-          path: make-test.log
+          path: |
+            make-test.log
+            eigrpd/test/uut/logs/
           if-no-files-found: warn

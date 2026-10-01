@@ -19,7 +19,7 @@ clean:
 	rm -f eigrp-uut-node
 	rm -rf logs
 
-.PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core dual-diamond kite-topology core-topology mesh-topology all-scenarios
+.PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core dual-diamond kite-topology core-topology mesh-topology active-topology all-scenarios
 ipv4-basic-core: eigrp-uut-node
 	$(PYTHON) run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml
 
@@ -58,6 +58,13 @@ mesh-topology: eigrp-uut-node
 	@status=0; \
 	for scenario in mesh-topology/scenario-k6-*.yaml; do \
 		$(PYTHON) run.py mesh-topology/ipv4-dense-mesh-k6.yaml $$scenario || status=$$?; \
+	done; \
+	exit $$status
+
+active-topology: eigrp-uut-node
+	@status=0; \
+	for scenario in active-topology/scenario-sia-*.yaml; do \
+		$(PYTHON) run.py active-topology/ipv4-sia-chain.yaml $$scenario || status=$$?; \
 	done; \
 	exit $$status
 
