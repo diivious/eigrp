@@ -1,0 +1,25 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-sia-chain.yaml
+name: ACTIVE SIA - missing SIA reply removes stuck neighbor
+steps:
+  - start: all
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4}
+  - fault-add: {name: drop-root-reply, action: drop, source_uut: r1, destination_uut: r2, opcode: reply, prefix: 10.4.0.0/24}
+  - fault-add: {name: drop-target-sia-reply, action: drop, source_uut: r2, destination_uut: r3, opcode: sia-reply, prefix: 10.4.0.0/24}
+  - packet-mark: sia-failure
+  - link-down: {uut: r4, interface: lan4}
+  - validate-route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: true, timeout: 4}
+  - validate-packet: {source_uut: r3, destination_uut: r2, opcode: sia-query, prefix: 10.4.0.0/24, since: sia-failure, min: 1, timeout: 5}
+  - validate-fault: {name: drop-target-sia-reply, hits: 1, timeout: 2}
+  - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, present: false, timeout: 5}
+  - validate-convergence:
+      timeout: 8
+      expect:
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, present: false}

@@ -1,0 +1,37 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-sia-chain.yaml
+name: ACTIVE SIA - successful SIA query reply preserves adjacency
+steps:
+  - start: all
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23}
+        - neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.23.0.3}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4}
+  # R1 is the end of the diffusing chain.  Suppressing its normal REPLY keeps
+  # R2 ACTIVE.  R3 therefore waits on an ACTIVE R2, which can still answer
+  # R3's SIA-QUERY because R2's reliable queue toward R3 is not blocked.
+  - fault-add: {name: hold-root-reply, action: drop, source_uut: r1, destination_uut: r2, opcode: reply, prefix: 10.4.0.0/24}
+  - packet-mark: sia-positive
+  - link-down: {uut: r4, interface: lan4}
+  - validate-route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: true, timeout: 4}
+  - validate-route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: true, timeout: 4}
+  - validate-packet: {source_uut: r3, destination_uut: r2, opcode: sia-query, prefix: 10.4.0.0/24, since: sia-positive, min: 1, timeout: 5}
+  - validate-packet: {source_uut: r2, destination_uut: r3, opcode: sia-reply, prefix: 10.4.0.0/24, since: sia-positive, min: 1, timeout: 2}
+  - validate-fault: {name: hold-root-reply, hits: 1, timeout: 1}
+  - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, timeout: 1}
+  - fault-remove: hold-root-reply
+  - validate-convergence:
+      timeout: 8
+      expect:
+        - neighbor: {uut: r2, neighbor: 10.12.0.1, interface: eth21}
+        - neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, present: false}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, present: false}

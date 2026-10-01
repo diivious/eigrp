@@ -152,3 +152,12 @@ make -C eigrpd/test/uut basic-core
 The combined target attempts both gates even when the first reports a protocol
 failure, then returns failure if either gate failed.  As with the IPv4 gate,
 expectations are not weakened to hide an authority-code defect.
+
+## ACTIVE/SIA qualification
+
+`make active-topology` runs the advanced SIA scenarios under `active-topology/`.
+Topology routers may set `active_time` in seconds; the UUT applies that value
+through the portable `eigrp_timer_active_time_update()` configuration API.
+Fault rules may also match `prefix`, limiting a packet action to route-bearing
+packets that carry that decoded destination.  These are test-side controls only;
+they do not alter protocol state or synthesize EIGRP behavior.

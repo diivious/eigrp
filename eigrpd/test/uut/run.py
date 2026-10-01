@@ -32,9 +32,10 @@ def validate_topology(t):
     if not isinstance(t.get("segments",{}),dict): raise SpecError("topology.segments must be a mapping")
     for rn,r in t["routers"].items():
         if not isinstance(r,dict): raise SpecError(f"router {rn} must be a mapping")
-        check_keys(r,{"asn","router_id","interfaces","attached_networks","source_networks","summary_metrics"},f"router {rn}")
+        check_keys(r,{"asn","router_id","active_time","interfaces","attached_networks","source_networks","summary_metrics"},f"router {rn}")
         if not 1<=int(r.get("asn",0))<=65535: raise SpecError(f"router {rn}: invalid asn")
         ipaddress.IPv4Address(r.get("router_id"))
+        if "active_time" in r and not 1 <= int(r["active_time"]) <= 65535: raise SpecError(f"router {rn}: active_time must be 1..65535 seconds")
         if not isinstance(r.get("interfaces",{}),dict): raise SpecError(f"router {rn}.interfaces must be a mapping")
         for name,i in r.get("interfaces",{}).items():
             check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","delay","up","summaries"},f"{rn}.{name}")
@@ -165,6 +166,7 @@ class Runner:
             for n in r.get("source_networks",[]):
                 lines.append(f"source {ipaddress.ip_interface(n['prefix']).network} {int(n.get('metric', 1))}")
             lines.append(f"router-id {r['router_id']}")
+            if "active_time" in r: lines.append(f"active-time {int(r['active_time'])}")
             for name,i in r.get("interfaces",{}).items():
                 for p in (i.get("ipv4",[]) if isinstance(i.get("ipv4",[]),list) else [i["ipv4"]]): lines.append(f"network {ipaddress.ip_interface(p).network}")
             for n in r.get("attached_networks",[]):
