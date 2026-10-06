@@ -43,8 +43,10 @@ def test_instance_condition_wait_keeps_clock_domains_consistent():
     instance = (ROOT / "eigrp" / "code" / "eigrp_instance.c").read_text()
     packet = (ROOT / "eigrp" / "code" / "eigrp_packet.c").read_text()
 
-    assert "bool work_cond_monotonic;" in structs
+    assert "work_cond_monotonic" not in structs
     assert "!defined(__APPLE__)" in instance
     assert "pthread_condattr_setclock(&attr, CLOCK_MONOTONIC)" in instance
+    assert "!defined(__APPLE__)" in instance
+    assert "#if defined(__APPLE__) || !defined(CLOCK_MONOTONIC)" in packet
     assert "eigrp_instance_wait_deadline" in packet
     assert "clock_gettime(CLOCK_REALTIME, deadline)" in packet

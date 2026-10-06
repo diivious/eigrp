@@ -18,6 +18,19 @@
 #include "eigrp_rib.h"
 static unsigned char zeropad[16] = {0};
 
+
+static bool eigrp_auth_sequence_newer(uint32_t received_wire, uint32_t stored_wire)
+{
+	uint32_t received = ntohl(received_wire);
+	uint32_t stored = ntohl(stored_wire);
+	uint32_t delta = received - stored;
+
+	/* Serial-number arithmetic: equal is a replay; values within the
+	 * forward half of the 32-bit sequence space are newer.  This also
+	 * permits the natural UINT32_MAX -> 0 wrap. */
+	return delta != 0 && delta < 0x80000000U;
+}
+
 bool eigrp_auth_material_available(const eigrp_intf_t *ei)
 {
 	return ei && (ei->params.auth_password || ei->params.auth_keychain);
@@ -150,7 +163,7 @@ int eigrp_check_md5_digest(eigrp_stream_t *s,
 	struct eigrp_header *eigrph;
 	uint16_t saved_checksum;
 
-	if (ntohl(nbr->crypt_seqnum) > ntohl(authTLV->key_sequence)) {
+	if (!eigrp_auth_sequence_newer(authTLV->key_sequence, nbr->crypt_seqnum)) {
 		eigrp_log(EIGRP_LOG_WARNING,
 			"interface %s: eigrp_check_md5 bad sequence %d (expect %d)",
 			eigrp_intf_name_string(nbr->ei), ntohl(authTLV->key_sequence),
@@ -304,7 +317,7 @@ int eigrp_check_sha256_digest(eigrp_stream_t *s,
 	    || ntohs(authTLV->auth_type) != EIGRP_AUTH_TYPE_SHA256
 	    || ntohs(authTLV->auth_length) != EIGRP_AUTH_TYPE_SHA256_LEN)
 		return 0;
-	if (ntohl(nbr->crypt_seqnum) > ntohl(authTLV->key_sequence))
+	if (!eigrp_auth_sequence_newer(authTLV->key_sequence, nbr->crypt_seqnum))
 		return 0;
 	if (!eigrp_auth_key_get(nbr->ei, &key_id, key_string, sizeof(key_string))
 	    || !eigrp_auth_sha256_source(nbr->ei, nbr, source_ip, sizeof(source_ip)))

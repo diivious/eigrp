@@ -921,16 +921,10 @@ static bool eigrp_instance_wait_deadline(eigrp_instance_t *eigrp,
 	if (!eigrp || !deadline)
 		return false;
 
-	if (eigrp->work_cond_monotonic) {
-		deadline->tv_sec = (time_t)(due_msec / 1000U);
-		deadline->tv_nsec = (long)((due_msec % 1000U) * 1000000U);
-		return true;
-	}
-
-	/* pthread condition variables default to CLOCK_REALTIME.  Platforms such
-	 * as macOS do not expose pthread_condattr_setclock(), while EIGRP timer
-	 * ordering remains monotonic.  Convert only the remaining interval to a
-	 * realtime absolute deadline so the two clock domains are never mixed. */
+#if defined(__APPLE__) || !defined(CLOCK_MONOTONIC)
+	/* Darwin condition variables use CLOCK_REALTIME.  EIGRP timer ordering
+	 * remains monotonic, so convert only the remaining interval to a realtime
+	 * absolute deadline and never mix absolute values from the two clocks. */
 	wait_msec = due_msec > now_msec ? due_msec - now_msec : 0;
 	if (clock_gettime(CLOCK_REALTIME, deadline) != 0)
 		return false;
@@ -940,6 +934,13 @@ static bool eigrp_instance_wait_deadline(eigrp_instance_t *eigrp,
 		deadline->tv_sec++;
 		deadline->tv_nsec -= 1000000000L;
 	}
+#else
+	/* eigrp_instance_create() binds work_cond to CLOCK_MONOTONIC. */
+	(void)now_msec;
+	(void)wait_msec;
+	deadline->tv_sec = (time_t)(due_msec / 1000U);
+	deadline->tv_nsec = (long)((due_msec % 1000U) * 1000000U);
+#endif
 	return true;
 }
 

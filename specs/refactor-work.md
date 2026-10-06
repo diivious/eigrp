@@ -166,56 +166,6 @@ Fix: parse TLVs first. Create or update the neighbor only after a Parameter
 TLV is present and well-sized. If you keep the current order, tear down a
 half-created neighbor on parse fail.
 
-### P1. Auth, spoof, and parser fail-open
-
-#### 5.4 SHA-256 receive is not implemented. SHA-256 send hashes with `strlen(packet)`
-
-Receive rejects SHA-256. Keep it that way until send is fixed.
-
-`eigrp_make_sha256_digest()` does `eigrp_hmac_sha256_update(..., ibuf, strlen(ibuf))`.
-`ibuf` is raw packet bytes. First `0x00` stops the hash. That is not HMAC
-over the packet.
-
-Fix: hash `s->endp` bytes and match the digest layout used on the wire.
-Do not enable SHA-256 receive until that is done.
-
-#### 5.5 MD5 replay window is weak
-
-`eigrp_check_md5_digest()` drops only when `key_sequence < stored`. Equal
-sequence is accepted. Last packet can be replayed.
-
-Fix: require strictly greater sequence. Define wrap behavior.
-
-#### 5.6 No auth means full adjacency control from the LAN
-
-Expected for classic EIGRP. Items 5.1, 5.3, 5.10, and 5.11 are reachable
-by anyone on the link when auth is off. Treat auth-off as hostile-LAN.
-
-#### 5.7 Stream getters fail open
-
-`eigrp_stream_getc` / `getw` / `getl` return 0 on short read and do not tell
-the caller. TLV1/TLV2 mostly check remaining first. Hello and some dumps
-do not use that API. One missed check becomes a valid-looking zero field.
-
-Fix: getters should fail visibly, or every decode path uses a `stream_has()`
-check the way IPv4 prefix decode does.
-
-#### 5.8 `pktlen` is ignored in TLV1 and TLV2
-
-`(void)pktlen`. Decode bound is whatever `endp` is. That is only safe if
-`packet_read` clamps the stream to the EIGRP payload. It does not today.
-See 5.2.
-
-#### 5.9 Hello pointer walk and hold time 0
-
-Hello advances with `tlv_header += length`. Keep the `length <= remaining`
-check. The missing piece is the min-size check in 5.1.
-
-Hello copies `hold_time` with no floor. `v_holddown * 1000` becomes a 0 ms
-timer. Neighbor either never dies or flaps immediately.
-
-Fix: reject 0 or clamp to the protocol minimum.
-
 ### P2. Resource and loop abuse
 
 #### 5.10 No cap on neighbors or topology entries

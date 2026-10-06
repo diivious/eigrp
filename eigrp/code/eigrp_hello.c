@@ -262,10 +262,9 @@ static uint16_t eigrp_peer_termination_encode(eigrp_intf_t *ei,
 }
 
 static bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
-                                      struct eigrp_header *eigrph,
+                                      const uint8_t *cursor,
                                       uint16_t payload_length)
 {
-	const uint8_t *cursor = (const uint8_t *)eigrph->tlv;
 	uint16_t remaining = payload_length;
 	bool parameter_seen = false;
 
@@ -281,11 +280,17 @@ static bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
 		if (length < EIGRP_TLV_HDR_SIZE || length > remaining)
 			return false;
 		switch (type) {
-		case EIGRP_TLV_PARAMETER:
+		case EIGRP_TLV_PARAMETER: {
+			const struct TLV_Parameter_Type *param;
+
 			if (length < EIGRP_TLV_PARAMETER_LEN)
+				return false;
+			param = (const struct TLV_Parameter_Type *)cursor;
+			if (ntohs(param->hold_time) == 0)
 				return false;
 			parameter_seen = true;
 			break;
+		}
 		case EIGRP_TLV_SW_VERSION:
 			if (length < EIGRP_TLV_SW_VERSION_LEN)
 				return false;
@@ -370,7 +375,8 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 	 * vector; route TLV processing remains separately capability-scoped. */
 	adjacency_start_allowed = true;
 
-	if (!eigrp_hello_tlvs_validate(ei, eigrph, (uint16_t)size))
+	if (!eigrp_hello_tlvs_validate(ei, (const uint8_t *)eigrph->tlv,
+				       (uint16_t)size))
 		return;
 
 	/* Static-neighbor interfaces accept Hellos only from configured peers. */
