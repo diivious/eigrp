@@ -25,7 +25,7 @@ __pycache__/
 *.log
 *.logs
 *.dSYM/
-/eigrpd/test/uut/eigrp-uut-node
+/eigrp/test/uut/eigrp-uut-node
 /unix/code/eigrp-wire
 
 
