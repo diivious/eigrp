@@ -60,6 +60,30 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 #define EIGRP_PACKET_ADDR_TEXT_SIZE 64U
 #define EIGRP_AF_PACKET_INPUT_QUEUE_MAX 1024U
 
+/* Validate receive metadata against the bytes actually present in the stream.
+ * Metadata is supplied by the host adapter and must never enlarge the portable
+ * parser's memory boundary. */
+static bool eigrp_packet_input_bounds_validate(size_t endp,
+					size_t network_header_length,
+					size_t declared_eigrp_length,
+					size_t *offset, uint16_t *length)
+{
+	size_t remaining;
+
+	if (!offset || !length || network_header_length > endp)
+		return false;
+
+	remaining = endp - network_header_length;
+	if (declared_eigrp_length < EIGRP_HEADER_LEN
+	    || declared_eigrp_length > remaining
+	    || declared_eigrp_length > UINT16_MAX)
+		return false;
+
+	*offset = network_header_length;
+	*length = (uint16_t)declared_eigrp_length;
+	return true;
+}
+
 static bool eigrp_packet_header_is_ack(const struct eigrp_header *header)
 {
 	return header && header->opcode == EIGRP_OPC_HELLO
@@ -549,7 +573,6 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	eigrp_packet_rx_meta_t meta;
 	size_t endp;
 	size_t offset;
-	size_t remaining;
 	uint16_t opcode;
 	uint16_t length;
 
@@ -569,17 +592,12 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	 * the protocol consumer so a future producer cannot make checksum, auth,
 	 * or TLV processing read beyond bytes actually present in ibuf. */
 	endp = eigrp_stream_get_endp(ibuf);
-	offset = meta.network_header_length;
-	if (offset > endp)
-		return;
-	remaining = endp - offset;
-	if (meta.eigrp_length < EIGRP_HEADER_LEN
-	    || meta.eigrp_length > remaining)
+	if (!eigrp_packet_input_bounds_validate(endp, meta.network_header_length,
+					meta.eigrp_length, &offset, &length))
 		return;
 
 	eigrp_stream_set_getp(ibuf, offset);
 	eigrph = (struct eigrp_header *)eigrp_stream_pnt(ibuf);
-	length = meta.eigrp_length;
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL))
 		eigrp_debug_header_dump(eigrph);

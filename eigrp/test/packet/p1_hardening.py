@@ -90,3 +90,80 @@ int main(void)
 }
 '''
     )
+
+
+def test_p0_short_hello_tlvs_are_rejected_before_decode():
+    compile_and_run(
+        r'''
+#include <stdint.h>
+#include "eigrp_hello.c"
+
+int main(void)
+{
+    eigrp_instance_t eigrp = {0};
+    eigrp_intf_t ei = {0};
+    uint8_t short_parameter[4] = {0x00, 0x01, 0x00, 0x04};
+    uint8_t short_software[4] = {0x00, 0x04, 0x00, 0x04};
+    uint8_t short_peer_termination[4] = {0x00, 0x07, 0x00, 0x04};
+
+    ei.eigrp = &eigrp;
+    eigrp.af_vectors.packet_address_bytes = EIGRP_IPV4_MAX_BYTELEN;
+
+    if (eigrp_hello_tlvs_validate(&ei, short_parameter,
+                                   sizeof(short_parameter)))
+        return 1;
+    if (eigrp_hello_tlvs_validate(&ei, short_software,
+                                   sizeof(short_software)))
+        return 2;
+    if (eigrp_hello_tlvs_validate(&ei, short_peer_termination,
+                                   sizeof(short_peer_termination)))
+        return 3;
+    return 0;
+}
+'''
+    )
+
+
+def test_p0_unknown_only_hello_cannot_allocate_neighbor():
+    compile_and_run(
+        r'''
+#include <stdint.h>
+#include "eigrp_hello.c"
+
+int main(void)
+{
+    uint8_t unknown_only[4] = {0x7f, 0xff, 0x00, 0x04};
+
+    return eigrp_hello_tlvs_validate(NULL, unknown_only,
+                                     sizeof(unknown_only)) ? 1 : 0;
+}
+'''
+    )
+
+
+def test_p0_receive_metadata_cannot_extend_stream_boundary():
+    compile_and_run(
+        r'''
+#include <stdint.h>
+#include "eigrp_packet.c"
+
+int main(void)
+{
+    size_t offset = 0;
+    uint16_t length = 0;
+
+    if (!eigrp_packet_input_bounds_validate(100, 20, 80, &offset, &length))
+        return 1;
+    if (offset != 20 || length != 80)
+        return 2;
+    if (eigrp_packet_input_bounds_validate(100, 20, 81, &offset, &length))
+        return 3;
+    if (eigrp_packet_input_bounds_validate(100, 101, 20, &offset, &length))
+        return 4;
+    if (eigrp_packet_input_bounds_validate(100, 20, EIGRP_HEADER_LEN - 1,
+                                           &offset, &length))
+        return 5;
+    return 0;
+}
+'''
+    )

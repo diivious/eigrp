@@ -117,54 +117,10 @@ Stub routing stays out of scope.
 ## 4. Packet-path and parser hardening
 
 This is an on-link protocol. Anyone on the LAN can send proto 88. Auth-off
-is the common case today. Work P0-P2 first.
+is the common case today. Remaining P2 items should be completed before production use.
 
 A PR should add a crafted-packet test for the hole it closes. Do not "harden"
 by rewriting the codec.
-
-### P0. Memory safety on the wire
-
-#### 5.1 Hello TLV body read without a type-specific min length
-
-`eigrp_hello_receive()` only checks `length >= 4` and `length <= remaining`,
-then casts to `TLV_Parameter_Type`, `TLV_Software_Type`, or
-`TLV_Peer_Termination_type`.
-
-Real sizes:
-
-```text
-EIGRP_TLV_PARAMETER_LEN          12
-EIGRP_TLV_SW_VERSION_LEN          8
-EIGRP_TLV_PEER_TERMINATION_LEN    9
-```
-
-A Hello with Parameter type and length 4 on a 4-byte remaining packet reads
-K-values and `hold_time` past the packet. Same pattern for a short Software
-or Peer-term TLV.
-
-Fix: require the real min length before those decoders touch fields. Drop or
-skip otherwise. Test: crafted Parameter TLV with length 4.
-
-#### 5.2 `eigrp_packet_read()` trusts `meta.eigrp_length` more than the stream
-
-After skipping `network_header_length`, receive uses `meta.eigrp_length` for
-checksum, auth walk, and Hello `size`. It does not clamp to `endp - getp`.
-
-FRR southbound currently sets those equal. A new shim, or a later socket
-change, that lies about `eigrp_length` over-reads `ibuf`.
-
-Fix: after the IP skip, set length to `min(meta.eigrp_length, remaining)`
-and drop if that is `< EIGRP_HEADER_LEN`. Do not parse a declared length
-bigger than bytes actually in the stream.
-
-#### 5.3 Hello creates the neighbor before the TLV walk succeeds
-
-`eigrp_nbr_create()` runs, then a short or malformed TLV returns. On an
-unauthenticated interface that fills the neighbor table and pairs with 5.1.
-
-Fix: parse TLVs first. Create or update the neighbor only after a Parameter
-TLV is present and well-sized. If you keep the current order, tear down a
-half-created neighbor on parse fail.
 
 ### P2. Resource and loop abuse
 
