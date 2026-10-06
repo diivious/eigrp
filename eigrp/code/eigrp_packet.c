@@ -912,6 +912,37 @@ static bool eigrp_instance_write_ready_take(eigrp_instance_t *eigrp)
 	return ready;
 }
 
+static bool eigrp_instance_wait_deadline(eigrp_instance_t *eigrp,
+					 uint64_t due_msec, uint64_t now_msec,
+					 struct timespec *deadline)
+{
+	uint64_t wait_msec;
+
+	if (!eigrp || !deadline)
+		return false;
+
+	if (eigrp->work_cond_monotonic) {
+		deadline->tv_sec = (time_t)(due_msec / 1000U);
+		deadline->tv_nsec = (long)((due_msec % 1000U) * 1000000U);
+		return true;
+	}
+
+	/* pthread condition variables default to CLOCK_REALTIME.  Platforms such
+	 * as macOS do not expose pthread_condattr_setclock(), while EIGRP timer
+	 * ordering remains monotonic.  Convert only the remaining interval to a
+	 * realtime absolute deadline so the two clock domains are never mixed. */
+	wait_msec = due_msec > now_msec ? due_msec - now_msec : 0;
+	if (clock_gettime(CLOCK_REALTIME, deadline) != 0)
+		return false;
+	deadline->tv_sec += (time_t)(wait_msec / 1000U);
+	deadline->tv_nsec += (long)((wait_msec % 1000U) * 1000000U);
+	if (deadline->tv_nsec >= 1000000000L) {
+		deadline->tv_sec++;
+		deadline->tv_nsec -= 1000000000L;
+	}
+	return true;
+}
+
 static bool eigrp_instance_wait(eigrp_instance_t *eigrp)
 {
 	pthread_mutex_lock(&eigrp->work_lock);
@@ -930,9 +961,10 @@ static bool eigrp_instance_wait(eigrp_instance_t *eigrp)
 		if (eigrp->timer_head) {
 			struct timespec deadline;
 
-			deadline.tv_sec = (time_t)(eigrp->timer_head->due_msec / 1000U);
-			deadline.tv_nsec = (long)((eigrp->timer_head->due_msec % 1000U)
-						 * 1000000U);
+			if (!eigrp_instance_wait_deadline(eigrp,
+						 eigrp->timer_head->due_msec, now,
+						 &deadline))
+				break;
 			(void)pthread_cond_timedwait(&eigrp->work_cond,
 				&eigrp->work_lock, &deadline);
 		} else {

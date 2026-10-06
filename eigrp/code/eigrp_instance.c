@@ -208,7 +208,14 @@ eigrp_instance_t *eigrp_instance_create(eigrp_virt_router_t *virt_router,
 			free(eigrp);
 			return NULL;
 		}
-		(void)pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+		eigrp->work_cond_monotonic = false;
+#if defined(CLOCK_MONOTONIC) && !defined(__APPLE__)
+		/* macOS does not provide pthread_condattr_setclock().  Where the
+		 * optional POSIX API is available, bind timer waits to the same
+		 * monotonic clock used by eigrp_sys_monotime_msec(). */
+		if (pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) == 0)
+			eigrp->work_cond_monotonic = true;
+#endif
 		if (pthread_cond_init(&eigrp->work_cond, &attr) != 0) {
 			(void)pthread_condattr_destroy(&attr);
 			(void)pthread_mutex_destroy(&eigrp->peer_lock);

@@ -83,6 +83,7 @@ struct eigrp_instance {
 	pthread_mutex_t work_lock;
 	pthread_mutex_t peer_lock; /* Protects interface/neighbor publication for ingress lookup. */
 	pthread_cond_t work_cond;
+	bool work_cond_monotonic;
 	pthread_t thread;
 	bool thread_running;
 	bool thread_started;

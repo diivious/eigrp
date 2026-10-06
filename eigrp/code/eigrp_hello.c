@@ -267,6 +267,7 @@ static bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
 {
 	const uint8_t *cursor = (const uint8_t *)eigrph->tlv;
 	uint16_t remaining = payload_length;
+	bool parameter_seen = false;
 
 	while (remaining) {
 		const struct eigrp_tlv_hdr_type *tlv;
@@ -283,6 +284,7 @@ static bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
 		case EIGRP_TLV_PARAMETER:
 			if (length < EIGRP_TLV_PARAMETER_LEN)
 				return false;
+			parameter_seen = true;
 			break;
 		case EIGRP_TLV_SW_VERSION:
 			if (length < EIGRP_TLV_SW_VERSION_LEN)
@@ -314,7 +316,12 @@ static bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
 		cursor += length;
 		remaining -= length;
 	}
-	return true;
+
+	/* A discovery Hello is not semantically useful without the Parameter TLV
+	 * carrying K-values and hold time.  Unknown TLVs remain forward-compatible
+	 * when a valid Parameter TLV is also present, but cannot allocate a peer by
+	 * themselves. */
+	return parameter_seen;
 }
 
 /*

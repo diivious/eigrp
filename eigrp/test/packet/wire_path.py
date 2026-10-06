@@ -25,3 +25,26 @@ def test_packet_consumer_bounds_metadata_to_actual_stream():
     assert 'meta.eigrp_length < EIGRP_HEADER_LEN' in body
     assert 'meta.eigrp_length > remaining' in body
     assert body.index('meta.eigrp_length > remaining') < body.index('eigrph = (struct eigrp_header *)eigrp_stream_pnt(ibuf);')
+
+
+def test_hello_prevalidation_requires_parameter_before_neighbor_allocation():
+    hello = (ROOT / "eigrp" / "code" / "eigrp_hello.c").read_text()
+    validator = hello[hello.index("static bool eigrp_hello_tlvs_validate"):hello.index("void eigrp_hello_receive")]
+    receive = hello[hello.index("void eigrp_hello_receive"):hello.index("static uint8_t eigrp_host_major")]
+
+    assert "bool parameter_seen = false;" in validator
+    assert "parameter_seen = true;" in validator
+    assert "return parameter_seen;" in validator
+    assert receive.index("eigrp_hello_tlvs_validate") < receive.index("eigrp_nbr_create")
+
+
+def test_instance_condition_wait_keeps_clock_domains_consistent():
+    structs = (ROOT / "eigrp" / "code" / "eigrp_structs.h").read_text()
+    instance = (ROOT / "eigrp" / "code" / "eigrp_instance.c").read_text()
+    packet = (ROOT / "eigrp" / "code" / "eigrp_packet.c").read_text()
+
+    assert "bool work_cond_monotonic;" in structs
+    assert "!defined(__APPLE__)" in instance
+    assert "pthread_condattr_setclock(&attr, CLOCK_MONOTONIC)" in instance
+    assert "eigrp_instance_wait_deadline" in packet
+    assert "clock_gettime(CLOCK_REALTIME, deadline)" in packet
