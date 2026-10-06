@@ -547,6 +547,9 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	eigrp_addr_t dst;
 	eigrp_nbr_t *nbr;
 	eigrp_packet_rx_meta_t meta;
+	size_t endp;
+	size_t offset;
+	size_t remaining;
 	uint16_t opcode;
 	uint16_t length;
 
@@ -561,7 +564,20 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	if (!ei)
 		return;
 
-	eigrp_stream_set_getp(ibuf, meta.network_header_length);
+	/* The stream is the receive-side memory boundary.  The process thread
+	 * validates this metadata before enqueue, but keep the same boundary at
+	 * the protocol consumer so a future producer cannot make checksum, auth,
+	 * or TLV processing read beyond bytes actually present in ibuf. */
+	endp = eigrp_stream_get_endp(ibuf);
+	offset = meta.network_header_length;
+	if (offset > endp)
+		return;
+	remaining = endp - offset;
+	if (meta.eigrp_length < EIGRP_HEADER_LEN
+	    || meta.eigrp_length > remaining)
+		return;
+
+	eigrp_stream_set_getp(ibuf, offset);
 	eigrph = (struct eigrp_header *)eigrp_stream_pnt(ibuf);
 	length = meta.eigrp_length;
 
