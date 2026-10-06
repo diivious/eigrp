@@ -41,7 +41,7 @@ def test_design_spec_defines_narrow_host_shim_contract():
     assert "abstract host/system calls and services" in design
     assert "prevent EIGRP behavior from being reimplemented separately" in design
     assert "If FRR, BIRD, macOS, and another host should" in design
-    assert "that decision belongs in `eigrpd/code/`" in design
+    assert "that decision belongs in `eigrp/code/`" in design
 
 
 def test_frr_southbound_does_not_own_common_eigrp_lifecycle_or_network_decisions():
@@ -80,9 +80,9 @@ def test_frr_southbound_does_not_own_common_eigrp_lifecycle_or_network_decisions
 def test_interface_adapter_reports_host_facts_and_common_code_decides_participation():
     adapter = read("frr/code/eigrp_frr.c")
     southbound = read("frr/code/eigrp_southbound.c")
-    system = read("eigrpd/code/eigrp_sys.h")
-    network = read("eigrpd/code/eigrp_network.c")
-    interface = read("eigrpd/code/eigrp_interface.c")
+    system = read("eigrp/code/eigrp_sys.h")
+    network = read("eigrp/code/eigrp_network.c")
+    interface = read("eigrp/code/eigrp_interface.c")
 
     imported = function_body(adapter, "eigrp_frr_interface_state_import")
     walk = function_body(southbound, "eigrp_sys_interface_walk")
@@ -103,27 +103,27 @@ def test_interface_adapter_reports_host_facts_and_common_code_decides_participat
 
     assert "eigrp_prefix_address_match" in matches
     assert "state->secondary" in network
-    assert "eigrp_instance_runtime_config(eigrp)" in refresh
+    assert "eigrp_af_config_runtime_read(eigrp)" in refresh
     assert "eigrp_intf_config_shutdown_effective(af, config)" in refresh
     assert "old_mtu != state->mtu" in refresh
     assert "eigrp_intf_up(eigrp, ei)" in refresh
 
 
 def test_common_instance_code_owns_runtime_identity_and_address_family_operation():
-    instance = read("eigrpd/code/eigrp_instance.c")
+    instance = read("eigrp/code/eigrp_instance.c")
     southbound = read("frr/code/eigrp_southbound.c")
 
     runtime_create = function_body(
-        instance, "eigrp_af_instance_runtime_create"
+        instance, "eigrp_af_config_runtime_create"
     )
-    start = function_body(instance, "eigrp_af_instance_start")
-    stop = function_body(instance, "eigrp_af_instance_stop")
+    start = function_body(instance, "eigrp_instance_start")
+    stop = function_body(instance, "eigrp_instance_stop")
     vrf_resolve = function_body(southbound, "eigrp_sys_vrf_resolve")
 
     assert "eigrp_sys_vrf_resolve" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf" in runtime_create
-    assert "eigrp_instance_lookup_or_create_by_af" in runtime_create
-    assert "eigrp_name_update(EIGRP_SET, runtime, name)" in runtime_create
+    assert "eigrp_instance_create(parent->runtime, af->afi, af->asn, vrf_id)" in runtime_create
+    assert "runtime->virt_router != parent->runtime" in runtime_create
     assert "eigrp_intf_up(runtime, ei)" in start
     assert "eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL)" in stop
     assert "eigrp_intf_down(ei)" in stop
@@ -158,12 +158,12 @@ def test_frr_management_and_zebra_callbacks_delegate_instead_of_mutating_runtime
     address_add = function_body(zebra, "eigrp_zebra_interface_address_add")
     address_delete = function_body(zebra, "eigrp_zebra_interface_address_delete")
 
-    assert "eigrp_sys_router_id_update" in router_id
+    assert "eigrp_process_routerid_cb" in router_id
     assert "ALL_LIST_ELEMENTS" not in router_id
-    assert "eigrp_sys_interface_state_update" in address_add
+    assert "eigrp_sys_intf_update" in address_add
     assert address_add.count("zebra_interface_address_read(cmd, zclient->ibuf, vrf_id)") == 1
     assert "ALL_LIST_ELEMENTS" not in address_add
-    assert "eigrp_sys_interface_address_remove" in address_delete
+    assert "eigrp_sys_intf_addr_update" in address_delete
     assert "ALL_LIST_ELEMENTS" not in address_delete
 
 
@@ -273,11 +273,11 @@ def test_design_spec_requires_boundary_validation_before_common_code():
 
 
 def test_address_family_vectors_are_validated_once_before_common_use():
-    types = read("eigrpd/code/eigrp_types.h")
-    runtime = read("eigrpd/code/eigrpd.c")
-    packet = read("eigrpd/code/eigrp_packet.c")
-    tlv1 = read("eigrpd/code/eigrp_tlv1.c")
-    tlv2 = read("eigrpd/code/eigrp_tlv2.c")
+    types = read("eigrp/code/eigrp_types.h")
+    runtime = read("eigrp/code/eigrp.c")
+    packet = read("eigrp/code/eigrp_packet.c")
+    tlv1 = read("eigrp/code/eigrp_tlv1.c")
+    tlv2 = read("eigrp/code/eigrp_tlv2.c")
 
     assert "eigrp_af_vectors_runtime_validate" in runtime
     for field in (
@@ -306,9 +306,13 @@ def test_address_family_vectors_are_validated_once_before_common_use():
 
 def test_frr_debug_logging_uses_eigrp_logging_boundary():
     frr_log = read("frr/code/eigrp_log.c")
+    frr_main = read("frr/code/eigrp_main.c")
     zebra = read("frr/code/eigrp_zebra.c")
-    common_dump = read("eigrpd/code/eigrp_dump.c")
+    common_dump = read("eigrp/code/eigrp_dump.c")
 
+    assert "frr_pthread_non_controlled_startup(" in frr_log
+    assert "frr_pthread_non_controlled_shutdown(" in frr_log
+    assert frr_main.index("master = frr_init();") < frr_main.index("eigrp_init();")
     assert "zlog_debug(\"%s\", message)" in frr_log
     assert "eigrp_log(EIGRP_LOG_DEBUG, " in zebra
     assert "zlog_debug(" not in zebra

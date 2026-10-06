@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Zebra connect library for EIGRP.
- * Copyright (C) 2013-2014
+ * Copyright (C) 2013-2014, 2026
  * Authors:
  *   Donnie Savage
  *   Jan Janovic
@@ -27,9 +27,9 @@ extern void eigrp_zebra_init(void);
 extern void eigrp_zebra_stop(void);
 extern void eigrp_zebra_instance_delete(eigrp_instance_t *eigrp);
 
-eigrp_result_t eigrp_zebra_route_install(
+eigrp_result_t eigrp_zebra_route_add(
 	eigrp_instance_t *eigrp, const eigrp_rib_route_t *route);
-eigrp_result_t eigrp_zebra_route_remove(eigrp_instance_t *eigrp,
+eigrp_result_t eigrp_zebra_route_del(eigrp_instance_t *eigrp,
 				       const eigrp_prefix_t *prefix);
 extern int eigrp_redistribute_update(eigrp_operation_t, eigrp_instance_t *, int,
 				     struct eigrp_metrics);

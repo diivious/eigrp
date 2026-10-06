@@ -52,5 +52,5 @@ def test_unix_runtime_keeps_packet_transport_separate_from_scheduler_and_rib():
     wire = (UNIX / "eigrp_unix_wire.c").read_text()
     assert "eigrp_sys_packet_send(" not in runtime
     assert "eigrp_sys_packet_send(" in wire
-    assert "eigrp_rib_route_install(" not in runtime
-    assert "eigrp_rib_route_install(" not in wire
+    assert "eigrp_rib_route_add(" not in runtime
+    assert "eigrp_rib_route_add(" not in wire

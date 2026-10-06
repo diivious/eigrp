@@ -2,11 +2,11 @@
 /*
  * EIGRP daemon northbound implementation.
  *
- * Copyright (C) 2019 Network Device Education Foundation, Inc. ("NetDEF")
+ * Copyright (C) 2019, 2026 Network Device Education Foundation, Inc. ("NetDEF")
  *                    Rafael Zalamena
  */
 
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_interface.h"
 #include "eigrp_network.h"
@@ -77,7 +77,7 @@ static void eigrpd_named_prefix_limit_get(const struct lyd_node *dnode,
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_instance_parent_create()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_named_config_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -91,7 +91,7 @@ static int eigrpd_named_create(struct nb_cb_create_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_instance_parent_create(
+		result = eigrp_named_config_create(
 			yang_dnode_get_string(args->dnode, "name"));
 		if (result != EIGRP_RESULT_SUCCESS)
 			return NB_ERR_INCONSISTENCY;
@@ -106,7 +106,7 @@ static int eigrpd_named_create(struct nb_cb_create_args *args)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_instance_parent_delete()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_named_config_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -120,7 +120,7 @@ static int eigrpd_named_destroy(struct nb_cb_destroy_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_instance_parent_delete(
+		result = eigrp_named_config_delete(
 			yang_dnode_get_string(args->dnode, "name"));
 		if (result != EIGRP_RESULT_SUCCESS
 		    && result != EIGRP_RESULT_NOT_FOUND)
@@ -146,7 +146,7 @@ eigrpd_named_address_family_afi(const struct lyd_node *dnode)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_af_instance_create()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_af_config_create()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -161,7 +161,7 @@ eigrpd_named_address_family_create(struct nb_cb_create_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_af_instance_create(
+		result = eigrp_af_config_create(
 			yang_dnode_get_string(args->dnode, "../name"),
 			eigrpd_named_address_family_afi(args->dnode),
 			yang_dnode_get_string(args->dnode, "vrf"),
@@ -179,7 +179,7 @@ eigrpd_named_address_family_create(struct nb_cb_create_args *args)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_af_instance_delete()` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_af_config_delete()` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -194,7 +194,7 @@ eigrpd_named_address_family_destroy(struct nb_cb_destroy_args *args)
 	case NB_EV_ABORT:
 		break;
 	case NB_EV_APPLY:
-		result = eigrp_af_instance_delete(
+		result = eigrp_af_config_delete(
 			yang_dnode_get_string(args->dnode, "../name"),
 			eigrpd_named_address_family_afi(args->dnode),
 			yang_dnode_get_string(args->dnode, "vrf"),
@@ -233,10 +233,10 @@ static bool eigrpd_named_child_context(const struct lyd_node *dnode,
 	return *name && *vrf && *asn != 0;
 }
 
-static eigrp_af_instance_t *eigrpd_named_address_family_config_read(
+static eigrp_af_config_t *eigrpd_named_address_family_config_read(
 	const char *name, eigrp_afi_t afi, const char *vrf, uint16_t asn)
 {
-	return eigrp_af_instance_read(name, afi, vrf, asn);
+	return eigrp_af_config_read(name, afi, vrf, asn);
 }
 
 static bool eigrpd_named_instance_context_resolve(
@@ -267,7 +267,7 @@ static bool eigrpd_named_interface_context_resolve(
 	const char *name, eigrp_afi_t afi, const char *vrf, uint16_t asn,
 	const char *interface_name, eigrp_intf_context_t *context)
 {
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_instance_t *runtime;
 
 	if (!context)
@@ -508,7 +508,7 @@ static int eigrpd_named_neighbor_create(struct nb_cb_create_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_address_t address;
 	eigrp_result_t result;
 	uint16_t asn;
@@ -544,7 +544,7 @@ static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_address_t address;
 	eigrp_result_t result;
 	uint16_t asn;
@@ -572,7 +572,7 @@ static int eigrpd_named_neighbor_destroy(struct nb_cb_destroy_args *args)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_af_instance_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_af_config_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -581,7 +581,7 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -590,7 +590,7 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
 	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
 		return NB_ERR_INCONSISTENCY;
 	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
-	result = eigrp_af_instance_shutdown_update(EIGRP_SET, af);
+	result = eigrp_af_config_shutdown_update(EIGRP_SET, af);
 	return eigrpd_named_config_result(result, false);
 }
 
@@ -600,7 +600,7 @@ static int eigrpd_named_shutdown_create(struct nb_cb_create_args *args)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_af_instance_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_af_config_shutdown_update(EIGRP_SET)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -609,7 +609,7 @@ static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 	const char *name;
 	const char *vrf;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -618,7 +618,7 @@ static int eigrpd_named_shutdown_destroy(struct nb_cb_destroy_args *args)
 	if (!eigrpd_named_child_context(args->dnode, &name, &afi, &vrf, &asn))
 		return NB_ERR_INCONSISTENCY;
 	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
-	result = eigrp_af_instance_shutdown_update(EIGRP_RESET, af);
+	result = eigrp_af_config_shutdown_update(EIGRP_RESET, af);
 	return eigrpd_named_config_result(result, true);
 }
 
@@ -667,7 +667,7 @@ static int eigrpd_named_af_interface_create(struct nb_cb_create_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -698,7 +698,7 @@ static int eigrpd_named_af_interface_destroy(struct nb_cb_destroy_args *args)
 	const char *vrf;
 	const char *interface_name;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	eigrp_result_t result;
 	uint16_t asn;
 
@@ -2460,14 +2460,14 @@ static int eigrpd_named_distance_apply(const struct lyd_node *dnode)
 {
 	const char *name, *vrf;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	uint16_t asn;
 
 	if (!eigrpd_named_topology_child_context(dnode, &name, &afi, &vrf, &asn))
 		return NB_ERR_INCONSISTENCY;
 	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
 	return eigrpd_named_config_result(
-		eigrp_instance_distance_update(EIGRP_SET, af, yang_dnode_get_uint8(dnode, "internal"),
+		eigrp_af_config_distance_update(EIGRP_SET, af, yang_dnode_get_uint8(dnode, "internal"),
 			yang_dnode_get_uint8(dnode, "external")),
 		false);
 }
@@ -2513,7 +2513,7 @@ static int eigrpd_named_distance_modify(struct nb_cb_modify_args *args)
  * This is the FRR northbound edge for the named-mode node above.
  * It reads YANG here only long enough to normalize the command into EIGRP-owned values.
  * It resolves the named address-family, topology, or interface context before changing EIGRP state.
- * This callback calls `eigrp_instance_distance_update(EIGRP_RESET, 0, 0)` instead of carrying protocol behavior in the FRR layer.
+ * This callback calls `eigrp_af_config_distance_update(EIGRP_RESET, 0, 0)` instead of carrying protocol behavior in the FRR layer.
  * Retained configuration and runtime side effects stay with the common target so named mode does not grow a second protocol implementation.
  * Structured EIGRP results are translated back to northbound status by the common result mapping.
  */
@@ -2521,7 +2521,7 @@ static int eigrpd_named_distance_destroy(struct nb_cb_destroy_args *args)
 {
 	const char *name, *vrf;
 	eigrp_afi_t afi;
-	eigrp_af_instance_t *af;
+	eigrp_af_config_t *af;
 	uint16_t asn;
 
 	if (args->event != NB_EV_APPLY)
@@ -2530,7 +2530,7 @@ static int eigrpd_named_distance_destroy(struct nb_cb_destroy_args *args)
 						  &asn))
 		return NB_ERR_INCONSISTENCY;
 	af = eigrpd_named_address_family_config_read(name, afi, vrf, asn);
-	return eigrpd_named_config_result(eigrp_instance_distance_update(EIGRP_RESET, af, 0, 0), true);
+	return eigrpd_named_config_result(eigrp_af_config_distance_update(EIGRP_RESET, af, 0, 0), true);
 }
 
 static int eigrpd_named_maximum_prefix_apply(const struct lyd_node *dnode)

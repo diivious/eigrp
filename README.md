@@ -1,8 +1,8 @@
-# EIGRP
+# OpenEIGRP
 
-[![EIGRP Core CI](https://github.com/diivious/eigrp/actions/workflows/core.yml/badge.svg)](https://github.com/diivious/eigrp/actions/workflows/core.yml)
+[![OpenEIGRP Core CI](https://github.com/diivious/eigrp/actions/workflows/core.yml/badge.svg)](https://github.com/diivious/eigrp/actions/workflows/core.yml)
 
-Portable EIGRP implementation based on RFC 7868.
+Portable EIGRP implementation based on RFC 7868. OpenEIGRP is the project name; EIGRP remains the protocol name.
 
 RFC 7868 and Donnie V. Savage's protocol design decisions define EIGRP
 behavior. FRR and BIRD are host frameworks. Neither is the protocol authority.
@@ -19,36 +19,30 @@ open random source files.
 
 | If you are | Open first | Then |
 |---|---|---|
-| New contributor | `CONTRIBUTING.md` | this README, `specs/design-spec.md`, and `specs/refactor-work.md` for open items |
+| New contributor | `CONTRIBUTING.md` | this README, `specs/architecture.md` |
 | Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md` for UUT and vtysh notes |
-| Platform integrator | `specs/integration-spec.md` and the five public headers in `eigrpd/code/` | `frr/README.md` and `specs/EIGRP-Config-Guide.md` |
-| Portable protocol developer | `specs/design-spec.md` | `dual.md`, `rtp-spec.md`, `rfc7868.md`, config guide, `refactor-work.md` |
-| FRR adapter developer | this README workflow plus `frr/README.md` and `frr/patch/README.md` | `specs/integration-spec.md`, config guide, `specs/design-spec.md` |
-
-`specs/refactor-work.md` has two kinds of items. Naming/architecture parked
-items need a review before a rename sweep. Incomplete feature targets that
-still return `NOT_IMPLEMENTED` are fair work for a PR.
+| Platform integrator | `specs/platform-integration.md` and `specs/public-api.md` | the five public headers in `eigrp/code/`, `frr/README.md`, and `specs/EIGRP-Config-Guide.md` |
+| Portable protocol developer | `specs/architecture.md` | `eigrp/specs/dual.md`, `eigrp/specs/rtp.md`, `specs/rfc7868.md`, and the config guide |
+| FRR adapter developer | this README workflow plus `frr/README.md` and `frr/patch/README.md` | `specs/platform-integration.md`, config guide, `specs/architecture.md` |
 
 ## Repository layout
 
 ```text
 eigrp/
-  eigrpd/         Portable EIGRP protocol code
+  eigrp/          Portable EIGRP protocol code
   frr/            FRR adapters and integration
     patch/        Managed changes required outside FRR/eigrpd/
     test/         FRR shim integration tests
-  bird/           Reserved BIRD shim location
-  test/
-    build/        Lightweight compile-smoke harness
-    common/       Host-independent fixtures and packet samples
-    portable/     Host-independent source/behavior tests
-  specs/          Architecture, CLI, integration, and protocol design
+  bird/           BIRD/BSD host adapter area
+    test/         BIRD/BSD-native tests
+  unix/           Standalone Unix host shim and tests
+  specs/          Repository-wide architecture, integration, and operator contracts
   tools/          Build, staging, patch, UUT, and packaging helpers
   CONTRIBUTING.md Fork, pull request, style, AI, and test rules
 ```
 
 This repository is the canonical source tree. FRR staging creates a projection
-of `eigrpd/` plus the FRR adapter files. Do not develop against the staged FRR
+of `eigrp/` plus the FRR adapter files. Do not develop against the staged FRR
 copy and then copy changes back.
 
 ## Architecture at a glance
@@ -77,7 +71,7 @@ Three layers. Host objects stop in the shim. Protocol decisions stay in core.
               v
 +-------------+-------------+
 | core                      |
-| eigrpd/                   |
+| eigrp/                    |
 | DUAL, RTP, packets,       |
 | topology, neighbors       |
 +---------------------------+
@@ -87,7 +81,7 @@ Three layers. Host objects stop in the shim. Protocol decisions stay in core.
 flowchart TB
   platform["Platform<br/>CLI / YANG / sockets / RIB / timers"]
   shim["Shim<br/>frr/ or a new host adapter"]
-  core["Core<br/>eigrpd/ portable EIGRP"]
+  core["Core<br/>eigrp/ portable EIGRP"]
 
   platform -->|"host objects and events"| shim
   shim -->|"eigrp_cli.h config/admin"| core
@@ -102,24 +96,24 @@ FRR's path through that shim is drawn in `frr/README.md`.
 
 ## Design documents
 
-- `specs/design-spec.md` - contributor spec for portable core: ownership,
-  naming, instance model, testing.
-- `specs/github-core-ci.md` - GitHub Actions contract for the Linux/macOS
-  portable/core `make test` gate.
-- `specs/integration-spec.md` - public black-box contract for a routing
-  platform that wants to host this code.
-- `specs/EIGRP-Config-Guide.md` - operator CLI/EXEC guide. Integrators use it
-  when they build the host equivalent of FRR YANG/CLI.
-- `specs/dual.md` - core support doc. DUAL state machine in this tree.
-- `specs/rtp-spec.md` - core support doc. Packetization and RTP.
-- `specs/rfc7868.md` - core support doc. Pointer to RFC 7868. No forked RFC
-  text in this repo.
-- `specs/refactor-work.md` - parked naming work, plus incomplete feature
-  targets a contributor can pick up.
+Repository-wide specifications live under `specs/`; portable protocol internals
+live beside the core under `eigrp/specs/`.
+
+- `specs/architecture.md` - repository ownership, portability boundaries, and
+  specification/test placement.
+- `specs/code-conventions.md` - repository-wide naming and source conventions.
+- `specs/platform-integration.md` - public black-box contract for a routing
+  platform that hosts OpenEIGRP.
+- `specs/EIGRP-Config-Guide.md` - operator configuration and EXEC surface.
+- `specs/rfc7868.md` - RFC 7868 authority and project interpretation rules.
+- `eigrp/specs/dual.md` - portable DUAL state-machine design.
+- `eigrp/specs/route-selection-spec.md` - portable topology path ordering and
+  successor-selection rules.
+- `eigrp/specs/rtp.md` - portable packetization and EIGRP RTP design.
 
 ## Development rules
 
-Portable protocol behavior belongs in `eigrpd/code/`.
+Portable protocol behavior belongs in `eigrp/code/`.
 FRR-specific CLI, YANG, management, and Zebra/RIB belong under `frr/code/`.
 BIRD-specific integration belongs under `bird/` when that work exists.
 
@@ -140,7 +134,7 @@ eigrp_<module>.c
 eigrp_<module>_<object>_<action>()
 ```
 
-Read `specs/design-spec.md` before adding or renaming public APIs.
+Read `specs/architecture.md` before adding or renaming public APIs.
 Read `CONTRIBUTING.md` before you open a pull request.
 
 ## Stub routing
@@ -158,7 +152,7 @@ inside the published, unencumbered protocol.
 
 ### 1. Develop and build standalone on macOS/Linux
 
-Portable protocol work belongs in `eigrpd/code/`; the native standalone host
+Portable protocol work belongs in `eigrp/code/`; the native standalone host
 implementation lives in `unix/code/`. Normal core development does not require
 an FRR checkout, BIRD checkout, VM, root privileges, or host VLAN setup.
 
@@ -179,7 +173,7 @@ make test
 ```
 
 The root test pipeline performs portable compile/build validation, the
-`eigrpd/test` and `unix/test` suites, the IPv4 Basic Core Gate, the IPv6 Basic
+`eigrp/test` and `unix/test` suites, the IPv4 Basic Core Gate, the IPv6 Basic
 Core Gate, and the RTP Core Gate. These tests use the unprivileged Unix/UUT
 host and do not invoke FRR or BIRD tooling.
 
@@ -198,8 +192,7 @@ Platform integration is deliberately separate. Root `make test` never silently
 runs `tools/frr.sh`, `tools/bird.sh`, or another platform tool.
 
 GitHub Actions runs this same `make test` gate on Linux and macOS. See
-`specs/github-core-ci.md` for the CI ownership, dependency, and diagnostics
-contract.
+the root `Makefile` and `.github/workflows/` for the hosted CI execution path.
 
 ### 3. Validate FRR only when platform work requires it
 
@@ -219,7 +212,7 @@ tools/frr.sh --install --frr-root ../frr
 The projection is:
 
 ```text
-eigrpd/code/ + FRR adapter files in frr/code/  -> ../frr/eigrpd/
+eigrp/code/ + FRR adapter files in frr/code/  -> ../frr/eigrpd/
 frr/test/                            -> ../frr/tests/eigrpd/
 ```
 
@@ -332,7 +325,7 @@ launch sequence when you are validating a change.
 
 ## Sending changes
 
-Fork https://github.com/diivious/eigrpd, push a branch, open a pull request.
+Fork https://github.com/diivious/eigrp, push a branch, open a pull request.
 The PR must say what the issue was, what changed, and how it was tested.
 See `CONTRIBUTING.md`.
 

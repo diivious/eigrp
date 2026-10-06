@@ -3,7 +3,7 @@
 
 CC ?= gcc
 PROJECT_ROOT := ../../..
-EIGRPD_ROOT := $(PROJECT_ROOT)/eigrpd/code
+EIGRPD_ROOT := $(PROJECT_ROOT)/eigrp/code
 FRR_ADAPTER_ROOT := $(PROJECT_ROOT)/frr/code
 FRR_SOURCE_ROOT ?= ../../../frr
 BUILD := obj

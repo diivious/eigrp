@@ -11,9 +11,9 @@ def read(path):
 
 
 def test_ipv6_hello_wire_destination_and_link_local_source_contract():
-    hello = read("eigrpd/code/eigrp_hello.c")
+    hello = read("eigrp/code/eigrp_hello.c")
     southbound = read("frr/code/eigrp_southbound_ipv6.c")
-    ipv6 = read("eigrpd/code/eigrp_ipv6.c")
+    ipv6 = read("eigrp/code/eigrp_ipv6.c")
 
     assert 'inet_pton(AF_INET6, "ff02::a", &destination.ip.v6)' in hello
     assert "eigrp_southbound_ipv6_interface_linklocal" in southbound
@@ -22,7 +22,7 @@ def test_ipv6_hello_wire_destination_and_link_local_source_contract():
 
 
 def test_ipv6_hello_carries_parameter_hold_and_metric_version_advertisement():
-    hello = read("eigrpd/code/eigrp_hello.c")
+    hello = read("eigrp/code/eigrp_hello.c")
 
     assert "EIGRP_TLV_PARAMETER" in hello
     assert "ei->eigrp->k_values[5]" in hello
@@ -33,7 +33,7 @@ def test_ipv6_hello_carries_parameter_hold_and_metric_version_advertisement():
 
 
 def test_ipv6_hello_receive_decodes_but_does_not_start_adjacency():
-    hello = read("eigrpd/code/eigrp_hello.c")
+    hello = read("eigrp/code/eigrp_hello.c")
 
     assert "adjacency_start_allowed" in hello
     assert "if (!adjacency_start_allowed)" in hello
@@ -42,7 +42,7 @@ def test_ipv6_hello_receive_decodes_but_does_not_start_adjacency():
 
 
 def test_hello_rejects_short_known_tlvs_and_requires_parameter_tlv():
-    hello = read("eigrpd/code/eigrp_hello.c")
+    hello = read("eigrp/code/eigrp_hello.c")
 
     assert "length < EIGRP_TLV_PARAMETER_LEN" in hello
     assert "length < EIGRP_TLV_SW_VERSION_LEN" in hello
@@ -51,7 +51,7 @@ def test_hello_rejects_short_known_tlvs_and_requires_parameter_tlv():
 
 
 def test_goodbye_and_peer_termination_are_address_family_aware():
-    hello = read("eigrpd/code/eigrp_hello.c")
+    hello = read("eigrp/code/eigrp_hello.c")
 
     assert "eigrp_hello_goodbye" in hello
     assert "Interface Goodbye received" in hello

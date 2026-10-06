@@ -24,7 +24,7 @@ struct eigrp_unix_config {
 	char instance_name[EIGRP_UNIX_CONFIG_NAME_MAX + 1U];
 	eigrp_afi_t afi;
 	uint16_t asn;
-	eigrp_af_instance_t *address_family;
+	eigrp_af_config_t *address_family;
 };
 
 static char *eigrp_unix_config_trim(char *line)
@@ -48,7 +48,7 @@ static eigrp_result_t eigrp_unix_config_parent_apply(
 
 	if (!length || length > EIGRP_UNIX_CONFIG_NAME_MAX || strchr(name, ' '))
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_instance_parent_create(name);
+	result = eigrp_named_config_create(name);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
 	memcpy(config->instance_name, name, length + 1U);
@@ -80,12 +80,12 @@ static eigrp_result_t eigrp_unix_config_af_apply(
 	if (asn == 0 || asn > UINT16_MAX)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	result = eigrp_af_instance_create(
+	result = eigrp_af_config_create(
 		config->instance_name, afi, EIGRP_UNIX_DEFAULT_VRF_NAME,
 		(uint16_t)asn);
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
-	config->address_family = eigrp_af_instance_read(
+	config->address_family = eigrp_af_config_read(
 		config->instance_name, afi, EIGRP_UNIX_DEFAULT_VRF_NAME,
 		(uint16_t)asn);
 	if (!config->address_family)
@@ -107,7 +107,7 @@ static eigrp_result_t eigrp_unix_config_router_id_apply(
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (inet_pton(AF_INET, value, &address) != 1)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	result = eigrp_af_instance_context_read(
+	result = eigrp_af_config_context_read(
 		config->instance_name, config->afi, EIGRP_UNIX_DEFAULT_VRF_NAME,
 		config->asn, &context);
 	if (result != EIGRP_RESULT_SUCCESS)
@@ -133,13 +133,13 @@ static eigrp_result_t eigrp_unix_config_line_apply(
 	if (strcmp(line, "shutdown") == 0) {
 		if (!config->address_family)
 			return EIGRP_RESULT_INVALID_ARGUMENT;
-		return eigrp_af_instance_shutdown_update(EIGRP_SET,
+		return eigrp_af_config_shutdown_update(EIGRP_SET,
 			config->address_family);
 	}
 	if (strcmp(line, "no shutdown") == 0) {
 		if (!config->address_family)
 			return EIGRP_RESULT_INVALID_ARGUMENT;
-		return eigrp_af_instance_shutdown_update(EIGRP_RESET,
+		return eigrp_af_config_shutdown_update(EIGRP_RESET,
 			config->address_family);
 	}
 	if (strcmp(line, "exit-address-family") == 0) {

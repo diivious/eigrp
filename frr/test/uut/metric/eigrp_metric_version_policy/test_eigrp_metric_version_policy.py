@@ -11,15 +11,15 @@ def read(path: str) -> str:
 
 
 def test_release_2_wide_metrics_is_default():
-    header = read("eigrpd/code/eigrpd.h")
-    runtime = read("eigrpd/code/eigrpd.c")
+    header = read("eigrp/code/eigrp_metric.h")
+    runtime = read("eigrp/code/eigrp.c")
     assert "#define EIGRP_MAJOR_VERSION 2" in header
     assert "eigrp->metric_version = EIGRP_MAJOR_VERSION;" in runtime
 
 
 def test_common_selection_policy_prefers_highest_mutual_version():
-    metric = read("eigrpd/code/eigrp_metric.c")
-    hello = read("eigrpd/code/eigrp_hello.c")
+    metric = read("eigrp/code/eigrp_metric.c")
+    hello = read("eigrp/code/eigrp_hello.c")
     assert "eigrp_metric_version_select" in metric
     assert "local_version >= EIGRP_TLV_64B_VERSION" in metric
     assert "peer_version >= EIGRP_TLV_64B_VERSION" in metric
@@ -28,9 +28,9 @@ def test_common_selection_policy_prefers_highest_mutual_version():
 
 
 def test_32bit_configuration_has_real_metric_targets_and_default_reset():
-    metric_h = read("eigrpd/code/eigrp_metric.h")
-    metric = read("eigrpd/code/eigrp_metric.c")
-    cli_h = read("eigrpd/code/eigrp_cli.h")
+    metric_h = read("eigrp/code/eigrp_metric.h")
+    metric = read("eigrp/code/eigrp_metric.c")
+    cli_h = read("eigrp/code/eigrp_cli.h")
     for source in (metric_h, cli_h):
         assert "eigrp_metric_version_update" in source
         assert "eigrp_metric_version_update" in source
@@ -40,8 +40,8 @@ def test_32bit_configuration_has_real_metric_targets_and_default_reset():
 
 
 def test_mixed_peer_aggregate_policy_is_preserved():
-    interface = read("eigrpd/code/eigrp_interface.c")
-    packet = read("eigrpd/code/eigrp_packet.c")
+    interface = read("eigrp/code/eigrp_interface.c")
+    packet = read("eigrp/code/eigrp_packet.c")
     assert "ei->tlv1_peer_count && ei->tlv2_peer_count" in interface
     assert "ei->encoder = eigrp_packet_encoder_both;" in interface
     assert "eigrp->tlv1_codec.encoder" in packet

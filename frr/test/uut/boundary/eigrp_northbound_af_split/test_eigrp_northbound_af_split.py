@@ -40,6 +40,6 @@ def test_ipv6_northbound_does_not_pull_unrelated_protocol_modules():
     ipv6 = read("frr/code/eigrp_northbound_ipv6.c")
 
     assert '#include "eigrp.h"' in ipv6
-    assert '#include "eigrpd/code/eigrp_topology.h"' not in ipv6
+    assert '#include "eigrp/code/eigrp_topology.h"' not in ipv6
     assert '#include "eigrp_zebra.h"' not in ipv6
     assert '#include "eigrp_policy.h"' not in ipv6

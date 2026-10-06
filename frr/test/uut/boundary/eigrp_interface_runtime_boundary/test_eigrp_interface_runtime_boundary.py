@@ -28,10 +28,10 @@ def test_portable_public_headers_do_not_expose_frr_runtime_objects():
 
 
 def test_runtime_interface_state_is_eigrp_owned():
-    common = read("eigrpd/code/eigrp.h")
-    system = read("eigrpd/code/eigrp_sys.h")
-    structs = read("eigrpd/code/eigrp_structs.h")
-    interface_h = read("eigrpd/code/eigrp_interface.h")
+    common = read("eigrp/code/eigrp.h")
+    system = read("eigrp/code/eigrp_sys.h")
+    structs = read("eigrp/code/eigrp_structs.h")
+    interface_h = read("eigrp/code/eigrp_interface.h")
 
     assert "typedef uint32_t eigrp_vrf_id_t;" in common
     assert "typedef uint32_t eigrp_ifindex_t;" in common
@@ -43,7 +43,7 @@ def test_runtime_interface_state_is_eigrp_owned():
     assert "eigrp_ifindex_t ifindex;" in structs
     assert "eigrp_prefix_t address;" in structs
     assert "struct interface *ifp" not in structs
-    assert "struct list *iflist;" not in read("eigrpd/code/eigrpd.h")
+    assert "struct list *iflist;" not in read("eigrp/code/eigrp.h")
 
     assert "typedef struct eigrp_intf_runtime_state" in system
     assert "bool secondary;" in system
@@ -53,16 +53,16 @@ def test_runtime_interface_state_is_eigrp_owned():
 
 
 def test_protocol_runtime_uses_eigrp_southbound_event_contracts():
-    system_h = read("eigrpd/code/eigrp_sys.h")
+    system_h = read("eigrp/code/eigrp_sys.h")
     protocol_files = [
-        "eigrpd/code/eigrpd.c",
-        "eigrpd/code/eigrp_interface.c",
-        "eigrpd/code/eigrp_packet.c",
-        "eigrpd/code/eigrp_hello.c",
-        "eigrpd/code/eigrp_neighbor.c",
-        "eigrpd/code/eigrp_update.c",
-        "eigrpd/code/eigrp_filter.c",
-        "eigrpd/code/eigrp_debug.c",
+        "eigrp/code/eigrp.c",
+        "eigrp/code/eigrp_interface.c",
+        "eigrp/code/eigrp_packet.c",
+        "eigrp/code/eigrp_hello.c",
+        "eigrp/code/eigrp_neighbor.c",
+        "eigrp/code/eigrp_update.c",
+        "eigrp/code/eigrp_filter.c",
+        "eigrp/code/eigrp_debug.c",
     ]
 
     assert "eigrp_sys_event_add" in system_h
@@ -87,9 +87,9 @@ def test_protocol_runtime_uses_eigrp_southbound_event_contracts():
 
 def test_interface_discovery_and_socket_host_objects_are_owned_by_frr_adapter():
     southbound = read("frr/code/eigrp_southbound.c")
-    interface_c = read("eigrpd/code/eigrp_interface.c")
-    ipv4 = read("eigrpd/code/eigrp_ipv4.c")
-    network = read("eigrpd/code/eigrp_network.c")
+    interface_c = read("eigrp/code/eigrp_interface.c")
+    ipv4 = read("eigrp/code/eigrp_ipv4.c")
+    network = read("eigrp/code/eigrp_network.c")
 
     assert "struct eigrp_event" in southbound
     assert "struct interface" in southbound
@@ -110,7 +110,7 @@ def test_interface_discovery_and_socket_host_objects_are_owned_by_frr_adapter():
 
     # FRR's distribute context may remain until the policy/filter boundary,
     # but portable code must not dereference its host VRF object.
-    assert "ctx->vrf" not in read("eigrpd/code/eigrp_filter.c")
+    assert "ctx->vrf" not in read("eigrp/code/eigrp_filter.c")
 
     assert "eigrp_sock_init(struct vrf" not in network
     assert "eigrp_intf_ipmulticast" not in network
@@ -130,13 +130,13 @@ def test_frr_management_and_zebra_no_longer_store_runtime_in_ifp_info():
     assert "ifp->info" not in zebra
     assert "->ifp" not in vty
     assert "eigrp_northbound_ipv4_interface_lookup_host(ifp)" in northbound
-    assert "eigrp_sys_interface_state_update((eigrp_vrf_id_t)vrf_id, &state)" in zebra
+    assert "eigrp_sys_intf_update((eigrp_vrf_id_t)vrf_id, &state)" in zebra
     assert "ALL_LIST_ELEMENTS_RO(eigrp_om->eigrp" not in zebra
 
 
 def test_frr_southbound_has_explicit_host_header_dependencies():
     southbound = read("frr/code/eigrp_southbound.c")
-    system_h = read("eigrpd/code/eigrp_sys.h")
+    system_h = read("eigrp/code/eigrp_sys.h")
 
     # FRR route-table objects are intentionally confined to the FRR adapter,
     # but the adapter must include the FRR header that defines route_node and
@@ -204,7 +204,7 @@ def test_portable_runtime_does_not_depend_on_frr_qobj_registration():
         assert token not in zebra_stub
 
 def test_runtime_interface_preserves_host_address_bits():
-    interface_c = read("eigrpd/code/eigrp_interface.c")
+    interface_c = read("eigrp/code/eigrp_interface.c")
 
     # Runtime interface state represents the actual local address, not the
     # connected network prefix.  The packet envelope uses this value as the

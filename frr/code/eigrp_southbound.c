@@ -20,7 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "eigrpd.h"
+#include "eigrp.h"
+#include "eigrp_log.h"
 #include "eigrp_structs.h"
 #include "eigrp_interface.h"
 #include "eigrp_instance.h"
@@ -105,18 +106,18 @@ void eigrp_rib_instance_delete(eigrp_instance_t *eigrp)
 	eigrp_zebra_instance_delete(eigrp);
 }
 
-eigrp_result_t eigrp_rib_route_install(eigrp_instance_t *eigrp,
+eigrp_result_t eigrp_rib_route_add(eigrp_instance_t *eigrp,
 					const eigrp_rib_route_t *route)
 {
 	if (!route)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
-	return eigrp_zebra_route_install(eigrp, route);
+	return eigrp_zebra_route_add(eigrp, route);
 }
 
-eigrp_result_t eigrp_rib_route_remove(
+eigrp_result_t eigrp_rib_route_del(
 	eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix)
 {
-	return eigrp_zebra_route_remove(eigrp, prefix);
+	return eigrp_zebra_route_del(eigrp, prefix);
 }
 
 extern struct event_loop *eigrpd_event;
@@ -256,6 +257,14 @@ uint64_t eigrp_sys_monotime_msec(void)
 	struct timeval now;
 
 	monotime(&now);
+	return (uint64_t)now.tv_sec * 1000U + (uint64_t)now.tv_usec / 1000U;
+}
+
+uint64_t eigrp_sys_wallclock_msec(void)
+{
+	struct timeval now;
+
+	gettimeofday(&now, NULL);
 	return (uint64_t)now.tv_sec * 1000U + (uint64_t)now.tv_usec / 1000U;
 }
 
@@ -597,7 +606,7 @@ static void eigrp_southbound_interface_notify(struct interface *ifp)
 				(unsigned)co->address->prefixlen);
 			continue;
 		}
-		eigrp_sys_interface_state_update(vrf_id, &state);
+		eigrp_sys_intf_update(vrf_id, &state);
 	}
 }
 
@@ -623,7 +632,7 @@ static int eigrp_southbound_if_down(struct interface *ifp)
 	}
 	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
 			     : EIGRP_VRF_DEFAULT;
-	eigrp_sys_interface_link_down(
+	eigrp_sys_intf_down(
 		vrf_id, ifp->ifindex, ifp->name, eigrp_frr_interface_type(ifp),
 		ifp->bandwidth, ifp->mtu);
 	return 0;
@@ -640,7 +649,7 @@ static int eigrp_southbound_if_unreal(struct interface *ifp)
 	}
 	vrf_id = ifp->vrf ? (eigrp_vrf_id_t)ifp->vrf->vrf_id
 			     : EIGRP_VRF_DEFAULT;
-	eigrp_sys_interface_link_remove(
+	eigrp_sys_intf_remove(
 		vrf_id, ifp->ifindex, EIGRP_INTERFACE_REMOVE_HOST);
 	return 0;
 }
@@ -712,7 +721,7 @@ eigrp_result_t eigrp_sys_summary_leak_map_evaluate(
 
 eigrp_result_t eigrp_sys_redistribute_route_map_evaluate(
 	eigrp_instance_t *eigrp, const char *name,
-	const eigrp_rib_source_route_t *route,
+	const eigrp_rib_route_t *route,
 	eigrp_filter_decision_t *decision)
 {
 	return eigrp_policy_redistribute_route_map_evaluate(eigrp, name, route,

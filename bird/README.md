@@ -5,9 +5,9 @@ This directory is reserved for a BIRD shim.
 There is no BIRD implementation in this tree yet. Do not treat an empty
 directory as an integration contract.
 
-If you are adding EIGRP to BIRD, start with `../specs/integration-spec.md`
-and the five public headers in `../eigrpd/code/`. Use `../frr/README.md` only as a
+If you are adding EIGRP to BIRD, start with `../specs/platform-integration.md`
+and the five public headers in `../eigrp/code/`. Use `../frr/README.md` only as a
 job-split example. Do not import FRR types or FRR test objects.
 
-Host-independent tests stay under `../eigrpd/test/`.
+Host-independent tests stay under `../eigrp/test/`.
 BIRD-native tests belong under `test/` in this directory when they exist.

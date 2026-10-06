@@ -6,15 +6,15 @@ Copyright (C) 2026 Donnie V. Savage
 
 This file holds three kinds of work.
 
-Sections 1-3 are naming and architecture items parked until a coordinated
+Sections 1-2 are naming and architecture items parked until a coordinated
 review. Do not use those as an excuse to rename half the tree in a feature
 PR.
 
-Section 4 is incomplete feature work. The public target exists, config is
+Section 3 is incomplete feature work. The public target exists, config is
 retained, and the runtime path still returns `NOT_IMPLEMENTED`. A contributor
 can pick one of those items, implement it, and send a PR.
 
-Section 5 is packet-path and parser hardening. P0-P2 are the items worth
+Section 4 is packet-path and parser hardening. P0-P2 are the items worth
 doing before trusting an unauthenticated LAN image. P3 and below are
 low-value cleanup that can wait.
 
@@ -68,28 +68,7 @@ Until the review:
 - DNDB/DRDB terminology may appear in comments/debug output where it improves
   EIGRP understanding.
 
-## 2. Runtime lifecycle namespace consolidation
-
-Named configuration ownership is already under `eigrp_instance_*`, while some
-low-level runtime allocation/destruction entry points remain under legacy names
-in `eigrpd.c`, including `eigrp_get()`, `eigrp_lookup()`, and `eigrp_finish()`.
-
-Before production, decide whether the remaining runtime lifecycle should be
-consolidated into a predictable `eigrp_instance.c/.h` ownership boundary and
-`eigrp_instance_*` namespace.
-
-The review must preserve:
-
-- named parent/address-family ownership;
-- classic compatibility behavior;
-- AF/VRF/AS runtime identity;
-- southbound lifecycle isolation;
-- teardown ordering;
-- no alias-wrapper compatibility layer after an approved rename.
-
-Do not perform a rename-only migration before that coordinated review.
-
-## 3. Naming consistency pass
+## 2. Naming consistency pass
 
 Before production, perform one bounded navigation/naming review against
 `design-spec.md`:
@@ -115,7 +94,7 @@ rather than preserving module prefixes by habit.
 This review should produce a finite rename set and be committed separately from
 protocol feature changes.
 
-## 4. Intentional incomplete capability boundaries
+## 3. Intentional incomplete capability boundaries
 
 The broad feature-completion list that previously lived here became stale as the
 feature work landed.  TASK1-8 audits the remaining `EIGRP_RESULT_NOT_IMPLEMENTED`
@@ -135,7 +114,7 @@ remain protocol identities carried by the common API and multiprotocol TLVs.
 
 Stub routing stays out of scope.
 
-## 5. Packet-path and parser hardening
+## 4. Packet-path and parser hardening
 
 This is an on-link protocol. Anyone on the LAN can send proto 88. Auth-off
 is the common case today. Work P0-P2 first.
@@ -246,7 +225,7 @@ descriptor. Prefix-limit config still returns `NOT_IMPLEMENTED`. On-link
 flood is memory and CPU.
 
 Fix: enforce max-neighbors and max-prefix on the receive path, not just
-retained config. That is the same work as Section 4 max-prefix items.
+retained config. That is the same work as Section 3 max-prefix items.
 
 #### 5.11 Unknown Hello TLVs are skipped after the neighbor exists
 
@@ -292,4 +271,4 @@ These are not holes to burn a release on. They can still be cleaned up.
 - Stop ignoring `pktlen` once 5.2 clamps the stream. Pass one bound and use
   it.
 - Document that SHA-256 config may be retained while receive stays
-  `NOT_IMPLEMENTED`. That is already a Section 4 auth item.
+  `NOT_IMPLEMENTED`. That is already a Section 3 auth item.

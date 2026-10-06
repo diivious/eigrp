@@ -1,7 +1,7 @@
-# Contributing to EIGRP
+# Contributing to OpenEIGRP
 
-This is the process document. Architecture rules live in `specs/design-spec.md`.
-The public host contract lives in `specs/integration-spec.md`. Do not treat this
+This is the process document. Architecture rules live in `specs/architecture.md`.
+The public host contract lives in `specs/platform-integration.md`. Do not treat this
 file as a second design spec.
 
 If you are new to the tree, start with `README.md`. It tells you which spec to
@@ -21,16 +21,16 @@ specs/    project rules. read before you invent a new pattern
 tools/    FRR stage/build/UUT helpers
 ```
 
-If the change is protocol behavior, it belongs in `eigrpd/code/`.
+If the change is protocol behavior, it belongs in `eigrp/code/`.
 If the change is FRR CLI, YANG, Zebra, vtysh, or FRR process wiring, it belongs
 in `frr/`.
-If the change is a public host API, update `specs/integration-spec.md` in the
+If the change is a public host API, update `specs/platform-integration.md` in the
 same patch as the header.
 
 ## 2. How work is delivered
 
 This is a normal git project. Canonical source is
-https://github.com/diivious/eigrpd
+https://github.com/diivious/eigrp
 
 Do not send zip files, recursive copies, or `tools/backup.sh` output as a
 contribution. Do not develop against a staged FRR copy of `eigrpd/` and copy
@@ -39,13 +39,13 @@ edits back.
 Flow:
 
 ```text
-1. Fork https://github.com/diivious/eigrpd
+1. Fork https://github.com/diivious/eigrp
 2. Clone your fork
 3. Branch from current master
 4. Make the change in this tree
 5. Run the test gate in Section 7
 6. Push the branch
-7. Open a pull request against diivious/eigrpd master
+7. Open a pull request against diivious/eigrp master
 ```
 
 Small, reviewable changes beat large mixed diffs. One feature or one defect per
@@ -87,7 +87,6 @@ Ask before you:
 - change whitespace, comment style, or include order across a file
 - add a new public header or public function
 - move code between `eigrpd/` and a host directory
-- take a naming/architecture item from `specs/refactor-work.md` sections 1-3
 - change managed patches under `frr/patch/`
 
 Do the work first only when the change is local, obvious, and already covered by
@@ -101,8 +100,8 @@ The contributor still owns the result. If you use an assistant, you must:
 
 - understand every line you submit
 - be able to explain why the change is correct
-- be able to defend the design against `specs/design-spec.md` and, for host
-  APIs, `specs/integration-spec.md`
+- be able to defend the design against `specs/architecture.md` and, for host
+  APIs, `specs/platform-integration.md`
 - remove code you cannot explain
 - run the test gate yourself
 
@@ -128,7 +127,7 @@ Rules:
 If a file is messy and you want to clean it, say so to the repo moderators
 before you touch it. Unrelated style churn will be rejected.
 
-Naming for new portable APIs follows `specs/design-spec.md`:
+Naming for new portable APIs follows `specs/architecture.md`:
 
 ```text
 eigrp_<module>.c
@@ -153,15 +152,15 @@ make
 make test
 ```
 
-`make` builds `eigrpd/code` plus `unix/code`. `make test` is the authoritative
-portable/core gate: portable build validation, `eigrpd/test`, `unix/test`, the
+`make` builds `eigrp/code` plus `unix/code`. `make test` is the authoritative
+portable/core gate: portable build validation, `eigrp/test`, `unix/test`, the
 IPv4 and IPv6 Basic Core Gates, and the RTP Core Gate. It requires no FRR/BIRD
 checkout or VM, root privileges, or host VLAN configuration, and it never
 invokes platform tooling implicitly.
 
 GitHub Actions executes this same gate on Linux and macOS; it does not reproduce
 the individual build/test targets in workflow YAML. See
-`specs/github-core-ci.md` for the hosted CI contract.
+the root `Makefile` and `.github/workflows/` for the hosted CI contract.
 
 For protocol changes that also require FRR platform validation, move to the FRR
 environment after the portable gate and run explicitly:
@@ -188,23 +187,23 @@ documented `no` form are shown to work.
 The installed public headers are:
 
 ```text
-eigrpd/code/eigrp.h
-eigrpd/code/eigrp_cli.h
-eigrpd/code/eigrp_mgnt.h
-eigrpd/code/eigrp_rib.h
-eigrpd/code/eigrp_sys.h
+eigrp/code/eigrp.h
+eigrp/code/eigrp_cli.h
+eigrp/code/eigrp_mgnt.h
+eigrp/code/eigrp_rib.h
+eigrp/code/eigrp_sys.h
 ```
 
 If you add or change a public type or function:
 
 1. Update the header.
-2. Update the matching entry in `specs/integration-spec.md`.
+2. Update the matching entry in `specs/platform-integration.md`.
 3. Update the host adapter that implements or calls it.
 4. Add or extend a test that would fail if the contract regresses.
 
 A public symbol with no spec entry is not a stable API.
 
-Host code must not include private `eigrpd/code/` module headers to "get it working."
+Host code must not include private `eigrp/code/` module headers to "get it working."
 If the public contract is missing a call you need, that is a spec change, not an
 excuse to reach into DUAL or packet objects.
 
@@ -213,12 +212,12 @@ excuse to reach into DUAL or packet objects.
 EIGRP Stub routing is out of scope. Do not implement it, import it, or add
 tests for it.
 
-`specs/refactor-work.md` sections 1-3 are naming/architecture parking. Do not
-start a rename sweep from those items.
+Rename-only architecture churn is not normal feature work. Public or broad internal
+renames require explicit review before implementation.
 
-Section 4 in that file is different. Those are real feature targets that still
-return `NOT_IMPLEMENTED`. A contributor can pick one, implement the runtime
-path, and send a PR.
+Real feature targets that return `EIGRP_RESULT_NOT_IMPLEMENTED` remain valid work
+when the feature is in project scope and the implementation terminates at the
+correct owning module.
 
 ## 10. Security reports
 

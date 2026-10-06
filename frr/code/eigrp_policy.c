@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_filter.h"
 #include "eigrp_redistribute.h"
 #include "eigrp_summary.h"
@@ -267,7 +267,7 @@ eigrp_result_t eigrp_policy_summary_leak_map_evaluate(
  * No FRR route-map type crosses into eigrpd/. */
 eigrp_result_t eigrp_policy_redistribute_route_map_evaluate(
 	eigrp_instance_t *eigrp, const char *name,
-	const eigrp_rib_source_route_t *route,
+	const eigrp_rib_route_t *route,
 	eigrp_filter_decision_t *decision)
 {
 	struct route_map *route_map;

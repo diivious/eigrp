@@ -421,7 +421,8 @@ def test_topology_show_uses_common_runtime_instance_walk():
     header = read(ROOT / "eigrpd" / "code" / "eigrp_topology.h")
 
     assert "eigrp_topology_instance_iterate(" in header
-    assert "for (EIGRP_LIST_ITERATE_RO(eigrp_om->eigrp" in topology
+    assert "EIGRP_LIST_ITERATE_RO(eigrp_process.virt_router, vr_node, virt_router)" in topology
+    assert "EIGRP_LIST_ITERATE_RO(virt_router->af_instance, af_node, runtime)" in topology
     assert "runtime->af_vectors.afi != afi" in topology
     assert "runtime->vrf_id != vrf_id" in topology
     assert "if (asn && runtime->AS != asn)" in topology

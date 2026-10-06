@@ -73,11 +73,11 @@ def test_frr_installs_only_the_five_public_integration_headers():
         "eigrpd/eigrp_types.h",
         "eigrpd/eigrp_structs.h",
         "eigrpd/eigrp_topology.h",
-        "eigrpd/code/eigrp_packet.h",
-        "eigrpd/code/eigrp_packetizer.h",
-        "eigrpd/code/eigrp_tlv1.h",
-        "eigrpd/code/eigrp_tlv2.h",
-        "eigrpd/code/eigrp_fsm.h",
+        "eigrp/code/eigrp_packet.h",
+        "eigrp/code/eigrp_packetizer.h",
+        "eigrp/code/eigrp_tlv1.h",
+        "eigrp/code/eigrp_tlv2.h",
+        "eigrp/code/eigrp_fsm.h",
     ):
         assert private not in installed
 
@@ -94,7 +94,7 @@ def test_redistribution_public_identity_is_eigrp_owned_protocol_plus_route_insta
     assert "eigrp_route_instance_t route_instance;" in common
     assert "const eigrp_redist_source_t *source" in cli
     assert "eigrp_redist_source_t source;" in rib
-    assert "bool eigrp_vector_present;" in rib
-    assert "eigrp_metrics_t eigrp_vector;" in rib
+    assert "eigrp_metrics_t vecmetric;" in rib
+    assert "uint32_t admin_dist;" in rib
     assert "source_protocol" not in rib
     assert "source_instance" not in rib

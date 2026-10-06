@@ -1,63 +1,64 @@
-# EIGRP Configuration and EXEC Guide
+# OpenEIGRP Configuration and EXEC Guide
 
 Copyright (C) 2026 Donnie V. Savage
 
-## 1. Purpose
+## 1. Scope
 
-This is the user guide for the EIGRP command surface provided by this project.
-It documents configuration, show, clear, and debug commands.
+This document defines the user-visible EIGRP configuration and operational
+surface provided by OpenEIGRP.
 
-If you operate or test the CLI, this is the spec you want.
+It is an operator/integrator guide. It describes semantic commands and expected
+configuration placement. It does not define DUAL, RTP, topology storage, host
+YANG schemas, or platform-specific parser implementation.
 
-If you are adding EIGRP to a platform, `integration-spec.md` is the contract
-and this guide is the command list. Your YANG, CLI, or config store has to
-cover the same semantic surface FRR exposes here, then call `eigrp_cli.h`.
+A host platform may express the same semantics through CLI, YANG, an API, or a
+configuration database. The host-specific front end must normalize those values
+and call the public OpenEIGRP semantic API described in
+`specs/platform-integration.md`.
 
-If you are changing portable protocol code, open `design-spec.md` first. This
-file, `rfc7868.md`, `dual.md`, and `rtp-spec.md` are support docs for that work.
+**OpenEIGRP** is the software project. **EIGRP** remains the protocol name and
+the CLI keyword; commands such as `router eigrp` are not renamed.
 
-Two configuration styles are available:
+## 2. Configuration models
 
-| Style | Entry command | Main configuration location |
+OpenEIGRP supports two configuration models:
+
+| Model | Entry | Scope |
 |---|---|---|
-| Classic IPv4 | `router eigrp <as> [vrf <name>]` | router mode plus interface commands |
-| Named | `router eigrp <name>` | address-family, `af-interface`, and `topology base` |
+| Classic IPv4 | `router eigrp <as> [vrf <name>]` | IPv4 process plus interface commands |
+| Named | `router eigrp <name>` | parent with IPv4/IPv6 address families, `af-interface`, and `topology base` |
 
-The named parent name is local. The autonomous-system number is the EIGRP
-protocol identity used by the address family.
+In named mode the parent name is local configuration identity. The autonomous
+system configured under the address family is the EIGRP protocol AS.
 
-## 2. Classic IPv4 configuration
+Configuration syntax shown here follows the current FRR-facing command surface,
+but the semantics are project-wide.
 
-### 2.1 Create the process
+## 3. Classic IPv4 router configuration
+
+### 3.1 Process lifecycle
 
 ```text
 router eigrp 100
-```
-
-A VRF may be selected on the router command:
-
-```text
 router eigrp 100 vrf BLUE
 ```
 
-Remove the process with the matching `no router eigrp ...` form.
+Delete with the matching `no router eigrp ...` form.
 
-### 2.2 Router ID
+### 3.2 Router ID
 
 ```text
 router eigrp 100
  eigrp router-id 192.0.2.1
 ```
 
-Reset the configured router ID with:
+Reset to automatic/default selection with:
 
 ```text
 no eigrp router-id
 ```
 
-### 2.3 Network participation
-
-Classic network configuration uses an IPv4 prefix:
+### 3.3 Network participation
 
 ```text
 router eigrp 100
@@ -65,18 +66,22 @@ router eigrp 100
  network 192.0.2.0/24
 ```
 
-The matching `no network ...` form removes participation.
+Remove with the matching `no network ...` form.
 
-### 2.4 Static neighbor
+### 3.4 Static neighbors
 
 ```text
 router eigrp 100
  neighbor 192.0.2.2
 ```
 
-Use `no neighbor 192.0.2.2` to remove it.
+Remove with:
 
-### 2.5 Passive interfaces
+```text
+no neighbor 192.0.2.2
+```
+
+### 3.5 Passive interfaces
 
 ```text
 router eigrp 100
@@ -84,7 +89,7 @@ router eigrp 100
  no passive-interface eth0
 ```
 
-### 2.6 DUAL and metric controls
+### 3.6 DUAL and metric controls
 
 ```text
 router eigrp 100
@@ -94,7 +99,7 @@ router eigrp 100
  metric weights 0 1 0 1 0 0
 ```
 
-The corresponding reset forms are:
+Reset forms:
 
 ```text
 no timers active-time
@@ -103,51 +108,57 @@ no maximum-paths
 no metric weights
 ```
 
-`timers active-time disabled` is also accepted.
+The active timer may also be disabled explicitly:
 
-### 2.7 Filtering
+```text
+timers active-time disabled
+```
+
+### 3.7 Filtering
 
 Access-list form:
 
 ```text
-router eigrp 100
- distribute-list FILTER-IN in
- distribute-list FILTER-OUT out eth0
+distribute-list FILTER-IN in
+distribute-list FILTER-OUT out eth0
 ```
 
 Prefix-list form:
 
 ```text
-router eigrp 100
- distribute-list prefix PL-IN in
- distribute-list prefix PL-OUT out eth0
+distribute-list prefix PL-IN in
+distribute-list prefix PL-OUT out eth0
 ```
 
-Use the matching `no distribute-list ...` form to remove the filter.
+Use the corresponding `no distribute-list ...` form to remove a filter.
 
-### 2.8 Redistribution
+### 3.8 Redistribution
+
+Examples:
 
 ```text
-router eigrp 100
- redistribute connected
- redistribute static metric 100000 10 255 1 1500
- redistribute ospf metric 100000 10 255 1 1500 route-map OSPF-EIGRP
+redistribute connected
+redistribute static metric 100000 10 255 1 1500
+redistribute ospf metric 100000 10 255 1 1500 route-map OSPF-EIGRP
 ```
 
-The installed parser accepts these source protocol names:
+The current parser recognizes these source protocol names:
 
 ```text
 kernel connected local static rip ospf isis bgp nhrp vnc babel openfabric
 ```
 
-Use `no redistribute <protocol>` to remove a source.
+Remove a source with:
 
-## 3. Classic IPv4 interface configuration
+```text
+no redistribute <protocol>
+```
 
-Classic interface commands are entered in the host interface configuration
-mode.
+## 4. Classic IPv4 interface configuration
 
-### 3.1 Bandwidth and delay
+Classic interface commands are entered in host interface configuration mode.
+
+### 4.1 Bandwidth and delay
 
 ```text
 interface eth0
@@ -162,7 +173,7 @@ no eigrp bandwidth
 no delay
 ```
 
-### 3.2 Hello and hold timers
+### 4.2 Hello and hold timers
 
 ```text
 interface eth0
@@ -170,9 +181,9 @@ interface eth0
  ip hold-time eigrp 15
 ```
 
-Reset with the matching `no` form.
+Use the matching `no` form to restore defaults.
 
-### 3.3 Authentication
+### 4.3 Authentication
 
 ```text
 interface eth0
@@ -180,21 +191,21 @@ interface eth0
  ip authentication key-chain eigrp 100 EIGRP-KEYS
 ```
 
-The authentication mode parser accepts `md5` and `hmac-sha-256`.
+The authentication mode surface supports `md5` and `hmac-sha-256` where the
+selected host/configuration form exposes them.
 
-### 3.4 Manual summary
+### 4.4 Manual summary
 
 ```text
 interface eth0
  ip summary-address eigrp 100 10.10.0.0/16
 ```
 
-Remove it with the matching `no ip summary-address eigrp ...` form.
+Remove with the matching `no ip summary-address eigrp ...` form.
 
-## 4. Named configuration model
+## 5. Named configuration model
 
-Named configuration begins with a local parent and one or more address
-families:
+Create a named parent and address-family context:
 
 ```text
 router eigrp CORE
@@ -206,49 +217,54 @@ router eigrp CORE
  exit-address-family
 ```
 
-The optional `unicast` keyword may be omitted. A VRF can be selected before the
-AS number:
+`unicast` may be omitted where the parser permits it.
+
+A VRF may be selected before the AS:
 
 ```text
 address-family ipv4 unicast vrf BLUE autonomous-system 100
 ```
 
-A named parent may contain both IPv4 and IPv6 address-family configuration.
-The address family must be enabled with `no shutdown` when it is intended to
-run.
+A named parent may retain multiple address families and, eventually, multiple
+AS contexts. Parent names are case-sensitive configuration identities.
+
+Enable a configured address family with:
 
 ```text
-router eigrp CORE
- address-family ipv4 unicast autonomous-system 100
-  no shutdown
+no shutdown
 ```
 
-`shutdown` administratively disables the selected address family.
-
-## 5. Named address-family commands
-
-### 5.1 IPv4 network participation
+Disable it administratively with:
 
 ```text
-router eigrp CORE
- address-family ipv4 unicast autonomous-system 100
-  network 10.0.0.0 0.255.255.255
-  network 192.0.2.1 0.0.0.0
+shutdown
 ```
 
-Use the matching `no network ...` form to remove a network statement.
+IPv6 named configuration must remain retainable/writeable even where a specific
+runtime capability is not yet implemented.
 
-### 5.2 Router ID
+## 6. Named address-family commands
+
+### 6.1 Network participation
+
+IPv4 examples:
 
 ```text
-router eigrp CORE
- address-family ipv4 unicast autonomous-system 100
-  eigrp router-id 192.0.2.1
+network 10.0.0.0 0.255.255.255
+network 192.0.2.1 0.0.0.0
 ```
 
-The same 32-bit router-ID form is used under an IPv6 named address family.
+Remove with the corresponding `no network ...` form.
 
-### 5.3 Static neighbors
+### 6.2 Router ID
+
+```text
+eigrp router-id 192.0.2.1
+```
+
+The same 32-bit EIGRP router-ID form is used for IPv4 and IPv6 address families.
+
+### 6.3 Static neighbors
 
 IPv4:
 
@@ -256,15 +272,15 @@ IPv4:
 neighbor 192.0.2.2 eth0
 ```
 
-IPv6 named configuration accepts an IPv6 neighbor form:
+IPv6:
 
 ```text
 neighbor 2001:db8::2 eth0
 ```
 
-Remove a configured neighbor with the corresponding `no neighbor ...` form.
+Delete with the corresponding `no neighbor ...` form.
 
-### 5.4 Neighbor description and maximum-prefix
+### 6.4 Neighbor description and prefix limits
 
 ```text
 neighbor 192.0.2.2 description branch-router
@@ -272,10 +288,10 @@ neighbor 192.0.2.2 maximum-prefix 5000 80 warning-only
 neighbor maximum-prefix 20000 80 warning-only
 ```
 
-The address-family-wide maximum-prefix form also accepts `dampened`,
-`reset-time`, `restart`, and `restart-count` options.
+The maximum-prefix grammar may also expose `dampened`, `reset-time`, `restart`,
+and `restart-count` options.
 
-### 5.5 Neighbor logging
+### 6.5 Neighbor logging
 
 ```text
 eigrp log-neighbor-changes
@@ -285,19 +301,22 @@ eigrp log-neighbor-warnings 10
 
 Use the matching `no` form to restore the default.
 
-### 5.6 Metric weights
-
-The shared metric command is valid in named address-family context:
+### 6.6 Metric weights
 
 ```text
 metric weights 0 1 0 1 0 0 0
 ```
 
-TOS must be 0. K6 is optional. Use `no metric weights` to restore defaults.
+TOS must be zero. K6 is optional where supported by the selected metric version.
+Reset with:
 
-## 6. Named `af-interface`
+```text
+no metric weights
+```
 
-Enter interface-specific EIGRP configuration with:
+## 7. Named `af-interface`
+
+Enter interface-specific address-family configuration with:
 
 ```text
 af-interface default
@@ -309,7 +328,7 @@ or:
 af-interface eth0
 ```
 
-Leave the submode with:
+Leave with:
 
 ```text
 exit-af-interface
@@ -318,7 +337,7 @@ exit-af-interface
 Remove a retained interface block with the corresponding `no af-interface ...`
 form.
 
-### 6.1 Bandwidth and delay
+### 7.1 Bandwidth and delay
 
 ```text
 bandwidth-percent 50
@@ -326,14 +345,14 @@ bandwidth 1000000
 delay 10
 ```
 
-### 6.2 Hello and hold timers
+### 7.2 Hello and hold timers
 
 ```text
 hello-interval 5
 hold-time 15
 ```
 
-### 6.3 Authentication
+### 7.3 Authentication
 
 MD5 with a key chain:
 
@@ -342,15 +361,15 @@ authentication mode md5
 authentication key-chain EIGRP-KEYS
 ```
 
-HMAC-SHA-256 configuration form:
+HMAC-SHA-256 form:
 
 ```text
 authentication mode hmac-sha-256 0 secret
 ```
 
-The encryption-type field accepts 0 or 7.
+The encryption-type field accepts `0` or `7` in the current command surface.
 
-### 6.4 Passive, next-hop-self, and split horizon
+### 7.4 Passive, next-hop-self, and split horizon
 
 ```text
 passive-interface
@@ -360,7 +379,7 @@ split-horizon
 
 Each has a matching `no` form.
 
-A common named deployment is passive by default with explicit transit links:
+A common pattern is passive by default with explicit transit interfaces:
 
 ```text
 router eigrp CORE
@@ -373,7 +392,7 @@ router eigrp CORE
   exit-af-interface
 ```
 
-### 6.5 Manual summary
+### 7.5 Manual summaries
 
 IPv4:
 
@@ -383,16 +402,16 @@ summary-address 10.10.0.0 255.255.0.0 90
 summary-address 10.10.0.0 255.255.0.0 90 leak-map SUMMARY-LEAK
 ```
 
-IPv6 named configuration:
+IPv6:
 
 ```text
 summary-address 2001:db8:10::/48
 summary-address 2001:db8:10::/48 90
 ```
 
-Use the matching `no summary-address ...` form to remove the summary.
+Remove with the corresponding `no summary-address ...` form.
 
-## 7. Named `topology base`
+## 8. Named `topology base`
 
 Enter topology configuration with:
 
@@ -406,32 +425,33 @@ Leave with:
 exit-af-topology
 ```
 
-### 7.1 Variance and maximum paths
+### 8.1 Variance and maximum paths
 
 ```text
 variance 2
 maximum-paths 4
 ```
 
-These shared command parsers dispatch to the named topology target when entered
-under named topology mode.
-
-### 7.2 Active timer
+### 8.2 Active timer
 
 ```text
 timers active-time 180
 timers active-time disabled
 ```
 
-### 7.3 IPv4 automatic summary
+### 8.3 IPv4 automatic summary
 
 ```text
 auto-summary
 ```
 
-Use `no auto-summary` to restore the default disabled state.
+Reset with:
 
-### 7.4 Default information and default metric
+```text
+no auto-summary
+```
+
+### 8.4 Default information and default metric
 
 ```text
 default-information in
@@ -440,47 +460,47 @@ default-information in POLICY
 default-metric 100000 10 255 1 1500
 ```
 
-Use the matching `no` form to reset each value.
+Use matching `no` forms to reset each value.
 
-### 7.5 Administrative distance
+### 8.5 Administrative distance
 
 ```text
 distance eigrp 90 170
 ```
 
-### 7.6 Maximum-prefix controls
+### 8.6 Prefix limits
 
-Topology prefix limit:
+Topology limit:
 
 ```text
 maximum-prefix 10000 80 warning-only
 ```
 
-Redistribution prefix limit:
+Redistribution limit:
 
 ```text
 redistribute maximum-prefix 5000 80 warning-only
 ```
 
-The full grammar also supports `dampened`, `reset-time`, `restart`, and
-`restart-count` options.
+The full grammar may also expose `dampened`, `reset-time`, `restart`, and
+`restart-count`.
 
-### 7.7 Metric controls
+### 8.7 Metric and traffic controls
 
 ```text
 metric maximum-hops 100
 traffic-share balanced
 ```
 
-Use the matching `no` form to restore the default.
+Use matching `no` forms to restore defaults.
 
-### 7.8 Event log size
+### 8.8 Event-log size
 
 ```text
 eigrp event-log-size 1000
 ```
 
-### 7.9 Distribute lists
+### 8.9 Distribute lists
 
 ```text
 distribute-list FILTER-IN in
@@ -489,17 +509,14 @@ distribute-list prefix PL-IN in
 distribute-list prefix PL-OUT out eth0
 ```
 
-The shared parser resolves the retained path from the current named topology
-context. Use the matching `no distribute-list ...` form to remove it.
-
-### 7.10 Offset list
+### 8.10 Offset lists
 
 ```text
 offset-list OFFSET-ACL in 256000
 offset-list OFFSET-ACL out 256000 eth0
 ```
 
-### 7.11 Redistribution
+### 8.11 Redistribution
 
 ```text
 redistribute connected
@@ -507,10 +524,7 @@ redistribute static metric 100000 10 255 1 1500
 redistribute ospf metric 100000 10 255 1 1500 route-map OSPF-EIGRP
 ```
 
-The shared parser dispatches to the named redistribution target in named
-topology mode.
-
-### 7.12 Summary metric
+### 8.12 Summary metrics
 
 IPv4:
 
@@ -519,14 +533,14 @@ summary-metric 10.10.0.0 255.255.0.0 100000 10 255 1 1500
 summary-metric 10.10.0.0 255.255.0.0 distance 90
 ```
 
-IPv6 named configuration:
+IPv6:
 
 ```text
 summary-metric 2001:db8:10::/48 100000 10 255 1 1500
 summary-metric 2001:db8:10::/48 distance 90
 ```
 
-## 8. Named configuration example
+## 9. Named configuration example
 
 ```text
 router eigrp CORE
@@ -549,9 +563,9 @@ router eigrp CORE
  exit-address-family
 ```
 
-## 9. Classic IPv4 EXEC commands
+## 10. Classic IPv4 operational commands
 
-### 9.1 Interfaces
+### 10.1 Interfaces
 
 ```text
 show ip eigrp interfaces
@@ -560,7 +574,7 @@ show ip eigrp interfaces eth0 detail
 show ip eigrp vrf BLUE interfaces
 ```
 
-### 9.2 Neighbors
+### 10.2 Neighbors
 
 ```text
 show ip eigrp neighbors
@@ -569,10 +583,10 @@ show ip eigrp neighbors eth0 detail
 show ip eigrp vrf BLUE neighbors
 ```
 
-The detailed view includes adjacency and transport state such as hold time,
-queue count, SRTT, RTO, sequence, and retry information where maintained.
+Detailed output may include hold time, queue depth, SRTT, RTO, sequence, and
+retry state where maintained by the runtime.
 
-### 9.3 Topology
+### 10.3 Topology
 
 ```text
 show ip eigrp topology
@@ -582,16 +596,17 @@ show ip eigrp topology 10.10.1.0/24
 show ip eigrp vrf BLUE topology
 ```
 
-`all-links` includes paths beyond the normal successor/feasible-successor view.
+`all-links` exposes known paths beyond the normal successor/feasible-successor
+view.
 
-### 9.4 Events
+### 10.4 Event log
 
 ```text
 show ip eigrp events
 show ip eigrp vrf BLUE events
 ```
 
-### 9.5 Clear neighbors
+### 10.5 Clear neighbors
 
 ```text
 clear ip eigrp neighbors
@@ -602,20 +617,21 @@ clear ip eigrp neighbors eth0 soft
 clear ip eigrp neighbors 192.0.2.2 soft
 ```
 
-A VRF may be added after `eigrp`.
+A VRF selector may be included where supported by the current command grammar.
 
-### 9.6 Clear events
+### 10.6 Clear event log
 
 ```text
 clear ip eigrp events
 clear ip eigrp vrf BLUE events
 ```
 
-## 10. Named EXEC commands
+## 11. Named operational commands
 
-Named operational commands use an explicit address-family selector.
+Named operational commands use an explicit address-family selector where the
+operation is AF-specific.
 
-### 10.1 Interfaces
+### 11.1 Interfaces
 
 ```text
 show eigrp address-family ipv4 interfaces
@@ -623,7 +639,7 @@ show eigrp address-family ipv4 100 interfaces detail
 show eigrp address-family ipv4 vrf BLUE interfaces eth0 detail
 ```
 
-### 10.2 Neighbors
+### 11.2 Neighbors
 
 ```text
 show eigrp address-family ipv4 neighbors
@@ -631,7 +647,7 @@ show eigrp address-family ipv4 100 neighbors detail
 show eigrp address-family ipv4 vrf BLUE neighbors eth0 detail
 ```
 
-### 10.3 Topology
+### 11.3 Topology
 
 ```text
 show eigrp address-family ipv4 topology
@@ -639,7 +655,7 @@ show eigrp address-family ipv4 topology all-links
 show eigrp address-family ipv4 topology 100 10.10.1.0/24
 ```
 
-### 10.4 Accounting, events, timers, and traffic
+### 11.4 Accounting, events, timers, and traffic
 
 ```text
 show eigrp address-family ipv4 accounting
@@ -648,16 +664,16 @@ show eigrp address-family ipv4 timers
 show eigrp address-family ipv4 traffic
 ```
 
-The optional VRF and AS selectors narrow the requested EIGRP context.
+Optional VRF and AS selectors narrow the requested runtime context.
 
-### 10.5 Protocol summary and technical support
+### 11.5 Protocol summary and support
 
 ```text
 show eigrp protocols
 show eigrp tech-support
 ```
 
-### 10.6 Clear topology
+### 11.6 Clear topology
 
 ```text
 clear eigrp ipv4 topology
@@ -666,13 +682,13 @@ clear eigrp ipv4 topology 10.10.1.0/24
 clear eigrp 100 vrf BLUE ipv4 topology 10.10.1.0/24
 ```
 
-The IPv4 network/mask form is also accepted:
+The IPv4 network/mask form may also be accepted:
 
 ```text
 clear eigrp ipv4 topology 10.10.1.0 255.255.255.0
 ```
 
-### 10.7 Clear neighbors
+### 11.7 Clear neighbors
 
 ```text
 clear eigrp address-family ipv4 neighbors
@@ -682,17 +698,17 @@ clear eigrp address-family ipv4 neighbors 192.0.2.2
 clear eigrp address-family ipv4 neighbors soft
 ```
 
-### 10.8 Clear events
+### 11.8 Clear event log
 
 ```text
 clear eigrp address-family ipv4 events
 clear eigrp events
 ```
 
-## 11. Debug commands
+## 12. Debug commands
 
-The EIGRP debug surface includes packet, transmit, event, timer, FSM, neighbor,
-notification, and address-family scoped debugging.
+The debug surface covers packets, transport/transmit work, event processing,
+timers, FSM activity, neighbors, notifications, and address-family scoping.
 
 Examples:
 
@@ -710,34 +726,46 @@ debug eigrp address-family ipv4 100
 debug eigrp address-family ipv4 100 neighbor 192.0.2.2
 ```
 
-Disable a category with the matching `no debug eigrp ...` command.
+Disable with the matching `no debug eigrp ...` command.
 
-Packet categories accepted by the parser are:
+Packet categories currently represented by the command/API surface include:
 
 ```text
 siaquery siareply ack hello probe query reply request retry terse update all
 ```
 
-Packet debug may also be restricted to `send` or `receive` and may request
-`detail`.
+Packet debugging may be restricted to send or receive and may request detail.
 
-## 12. Operational interpretation
+## 13. Operational interpretation
 
-For neighbor output, useful transport fields include:
+Neighbor transport fields commonly include:
 
-- **Hold**: remaining neighbor hold time;
-- **SRTT**: smoothed round-trip time for reliable packets;
-- **RTO**: retransmission timeout;
-- **Q**: queued reliable work/packets as presented by the implementation;
-- **Seq**: reliable sequence state.
+- **Hold** — remaining neighbor hold time;
+- **SRTT** — smoothed round-trip time for reliable packets;
+- **RTO** — retransmission timeout;
+- **Q** — queued reliable work/packets as presented by the implementation;
+- **Seq** — reliable sequence state.
 
-For topology output:
+Topology state uses the EIGRP meanings:
 
-- **P** means Passive;
-- **A** means Active;
-- successor and feasible-successor state come from DUAL/topology;
+- **P** — Passive;
+- **A** — Active;
+- successor and feasible-successor state comes from portable DUAL/topology;
 - `all-links` exposes additional known paths.
 
-When troubleshooting adjacency formation, verify the selected AS/VRF/AF,
-router ID, participating interface, passive state, authentication, interface
-reachability, and protocol 88 packet flow before debugging DUAL or the RIB.
+For adjacency troubleshooting, verify the selected AF/AS/VRF, router ID,
+interface participation, passive state, authentication, IP reachability, and
+EIGRP protocol-88 packet flow before treating the problem as a DUAL/RIB issue.
+
+## 14. Implementation status rule
+
+This guide defines the intended command/semantic surface. It is not permission
+to fake runtime support.
+
+Every command must reach its real OpenEIGRP feature target. If the runtime
+feature is incomplete, the semantic target returns the structured
+`EIGRP_RESULT_NOT_IMPLEMENTED` result as appropriate while required
+configuration remains retained/writeable.
+
+EIGRP Stub runtime behavior is outside project scope and is not expanded by
+this guide.

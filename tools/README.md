@@ -1,7 +1,7 @@
 # EIGRP Tools
 
 These scripts support the split source layout where portable EIGRP code lives in
-`eigrpd/code/`, FRR adapters live in `frr/code/`, and `frr-install.sh` assembles the two
+`eigrp/code/`, FRR adapters live in `frr/code/`, and `frr-install.sh` assembles the two
 into the FRR checkout. FRR-specific
 development tooling uses the `frr-` prefix so a future host can provide its own
 parallel driver, such as `bird.sh`.
@@ -9,14 +9,14 @@ parallel driver, such as `bird.sh`.
 This file is the operator/developer cookbook for FRR stage, build, and UUT.
 Contribution rules are in `../CONTRIBUTING.md`. The FRR file map is in
 `../frr/README.md`. A new non-FRR host should not start here; start in
-`../specs/integration-spec.md`.
+`../specs/platform-integration.md`.
 
 ## Scripts
 
 ```text
 frr.sh          Primary FRR development driver: smoke, install, patch, configure, build, check, UUT, clean.
 frr-named-uut.sh  Live named-mode config/writeback test using sudo vtysh -d eigrpd.
-frr-install.sh  Assemble eigrpd/code/ + frr/code/ into FRR, install FRR-native tests, and apply frr/patch/.
+frr-install.sh  Assemble eigrp/code/ + frr/code/ into FRR, install FRR-native tests, and apply frr/patch/.
 frr-setup.sh    Debian development-machine setup helper.
 frr-uut.sh      Build the FRR UUT, then run EIGRP tests; can drive a remote Linux UUT.
 backup.sh       Create a clean project zip.
@@ -32,7 +32,7 @@ Stage source into FRR through the primary driver:
 tools/frr.sh --install --frr-root ~/devel/frr
 ```
 
-This assembles portable `eigrpd/code/` source plus the FRR adapter files in
+This assembles portable `eigrp/code/` source plus the FRR adapter files in
 `frr/code/` into FRR's single `eigrpd/` directory and stages `frr/test/eigrpd/`. Staging is
 always performed with `--no-patches`.
 

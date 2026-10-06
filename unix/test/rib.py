@@ -44,9 +44,9 @@ def test_unix_internal_rib_route_and_source_lifecycle(tmp_path):
 
 def test_unix_rib_is_internal_and_not_kernel_route_programming():
     rib = (UNIX / "eigrp_unix_rib.c").read_text()
-    assert "eigrp_rib_route_install" in rib
-    assert "eigrp_rib_route_remove" in rib
-    assert "eigrp_rib_source_route_add" in rib
-    assert "eigrp_rib_source_route_remove" in rib
+    assert "eigrp_rib_route_add" in rib
+    assert "eigrp_rib_route_del" in rib
+    assert "eigrp_rib_route_add" in rib
+    assert "eigrp_rib_route_del" in rib
     for forbidden in ("NETLINK_ROUTE", "PF_ROUTE", "RTM_ADD", "RTM_DELETE", "/sbin/route", "ip route"):
         assert forbidden not in rib

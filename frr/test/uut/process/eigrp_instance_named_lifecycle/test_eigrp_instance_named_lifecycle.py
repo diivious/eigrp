@@ -14,7 +14,7 @@ INSTANCE_C = ROOT / "eigrpd" / "code" / "eigrp_instance.c"
 SOUTHBOUND_H = ROOT / "eigrpd" / "code" / "eigrp_sys.h"
 SOUTHBOUND_C = ROOT / "frr" / "code" / "eigrp_southbound.c"
 NORTHBOUND = ROOT / "frr" / "code" / "eigrp_northbound.c"
-EIGRPD_C = ROOT / "eigrpd" / "code" / "eigrpd.c"
+EIGRPD_C = ROOT / "eigrpd" / "code" / "eigrp.c"
 INTERFACE_C = ROOT / "eigrpd" / "code" / "eigrp_interface.c"
 SUMMARY_C = ROOT / "eigrpd" / "code" / "eigrp_summary.c"
 NAMED_CLI = ROOT / "frr" / "code" / "eigrp_cli_named.c"
@@ -46,16 +46,16 @@ def function_body(source: str, name: str) -> str:
 def test_address_family_configuration_owns_runtime_binding():
     header = read(INSTANCE_H)
     instance = read(INSTANCE_C)
-    create = function_body(instance, "eigrp_af_instance_create")
+    create = function_body(instance, "eigrp_af_config_create")
     runtime_create = function_body(
-        instance, "eigrp_af_instance_runtime_create"
+        instance, "eigrp_af_config_runtime_create"
     )
 
     assert "eigrp_instance_t *runtime;" in header
-    assert "eigrp_af_instance_runtime_create(name, af)" in " ".join(create.split())
+    assert "eigrp_af_config_runtime_create(name, af)" in " ".join(create.split())
     assert "eigrp_sys_vrf_resolve(" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
-    assert "eigrp_instance_lookup_or_create_by_af(" in runtime_create
+    assert "eigrp_instance_create(af->afi, af->asn, vrf_id)" in runtime_create
     assert "af->runtime = runtime;" in runtime_create
     assert "EIGRP_AFI_IPV6" not in runtime_create
     assert "af->runtime = runtime;" in runtime_create
@@ -63,44 +63,44 @@ def test_address_family_configuration_owns_runtime_binding():
 
 def test_failed_implicit_address_family_creation_does_not_leave_empty_parent():
     instance = read(INSTANCE_C)
-    create = function_body(instance, "eigrp_af_instance_create")
+    create = function_body(instance, "eigrp_af_config_create")
 
     assert "bool parent_created = false;" in create
     assert "parent_created = true;" in create
-    failure = create.index("result = eigrp_af_instance_runtime_create")
-    rollback = create.index("(void)eigrp_instance_parent_delete(name);", failure)
+    failure = create.index("result = eigrp_af_config_runtime_create")
+    rollback = create.index("(void)eigrp_named_config_delete(name);", failure)
     assert rollback > failure
 
 
 def test_address_family_delete_stops_runtime_before_freeing_configuration():
     instance = read(INSTANCE_C)
-    delete = function_body(instance, "eigrp_af_instance_delete")
-    parent_delete = function_body(instance, "eigrp_instance_parent_delete")
+    delete = function_body(instance, "eigrp_af_config_delete")
+    parent_delete = function_body(instance, "eigrp_named_config_delete")
     runtime_delete = function_body(
-        instance, "eigrp_af_instance_runtime_delete"
+        instance, "eigrp_af_config_runtime_delete"
     )
 
     assert "eigrp_instance_delete_final(af->runtime);" in runtime_delete
-    assert "eigrp_af_instance_runtime_delete(" in delete
-    assert delete.index("eigrp_af_instance_runtime_delete(") < delete.index(
-        "eigrp_af_instance_free(af)"
+    assert "eigrp_af_config_runtime_delete(" in delete
+    assert delete.index("eigrp_af_config_runtime_delete(") < delete.index(
+        "eigrp_af_config_free(af)"
     )
-    assert "eigrp_af_instance_runtime_delete(" in parent_delete
+    assert "eigrp_af_config_runtime_delete(" in parent_delete
     assert parent_delete.index(
-        "eigrp_af_instance_runtime_delete("
+        "eigrp_af_config_runtime_delete("
     ) < parent_delete.index("*cursor = parent->next")
 
 
 def test_runtime_teardown_unbinds_named_configuration_before_storage_is_freed():
     instance = read(INSTANCE_C)
     daemon = read(EIGRPD_C)
-    unbind = function_body(instance, "eigrp_instance_runtime_remove")
+    unbind = function_body(instance, "eigrp_af_config_runtime_remove")
     finish = function_body(daemon, "eigrp_instance_delete_final")
 
     assert "if (af->runtime == runtime)" in unbind
     assert "af->runtime = NULL;" in unbind
-    assert "eigrp_instance_runtime_remove(eigrp);" in finish
-    assert finish.index("eigrp_instance_runtime_remove(eigrp);") < finish.index(
+    assert "eigrp_af_config_runtime_remove(eigrp);" in finish
+    assert finish.index("eigrp_af_config_runtime_remove(eigrp);") < finish.index(
         "eigrp_intf_free"
     )
 
@@ -110,15 +110,15 @@ def test_frr_southbound_only_resolves_host_vrf_for_common_runtime_creation():
     southbound = read(SOUTHBOUND_C)
     instance = read(INSTANCE_C)
     resolve = function_body(southbound, "eigrp_sys_vrf_resolve")
-    create = function_body(instance, "eigrp_af_instance_runtime_create")
+    create = function_body(instance, "eigrp_af_config_runtime_create")
 
     assert "eigrp_sys_vrf_resolve(" in header
     assert "vrf_lookup_by_name(vrf_name)" in resolve
     assert "eigrp_lookup_by_af_as_vrf" not in resolve
     assert "eigrp_instance_lookup_or_create_by_af" not in resolve
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in create
-    assert "eigrp_instance_lookup_or_create_by_af(" in create
-    assert "eigrp_name_update(EIGRP_SET, runtime, name);" in create
+    assert "eigrp_instance_create(parent->runtime, af->afi, af->asn, vrf_id)" in create
+    assert "runtime->virt_router != parent->runtime" in create
 
 
 def test_router_id_runtime_refresh_is_owned_by_common_instance_code():
@@ -147,7 +147,7 @@ def test_classic_process_creation_rejects_a_runtime_owned_by_named_mode():
     instance = read(INSTANCE_C)
     validate = function_body(instance, "eigrp_instance_classic_validate")
     assert "eigrp_lookup_by_as_vrf(asn, vrf_id)" in validate
-    assert "runtime->name" in validate
+    assert "eigrp_instance_name(runtime)" in validate
 
 
 def test_named_configuration_commands_consume_lifecycle_binding_not_relookup_process():
@@ -246,14 +246,14 @@ def test_named_exec_state_walkers_consume_address_family_runtime_binding():
 def test_named_runtime_identity_and_start_stop_are_address_family_generic():
     instance = read(INSTANCE_C)
     create = function_body(
-        instance, "eigrp_af_instance_runtime_create"
+        instance, "eigrp_af_config_runtime_create"
     )
-    start = function_body(instance, "eigrp_af_instance_start")
-    stop = function_body(instance, "eigrp_af_instance_stop")
+    start = function_body(instance, "eigrp_instance_start")
+    stop = function_body(instance, "eigrp_instance_stop")
 
     create_words = " ".join(create.split())
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in create
-    assert "eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id);" in create_words
+    assert "eigrp_instance_create(af->afi, af->asn, vrf_id);" in create_words
     assert "EIGRP_AFI_IPV4" not in create
     assert "EIGRP_AFI_IPV6" not in create
     assert "EIGRP_AFI_IPV4" not in start

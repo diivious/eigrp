@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRP VTY Interface.
- * Copyright (C) 2013-2016
+ * Copyright (C) 2013-2016, 2026
  * Authors:
  *   Donnie Savage
  *   Jan Janovic
@@ -28,7 +28,7 @@
 #include "linklist.h"
 #include "distribute.h"
 
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_interface.h"
 #include "eigrp_neighbor.h"
@@ -678,7 +678,7 @@ static eigrp_result_t eigrp_vty_eventlog_output_entry(
 	result = eigrp_eventlog_msg_format(entry, text, sizeof(text));
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
-	vty_out(output->vty, "%u %s\n", event_number, text);
+	vty_out(output->vty, "%u  %s\n", event_number, text);
 	return EIGRP_RESULT_SUCCESS;
 }
 

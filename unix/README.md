@@ -4,6 +4,10 @@
 implements the same public integration contract used by FRR and BIRD; it is not
 an FRR compatibility layer and does not reimplement protocol behavior.
 
+The detailed Unix core/shim call-flow and ownership contract is defined in
+`unix/specs/integration.md`. The complete host-neutral callable API and exposed
+data structures are defined in `specs/public-api.md`.
+
 The Unix runtime currently provides process runtime initialization/teardown,
 monotonic time, immediate events, timers and cancellation, read/write readiness
 scheduling, basic work queues, default-VRF resolution, and the portable logging

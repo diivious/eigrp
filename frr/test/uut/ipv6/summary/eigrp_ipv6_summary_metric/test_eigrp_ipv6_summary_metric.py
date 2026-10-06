@@ -4,12 +4,12 @@
 from pathlib import Path
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-SUMMARY = (ROOT / "eigrpd/code/eigrp_summary.c").read_text()
-PACKETIZER = (ROOT / "eigrpd/code/eigrp_packetizer.c").read_text()
-UPDATE = (ROOT / "eigrpd/code/eigrp_update.c").read_text()
-METRIC = (ROOT / "eigrpd/code/eigrp_metric.c").read_text()
-TOPOLOGY = (ROOT / "eigrpd/code/eigrp_topology.c").read_text()
-IPV6 = (ROOT / "eigrpd/code/eigrp_ipv6.c").read_text()
+SUMMARY = (ROOT / "eigrp/code/eigrp_summary.c").read_text()
+PACKETIZER = (ROOT / "eigrp/code/eigrp_packetizer.c").read_text()
+UPDATE = (ROOT / "eigrp/code/eigrp_update.c").read_text()
+METRIC = (ROOT / "eigrp/code/eigrp_metric.c").read_text()
+TOPOLOGY = (ROOT / "eigrp/code/eigrp_topology.c").read_text()
+IPV6 = (ROOT / "eigrp/code/eigrp_ipv6.c").read_text()
 
 
 def test_manual_summary_has_runtime_advertisement_and_withdrawal_path():

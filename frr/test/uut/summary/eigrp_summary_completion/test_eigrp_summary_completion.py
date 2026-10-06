@@ -4,10 +4,10 @@
 from pathlib import Path
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-SUMMARY = (ROOT / "eigrpd/code/eigrp_summary.c").read_text()
-PACKETIZER = (ROOT / "eigrpd/code/eigrp_packetizer.c").read_text()
-UPDATE = (ROOT / "eigrpd/code/eigrp_update.c").read_text()
-SYS = (ROOT / "eigrpd/code/eigrp_sys.h").read_text()
+SUMMARY = (ROOT / "eigrp/code/eigrp_summary.c").read_text()
+PACKETIZER = (ROOT / "eigrp/code/eigrp_packetizer.c").read_text()
+UPDATE = (ROOT / "eigrp/code/eigrp_update.c").read_text()
+SYS = (ROOT / "eigrp/code/eigrp_sys.h").read_text()
 POLICY = (ROOT / "frr/code/eigrp_policy.c").read_text()
 
 

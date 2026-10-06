@@ -31,7 +31,7 @@
 #include "linklist.h"
 #include "distribute.h"
 
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_cli_named.h"
 #include "eigrp_interface.h"
@@ -745,13 +745,28 @@ static const char *eigrp_cli_vrf_name(const char *vrf)
 	return vrf ? vrf : VRF_DEFAULT_NAME;
 }
 
+struct eigrp_cli_instance_lookup_context {
+	uint16_t asn;
+	eigrp_vrf_id_t vrf_id;
+	eigrp_instance_t *runtime;
+};
+
+static eigrp_result_t eigrp_cli_instance_lookup_cb(eigrp_instance_t *runtime,
+	void *arg)
+{
+	struct eigrp_cli_instance_lookup_context *context = arg;
+
+	if (!context->runtime && eigrp_instance_asn(runtime) == context->asn
+	    && eigrp_instance_vrf_id(runtime) == context->vrf_id)
+		context->runtime = runtime;
+	return EIGRP_RESULT_SUCCESS;
+}
+
 static eigrp_instance_t *eigrp_cli_instance_lookup_by_as_vrf(const char *asn,
 						     const char *vrf_name)
 {
+	struct eigrp_cli_instance_lookup_context context = {0};
 	struct vrf *vrf;
-	eigrp_instance_t *eigrp;
-	eigrp_list_item_t *node, *nnode;
-	uint32_t as;
 
 	if (!asn || !vrf_name)
 		return NULL;
@@ -760,13 +775,10 @@ static eigrp_instance_t *eigrp_cli_instance_lookup_by_as_vrf(const char *asn,
 	if (!vrf)
 		return NULL;
 
-	as = strtoul(asn, NULL, 10);
-	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
-		if (eigrp->AS == as && eigrp->vrf_id == vrf->vrf_id)
-			return eigrp;
-	}
-
-	return NULL;
+	context.asn = (uint16_t)strtoul(asn, NULL, 10);
+	context.vrf_id = vrf->vrf_id;
+	(void)eigrp_instance_iterate(eigrp_cli_instance_lookup_cb, &context);
+	return context.runtime;
 }
 
 static void eigrp_cli_current_name(struct vty *vty, char *name, size_t name_len)
@@ -781,8 +793,8 @@ static void eigrp_cli_current_name(struct vty *vty, char *name, size_t name_len)
 	if (eigrp_cli_current_as_vrf(vty, asn, sizeof(asn), vrf_name,
 				       sizeof(vrf_name))) {
 		eigrp = eigrp_cli_instance_lookup_by_as_vrf(asn, vrf_name);
-		if (eigrp && eigrp->name) {
-			snprintf(name, name_len, "%s", eigrp->name);
+		if (eigrp && eigrp_instance_name(eigrp)) {
+			snprintf(name, name_len, "%s", eigrp_instance_name(eigrp));
 			return;
 		}
 	}
@@ -1145,7 +1157,7 @@ static int eigrp_cli_named_af_required(struct vty *vty)
  * Syntax: `router eigrp WORD`
  * Mode: Configuration
  * XPath: /frr-eigrpd:eigrpd/named
- * Target: eigrp_instance_parent_create()
+ * Target: eigrp_named_config_create()
  */
 DEFUN_NOSH(router_eigrp_named,
            router_eigrp_named_cmd,
@@ -1168,7 +1180,7 @@ DEFUN_NOSH(router_eigrp_named,
  * Syntax: `no router eigrp WORD`
  * Mode: Configuration
  * XPath: /frr-eigrpd:eigrpd/named
- * Target: eigrp_instance_parent_delete()
+ * Target: eigrp_named_config_delete()
  */
 DEFUN(no_router_eigrp_named,
       no_router_eigrp_named_cmd,
@@ -1191,7 +1203,7 @@ DEFUN(no_router_eigrp_named,
  * Syntax: `address-family ipv4 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_af_instance_create()
+ * Target: eigrp_af_config_create()
  */
 DEFUN(eigrp_address_family_ipv4,
       eigrp_address_family_ipv4_cmd,
@@ -1219,7 +1231,7 @@ DEFUN(eigrp_address_family_ipv4,
  * Syntax: `no address-family ipv4 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_af_instance_delete()
+ * Target: eigrp_af_config_delete()
  */
 DEFUN(no_eigrp_address_family_ipv4,
       no_eigrp_address_family_ipv4_cmd,
@@ -1248,7 +1260,7 @@ DEFUN(no_eigrp_address_family_ipv4,
  * Syntax: `address-family ipv6 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_af_instance_create()
+ * Target: eigrp_af_config_create()
  */
 DEFUN(eigrp_address_family_ipv6,
       eigrp_address_family_ipv6_cmd,
@@ -1276,7 +1288,7 @@ DEFUN(eigrp_address_family_ipv6,
  * Syntax: `no address-family ipv6 [unicast] [vrf NAME] autonomous-system (1-65535)`
  * Mode: Named router
  * XPath: /frr-eigrpd:eigrpd/named/address-family
- * Target: eigrp_af_instance_delete()
+ * Target: eigrp_af_config_delete()
  */
 DEFUN(no_eigrp_address_family_ipv6,
       no_eigrp_address_family_ipv6_cmd,
@@ -1328,7 +1340,7 @@ DEFUN(eigrp_exit_address_family,
  * Syntax: `no shutdown`
  * Mode: Named parent / address-family / af-interface
  * XPath: parent is direct; address-family and af-interface use their local shutdown leaf
- * Target: parent -> eigrp_instance_parent_shutdown_update(EIGRP_SET); address-family -> eigrp_af_instance_shutdown_update(EIGRP_SET); af-interface -> eigrp_intf_shutdown_update(EIGRP_SET)
+ * Target: parent -> eigrp_named_config_shutdown_update(EIGRP_SET); address-family -> eigrp_af_config_shutdown_update(EIGRP_SET); af-interface -> eigrp_intf_shutdown_update(EIGRP_SET)
  */
 DEFUN(eigrp_no_shutdown,
       eigrp_no_shutdown_cmd,
@@ -1352,7 +1364,7 @@ DEFUN(eigrp_no_shutdown,
 		eigrp_cli_current_name(vty, name, sizeof(name));
 		return eigrp_cli_result_render(
 			vty, "named process no shutdown",
-			eigrp_instance_parent_shutdown_update(EIGRP_RESET, eigrp_instance_parent_read(name)));
+			eigrp_named_config_shutdown_update(EIGRP_RESET, eigrp_named_config_read(name)));
 	}
 	return CMD_WARNING;
 }
@@ -1361,7 +1373,7 @@ DEFUN(eigrp_no_shutdown,
  * Syntax: `shutdown`
  * Mode: Named parent / address-family / af-interface
  * XPath: parent is direct; address-family and af-interface use their local shutdown leaf
- * Target: parent -> eigrp_instance_parent_shutdown_update(EIGRP_SET); address-family -> eigrp_af_instance_shutdown_update(EIGRP_SET); af-interface -> eigrp_intf_shutdown_update(EIGRP_SET)
+ * Target: parent -> eigrp_named_config_shutdown_update(EIGRP_SET); address-family -> eigrp_af_config_shutdown_update(EIGRP_SET); af-interface -> eigrp_intf_shutdown_update(EIGRP_SET)
  */
 DEFUN(eigrp_shutdown,
       eigrp_shutdown_cmd,
@@ -1384,7 +1396,7 @@ DEFUN(eigrp_shutdown,
 		eigrp_cli_current_name(vty, name, sizeof(name));
 		return eigrp_cli_result_render(
 			vty, "named process shutdown",
-			eigrp_instance_parent_shutdown_update(EIGRP_SET, eigrp_instance_parent_read(name)));
+			eigrp_named_config_shutdown_update(EIGRP_SET, eigrp_named_config_read(name)));
 	}
 	return CMD_WARNING;
 }
@@ -2871,7 +2883,7 @@ DEFUN(no_eigrp_default_metric,
  * Syntax: `distance eigrp (1-255) (1-255)`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
- * Target: eigrp_instance_distance_update(EIGRP_SET)
+ * Target: eigrp_af_config_distance_update(EIGRP_SET)
  */
 DEFUN(eigrp_distance,
       eigrp_distance_cmd,
@@ -2897,7 +2909,7 @@ DEFUN(eigrp_distance,
  * Syntax: `no distance eigrp`
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/distance
- * Target: eigrp_instance_distance_update(EIGRP_RESET, 0, 0)
+ * Target: eigrp_af_config_distance_update(EIGRP_RESET, 0, 0)
  */
 DEFUN(no_eigrp_distance,
       no_eigrp_distance_cmd,
@@ -3682,15 +3694,35 @@ static struct vrf *eigrp_vty_vrf_lookup(struct vty *vty, const char *vrf_name)
 	return vrf;
 }
 
+struct eigrp_vty_instance_iterate_context {
+	struct vty *vty;
+	eigrp_vrf_id_t vrf_id;
+	eigrp_vty_walk_cb callback;
+	struct eigrp_vty_walk_context *walk_context;
+	int count;
+};
+
+static eigrp_result_t eigrp_vty_instance_iterate_cb(eigrp_instance_t *runtime,
+	void *arg)
+{
+	struct eigrp_vty_instance_iterate_context *context = arg;
+
+	if (eigrp_instance_vrf_id(runtime) != context->vrf_id)
+		return EIGRP_RESULT_SUCCESS;
+	context->callback(context->vty, runtime, context->walk_context);
+	context->count++;
+	return EIGRP_RESULT_SUCCESS;
+}
+
 static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 				   int64_t as, const char *vrf_name,
 				   const char *command,
 				   eigrp_vty_walk_cb cb,
 				   struct eigrp_vty_walk_context *ctx)
 {
+	struct eigrp_vty_instance_iterate_context iterate_context = {0};
 	struct vrf *vrf;
 	eigrp_instance_t *eigrp;
-	eigrp_list_item_t *node, *nnode;
 	int count = 0;
 
 	if (!eigrp_vty_afi_supported(vty, afi, command))
@@ -3714,13 +3746,13 @@ static int eigrp_vty_instance_walk(struct vty *vty, const char *afi,
 		return CMD_SUCCESS;
 	}
 
-	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
-		if (eigrp->vrf_id != vrf->vrf_id)
-			continue;
-
-		cb(vty, eigrp, ctx);
-		count++;
-	}
+	iterate_context.vty = vty;
+	iterate_context.vrf_id = vrf->vrf_id;
+	iterate_context.callback = cb;
+	iterate_context.walk_context = ctx;
+	(void)eigrp_instance_iterate(eigrp_vty_instance_iterate_cb,
+		&iterate_context);
+	count = iterate_context.count;
 
 	if (!count)
 		vty_out(vty, "%% EIGRP address-family ipv4 is not enabled%s%s\n",
@@ -3806,7 +3838,7 @@ static bool eigrp_vty_destination_parse(const char *text,
 }
 
 static eigrp_instance_t *
-eigrp_vty_named_runtime_lookup(eigrp_af_instance_t *af)
+eigrp_vty_named_runtime_lookup(eigrp_af_config_t *af)
 {
 	if (!af)
 		return NULL;
@@ -3821,7 +3853,7 @@ eigrp_vty_named_runtime_lookup(eigrp_af_instance_t *af)
 
 typedef eigrp_result_t (*eigrp_vty_named_state_cb)(
 	struct vty *vty, const char *instance_name,
-	eigrp_af_instance_t *af, eigrp_instance_t *runtime, void *arg);
+	eigrp_af_config_t *af, eigrp_instance_t *runtime, void *arg);
 
 struct eigrp_vty_named_state_walk {
 	struct vty *vty;
@@ -3830,7 +3862,7 @@ struct eigrp_vty_named_state_walk {
 };
 
 static eigrp_result_t eigrp_vty_named_state_bridge(
-	const char *instance_name, eigrp_af_instance_t *af, void *arg)
+	const char *instance_name, eigrp_af_config_t *af, void *arg)
 {
 	struct eigrp_vty_named_state_walk *walk = arg;
 
@@ -3850,7 +3882,7 @@ static int eigrp_vty_named_state_walk(struct vty *vty,
 	};
 	eigrp_result_t result;
 
-	result = eigrp_af_instance_iterate(
+	result = eigrp_af_config_iterate(
 		request, eigrp_vty_named_state_bridge, &walk);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty,
@@ -3866,7 +3898,7 @@ static int eigrp_vty_named_state_walk(struct vty *vty,
 
 static void eigrp_vty_named_context_header(struct vty *vty,
 					   const char *instance_name,
-					   eigrp_af_instance_t *af,
+					   eigrp_af_config_t *af,
 					   eigrp_instance_t *runtime,
 					   const char *subject)
 {
@@ -3975,7 +4007,7 @@ struct eigrp_vty_interface_context {
 };
 
 static eigrp_result_t eigrp_vty_interface_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_interface_context *options = arg;
@@ -4090,7 +4122,7 @@ struct eigrp_vty_neighbor_context {
 };
 
 static eigrp_result_t eigrp_vty_neighbor_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_neighbor_context *options = arg;
@@ -4169,7 +4201,7 @@ struct eigrp_vty_topology_context {
 };
 
 static eigrp_result_t eigrp_vty_topology_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_topology_context *options = arg;
@@ -4226,7 +4258,7 @@ static int eigrp_vty_topology_walk(struct vty *vty,
     };
     eigrp_result_t result;
 
-    result = eigrp_af_instance_iterate(
+    result = eigrp_af_config_iterate(
         request, eigrp_vty_named_state_bridge, &walk);
     if (result == EIGRP_RESULT_NOT_FOUND) {
         vty_out(vty,
@@ -4486,7 +4518,7 @@ static eigrp_result_t eigrp_vty_accounting_state_render(
 }
 
 static eigrp_result_t eigrp_vty_accounting_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4519,7 +4551,7 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 }
 
 static eigrp_result_t eigrp_vty_traffic_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4593,7 +4625,7 @@ static eigrp_result_t eigrp_vty_timer_state_render(const eigrp_timer_state_t *st
 }
 
 static eigrp_result_t eigrp_vty_timer_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4635,12 +4667,12 @@ static eigrp_result_t eigrp_vty_eventlog_entry_render(
 	result = eigrp_eventlog_msg_format(entry, text, sizeof(text));
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
-	vty_out(show->vty, "%u %s\n", event_number, text);
+	vty_out(show->vty, "%u  %s\n", event_number, text);
 	return EIGRP_RESULT_SUCCESS;
 }
 
 static eigrp_result_t eigrp_vty_event_context_render(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	eigrp_instance_context_t context = {
@@ -4923,7 +4955,7 @@ struct eigrp_vty_topology_clear_context {
 };
 
 static eigrp_result_t clear_eigrp_topology_context(
-	struct vty *vty, const char *instance_name, eigrp_af_instance_t *af,
+	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
 	struct eigrp_vty_topology_clear_context *clear = arg;
@@ -5331,21 +5363,24 @@ DEFPY(clear_eigrp_address_family_events,
  * XPath: none; operational action
  * Target: eigrp_eventlog_clear()
  */
+static eigrp_result_t eigrp_cli_events_clear_cb(eigrp_instance_t *runtime,
+	void *arg)
+{
+	eigrp_instance_context_t context = {0};
+
+	(void)arg;
+	context.runtime = runtime;
+	context.topology_id = EIGRP_TOPOLOGY_ID_BASE;
+	(void)eigrp_eventlog_clear(&context);
+	return EIGRP_RESULT_SUCCESS;
+}
+
 DEFUN(clear_eigrp_events,
       clear_eigrp_events_cmd,
       "clear eigrp events",
       CLEAR_STR EIGRP_STR "Clear EIGRP event log\n")
 {
-	eigrp_instance_t *eigrp;
-	eigrp_list_item_t *node, *nnode;
-	eigrp_instance_context_t context;
-
-	for (EIGRP_LIST_ITERATE(eigrp_om->eigrp, node, nnode, eigrp)) {
-		memset(&context, 0, sizeof(context));
-		context.runtime = eigrp;
-		context.topology_id = EIGRP_TOPOLOGY_ID_BASE;
-		(void)eigrp_eventlog_clear(&context);
-	}
+	(void)eigrp_instance_iterate(eigrp_cli_events_clear_cb, NULL);
 	return CMD_SUCCESS;
 }
 

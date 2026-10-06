@@ -235,7 +235,7 @@ def test_named_af_children_use_semantic_core_targets_and_writeback():
         "eigrp_network_delete": read(ROOT / "eigrpd" / "code" / "eigrp_network.h"),
         "eigrp_nbr_static_create": read(ROOT / "eigrpd" / "code" / "eigrp_neighbor.h"),
         "eigrp_nbr_static_delete": read(ROOT / "eigrpd" / "code" / "eigrp_neighbor.h"),
-        "eigrp_af_instance_shutdown_update": read(
+        "eigrp_af_config_shutdown_update": read(
             ROOT / "eigrpd" / "code" / "eigrp_instance.h"
         ),
     }
@@ -383,10 +383,10 @@ def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api(
     assert "eigrp_summary_metric_stub" not in cli
 
     targets = {
-        "eigrp_instance_distance_update": ROOT / "eigrpd" / "code" / "eigrp_instance.c",
+        "eigrp_af_config_distance_update": ROOT / "eigrpd" / "code" / "eigrp_instance.c",
         "eigrp_offset_add": ROOT / "eigrpd" / "code" / "eigrp_filter.c",
         "eigrp_summary_metric_update": ROOT / "eigrpd" / "code" / "eigrp_summary.c",
-        "eigrp_instance_parent_shutdown_update": ROOT / "eigrpd" / "code" / "eigrp_instance.c",
+        "eigrp_named_config_shutdown_update": ROOT / "eigrpd" / "code" / "eigrp_instance.c",
     }
     for target, source in targets.items():
         assert target in adapter
@@ -511,7 +511,7 @@ def test_named_topology_uses_generic_portable_lifecycle_api():
     nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
     topology_c = read(ROOT / "eigrpd" / "code" / "eigrp_topology.c")
     topology_h = read(ROOT / "eigrpd" / "code" / "eigrp_topology.h")
-    eigrpd_c = read(ROOT / "eigrpd" / "code" / "eigrpd.c")
+    eigrpd_c = read(ROOT / "eigrpd" / "code" / "eigrp.c")
 
     assert "eigrp_topology_create(&context)" in nb
     assert "eigrp_topology_delete(&context)" in nb

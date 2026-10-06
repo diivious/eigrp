@@ -17,7 +17,7 @@ def read(path: str) -> str:
 def test_portable_code_does_not_call_or_include_zebra_rib_adapter_directly():
     forbidden = (
         'eigrp_zebra_',
-        '#include "eigrpd/code/eigrp_zebra.h"',
+        '#include "eigrp/code/eigrp_zebra.h"',
         '#include "eigrp_zebra.h"',
         '#include "zclient.h"',
     )
@@ -49,22 +49,22 @@ def test_portable_code_does_not_expose_zebra_rib_types_or_route_constants():
 
 
 def test_route_install_remove_cross_eigrp_southbound_contract():
-    rib_h = read("eigrpd/code/eigrp_rib.h")
-    topology = read("eigrpd/code/eigrp_topology.c")
+    rib_h = read("eigrp/code/eigrp_rib.h")
+    topology = read("eigrp/code/eigrp_topology.c")
     southbound = read("frr/code/eigrp_southbound.c")
 
     assert "typedef struct eigrp_rib_nexthop" in rib_h
     assert "eigrp_ifindex_t ifindex;" in rib_h
     assert "eigrp_address_t gateway;" in rib_h
-    assert "eigrp_rib_route_install(" in rib_h
-    assert "eigrp_rib_route_remove(" in rib_h
+    assert "eigrp_rib_route_add(" in rib_h
+    assert "eigrp_rib_route_del(" in rib_h
 
-    assert "eigrp_rib_route_install(" in topology
-    assert "eigrp_rib_route_remove(" in topology
+    assert "eigrp_rib_route_add(" in topology
+    assert "eigrp_rib_route_del(" in topology
     assert "eigrp_zebra_route_" not in topology
 
-    assert "return eigrp_zebra_route_install" in southbound
-    assert "return eigrp_zebra_route_remove" in southbound
+    assert "return eigrp_zebra_route_add" in southbound
+    assert "return eigrp_zebra_route_del" in southbound
 
 
 def test_zebra_adapter_builds_host_rib_objects_from_portable_snapshot():
@@ -81,7 +81,7 @@ def test_zebra_adapter_builds_host_rib_objects_from_portable_snapshot():
 
 
 def test_host_redistribution_bookkeeping_is_not_core_instance_state():
-    structs = read("eigrpd/code/eigrp_structs.h")
+    structs = read("eigrp/code/eigrp_structs.h")
     zebra = read("frr/code/eigrp_zebra.c")
 
     assert "ZEBRA_ROUTE_MAX" not in structs
@@ -95,8 +95,8 @@ def test_host_redistribution_bookkeeping_is_not_core_instance_state():
 
 def test_zebra_lifecycle_is_reached_through_southbound_from_portable_code():
     main = read("frr/code/eigrp_main.c")
-    daemon = read("eigrpd/code/eigrpd.c")
-    header = read("eigrpd/code/eigrp_rib.h")
+    daemon = read("eigrp/code/eigrp.c")
+    header = read("eigrp/code/eigrp_rib.h")
 
     assert "eigrp_rib_init();" in main
     assert "eigrp_rib_finish();" in daemon
@@ -108,8 +108,8 @@ def test_zebra_lifecycle_is_reached_through_southbound_from_portable_code():
 
 
 def test_obsolete_host_route_type_refresh_api_is_removed():
-    network_h = read("eigrpd/code/eigrp_network.h")
-    network_c = read("eigrpd/code/eigrp_network.c")
+    network_h = read("eigrp/code/eigrp_network.h")
+    network_c = read("eigrp/code/eigrp_network.c")
 
     assert "eigrp_external_routes_refresh" not in network_h
     assert "eigrp_external_routes_refresh" not in network_c
@@ -126,8 +126,8 @@ def test_frr_daemon_bootstrap_declares_vrf_yang_dependency_explicitly():
 
 
 def test_gr_update_runtime_api_does_not_receive_frr_vty_objects():
-    update = read("eigrpd/code/eigrp_update.c")
-    packet_h = read("eigrpd/code/eigrp_packet.h")
+    update = read("eigrp/code/eigrp_update.c")
+    packet_h = read("eigrp/code/eigrp_packet.h")
 
     for signature in (
         "eigrp_update_send_GR(",
@@ -143,8 +143,8 @@ def test_gr_update_runtime_api_does_not_receive_frr_vty_objects():
 
 
 def test_host_runtime_shutdown_terminates_at_southbound_boundary():
-    daemon = read("eigrpd/code/eigrpd.c")
-    sys_h = read("eigrpd/code/eigrp_sys.h")
+    daemon = read("eigrp/code/eigrp.c")
+    sys_h = read("eigrp/code/eigrp_sys.h")
     southbound = read("frr/code/eigrp_southbound.c")
     zebra_stub = read("frr/test/build/include/zebra.h")
     vrf_stub = read("frr/test/build/include/vrf.h")

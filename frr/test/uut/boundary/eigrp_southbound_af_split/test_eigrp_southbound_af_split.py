@@ -31,6 +31,6 @@ def test_southbound_private_declarations_use_public_opaque_types():
     internal = read("frr/code/eigrp_southbound_internal.h")
 
     assert '#include "eigrp.h"' in internal
-    assert '#include "eigrpd/code/eigrpd.h"' not in internal
-    assert '#include "eigrpd/code/eigrp_interface.h"' not in internal
-    assert '#include "eigrpd/code/eigrp_sys.h"' not in internal
+    assert '#include "eigrp/code/eigrp.h"' not in internal
+    assert '#include "eigrp/code/eigrp_interface.h"' not in internal
+    assert '#include "eigrp/code/eigrp_sys.h"' not in internal

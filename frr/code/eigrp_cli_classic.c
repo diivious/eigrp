@@ -2,7 +2,7 @@
 /*
  * EIGRP daemon classic CLI implementation.
  *
- * Copyright (C) 2019 Network Device Education Foundation, Inc. ("NetDEF")
+ * Copyright (C) 2019, 2026 Network Device Education Foundation, Inc. ("NetDEF")
  *                    Rafael Zalamena
  */
 
@@ -14,7 +14,7 @@
 #include "lib/northbound_cli.h"
 
 #include "eigrp_structs.h"
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_zebra.h"
 #include "eigrp_cli_classic.h"
 #include "eigrp_cli_named.h"
@@ -96,7 +96,7 @@ static void eigrp_cli_classic_config_rewind(struct vty *vty)
  * Syntax: `router eigrp <1-65535> [vrf NAME]`
  * Mode: Classic router configuration
  * XPath: /frr-eigrpd:eigrpd/instance
- * Target: eigrpd_instance_create() -> eigrp_instance_lookup_or_create()
+ * Target: eigrpd_instance_create() -> eigrp_instance_classic_create()
  */
 DEFPY_YANG_NOSH(
 	router_eigrp,

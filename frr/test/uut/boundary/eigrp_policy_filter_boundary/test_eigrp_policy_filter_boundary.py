@@ -54,8 +54,8 @@ def test_portable_headers_do_not_expose_frr_policy_objects_or_callbacks():
 
 
 def test_portable_runtime_structs_store_policy_names_not_host_objects():
-    types = read("eigrpd/code/eigrp_types.h")
-    structs = read("eigrpd/code/eigrp_structs.h")
+    types = read("eigrp/code/eigrp_types.h")
+    structs = read("eigrp/code/eigrp_structs.h")
 
     assert "typedef struct eigrp_filter_runtime_state" in types
     assert "char *access_list[EIGRP_FILTER_MAX];" in types
@@ -69,7 +69,7 @@ def test_portable_runtime_structs_store_policy_names_not_host_objects():
 
 
 def test_filter_feature_owner_uses_portable_runtime_state_and_southbound_decision():
-    filt = read("eigrpd/code/eigrp_filter.c")
+    filt = read("eigrp/code/eigrp_filter.c")
     apply = function_body(filt, "eigrp_filter_prefix_update")
     replace = function_body(filt, "eigrp_sys_filter_runtime_replace")
 
@@ -107,7 +107,7 @@ def test_frr_policy_adapter_owns_policy_objects_and_callbacks():
 
 
 def test_southbound_filter_contract_returns_eigrp_decision_only():
-    header = read("eigrpd/code/eigrp_sys.h")
+    header = read("eigrp/code/eigrp_sys.h")
     southbound = read("frr/code/eigrp_southbound.c")
     evaluate = function_body(southbound, "eigrp_sys_filter_evaluate")
 
@@ -127,7 +127,7 @@ def test_southbound_filter_contract_returns_eigrp_decision_only():
 def test_classic_distribute_context_is_private_to_frr_adapter():
     northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
     policy_h = read("frr/code/eigrp_policy.h")
-    structs = read("eigrpd/code/eigrp_structs.h")
+    structs = read("eigrp/code/eigrp_structs.h")
 
     assert "eigrp_policy_distribute_context(eigrp)" in northbound
     assert "group_distribute_list_create_helper" in northbound
@@ -136,7 +136,7 @@ def test_classic_distribute_context_is_private_to_frr_adapter():
 
 
 def test_redistribution_retains_route_map_by_name_not_host_object():
-    redistribute = read("eigrpd/code/eigrp_redistribute.c")
+    redistribute = read("eigrp/code/eigrp_redistribute.c")
 
     assert "char *route_map;" in redistribute
     assert "struct route_map" not in redistribute

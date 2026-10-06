@@ -13,8 +13,9 @@
 #include <zebra.h>
 #include "command.h"
 #include "vty.h"
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_structs.h"
+#include "eigrp_timer.h"
 #include "eigrp_interface.h"
 #include "eigrp_neighbor.h"
 #include "eigrp_packet.h"
@@ -275,7 +276,7 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_nbr_t *nbr,
 
 	if (nbr->t_holddown)
 		snprintf(hold, sizeof(hold), "%u",
-			 eigrp_sys_timer_remaining_seconds(nbr->t_holddown));
+			 eigrp_timer_remaining_seconds(nbr->ei->eigrp, nbr->t_holddown));
 	else
 		snprintf(hold, sizeof(hold), "-");
 	if (nbr->up_since_msec) {

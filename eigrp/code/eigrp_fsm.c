@@ -1,0 +1,878 @@
+#include <assert.h>
+#include <stdlib.h>
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * EIGRPd Finite State Machine (DUAL).
+ * Copyright (C) 2013-2014, 2026
+ * Authors:
+ *   Donnie Savage
+ *   Jan Janovic
+ *   Matej Perina
+ *   Peter Orsag
+ *   Peter Paluch
+ *
+ * This file contains functions for executing logic of finite state machine
+ *
+ *
+ *                                +------------ +
+ *                                |     (7)     |
+ *                                |             v
+ *                    +=====================================+
+ *                    |                                     |
+ *                    |              Passive                |
+ *                    |                                     |
+ *                    +=====================================+
+ *                        ^     |     ^     ^     ^    |
+ *                     (3)|     |  (1)|     |  (1)|    |
+ *                        |  (0)|     |  (3)|     | (2)|
+ *                        |     |     |     |     |    +---------------+
+ *                        |     |     |     |     |                     \
+ *              +--------+      |     |     |     +-----------------+    \
+ *            /                /     /      |                        \    \
+ *          /                /     /        +----+                    \    \
+ *         |                |     |               |                    |    |
+ *         |                v     |               |                    |    v
+ *    +===========+   (6)  +===========+       +===========+   (6)   +===========+
+ *    |           |------->|           |  (5)  |           |-------->|           |
+ *    |           |   (4)  |           |------>|           |   (4)   |           |
+ *    | ACTIVE 0  |<-------| ACTIVE 1  |       | ACTIVE 2  |<--------| ACTIVE 3  |
+ * +--|           |     +--|           |    +--|           |      +--|           |
+ * |  +===========+     |  +===========+    |  +===========+      |  +===========+
+ * |       ^  |(5)      |      ^            |    ^    ^           |         ^
+ * |       |  +---------|------|------------|----+    |           |         |
+ * +-------+            +------+            +---------+           +---------+
+ *    (7)                 (7)                  (7)                   (7)
+ *
+ * 0- input event other than query from successor, FC not satisfied
+ * 1- last reply, FD is reset
+ * 2- query from successor, FC not satisfied
+ * 3- last reply, FC satisfied with current value of FDij
+ * 4- distance increase while in active state
+ * 5- query from successor while in active state
+ * 6- last reply, FC not satisfied with current value of FDij
+ * 7- state not changed, usually by receiving not last reply
+ */
+#include "eigrp.h"
+#include "eigrp_log.h"
+#include "eigrp_structs.h"
+#include "eigrp_neighbor.h"
+#include "eigrp_packet.h"
+#include "eigrp_metric.h"
+#include "eigrp_network.h"
+#include "eigrp_topology.h"
+#include "eigrp_eventlog.h"
+#include "eigrp_packetizer.h"
+#include "eigrp_prefix.h"
+#include "eigrp_fsm.h"
+#include "eigrp_debug.h"
+#include "eigrp_timer.h"
+#include "eigrp_sys.h"
+
+/*
+ * Prototypes
+ */
+int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_nq_fcn(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_q_fcn(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_dinc(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_lr_fcn(eigrp_fsm_action_message_t *);
+int eigrp_fsm_event_qact(eigrp_fsm_action_message_t *);
+
+//---------------------------------------------------------------------
+
+static eigrp_reply_status_t *
+eigrp_fsm_reply_status_lookup(const eigrp_prefix_descriptor_t *prefix,
+                            const eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status;
+	eigrp_list_item_t *node;
+
+	if (!prefix || !prefix->rij || !nbr)
+		return NULL;
+	for (EIGRP_LIST_ITERATE_RO(prefix->rij, node, status))
+		if (status->neighbor == nbr)
+			return status;
+	return NULL;
+}
+
+void eigrp_fsm_reply_status_add(eigrp_prefix_descriptor_t *prefix,
+                                eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status;
+
+	if (!prefix || !prefix->rij || !nbr
+	    || eigrp_fsm_reply_status_lookup(prefix, nbr))
+		return;
+	status = calloc(1, sizeof(*status));
+	if (!status)
+		return;
+	status->neighbor = nbr;
+	status->sia_response_received = true;
+	eigrp_list_add(prefix->rij, status);
+}
+
+bool eigrp_fsm_reply_status_remove(eigrp_prefix_descriptor_t *prefix,
+                                   eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status = eigrp_fsm_reply_status_lookup(prefix, nbr);
+
+	if (status)
+		eigrp_list_delete_data(prefix->rij, status);
+	return prefix && prefix->rij && prefix->rij->count != 0;
+}
+
+bool eigrp_fsm_reply_status_pending(const eigrp_prefix_descriptor_t *prefix,
+                                    const eigrp_nbr_t *nbr)
+{
+	return eigrp_fsm_reply_status_lookup(prefix, nbr) != NULL;
+}
+
+void eigrp_fsm_sia_reply_received(eigrp_prefix_descriptor_t *prefix,
+                                  eigrp_nbr_t *nbr)
+{
+	eigrp_reply_status_t *status = eigrp_fsm_reply_status_lookup(prefix, nbr);
+
+	if (status)
+		status->sia_response_received = true;
+}
+
+static void eigrp_fsm_reply_status_clear(eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_list_item_t *node, *next;
+	void *status;
+
+	if (!prefix || !prefix->rij)
+		return;
+	for (EIGRP_LIST_ITERATE(prefix->rij, node, next, status)) {
+		(void)status;
+		eigrp_list_remove(prefix->rij, node);
+	}
+}
+
+void eigrp_fsm_active_timer_stop(eigrp_prefix_descriptor_t *prefix)
+{
+	if (!prefix)
+		return;
+	eigrp_timer_cancel(prefix->active_eigrp, &prefix->t_active);
+	prefix->active_eigrp = NULL;
+}
+
+static void eigrp_fsm_active_timer_expired(void *arg)
+{
+	eigrp_prefix_descriptor_t *prefix = arg;
+	eigrp_instance_t *eigrp;
+	eigrp_reply_status_t *status;
+	eigrp_list_item_t *node;
+	uint16_t active_time;
+
+	if (!prefix || prefix->state == EIGRP_FSM_STATE_PASSIVE || !prefix->rij
+	    || !prefix->rij->count)
+		return;
+	eigrp = prefix->active_eigrp;
+	if (!eigrp)
+		return;
+
+	/* A missing response to the preceding SIA-QUERY, or a fourth busy
+	 * interval after three successful SIA exchanges, declares this peer SIA.
+	 * Neighbor teardown feeds an unreachable REPLY into this computation. */
+	for (EIGRP_LIST_ITERATE_RO(prefix->rij, node, status)) {
+		if (!status->sia_response_received || status->sia_queries >= 3) {
+			eigrp_nbr_t *stuck = status->neighbor;
+			eigrp_debug_neighbor_sia(stuck, "SIA active timer expired");
+			eigrp_nbr_delete(stuck);
+			return;
+		}
+	}
+
+	for (EIGRP_LIST_ITERATE_RO(prefix->rij, node, status)) {
+		status->sia_response_received = false;
+		status->sia_queries++;
+		eigrp_siaquery_send(eigrp, status->neighbor, prefix);
+	}
+
+	active_time = eigrp_timer_active_time_seconds(eigrp);
+	if (active_time)
+		eigrp_timer_add(eigrp, &prefix->t_active, eigrp_fsm_active_timer_expired,
+				    prefix, (uint32_t)active_time * 500U);
+}
+
+void eigrp_fsm_active_timer_start(eigrp_instance_t *eigrp,
+                                  eigrp_prefix_descriptor_t *prefix)
+{
+	uint16_t active_time;
+
+	if (!eigrp || !prefix || prefix->state == EIGRP_FSM_STATE_PASSIVE
+	    || !prefix->rij || !prefix->rij->count)
+		return;
+	active_time = eigrp_timer_active_time_seconds(eigrp);
+	if (!active_time)
+		return;
+	prefix->active_eigrp = eigrp;
+	eigrp_timer_cancel(prefix->active_eigrp, &prefix->t_active);
+	eigrp_timer_add(eigrp, &prefix->t_active, eigrp_fsm_active_timer_expired,
+			    prefix, (uint32_t)active_time * 500U);
+}
+
+void eigrp_fsm_query_sent(eigrp_instance_t *eigrp,
+                          eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_fsm_action_message_t msg = {0};
+	eigrp_route_descriptor_t *route;
+
+	if (!eigrp || !prefix || prefix->state == EIGRP_FSM_STATE_PASSIVE)
+		return;
+	if (prefix->rij && prefix->rij->count) {
+		eigrp_fsm_active_timer_start(eigrp, prefix);
+		return;
+	}
+
+	/* Split horizon or neighbor churn can leave a diffusing computation with
+	 * no eligible peers after QUERY target selection.  That is already the
+	 * last-reply condition; do not strand the destination ACTIVE. */
+	route = eigrp_topology_route_read(prefix);
+	if (!route)
+		return;
+	msg.packet_type = EIGRP_OPC_REPLY;
+	msg.eigrp = eigrp;
+	msg.adv_router = route->adv_router;
+	msg.route = route;
+	msg.prefix = prefix;
+	msg.data_type = (route->type == EIGRP_TLV_IPv4_EXT
+			 || route->type == EIGRP_TLV_IPv6_EXT
+			 || route->type == EIGRP_TLV_MP_EXT) ? EIGRP_EXT : EIGRP_INT;
+	msg.metrics = route->reported_metric;
+	eigrp_fsm_event_lr(&msg);
+}
+
+/*
+ * NSM - field of fields of struct containing one function each.
+ * Which function is used depends on actual state of FSM and occurred
+ * event(arrow in diagram). Usage:
+ * NSM[actual/starting state][occurred event].func
+ * Functions are should be executed within separate event.
+ */
+const struct {
+	int (*func)(eigrp_fsm_action_message_t *);
+} NSM[EIGRP_FSM_STATE_MAX][EIGRP_FSM_EVENT_MAX] = {
+	{
+		// PASSIVE STATE
+		{eigrp_fsm_event_nq_fcn},     /* Event 0 */
+		{eigrp_fsm_event_keep_state}, /* Event 1 */
+		{eigrp_fsm_event_q_fcn},      /* Event 2 */
+		{eigrp_fsm_event_keep_state}, /* Event 3 */
+		{eigrp_fsm_event_keep_state}, /* Event 4 */
+		{eigrp_fsm_event_keep_state}, /* Event 5 */
+		{eigrp_fsm_event_keep_state}, /* Event 6 */
+		{eigrp_fsm_event_keep_state}, /* Event 7 */
+	},
+	{
+		// Active 0 state
+		{eigrp_fsm_event_keep_state}, /* Event 0 */
+		{eigrp_fsm_event_keep_state}, /* Event 1 */
+		{eigrp_fsm_event_keep_state}, /* Event 2 */
+		{eigrp_fsm_event_lr_fcs},     /* Event 3 */
+		{eigrp_fsm_event_keep_state}, /* Event 4 */
+		{eigrp_fsm_event_qact},	      /* Event 5 */
+		{eigrp_fsm_event_lr_fcn},     /* Event 6 */
+		{eigrp_fsm_event_keep_state}, /* Event 7 */
+	},
+	{
+		// Active 1 state
+		{eigrp_fsm_event_keep_state}, /* Event 0 */
+		{eigrp_fsm_event_lr},	      /* Event 1 */
+		{eigrp_fsm_event_keep_state}, /* Event 2 */
+		{eigrp_fsm_event_keep_state}, /* Event 3 */
+		{eigrp_fsm_event_dinc},	      /* Event 4 */
+		{eigrp_fsm_event_qact},	      /* Event 5 */
+		{eigrp_fsm_event_keep_state}, /* Event 6 */
+		{eigrp_fsm_event_keep_state}, /* Event 7 */
+	},
+	{
+		// Active 2 state
+		{eigrp_fsm_event_keep_state}, /* Event 0 */
+		{eigrp_fsm_event_keep_state}, /* Event 1 */
+		{eigrp_fsm_event_keep_state}, /* Event 2 */
+		{eigrp_fsm_event_lr_fcs},     /* Event 3 */
+		{eigrp_fsm_event_keep_state}, /* Event 4 */
+		{eigrp_fsm_event_qact},       /* Event 5 */
+		{eigrp_fsm_event_lr_fcn},     /* Event 6 */
+		{eigrp_fsm_event_keep_state}, /* Event 7 */
+	},
+	{
+		// Active 3 state
+		{eigrp_fsm_event_keep_state}, /* Event 0 */
+		{eigrp_fsm_event_lr},	      /* Event 1 */
+		{eigrp_fsm_event_keep_state}, /* Event 2 */
+		{eigrp_fsm_event_keep_state}, /* Event 3 */
+		{eigrp_fsm_event_dinc},	      /* Event 4 */
+		{eigrp_fsm_event_qact},       /* Event 5 */
+		{eigrp_fsm_event_keep_state}, /* Event 6 */
+		{eigrp_fsm_event_keep_state}, /* Event 7 */
+	},
+};
+
+static const char *packet_type2str(uint8_t packet_type)
+{
+	if (packet_type == EIGRP_OPC_UPDATE)
+		return "Update";
+	if (packet_type == EIGRP_OPC_REQUEST)
+		return "Request";
+	if (packet_type == EIGRP_OPC_QUERY)
+		return "Query";
+	if (packet_type == EIGRP_OPC_REPLY)
+		return "Reply";
+	if (packet_type == EIGRP_OPC_HELLO)
+		return "Hello";
+	if (packet_type == EIGRP_OPC_IPXSAP)
+		return "IPXSAP";
+	if (packet_type == EIGRP_OPC_ACK)
+		return "Ack";
+	if (packet_type == EIGRP_OPC_SIAQUERY)
+		return "SIA Query";
+	if (packet_type == EIGRP_OPC_SIAREPLY)
+		return "SIA Reply";
+
+	return "Unknown";
+}
+
+static const char *prefix_state2str(enum eigrp_fsm_states state)
+{
+	switch (state) {
+	case EIGRP_FSM_STATE_PASSIVE:
+		return "Passive";
+	case EIGRP_FSM_STATE_ACTIVE_0:
+		return "Active oij0";
+	case EIGRP_FSM_STATE_ACTIVE_1:
+		return "Active oij1";
+	case EIGRP_FSM_STATE_ACTIVE_2:
+		return "Active oij2";
+	case EIGRP_FSM_STATE_ACTIVE_3:
+		return "Active oij3";
+	}
+
+	return "Unknown";
+}
+
+static const char *fsm_state2str(enum eigrp_fsm_events event)
+{
+	switch (event) {
+	case EIGRP_FSM_KEEP_STATE:
+		return "Keep State Event";
+	case EIGRP_FSM_EVENT_NQ_FCN:
+		return "Non Query Event Feasability not satisfied";
+	case EIGRP_FSM_EVENT_LR:
+		return "Last Reply Event";
+	case EIGRP_FSM_EVENT_Q_FCN:
+		return "Query Event Feasability not satisfied";
+	case EIGRP_FSM_EVENT_LR_FCS:
+		return "Last Reply Event Feasability satisfied";
+	case EIGRP_FSM_EVENT_DINC:
+		return "Distance Increase Event";
+	case EIGRP_FSM_EVENT_QACT:
+		return "Query from Successor while in active state";
+	case EIGRP_FSM_EVENT_LR_FCN:
+		return "Last Reply Event, Feasibility not satisfied";
+	}
+
+	return "Unknown";
+}
+
+static const char *change2str(enum metric_change change)
+{
+	switch (change) {
+	case METRIC_DECREASE:
+		return "Decrease";
+	case METRIC_SAME:
+		return "Same";
+	case METRIC_INCREASE:
+		return "Increase";
+	}
+
+	return "Unknown";
+}
+/*
+ * Main function in which are make decisions which event occurred.
+ * msg - argument of type eigrp_fsm_action_message_t contain
+ * details about what happen
+ *
+ * Return fsm state of occurred event (arrow in diagram).
+ *
+ */
+static enum eigrp_fsm_events
+eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
+{
+	// Loading base information from message
+	// eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+	eigrp_route_descriptor_t *route = msg->route;
+	uint8_t actual_state = prefix->state;
+	enum metric_change change;
+
+	if (route == NULL) {
+		route = eigrp_topology_route_create(msg->adv_router->ei);
+		route->adv_router = msg->adv_router;
+		route->prefix = prefix;
+		msg->route = route;
+	}
+
+	/*
+	 * Calculate resultant metrics and insert to correct position
+	 * in entries list
+	 */
+	change = eigrp_topology_update_distance(msg);
+
+	/* Store for display later */
+	msg->change = change;
+
+	switch (actual_state) {
+	case EIGRP_FSM_STATE_PASSIVE: {
+		eigrp_route_descriptor_t *selected = eigrp_topology_route_select(prefix);
+
+		/* An advertisement that does not change topology cannot make a
+		 * PASSIVE destination require a diffusing computation.  This is
+		 * especially important for an already-unreachable destination:
+		 * infinity is not less than an infinite FD, but receiving infinity
+		 * again is still no change.  QUERY handling remains in KEEP_STATE,
+		 * which returns the appropriate REPLY while staying PASSIVE.
+		 */
+		if (change == METRIC_SAME || (!selected
+				       && prefix->fdistance == EIGRP_MAX_METRIC))
+			return EIGRP_FSM_KEEP_STATE;
+
+		if (selected)
+			return EIGRP_FSM_KEEP_STATE;
+		/*
+		 * if best route doesn't satisfy feasibility condition it means
+		 * move to active state
+		 * dependently if it was query from successor
+		 */
+		if (msg->packet_type == EIGRP_OPC_QUERY) {
+			return EIGRP_FSM_EVENT_Q_FCN;
+		} else {
+			return EIGRP_FSM_EVENT_NQ_FCN;
+		}
+
+		break;
+	}
+	case EIGRP_FSM_STATE_ACTIVE_0: {
+		if (msg->packet_type == EIGRP_OPC_REPLY) {
+			eigrp_route_descriptor_t *selected =
+				eigrp_topology_route_select(prefix);
+
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
+			if (prefix->rij->count)
+				return EIGRP_FSM_KEEP_STATE;
+
+			eigrp_log(EIGRP_LOG_INFO, "All reply received");
+			if (selected)
+				return EIGRP_FSM_EVENT_LR_FCS;
+
+			return EIGRP_FSM_EVENT_LR_FCN;
+		} else if (msg->packet_type == EIGRP_OPC_QUERY
+			   && (route->flags
+			       & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
+			return EIGRP_FSM_EVENT_QACT;
+		}
+
+		return EIGRP_FSM_KEEP_STATE;
+
+		break;
+	}
+	case EIGRP_FSM_STATE_ACTIVE_1: {
+		if (msg->packet_type == EIGRP_OPC_QUERY
+		    && (route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
+			return EIGRP_FSM_EVENT_QACT;
+		} else if (msg->packet_type == EIGRP_OPC_REPLY) {
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
+
+			if (change == METRIC_INCREASE
+			    && (route->flags
+				& EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
+				return EIGRP_FSM_EVENT_DINC;
+			} else if (prefix->rij->count) {
+				return EIGRP_FSM_KEEP_STATE;
+			} else {
+				eigrp_log(EIGRP_LOG_INFO, "All reply received");
+				return EIGRP_FSM_EVENT_LR;
+			}
+		} else if (msg->packet_type == EIGRP_OPC_UPDATE
+			   && change == METRIC_INCREASE
+			   && (route->flags
+			       & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
+			return EIGRP_FSM_EVENT_DINC;
+		}
+		return EIGRP_FSM_KEEP_STATE;
+
+		break;
+	}
+	case EIGRP_FSM_STATE_ACTIVE_2: {
+		if (msg->packet_type == EIGRP_OPC_QUERY
+		    && (route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG))
+			return EIGRP_FSM_EVENT_QACT;
+
+		if (msg->packet_type == EIGRP_OPC_REPLY) {
+			eigrp_route_descriptor_t *selected =
+				eigrp_topology_route_select(prefix);
+
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
+			if (prefix->rij->count) {
+				return EIGRP_FSM_KEEP_STATE;
+			} else {
+				eigrp_log(EIGRP_LOG_INFO, "All reply received");
+				if (selected)
+					return EIGRP_FSM_EVENT_LR_FCS;
+
+				return EIGRP_FSM_EVENT_LR_FCN;
+			}
+		}
+		return EIGRP_FSM_KEEP_STATE;
+
+		break;
+	}
+	case EIGRP_FSM_STATE_ACTIVE_3: {
+		if (msg->packet_type == EIGRP_OPC_QUERY
+		    && (route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG))
+			return EIGRP_FSM_EVENT_QACT;
+
+		if (msg->packet_type == EIGRP_OPC_REPLY) {
+			eigrp_fsm_reply_status_remove(prefix, route->adv_router);
+
+			if (change == METRIC_INCREASE
+			    && (route->flags
+				& EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
+				return EIGRP_FSM_EVENT_DINC;
+			} else if (prefix->rij->count) {
+				return EIGRP_FSM_KEEP_STATE;
+			} else {
+				eigrp_log(EIGRP_LOG_INFO, "All reply received");
+				return EIGRP_FSM_EVENT_LR;
+			}
+		} else if (msg->packet_type == EIGRP_OPC_UPDATE
+			   && change == METRIC_INCREASE
+			   && (route->flags
+			       & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
+			return EIGRP_FSM_EVENT_DINC;
+		}
+		return EIGRP_FSM_KEEP_STATE;
+
+		break;
+	}
+	}
+
+	return EIGRP_FSM_KEEP_STATE;
+}
+
+/*
+ * Function made to execute in separate event.
+ * Load argument from event and execute proper NSM function
+ */
+int eigrp_fsm_event(eigrp_fsm_action_message_t *msg)
+{
+	enum eigrp_fsm_events event = eigrp_fsm_event_select(msg);
+
+	if (IS_DEBUG_EIGRP(0, FSM)
+	    || eigrp_debug_af_enabled(
+		    msg->eigrp, EIGRP_DEBUG_AF_ROUTE,
+		    msg->adv_router ? &msg->adv_router->src : NULL)) {
+		char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+
+		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
+				      &msg->prefix->destination);
+		eigrp_log(EIGRP_LOG_DEBUG,
+			"EIGRP AS: %d State: %s Event: %s Network: %s Packet Type: %s Reply RIJ Count: %d change: %s",
+			msg->eigrp->AS, prefix_state2str(msg->prefix->state),
+			fsm_state2str(event), prefix_buf,
+			packet_type2str(msg->packet_type),
+			msg->prefix->rij->count, change2str(msg->change));
+	}
+	(*(NSM[msg->prefix->state][event].func))(msg);
+
+	return 1;
+}
+
+/*
+ * Function of event 0.
+ *
+ */
+int eigrp_fsm_event_nq_fcn(eigrp_fsm_action_message_t *msg)
+{
+	eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+
+	/*
+	 * RFC 7868 active-state invariant:
+	 * entering ACTIVE must not rewrite the destination successor, FD, RD,
+	 * current distance, or advertised metric. The triggering route metric
+	 * update was already recorded as route/CD state by
+	 * eigrp_topology_update_distance().
+	 */
+	uint8_t old_state = prefix->state;
+	prefix->state = EIGRP_FSM_STATE_ACTIVE_1;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+		&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_NQ_FCN,
+		eigrp_nbr_count(eigrp));
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
+
+	if (eigrp_nbr_count(eigrp)) {
+		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
+		eigrp_list_add(eigrp->topology_changes, prefix);
+	} else {
+		eigrp_fsm_event_lr(msg); // in the case that there are no more
+					 // neighbors left
+	}
+
+	return 1;
+}
+
+int eigrp_fsm_event_q_fcn(eigrp_fsm_action_message_t *msg)
+{
+	eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+
+	/*
+	 * RFC 7868 active-state invariant: a QUERY from the current successor
+	 * can move the destination into ACTIVE, but the successor, FD, RD,
+	 * current distance, and advertised metric remain frozen until PASSIVE.
+	 */
+	uint8_t old_state = prefix->state;
+	prefix->state = EIGRP_FSM_STATE_ACTIVE_3;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+		&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_Q_FCN,
+		eigrp_nbr_count(eigrp));
+	prefix->query_origin = msg->adv_router;
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
+	if (eigrp_nbr_count(eigrp)) {
+		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
+		eigrp_list_add(eigrp->topology_changes, prefix);
+	} else {
+		eigrp_fsm_event_lr(msg); // in the case that there are no more
+					 // neighbors left
+	}
+
+	return 1;
+}
+
+static void eigrp_fsm_active_non_successor_reply_send(
+	eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
+	eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_topology_route_iterator_t iterator;
+	eigrp_route_descriptor_t *route;
+	eigrp_route_descriptor_t *reply_route = NULL;
+
+	if (!eigrp || !nbr || !prefix)
+		return;
+
+	/* RFC 7868 section 3.5, step 6: while ACTIVE, a QUERY from a
+	 * non-successor is answered immediately with the metric currently in the
+	 * routing table.  INTABLE is the frozen host-RIB successor set while the
+	 * destination is ACTIVE; do not select a newly learned/mutated route.
+	 */
+	for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
+	     route = eigrp_topology_route_iterator_next(&iterator)) {
+		if (!(route->flags & EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG)
+		    || route->distance == EIGRP_MAX_METRIC)
+			continue;
+
+		reply_route = eigrp_topology_route_create(route->ei);
+		if (!reply_route)
+			break;
+		*reply_route = *route;
+		reply_route->metric = prefix->reported_metric;
+		break;
+	}
+
+	if (reply_route) {
+		eigrp_reply_send_route(eigrp, nbr, prefix, reply_route,
+			EIGRP_PACKETIZER_WORK_F_OWN_ROUTE);
+		return;
+	}
+
+	/* No usable installed route remains for the destination.  An INTABLE route
+	 * whose current CD is infinite is no longer a reachable routing-table path,
+	 * even though its ownership flag remains frozen during the computation.
+	 */
+	eigrp_reply_send_route(eigrp, nbr, prefix, NULL,
+		EIGRP_PACKETIZER_WORK_F_POISON);
+}
+
+int eigrp_fsm_event_keep_state(eigrp_fsm_action_message_t *msg)
+{
+	eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+	eigrp_route_descriptor_t *route = eigrp_topology_route_select(prefix);
+
+	if (!route)
+		route = eigrp_topology_route_read(prefix);
+
+	if (prefix->state == EIGRP_FSM_STATE_PASSIVE) {
+		if (!eigrp_metrics_match(prefix->reported_metric,
+					   route->total_metric)) {
+			/* While PASSIVE, FD is the least distance observed since the
+			 * last ACTIVE -> PASSIVE transition.  Current distance/RD may
+			 * increase without moving that feasibility anchor upward.
+			 */
+			prefix->distance = route->distance;
+			prefix->rdistance = route->distance;
+			if (route->distance < prefix->fdistance)
+				prefix->fdistance = route->distance;
+			prefix->reported_metric = route->total_metric;
+			prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
+			eigrp_list_add(eigrp->topology_changes, prefix);
+		}
+		eigrp_topology_update_node_flags(eigrp, prefix);
+		eigrp_update_routing_table(eigrp, prefix);
+	}
+
+	if (msg->packet_type == EIGRP_OPC_QUERY) {
+		if (prefix->state == EIGRP_FSM_STATE_PASSIVE)
+			eigrp_reply_send(eigrp, msg->adv_router, prefix);
+		else if (!(msg->route->flags
+			   & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG))
+			eigrp_fsm_active_non_successor_reply_send(
+				eigrp, msg->adv_router, prefix);
+	}
+
+	return 1;
+}
+
+int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
+{
+	eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
+
+	prefix->fdistance = prefix->distance = prefix->rdistance =
+		route->distance;
+	prefix->reported_metric = route->total_metric;
+
+	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_3 && prefix->query_origin)
+		eigrp_reply_send(eigrp, prefix->query_origin, prefix);
+	prefix->query_origin = NULL;
+
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
+	{
+		uint8_t old_state = prefix->state;
+		prefix->state = EIGRP_FSM_STATE_PASSIVE;
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_LR, 0);
+	}
+	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
+	eigrp_list_add(eigrp->topology_changes, prefix);
+	eigrp_topology_update_node_flags(eigrp, prefix);
+	eigrp_update_routing_table(eigrp, prefix);
+	eigrp_update_topology_table_prefix(eigrp, eigrp->topology_table,
+					   prefix);
+	eigrp_update_send_all(eigrp, NULL);
+
+	return 1;
+}
+
+int eigrp_fsm_event_dinc(eigrp_fsm_action_message_t *msg)
+{
+	/*
+	 * A successor distance increase while ACTIVE only changes the DUAL
+	 * origin flag. Destination-level distance/FD/RD data stays frozen
+	 * until the route returns to PASSIVE.
+	 */
+	{
+		uint8_t old_state = msg->prefix->state;
+		msg->prefix->state = msg->prefix->state == EIGRP_FSM_STATE_ACTIVE_1
+				     ? EIGRP_FSM_STATE_ACTIVE_0
+				     : EIGRP_FSM_STATE_ACTIVE_2;
+		(void)eigrp_eventlog_msg_add(msg->eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&msg->prefix->destination, old_state, msg->prefix->state, EIGRP_FSM_EVENT_DINC, 0);
+	}
+	if (!msg->prefix->rij->count)
+		(*(NSM[msg->prefix->state][eigrp_fsm_event_select(msg)].func))(
+			msg);
+
+	return 1;
+}
+
+int eigrp_fsm_event_lr_fcs(eigrp_fsm_action_message_t *msg)
+{
+	eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+	eigrp_route_descriptor_t *route = eigrp_topology_route_select(prefix);
+
+	uint8_t old_state = prefix->state;
+
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
+	prefix->state = EIGRP_FSM_STATE_PASSIVE;
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+		&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_LR_FCS, 0);
+	prefix->distance = prefix->rdistance = route->distance;
+	prefix->reported_metric = route->total_metric;
+	prefix->fdistance = prefix->fdistance > prefix->distance
+				    ? prefix->distance
+				    : prefix->fdistance;
+	if (old_state == EIGRP_FSM_STATE_ACTIVE_2 && prefix->query_origin)
+		eigrp_reply_send(eigrp, prefix->query_origin, prefix);
+	prefix->query_origin = NULL;
+	prefix->req_action |= EIGRP_FSM_NEED_UPDATE;
+	eigrp_list_add(eigrp->topology_changes, prefix);
+	eigrp_topology_update_node_flags(eigrp, prefix);
+	eigrp_update_routing_table(eigrp, prefix);
+	eigrp_update_topology_table_prefix(eigrp, eigrp->topology_table,
+					   prefix);
+	eigrp_update_send_all(eigrp, NULL);
+
+	return 1;
+}
+
+int eigrp_fsm_event_lr_fcn(eigrp_fsm_action_message_t *msg)
+{
+	eigrp_instance_t *eigrp = msg->eigrp;
+	eigrp_prefix_descriptor_t *prefix = msg->prefix;
+
+	/*
+	 * Last reply but FC is still not satisfied: remain ACTIVE and start
+	 * another diffusing computation. Do not adopt a new successor or
+	 * rewrite destination FD/RD/distance while ACTIVE.
+	 */
+	{
+		uint8_t old_state = prefix->state;
+		prefix->state = (prefix->state == EIGRP_FSM_STATE_ACTIVE_0)
+				? EIGRP_FSM_STATE_ACTIVE_1
+				: EIGRP_FSM_STATE_ACTIVE_3;
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&prefix->destination, old_state, prefix->state, EIGRP_FSM_EVENT_LR_FCN, 0);
+	}
+	eigrp_fsm_active_timer_stop(prefix);
+	eigrp_fsm_reply_status_clear(prefix);
+
+	if (eigrp_nbr_count(eigrp)) {
+		prefix->req_action |= EIGRP_FSM_NEED_QUERY;
+		eigrp_list_add(eigrp->topology_changes, prefix);
+	} else {
+		eigrp_fsm_event_lr(msg); // in the case that there are no more
+					 // neighbors left
+	}
+
+	return 1;
+}
+
+int eigrp_fsm_event_qact(eigrp_fsm_action_message_t *msg)
+{
+	/*
+	 * QUERY from the current successor while already ACTIVE only changes
+	 * the DUAL origin flag. Destination-level distance/FD/RD data stays
+	 * frozen until PASSIVE.
+	 */
+	{
+		uint8_t old_state = msg->prefix->state;
+		msg->prefix->state = EIGRP_FSM_STATE_ACTIVE_2;
+		(void)eigrp_eventlog_msg_add(msg->eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_STATE_CHANGE,
+			&msg->prefix->destination, old_state, msg->prefix->state, EIGRP_FSM_EVENT_QACT, 0);
+	}
+	msg->prefix->query_origin = msg->adv_router;
+
+	return 1;
+}

@@ -34,20 +34,20 @@ def function_body(source: str, name: str) -> str:
 
 
 def test_address_family_shutdown_stops_and_restarts_runtime_interfaces():
-    instance = read("eigrpd/code/eigrp_instance.c")
-    update = function_body(instance, "eigrp_af_instance_shutdown_update")
-    stop = function_body(instance, "eigrp_af_instance_stop")
-    start = function_body(instance, "eigrp_af_instance_start")
+    instance = read("eigrp/code/eigrp_instance.c")
+    update = function_body(instance, "eigrp_af_config_shutdown_update")
+    stop = function_body(instance, "eigrp_instance_stop")
+    start = function_body(instance, "eigrp_instance_start")
 
-    assert "eigrp_af_instance_stop(af->runtime)" in update
-    assert "eigrp_af_instance_start(af->runtime)" in update
+    assert "eigrp_instance_stop(af->runtime)" in update
+    assert "eigrp_instance_start(af->runtime)" in update
     assert "eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL)" in stop
     assert "eigrp_intf_down(ei)" in stop
     assert "eigrp_intf_up(runtime, ei)" in start
 
 
 def test_router_id_rejects_reserved_values_and_refreshes_runtime():
-    instance = read("eigrpd/code/eigrp_instance.c")
+    instance = read("eigrp/code/eigrp_instance.c")
     update = function_body(instance, "eigrp_instance_router_id_update")
 
     assert "router_id == 0" in update
@@ -57,11 +57,11 @@ def test_router_id_rejects_reserved_values_and_refreshes_runtime():
 
 
 def test_new_runtime_interface_binds_retained_named_interface_configuration():
-    interface = read("eigrpd/code/eigrp_interface.c")
+    interface = read("eigrp/code/eigrp_interface.c")
     refresh = function_body(interface, "eigrp_intf_runtime_update")
     bind = function_body(interface, "eigrp_intf_config_update")
 
-    assert "eigrp_instance_runtime_config(eigrp)" in refresh
+    assert "eigrp_af_config_runtime_read(eigrp)" in refresh
     assert "eigrp_intf_config_read(af, state->interface_name)" in refresh
     assert "eigrp_intf_config_update(ei, config)" in refresh
     assert "eigrp_intf_config_shutdown_effective(af, config)" in refresh
@@ -72,8 +72,8 @@ def test_new_runtime_interface_binds_retained_named_interface_configuration():
 
 
 def test_static_neighbor_uses_configured_interface_for_unicast_hello():
-    neighbor = read("eigrpd/code/eigrp_neighbor.c")
-    hello = read("eigrpd/code/eigrp_hello.c")
+    neighbor = read("eigrp/code/eigrp_neighbor.c")
+    hello = read("eigrp/code/eigrp_hello.c")
     timer = function_body(hello, "eigrp_hello_timer")
     send = function_body(hello, "eigrp_hello_send_unicast")
     static_send = function_body(neighbor, "eigrp_nbr_static_hello_send")
@@ -92,10 +92,10 @@ def test_eigrp_stub_feature_is_not_implemented_by_audit_item_3():
     changed_modules = "\n".join(
         read(path)
         for path in (
-            "eigrpd/code/eigrp_instance.c",
-            "eigrpd/code/eigrp_interface.c",
-            "eigrpd/code/eigrp_neighbor.c",
-            "eigrpd/code/eigrp_network.c",
+            "eigrp/code/eigrp_instance.c",
+            "eigrp/code/eigrp_interface.c",
+            "eigrp/code/eigrp_neighbor.c",
+            "eigrp/code/eigrp_network.c",
             "frr/code/eigrp_southbound.c",
         )
     )

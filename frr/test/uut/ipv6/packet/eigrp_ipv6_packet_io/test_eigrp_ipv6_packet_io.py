@@ -11,7 +11,7 @@ def read(path: str) -> str:
 
 
 def test_public_packet_io_contract_is_af_neutral_and_eigrp_owned():
-    sys_header = read("eigrpd/code/eigrp_sys.h")
+    sys_header = read("eigrp/code/eigrp_sys.h")
 
     assert "int eigrp_sys_packet_send(" in sys_header
     assert "bool eigrp_sys_packet_receive(" in sys_header
@@ -26,8 +26,8 @@ def test_public_packet_io_contract_is_af_neutral_and_eigrp_owned():
 
 
 def test_ipv4_and_ipv6_vectors_share_packet_io_boundary():
-    ipv4 = read("eigrpd/code/eigrp_ipv4.c")
-    ipv6 = read("eigrpd/code/eigrp_ipv6.c")
+    ipv4 = read("eigrp/code/eigrp_ipv4.c")
+    ipv6 = read("eigrp/code/eigrp_ipv6.c")
 
     assert "eigrp_sys_packet_send(" in ipv4
     assert "eigrp_sys_packet_receive(" in ipv4
@@ -38,7 +38,7 @@ def test_ipv4_and_ipv6_vectors_share_packet_io_boundary():
 
 
 def test_ipv6_receive_preserves_link_local_interface_context():
-    ipv6 = read("eigrpd/code/eigrp_ipv6.c")
+    ipv6 = read("eigrp/code/eigrp_ipv6.c")
 
     assert "eigrp_ifindex_t ifindex = 0;" in ipv6
     assert "eigrp_intf_lookup_by_ifindex(eigrp, ifindex)" in ipv6

@@ -79,7 +79,7 @@ examples:
   tools/frr-uut.sh --build-only --frr-root ~/devel/frr
 
 layout:
-  portable tests:       eigrpd/test/
+  portable tests:       eigrp/test/
   FRR test source:      frr/test/eigrpd/
   FRR installed tests:  frr/tests/eigrpd/
 USAGE
@@ -163,8 +163,8 @@ has_frr_tests() {
 
 print_available_tests() {
 	echo "portable tests:"
-	find "$eigrp_root/eigrpd/test" -mindepth 1 -maxdepth 4 -type d ! -name __pycache__ -print \
-		| sed "s#^$eigrp_root/eigrpd/test/##" | sort
+	find "$eigrp_root/eigrp/test" -mindepth 1 -maxdepth 4 -type d ! -name __pycache__ -print \
+		| sed "s#^$eigrp_root/eigrp/test/##" | sort
 
 	echo
 	echo "FRR-native test payload:"
@@ -643,15 +643,15 @@ fi
 
 case "$test_mode" in
 	all)
-		run_portable_tests eigrpd/test
+		run_portable_tests eigrp/test
 		run_portable_tests frr/test/uut
 		run_frr_tests
 		;;
 	packet)
-		run_portable_tests eigrpd/test/packet eigrpd/test/ipv4/packet eigrpd/test/ipv6/packet frr/test/uut/ipv4/packet frr/test/uut/ipv6/packet
+		run_portable_tests eigrp/test/packet eigrp/test/ipv4/packet eigrp/test/ipv6/packet frr/test/uut/ipv4/packet frr/test/uut/ipv6/packet
 		;;
 	portable)
-		run_portable_tests eigrpd/test
+		run_portable_tests eigrp/test
 		;;
 	frr)
 		run_frr_tests

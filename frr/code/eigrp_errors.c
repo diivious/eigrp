@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRP-specific error messages.
- * Copyright (C) 2018 Cumulus Networks, Inc.
+ * Copyright (C) 2018, 2026 Cumulus Networks, Inc.
  *               Donald Sharp
  */
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_errors.h"
 
 /* clang-format off */

@@ -26,7 +26,7 @@ def production_source() -> str:
 
 
 def test_logging_uses_one_public_endpoint_with_a_level_selector():
-    header = read("eigrpd/code/eigrp_log.h")
+    header = read("eigrp/code/eigrp_log.h")
     source = production_source()
 
     assert "typedef enum eigrp_log_level" in header
@@ -42,7 +42,7 @@ def test_logging_uses_one_public_endpoint_with_a_level_selector():
 
 
 def test_nonpacket_debug_uses_target_selector_instead_of_category_endpoints():
-    header = read("eigrpd/code/eigrp_cli.h")
+    header = read("eigrp/code/eigrp_cli.h")
     source = production_source()
 
     assert "typedef enum eigrp_debug_target" in header
@@ -63,10 +63,10 @@ def test_nonpacket_debug_uses_target_selector_instead_of_category_endpoints():
 
 
 def test_neighbor_codec_bind_uses_tlv_version_as_the_selector():
-    neighbor_h = read("eigrpd/code/eigrp_neighbor.h")
-    neighbor_c = read("eigrpd/code/eigrp_neighbor.c")
-    tlv1_h = read("eigrpd/code/eigrp_tlv1.h")
-    tlv2_h = read("eigrpd/code/eigrp_tlv2.h")
+    neighbor_h = read("eigrp/code/eigrp_neighbor.h")
+    neighbor_c = read("eigrp/code/eigrp_neighbor.c")
+    tlv1_h = read("eigrp/code/eigrp_tlv1.h")
+    tlv2_h = read("eigrp/code/eigrp_tlv2.h")
 
     assert "eigrp_nbr_codec_select(eigrp_nbr_t *, uint8_t tlv_version)" in neighbor_h
     assert "case EIGRP_TLV_32B_VERSION:" in neighbor_c
@@ -77,7 +77,7 @@ def test_neighbor_codec_bind_uses_tlv_version_as_the_selector():
 
 
 def test_southbound_timer_add_has_one_canonical_millisecond_contract():
-    header = read("eigrpd/code/eigrp_sys.h")
+    header = read("eigrp/code/eigrp_sys.h")
     source = production_source()
 
     assert "eigrp_sys_timer_add" in header
@@ -86,7 +86,7 @@ def test_southbound_timer_add_has_one_canonical_millisecond_contract():
 
 
 def test_neighbor_logging_uses_log_type_selector_and_set_reset_actions():
-    header = read("eigrpd/code/eigrp_cli.h")
+    header = read("eigrp/code/eigrp_cli.h")
     source = production_source()
 
     assert "typedef enum eigrp_nbr_log_type" in header

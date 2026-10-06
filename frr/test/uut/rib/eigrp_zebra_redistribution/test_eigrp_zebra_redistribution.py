@@ -72,10 +72,10 @@ def test_zebra_receive_filters_exact_runtime_and_preserves_lifecycle():
 
     assert "eigrp_instance_vrf_id(state->eigrp)" in receive
     assert "eigrp_instance_afi(state->eigrp)" in receive
-    assert "source.source.route_instance" in receive
+    assert "route.redist.source.route_instance" in receive
     assert "eigrp_instance_asn(state->eigrp)" in receive
-    assert "eigrp_rib_source_route_add" in receive
-    assert "eigrp_rib_source_route_remove" in receive
+    assert "eigrp_rib_redist_add" in receive
+    assert "eigrp_rib_redist_del" in receive
     assert "cmd == ZEBRA_REDISTRIBUTE_ROUTE_ADD" in receive
     assert "redist->route_instance == route_instance" in accepts
 
@@ -90,8 +90,9 @@ def test_subscription_parameters_and_route_normalization_execute(tmp_path):
             "eigrp_zebra_redistribute_type",
             "eigrp_zebra_source_instance_valid",
             "eigrp_zebra_subscription_params_build",
-            "eigrp_zebra_source_nexthop_import",
-            "eigrp_zebra_source_route_import",
+            "eigrp_zebra_redist_nexthop_import",
+            "eigrp_zebra_redist_vecmetric_import",
+            "eigrp_zebra_redist_route_import",
         )
     )
 
@@ -180,15 +181,91 @@ def test_subscription_parameters_and_route_normalization_execute(tmp_path):
                 eigrp_route_instance_t route_instance;
             } eigrp_redist_source_t;
 
-            typedef struct eigrp_rib_source_route {
-                eigrp_prefix_t prefix;
-                eigrp_address_t gateway;
-                bool gateway_present;
+            typedef uint64_t eigrp_bandwidth_t;
+            typedef uint64_t eigrp_delay_t;
+
+            typedef struct eigrp_metrics {
+                eigrp_delay_t delay;
+                eigrp_bandwidth_t bandwidth;
+                uint8_t mtu[3];
+                uint8_t hop_count;
+                uint8_t reliability;
+                uint8_t load;
+                uint8_t tag;
+                uint8_t flags;
+            } eigrp_metrics_t;
+
+            typedef struct eigrp_metric_values {
+                uint32_t bandwidth;
+                uint32_t delay;
+                uint8_t reliability;
+                uint8_t load;
+                uint16_t mtu;
+            } eigrp_metric_values_t;
+
+            typedef struct eigrp_rib_nexthop {
                 eigrp_ifindex_t ifindex;
+                bool gateway_present;
+                eigrp_address_t gateway;
+                uint64_t weight;
+            } eigrp_rib_nexthop_t;
+
+            typedef struct eigrp_rib_route {
+                eigrp_prefix_t prefix;
+                const eigrp_rib_nexthop_t *nexthops;
+                size_t nexthop_count;
                 uint64_t metric;
                 uint32_t tag;
-                eigrp_redist_source_t source;
-            } eigrp_rib_source_route_t;
+                union {
+                    struct {
+                        eigrp_redist_source_t source;
+                        eigrp_metrics_t vecmetric;
+                    } redist;
+                };
+            } eigrp_rib_route_t;
+
+            #define EIGRP_BANDWIDTH_DEFAULT 100000U
+            #define EIGRP_DELAY_DEFAULT 10U
+            #define EIGRP_RELIABILITY_DEFAULT 255U
+            #define EIGRP_LOAD_DEFAULT 1U
+            #define LP_DELAY 0x0040U
+            #define IS_PARAM_SET(lp, st) ((lp)->lp_status & (st))
+
+            struct if_link_params {
+                uint32_t lp_status;
+                uint32_t av_delay;
+            };
+
+            struct interface {
+                eigrp_ifindex_t ifindex;
+                uint32_t bandwidth;
+                uint32_t speed;
+                unsigned int mtu;
+                struct if_link_params *link_params;
+            };
+
+            static struct interface test_ifp;
+
+            static struct interface *if_lookup_by_index(
+                eigrp_ifindex_t ifindex, vrf_id_t vrf_id)
+            {
+                (void)vrf_id;
+                return test_ifp.ifindex == ifindex ? &test_ifp : NULL;
+            }
+
+            static void eigrp_metric_values_convert(
+                const eigrp_metric_values_t *values, eigrp_metrics_t *metric)
+            {
+                memset(metric, 0, sizeof(*metric));
+                if (!values)
+                    return;
+                metric->bandwidth = values->bandwidth;
+                metric->delay = values->delay;
+                metric->reliability = values->reliability;
+                metric->load = values->load;
+                metric->mtu[0] = values->mtu & 0xff;
+                metric->mtu[1] = (values->mtu >> 8) & 0xff;
+            }
 
             typedef struct eigrp_instance {
                 eigrp_vrf_id_t vrf_id;
@@ -287,7 +364,8 @@ def test_subscription_parameters_and_route_normalization_execute(tmp_path):
                 eigrp_redist_source_t source = {0};
                 struct eigrp_zebra_subscription_params params = {0};
                 struct zapi_route api = {0};
-                eigrp_rib_source_route_t route = {0};
+                eigrp_rib_route_t route = {0};
+                eigrp_rib_nexthop_t route_nh = {0};
                 struct in_addr v4;
                 struct in6_addr v6;
 
@@ -349,18 +427,18 @@ def test_subscription_parameters_and_route_normalization_execute(tmp_path):
                 api.nexthops[1].ifindex = 17;
                 assert(inet_pton(AF_INET, "192.0.2.1",
                                  &api.nexthops[1].gate.ipv4) == 1);
-                assert(eigrp_zebra_source_route_import(&api, &route)
+                assert(eigrp_zebra_redist_route_import(&api, 42, &route, &route_nh)
                        == EIGRP_RESULT_SUCCESS);
-                assert(route.source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_OSPF);
-                assert(route.source.route_instance == 123);
+                assert(route.redist.source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_OSPF);
+                assert(route.redist.source.route_instance == 123);
                 assert(route.prefix.address.afi == EIGRP_AFI_IPV4);
                 assert(route.prefix.prefix_length == 24);
                 assert(route.metric == 777);
                 assert(route.tag == 99);
-                assert(route.ifindex == 17);
-                assert(route.gateway_present);
+                assert(route.nexthops[0].ifindex == 17);
+                assert(route.nexthops[0].gateway_present);
                 assert(inet_pton(AF_INET, "192.0.2.1", &v4) == 1);
-                assert(memcmp(route.gateway.bytes, &v4, sizeof(v4)) == 0);
+                assert(memcmp(route.nexthops[0].gateway.bytes, &v4, sizeof(v4)) == 0);
 
                 memset(&api, 0, sizeof(api));
                 api.safi = SAFI_UNICAST;
@@ -375,22 +453,49 @@ def test_subscription_parameters_and_route_normalization_execute(tmp_path):
                 api.nexthops[0].ifindex = 18;
                 assert(inet_pton(AF_INET6, "fe80::1",
                                  &api.nexthops[0].gate.ipv6) == 1);
-                assert(eigrp_zebra_source_route_import(&api, &route)
+                assert(eigrp_zebra_redist_route_import(&api, 42, &route, &route_nh)
                        == EIGRP_RESULT_SUCCESS);
                 assert(route.prefix.address.afi == EIGRP_AFI_IPV6);
-                assert(route.source.route_instance == 124);
-                assert(route.ifindex == 18);
-                assert(route.gateway_present);
-                assert(route.gateway.afi == EIGRP_AFI_IPV6);
+                assert(route.redist.source.route_instance == 124);
+                assert(route.nexthops[0].ifindex == 18);
+                assert(route.nexthops[0].gateway_present);
+                assert(route.nexthops[0].gateway.afi == EIGRP_AFI_IPV6);
                 assert(inet_pton(AF_INET6, "fe80::1", &v6) == 1);
-                assert(memcmp(route.gateway.bytes, &v6, sizeof(v6)) == 0);
+                assert(memcmp(route.nexthops[0].gateway.bytes, &v6, sizeof(v6)) == 0);
+
+                /* Connected and interface-static routes are normalized with a
+                 * complete interface-derived EIGRP vector in the parent.
+                 */
+                memset(&api, 0, sizeof(api));
+                memset(&test_ifp, 0, sizeof(test_ifp));
+                test_ifp.ifindex = 19;
+                test_ifp.bandwidth = 100000;
+                test_ifp.mtu = 1500;
+                api.safi = SAFI_UNICAST;
+                api.type = ZEBRA_ROUTE_CONNECT;
+                api.prefix.family = AF_INET;
+                api.prefix.prefixlen = 24;
+                api.nexthop_num = 1;
+                api.nexthops[0].type = NEXTHOP_TYPE_IFINDEX;
+                api.nexthops[0].ifindex = 19;
+                assert(eigrp_zebra_redist_route_import(&api, 42, &route, &route_nh)
+                       == EIGRP_RESULT_SUCCESS);
+                assert(route.redist.vecmetric.bandwidth != 0);
+                assert(route.redist.vecmetric.delay != 0);
+
+                api.type = ZEBRA_ROUTE_STATIC;
+                api.nexthops[0].type = NEXTHOP_TYPE_IPV4_IFINDEX;
+                assert(eigrp_zebra_redist_route_import(&api, 42, &route, &route_nh)
+                       == EIGRP_RESULT_SUCCESS);
+                assert(route.redist.vecmetric.bandwidth == 0);
+                assert(route.redist.vecmetric.delay == 0);
 
                 api.safi = 99;
-                assert(eigrp_zebra_source_route_import(&api, &route)
+                assert(eigrp_zebra_redist_route_import(&api, 42, &route, &route_nh)
                        == EIGRP_RESULT_INVALID_ARGUMENT);
                 api.safi = SAFI_UNICAST;
                 api.type = ZEBRA_ROUTE_MAX;
-                assert(eigrp_zebra_source_route_import(&api, &route)
+                assert(eigrp_zebra_redist_route_import(&api, 42, &route, &route_nh)
                        == EIGRP_RESULT_UNSUPPORTED);
                 return 0;
             }

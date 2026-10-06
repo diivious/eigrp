@@ -23,6 +23,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "eigrp_log.h"
 #include "eigrp_sys.h"
 #include "eigrp_unix.h"
 
@@ -285,6 +286,7 @@ static eigrp_event_t *eigrp_unix_ready_take_locked(
 static void *eigrp_unix_runtime_loop(void *unused)
 {
 	(void)unused;
+	eigrp_log_start();
 	for (;;) {
 		struct pollfd *pollfds = NULL;
 		eigrp_event_t **map = NULL;
@@ -340,6 +342,7 @@ static void *eigrp_unix_runtime_loop(void *unused)
 		callback(arg);
 		eigrp_unix_runtime_leave();
 	}
+	eigrp_log_stop();
 	return NULL;
 }
 
@@ -491,6 +494,16 @@ uint32_t eigrp_sys_timer_remaining_seconds(const eigrp_event_t *event)
 uint64_t eigrp_sys_monotime_msec(void)
 {
 	return eigrp_unix_monotime_msec();
+}
+
+uint64_t eigrp_sys_wallclock_msec(void)
+{
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_REALTIME, &now) != 0)
+		return 0;
+	return ((uint64_t)now.tv_sec * 1000U)
+	       + ((uint64_t)now.tv_nsec / 1000000U);
 }
 
 void eigrp_sys_software_version(uint8_t *major, uint8_t *minor)

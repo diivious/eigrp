@@ -2,28 +2,36 @@
 
 This directory is the FRR shim. It is not portable EIGRP.
 
-If you were told to add EIGRP to some other platform, do not copy this
-directory wholesale. Read `specs/integration-spec.md` first. Use this file as
-a map of how FRR currently wires onto the public contract.
+The detailed FRR integration contract and end-to-end call flows are in
+`specs/integration.md`. The host-neutral integration contract is
+`../specs/platform-integration.md`.
 
-Portable protocol code stays in `../eigrpd/code/`. Tools that stage this tree into
+If you were told to add EIGRP to some other platform, do not copy this
+directory wholesale. Read the host-neutral specification first; use the FRR
+specification only as a concrete implementation of that contract.
+
+Portable protocol code stays in `../eigrp/code/`. Tools that stage this tree into
 an FRR checkout live in `../tools/`.
 
 ## What a host shim is
 
 A host shim has four jobs:
 
-1. Implement the services in `eigrpd/code/eigrp_sys.h`.
-2. Implement the host side of `eigrpd/code/eigrp_rib.h`.
-3. Call `eigrpd/code/eigrp_cli.h` from the platform config/admin path.
-4. Call `eigrpd/code/eigrp_mgnt.h` from show, tech-support, or telemetry.
+1. Implement the services in `eigrp/code/eigrp_sys.h`.
+2. Implement the host side of `eigrp/code/eigrp_rib.h`.
+3. Call `eigrp/code/eigrp_cli.h` from the platform config/admin path.
+4. Call `eigrp/code/eigrp_mgnt.h` from show, tech-support, or telemetry.
 
-Shared values come from `eigrpd/code/eigrp.h`.
+Shared values come from `eigrp/code/eigrp.h`.
 
-A new platform compiles `eigrpd/code/*.c`, links its own adapter objects, and does
+A new platform compiles `eigrp/code/*.c`, links its own adapter objects, and does
 not compile the files in this directory.
 
 ## FRR control and data paths
+
+This section is an orientation map. `specs/integration.md` is authoritative for
+the concrete FRR -> shim -> core and core -> shim -> FRR call flows.
+
 
 Config commit. YANG and classic/named CLI both have to land on the same
 `eigrp_cli.h` target. Named mode is the surface for new work.
@@ -40,7 +48,7 @@ northbound adapter             frr/code/eigrp_northbound.c + AF-specific modules
         |
         | eigrp_cli.h
         v
-portable core                  eigrpd/code/
+portable core                  eigrp/code/
         |
         +-- eigrp_sys.h -----> southbound     frr/code/eigrp_southbound*.c
         |                      sockets, timers, multicast, IPv4 I/O
@@ -55,7 +63,7 @@ flowchart TB
   classic["classic CLI"]
   nb["eigrp_northbound.c + AF modules"]
   cli["eigrp_cli.h"]
-  core["eigrpd/ core"]
+  core["eigrp/ core"]
   sys["eigrp_sys.h"]
   rib["eigrp_rib.h"]
   sb["eigrp_southbound*.c"]
@@ -97,7 +105,7 @@ flowchart LR
   show["vtysh show / tech-support"]
   vty["eigrp_vty.c / eigrp_dump.c"]
   mgnt["eigrp_mgnt.h"]
-  core["eigrpd/ state"]
+  core["eigrp/ state"]
 
   show --> vty
   vty --> mgnt
@@ -137,7 +145,7 @@ kernel / socket
 | `eigrp_vty.c` / `eigrp_dump.c` | show and operational output | `eigrp_mgnt.h` |
 | `eigrp_policy.c` | FRR route-map / filter lookup | `eigrp_sys.h` policy calls |
 | `eigrp_main.c` | FRR process, signals, init/teardown | host lifecycle, then `eigrp_sys.h` / `eigrp_rib.h` |
-| `eigrp_log.c` | FRR zlog sink for `eigrp_log()` | replaces the stderr fallback in `eigrpd/code/eigrp_log.c` |
+| `eigrp_log.c` | FRR zlog sink for `eigrp_log()` | replaces the stderr fallback in `eigrp/code/eigrp_log.c` |
 | `eigrp_vrf.c` | FRR VRF glue | host identity only |
 | `eigrp_snmp.c` | optional SNMP | not part of the base five-header contract |
 | `patch/` | FRR-wide YANG/vtysh changes outside `eigrpd/` | host tree, not portable core |
@@ -157,13 +165,13 @@ tools/frr.sh --patch --frr-root ../frr
 tools/frr.sh --build --frr-root ../frr
 ```
 
-`--install` copies `eigrpd/code/` plus the adapter files in `code/` into `frr/eigrpd/`.
+`--install` copies `eigrp/code/` plus the adapter files in `code/` into `frr/eigrpd/`.
 `--patch` applies `patch/` onto FRR sources outside that directory.
 
 ## What not to copy onto a new host
 
 Current FRR adapter files still include some private portable headers
-(`eigrp_structs.h`, `eigrpd.h`, topology/neighbor module headers). That is
+(`eigrp_structs.h`, topology/neighbor module headers). That is
 existing host debt. It is not the integration model.
 
 A new shim must:

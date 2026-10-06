@@ -61,11 +61,11 @@ def test_named_adapter_preserves_route_instance_metric_and_route_map_identity():
     # route-instance rather than collapsing all instances of a protocol.
     assert "params.instance" in zebra
     assert "redist->route_instance == route_instance" in zebra
-    assert "source.source.route_instance" in zebra
+    assert "route.redist.source.route_instance" in zebra
 
 
 def test_runtime_ingress_enforces_seed_and_deferred_route_map_boundaries():
-    redistribute = read("eigrpd/code/eigrp_redistribute.c")
+    redistribute = read("eigrp/code/eigrp_redistribute.c")
 
     # Route-map policy is evaluated through the host boundary.  Missing seed
     # metric remains an ignored/non-importable candidate.
@@ -79,24 +79,24 @@ def test_runtime_ingress_enforces_seed_and_deferred_route_map_boundaries():
     # Zebra ADD is intentionally both first appearance and route change; DELETE
     # drives withdrawal through the same normalized public RIB snapshot.
     assert "Zebra uses ADD for both first appearance and changed route snapshots" in redistribute
-    assert "eigrp_rib_source_route_add" in redistribute
-    assert "eigrp_rib_source_route_remove" in redistribute
+    assert "eigrp_rib_redist_add" in redistribute
+    assert "eigrp_rib_redist_del" in redistribute
 
 
 def test_redistributed_routes_remain_external_through_update_and_withdrawal():
     topology_test = read(
-        "eigrpd/test/ipv4/redistribution/eigrp_redistribute_topology/"
+        "eigrp/test/ipv4/redistribution/eigrp_redistribute_topology/"
         "test_eigrp_redistribute_topology.py"
     )
     packetizer_test = read(
-        "eigrpd/test/redistribution/eigrp_redistribute_packetizer/"
+        "eigrp/test/redistribution/eigrp_redistribute_packetizer/"
         "test_eigrp_redistribute_packetizer.py"
     )
 
     for marker in (
         "EIGRP_TOPOLOGY_TYPE_REMOTE_EXTERNAL",
-        "eigrp_rib_source_route_add",
-        "eigrp_rib_source_route_remove",
+        "eigrp_rib_route_add",
+        "eigrp_rib_route_del",
     ):
         assert marker in topology_test
     assert "withdrawal" in topology_test.lower()

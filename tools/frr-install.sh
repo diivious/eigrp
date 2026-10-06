@@ -5,7 +5,7 @@
 #
 # Assemble and stage this EIGRP project into an FRR checkout.
 #
-# The project keeps common EIGRP source in eigrpd/ and FRR-specific source in
+# The project keeps common EIGRP source in eigrp/ and FRR-specific source in
 # frr/.  FRR itself still expects one flattened eigrpd/ source directory, so
 # this installer owns that projection.  Any required modification outside
 # FRR's eigrpd/ directory is carried as a patch under frr/patch/.
@@ -22,7 +22,7 @@ install_tests=1
 install_patches=1
 dry_run=0
 
-common_src="$eigrp_root/eigrpd/code"
+common_src="$eigrp_root/eigrp/code"
 frr_src="$eigrp_root/frr/code"
 frr_test_src="$eigrp_root/frr/test/eigrpd"
 frr_topotest_src="$eigrp_root/frr/test/topotests"
@@ -42,7 +42,7 @@ options:
   --help                Show this help.
 
 installs:
-  eigrpd/code/ + frr/code/* -> FRR/eigrpd/
+  eigrp/code/ + frr/code/* -> FRR/eigrpd/
   frr/test/eigrpd/      -> FRR/tests/eigrpd/
   frr/test/topotests/    -> FRR/tests/topotests/
   frr/patch/*.patch     -> applied at the FRR repository root
@@ -175,7 +175,7 @@ install_eigrpd_tree() {
 	fi
 
 	if [[ "$dry_run" -eq 1 ]]; then
-		echo "would assemble: eigrpd/code/ + frr/code/ -> $dst/"
+		echo "would assemble: eigrp/code/ + frr/code/ -> $dst/"
 		rm -rf "$stage"
 		return 0
 	fi
@@ -183,7 +183,7 @@ install_eigrpd_tree() {
 	mkdir -p "$dst"
 	rsync -a --delete "$stage"/ "$dst"/
 	rm -rf "$stage"
-	echo "installed: eigrpd/code/ + frr/code/ -> $dst/"
+	echo "installed: eigrp/code/ + frr/code/ -> $dst/"
 }
 
 install_test_tree() {

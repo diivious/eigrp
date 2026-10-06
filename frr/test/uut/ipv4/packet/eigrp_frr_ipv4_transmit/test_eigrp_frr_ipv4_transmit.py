@@ -26,8 +26,8 @@ def function_body(source: str, name: str) -> str:
 
 
 def test_transmit_path_preserves_selected_interface_to_host_send():
-    packet = read("eigrpd/code/eigrp_packet.c")
-    ipv4 = read("eigrpd/code/eigrp_ipv4.c")
+    packet = read("eigrp/code/eigrp_packet.c")
+    ipv4 = read("eigrp/code/eigrp_ipv4.c")
 
     write = function_body(packet, "eigrp_packet_write")
     send = function_body(ipv4, "eigrp_ipv4_packet_send")
@@ -59,7 +59,7 @@ def test_multicast_send_does_not_ignore_interface_selection_failure():
 
 
 def test_packet_debug_distinguishes_failed_send_from_send_attempt():
-    debug = read("eigrpd/code/eigrp_debug.c")
+    debug = read("eigrp/code/eigrp_debug.c")
     send_debug = function_body(debug, "eigrp_debug_packet_send")
 
     assert "if (send_result < 0)" in send_debug

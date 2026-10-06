@@ -21,7 +21,8 @@ typedef struct eigrp_unix_rib_route_entry {
 } eigrp_unix_rib_route_entry_t;
 
 typedef struct eigrp_unix_rib_source_entry {
-	eigrp_rib_source_route_t route;
+	eigrp_rib_route_t route;
+	eigrp_rib_nexthop_t *nexthops;
 	struct eigrp_unix_rib_source_entry *next;
 } eigrp_unix_rib_source_entry_t;
 
@@ -63,11 +64,11 @@ static bool eigrp_unix_rib_source_equal(const eigrp_redist_source_t *left,
 }
 
 static bool eigrp_unix_rib_source_key_equal(
-	const eigrp_rib_source_route_t *left,
-	const eigrp_rib_source_route_t *right)
+	const eigrp_rib_route_t *left,
+	const eigrp_rib_route_t *right)
 {
 	return eigrp_unix_rib_prefix_equal(&left->prefix, &right->prefix)
-	       && eigrp_unix_rib_source_equal(&left->source, &right->source);
+	       && eigrp_unix_rib_source_equal(&left->redist.source, &right->redist.source);
 }
 
 static void eigrp_unix_rib_route_entry_free(
@@ -100,23 +101,54 @@ static eigrp_result_t eigrp_unix_rib_route_copy(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+
+static void eigrp_unix_rib_source_entry_free(
+	eigrp_unix_rib_source_entry_t *entry)
+{
+	if (!entry)
+		return;
+	free(entry->nexthops);
+	free(entry);
+}
+
+static eigrp_result_t eigrp_unix_rib_source_copy(
+	eigrp_unix_rib_source_entry_t *entry, const eigrp_rib_route_t *route)
+{
+	eigrp_rib_nexthop_t *nexthops = NULL;
+
+	if (!entry || !route || (route->nexthop_count && !route->nexthops))
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (route->nexthop_count) {
+		nexthops = calloc(route->nexthop_count, sizeof(*nexthops));
+		if (!nexthops)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		memcpy(nexthops, route->nexthops,
+		       route->nexthop_count * sizeof(*nexthops));
+	}
+	free(entry->nexthops);
+	entry->route = *route;
+	entry->nexthops = nexthops;
+	entry->route.nexthops = nexthops;
+	return EIGRP_RESULT_SUCCESS;
+}
+
 static void eigrp_unix_rib_source_notify(
-	const eigrp_rib_source_route_t *route, bool present)
+	const eigrp_rib_route_t *route, bool present)
 {
 	eigrp_unix_rib_subscription_t *subscription;
 
 	for (subscription = subscriptions; subscription;
 	     subscription = subscription->next) {
 		if (!eigrp_unix_rib_source_equal(&subscription->source,
-						 &route->source))
+						 &route->redist.source))
 			continue;
 		if (eigrp_instance_afi(subscription->eigrp)
 		    != route->prefix.address.afi)
 			continue;
 		if (present)
-			(void)eigrp_rib_source_route_add(subscription->eigrp, route);
+			(void)eigrp_rib_redist_add(subscription->eigrp, route);
 		else
-			(void)eigrp_rib_source_route_remove(subscription->eigrp, route);
+			(void)eigrp_rib_redist_del(subscription->eigrp, route);
 	}
 }
 
@@ -136,7 +168,7 @@ void eigrp_rib_finish(void)
 	}
 	while ((source = source_routes) != NULL) {
 		source_routes = source->next;
-		free(source);
+		eigrp_unix_rib_source_entry_free(source);
 	}
 	while ((subscription = subscriptions) != NULL) {
 		subscriptions = subscription->next;
@@ -171,7 +203,7 @@ void eigrp_rib_instance_delete(eigrp_instance_t *eigrp)
 	}
 }
 
-eigrp_result_t eigrp_rib_route_install(eigrp_instance_t *eigrp,
+eigrp_result_t eigrp_rib_route_add(eigrp_instance_t *eigrp,
 	const eigrp_rib_route_t *route)
 {
 	eigrp_unix_rib_route_entry_t *entry;
@@ -196,7 +228,7 @@ eigrp_result_t eigrp_rib_route_install(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_rib_route_remove(eigrp_instance_t *eigrp,
+eigrp_result_t eigrp_rib_route_del(eigrp_instance_t *eigrp,
 	const eigrp_prefix_t *prefix)
 {
 	eigrp_unix_rib_route_entry_t **cursor;
@@ -238,9 +270,9 @@ eigrp_result_t eigrp_rib_redistribute_add(eigrp_instance_t *eigrp,
 	subscription->next = subscriptions;
 	subscriptions = subscription;
 	for (entry = source_routes; entry; entry = entry->next)
-		if (eigrp_unix_rib_source_equal(&entry->route.source, source)
+		if (eigrp_unix_rib_source_equal(&entry->route.redist.source, source)
 		    && eigrp_instance_afi(eigrp) == entry->route.prefix.address.afi)
-			(void)eigrp_rib_source_route_add(eigrp, &entry->route);
+			(void)eigrp_rib_redist_add(eigrp, &entry->route);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -258,10 +290,10 @@ eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp,
 		    || !eigrp_unix_rib_source_equal(&(*cursor)->source, source))
 			continue;
 		for (entry = source_routes; entry; entry = entry->next)
-			if (eigrp_unix_rib_source_equal(&entry->route.source, source)
+			if (eigrp_unix_rib_source_equal(&entry->route.redist.source, source)
 			    && eigrp_instance_afi(eigrp)
 				       == entry->route.prefix.address.afi)
-				(void)eigrp_rib_source_route_remove(eigrp,
+				(void)eigrp_rib_redist_del(eigrp,
 							    &entry->route);
 		subscription = *cursor;
 		*cursor = subscription->next;
@@ -272,32 +304,36 @@ eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp,
 }
 
 eigrp_result_t eigrp_unix_rib_source_route_update(
-	const eigrp_rib_source_route_t *route)
+	const eigrp_rib_route_t *route)
 {
 	eigrp_unix_rib_source_entry_t *entry;
 
 	if (!route || !eigrp_unix_rib_prefix_valid(&route->prefix)
-	    || route->source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED)
+	    || route->redist.source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	for (entry = source_routes; entry; entry = entry->next) {
 		if (!eigrp_unix_rib_source_key_equal(&entry->route, route))
 			continue;
-		entry->route = *route;
-		eigrp_unix_rib_source_notify(route, true);
+		if (eigrp_unix_rib_source_copy(entry, route) != EIGRP_RESULT_SUCCESS)
+			return EIGRP_RESULT_INTERNAL_FAILURE;
+		eigrp_unix_rib_source_notify(&entry->route, true);
 		return EIGRP_RESULT_SUCCESS;
 	}
 	entry = calloc(1, sizeof(*entry));
 	if (!entry)
 		return EIGRP_RESULT_INTERNAL_FAILURE;
-	entry->route = *route;
+	if (eigrp_unix_rib_source_copy(entry, route) != EIGRP_RESULT_SUCCESS) {
+		free(entry);
+		return EIGRP_RESULT_INTERNAL_FAILURE;
+	}
 	entry->next = source_routes;
 	source_routes = entry;
-	eigrp_unix_rib_source_notify(route, true);
+	eigrp_unix_rib_source_notify(&entry->route, true);
 	return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_unix_rib_source_route_remove(
-	const eigrp_rib_source_route_t *route)
+	const eigrp_rib_route_t *route)
 {
 	eigrp_unix_rib_source_entry_t **cursor;
 	eigrp_unix_rib_source_entry_t *entry;
@@ -318,13 +354,13 @@ eigrp_result_t eigrp_unix_rib_source_route_remove(
 				if (eigrp_unix_rib_prefix_equal(
 					    &replacement->route.prefix, &entry->route.prefix)
 				    && eigrp_unix_rib_source_equal(
-					    &replacement->route.source, &entry->route.source)) {
+					    &replacement->route.redist.source, &entry->route.redist.source)) {
 					eigrp_unix_rib_source_notify(&replacement->route, true);
 					break;
 				}
 			}
 		}
-		free(entry);
+		eigrp_unix_rib_source_entry_free(entry);
 		return EIGRP_RESULT_SUCCESS;
 	}
 	return EIGRP_RESULT_NOT_FOUND;

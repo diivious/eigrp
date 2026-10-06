@@ -16,6 +16,8 @@
 #include "eigrp_unix_interface.h"
 #include "eigrp_unix_rib.h"
 #include "eigrp_unix_segment.h"
+#include "eigrp_metric.h"
+#include "eigrp_const.h"
 
 typedef struct eigrp_unix_interface_address {
 	eigrp_prefix_t prefix;
@@ -74,15 +76,27 @@ static eigrp_prefix_t eigrp_unix_connected_prefix(
 	return prefix;
 }
 
-static eigrp_rib_source_route_t eigrp_unix_connected_route(
-	const eigrp_unix_interface_t *interface, const eigrp_prefix_t *address)
+static void eigrp_unix_connected_route(
+	const eigrp_unix_interface_t *interface, const eigrp_prefix_t *address,
+	eigrp_rib_route_t *route, eigrp_rib_nexthop_t *nexthop)
 {
-	eigrp_rib_source_route_t route = {0};
+	eigrp_metric_values_t values = {0};
 
-	route.prefix = eigrp_unix_connected_prefix(address);
-	route.ifindex = interface->ifindex;
-	route.source.protocol = EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED;
-	return route;
+	memset(route, 0, sizeof(*route));
+	memset(nexthop, 0, sizeof(*nexthop));
+	route->prefix = eigrp_unix_connected_prefix(address);
+	nexthop->ifindex = interface->ifindex;
+	route->nexthops = nexthop;
+	route->nexthop_count = 1;
+	route->redist.source.protocol = EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED;
+	values.bandwidth = interface->bandwidth ? interface->bandwidth
+						: EIGRP_BANDWIDTH_DEFAULT;
+	values.delay = EIGRP_DELAY_DEFAULT;
+	values.reliability = EIGRP_RELIABILITY_DEFAULT;
+	values.load = EIGRP_LOAD_DEFAULT;
+	values.mtu = interface->mtu > UINT16_MAX ? UINT16_MAX
+						       : (uint16_t)interface->mtu;
+	eigrp_metric_values_convert(&values, &route->redist.vecmetric);
 }
 
 static bool eigrp_unix_interface_connected_prefix_present(
@@ -104,10 +118,11 @@ static void eigrp_unix_interface_connected_update(
 	const eigrp_unix_interface_t *interface, bool present)
 {
 	const eigrp_unix_interface_address_t *address;
-	eigrp_rib_source_route_t route;
+	eigrp_rib_route_t route;
+	eigrp_rib_nexthop_t nexthop;
 
 	for (address = interface->addresses; address; address = address->next) {
-		route = eigrp_unix_connected_route(interface, &address->prefix);
+		eigrp_unix_connected_route(interface, &address->prefix, &route, &nexthop);
 		if (present)
 			(void)eigrp_unix_rib_source_route_update(&route);
 		else
@@ -138,7 +153,7 @@ static void eigrp_unix_interface_notify(const eigrp_unix_interface_t *interface)
 
 	for (address = interface->addresses; address; address = address->next) {
 		eigrp_unix_interface_state_fill(interface, address, &state);
-		eigrp_sys_interface_state_update(EIGRP_VRF_DEFAULT, &state);
+		eigrp_sys_intf_update(EIGRP_VRF_DEFAULT, &state);
 	}
 }
 
@@ -211,7 +226,7 @@ eigrp_result_t eigrp_unix_interface_delete(const char *name)
 		*cursor = interface->next;
 		eigrp_unix_segment_interface_detach_all(interface);
 		eigrp_unix_interface_connected_update(interface, false);
-		eigrp_sys_interface_link_remove(EIGRP_VRF_DEFAULT, interface->ifindex,
+		eigrp_sys_intf_remove(EIGRP_VRF_DEFAULT, interface->ifindex,
 			EIGRP_INTERFACE_REMOVE_HOST);
 		while ((address = interface->addresses) != NULL) {
 			interface->addresses = address->next;
@@ -261,7 +276,7 @@ eigrp_result_t eigrp_unix_interface_down(const char *name)
 		goto out;
 	eigrp_unix_interface_connected_update(interface, false);
 	interface->operative = false;
-	eigrp_sys_interface_link_down(EIGRP_VRF_DEFAULT, interface->ifindex,
+	eigrp_sys_intf_down(EIGRP_VRF_DEFAULT, interface->ifindex,
 		interface->name, 0, interface->bandwidth, interface->mtu);
 
 out:
@@ -291,9 +306,12 @@ eigrp_result_t eigrp_unix_interface_address_add(
 	address->next = interface->addresses;
 	interface->addresses = address;
 	if (interface->operative) {
-		eigrp_rib_source_route_t route =
-			eigrp_unix_connected_route(interface, &address->prefix);
-		eigrp_result_t result = eigrp_unix_rib_source_route_update(&route);
+		eigrp_rib_route_t route;
+		eigrp_rib_nexthop_t nexthop;
+		eigrp_result_t result;
+
+		eigrp_unix_connected_route(interface, &address->prefix, &route, &nexthop);
+		result = eigrp_unix_rib_source_route_update(&route);
 
 		if (result != EIGRP_RESULT_SUCCESS) {
 			interface->addresses = address->next;
@@ -302,7 +320,7 @@ eigrp_result_t eigrp_unix_interface_address_add(
 		}
 	}
 	eigrp_unix_interface_state_fill(interface, address, &state);
-	eigrp_sys_interface_state_update(EIGRP_VRF_DEFAULT, &state);
+	eigrp_sys_intf_update(EIGRP_VRF_DEFAULT, &state);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -325,11 +343,13 @@ eigrp_result_t eigrp_unix_interface_address_remove(
 		if (interface->operative
 		    && !eigrp_unix_interface_connected_prefix_present(
 			       interface, &address->prefix)) {
-			eigrp_rib_source_route_t route =
-				eigrp_unix_connected_route(interface, &address->prefix);
+			eigrp_rib_route_t route;
+			eigrp_rib_nexthop_t nexthop;
+
+			eigrp_unix_connected_route(interface, &address->prefix, &route, &nexthop);
 			(void)eigrp_unix_rib_source_route_remove(&route);
 		}
-		eigrp_sys_interface_address_remove(EIGRP_VRF_DEFAULT,
+		eigrp_sys_intf_addr_update(EIGRP_VRF_DEFAULT,
 			interface->ifindex, &address->prefix,
 			EIGRP_INTERFACE_REMOVE_HOST);
 		free(address);

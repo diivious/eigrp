@@ -9,9 +9,9 @@ def read(path):
 
 def test_ipv6_filter_policy_reaches_runtime_data_path():
     policy = read("frr/code/eigrp_policy.c")
-    filt = read("eigrpd/code/eigrp_filter.c")
-    update = read("eigrpd/code/eigrp_update.c")
-    packetizer = read("eigrpd/code/eigrp_packetizer.c")
+    filt = read("eigrp/code/eigrp_filter.c")
+    update = read("eigrp/code/eigrp_update.c")
+    packetizer = read("eigrp/code/eigrp_packetizer.c")
 
     assert "AFI_IP6" in policy
     assert "prefix_list_lookup(afi, name)" in policy
@@ -23,9 +23,9 @@ def test_ipv6_filter_policy_reaches_runtime_data_path():
 
 
 def test_route_maps_filter_redistributed_ipv6_candidates():
-    system = read("eigrpd/code/eigrp_sys.h")
+    system = read("eigrp/code/eigrp_sys.h")
     policy = read("frr/code/eigrp_policy.c")
-    redist = read("eigrpd/code/eigrp_redistribute.c")
+    redist = read("eigrp/code/eigrp_redistribute.c")
 
     assert "eigrp_sys_redistribute_route_map_evaluate" in system
     assert "route_map_lookup_by_name" in policy
@@ -36,8 +36,8 @@ def test_route_maps_filter_redistributed_ipv6_candidates():
 
 def test_policy_edits_force_reevaluation():
     policy = read("frr/code/eigrp_policy.c")
-    redist = read("eigrpd/code/eigrp_redistribute.c")
-    filt = read("eigrpd/code/eigrp_filter.c")
+    redist = read("eigrp/code/eigrp_redistribute.c")
+    filt = read("eigrp/code/eigrp_filter.c")
 
     assert "route_map_add_hook" in policy
     assert "route_map_delete_hook" in policy
@@ -56,8 +56,8 @@ def test_classic_ipv6_distribute_uses_ipv6_slots():
 
 
 def test_outbound_offset_applies_to_normal_and_resync_updates():
-    update = read("eigrpd/code/eigrp_update.c")
-    packetizer = read("eigrpd/code/eigrp_packetizer.c")
+    update = read("eigrp/code/eigrp_update.c")
+    packetizer = read("eigrp/code/eigrp_packetizer.c")
 
     assert "&wire_route.metric" in packetizer
     assert update.count("eigrp_offset_metric_update") >= 4
@@ -65,12 +65,12 @@ def test_outbound_offset_applies_to_normal_and_resync_updates():
 
 def test_frr_route_map_types_do_not_leak_into_portable_code():
     portable_files = [
-        "eigrpd/code/eigrp.h",
-        "eigrpd/code/eigrp_sys.h",
-        "eigrpd/code/eigrp_filter.c",
-        "eigrpd/code/eigrp_update.c",
-        "eigrpd/code/eigrp_packetizer.c",
-        "eigrpd/code/eigrp_redistribute.c",
+        "eigrp/code/eigrp.h",
+        "eigrp/code/eigrp_sys.h",
+        "eigrp/code/eigrp_filter.c",
+        "eigrp/code/eigrp_update.c",
+        "eigrp/code/eigrp_packetizer.c",
+        "eigrp/code/eigrp_redistribute.c",
     ]
     forbidden = (
         "struct route_map",
@@ -96,7 +96,7 @@ def test_frr_route_map_types_do_not_leak_into_portable_code():
 def test_policy_shim_header_matches_route_map_boundary():
     header = read("frr/code/eigrp_policy.h")
     assert "eigrp_policy_redistribute_route_map_evaluate" in header
-    assert "eigrp_rib_source_route_t" in header
+    assert "eigrp_rib_route_t" in header
     for native in ("struct route_map", "route_map_result_t", "RMAP_", "routemap.h"):
         assert native not in header
     assert "route_map_result_t" not in header
@@ -106,7 +106,7 @@ def test_policy_shim_header_matches_route_map_boundary():
 
 
 def test_packet_host_contract_keeps_generic_and_af_specific_entry_points():
-    sys_h = read("eigrpd/code/eigrp_sys.h")
+    sys_h = read("eigrp/code/eigrp_sys.h")
     assert "int eigrp_sys_packet_send(" in sys_h
     assert "bool eigrp_sys_packet_receive(" in sys_h
     assert "int eigrp_sys_ipv4_packet_send(" in sys_h
@@ -116,12 +116,12 @@ def test_packet_host_contract_keeps_generic_and_af_specific_entry_points():
 
 
 def test_route_map_contract_is_const_end_to_end():
-    system = read("eigrpd/code/eigrp_sys.h")
+    system = read("eigrp/code/eigrp_sys.h")
     southbound = read("frr/code/eigrp_southbound.c")
     policy_h = read("frr/code/eigrp_policy.h")
     policy_c = read("frr/code/eigrp_policy.c")
 
-    signature = "const eigrp_rib_source_route_t *route"
+    signature = "const eigrp_rib_route_t *route"
     assert signature in system
     assert signature in southbound
     assert signature in policy_h

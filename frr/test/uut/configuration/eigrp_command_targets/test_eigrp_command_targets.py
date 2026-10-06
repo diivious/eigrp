@@ -22,7 +22,7 @@ NEIGHBOR_C = ROOT / "eigrpd" / "code" / "eigrp_neighbor.c"
 HELLO_C = ROOT / "eigrpd" / "code" / "eigrp_hello.c"
 PACKET_C = ROOT / "eigrpd" / "code" / "eigrp_packet.c"
 UPDATE_C = ROOT / "eigrpd" / "code" / "eigrp_update.c"
-EIGRPD_C = ROOT / "eigrpd" / "code" / "eigrpd.c"
+EIGRPD_C = ROOT / "eigrpd" / "code" / "eigrp.c"
 NORTHBOUND_C = ROOT / "frr" / "code" / "eigrp_northbound.c"
 
 
@@ -101,7 +101,7 @@ def test_interface_controls_retain_configuration_and_apply_available_runtime_beh
     assert "context->config->shutdown = shutdown;" in shutdown
     assert "eigrp_hello_send" in shutdown
     assert "eigrp_intf_down(context->runtime);" in shutdown
-    assert "eigrp_af_instance_start" in shutdown
+    assert "eigrp_instance_start" in shutdown
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in shutdown
 
 

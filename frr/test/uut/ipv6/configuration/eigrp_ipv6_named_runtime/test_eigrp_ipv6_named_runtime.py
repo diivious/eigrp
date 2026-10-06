@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-EIGRPD = ROOT / "eigrpd" / "code" / "eigrpd.c"
+EIGRPD = ROOT / "eigrpd" / "code" / "eigrp.c"
 STRUCTS = ROOT / "eigrpd" / "code" / "eigrp_structs.h"
 INSTANCE = ROOT / "eigrpd" / "code" / "eigrp_instance.c"
 SOUTHBOUND = ROOT / "frr" / "code" / "eigrp_southbound.c"
@@ -33,15 +33,15 @@ def read(path: Path) -> str:
 def test_named_ipv6_creates_a_real_control_runtime():
     instance = read(INSTANCE)
     runtime_create = instance[
-        instance.index("static eigrp_result_t eigrp_af_instance_runtime_create"):
-        instance.index("static eigrp_result_t eigrp_af_instance_runtime_delete")
+        instance.index("static eigrp_result_t eigrp_af_config_runtime_create"):
+        instance.index("static eigrp_result_t eigrp_af_config_runtime_delete")
     ]
 
     assert "eigrp_sys_vrf_resolve" in runtime_create
     assert "eigrp_lookup_by_af_as_vrf(af->afi, af->asn, vrf_id)" in runtime_create
     runtime_words = " ".join(runtime_create.split())
-    assert "eigrp_instance_lookup_or_create_by_af(" in runtime_create
-    assert "eigrp_instance_lookup_or_create_by_af(af->afi, af->asn, vrf_id);" in runtime_words
+    assert "eigrp_instance_create(af->afi, af->asn, vrf_id)" in runtime_create
+    assert "eigrp_instance_create(af->afi, af->asn, vrf_id);" in runtime_words
     assert "af->runtime = runtime;" in runtime_create
 
 
@@ -51,7 +51,7 @@ def test_runtime_identity_is_af_vrf_as_and_legacy_lookup_stays_ipv4():
     assert "eigrp_lookup_by_af_as_vrf(eigrp_afi_t afi" in eigrpd
     assert "eigrp->af_vectors.afi == afi && eigrp->AS == as" in eigrpd
     assert "eigrp_lookup_by_af_as_vrf(EIGRP_AFI_IPV4, as, vrf_id)" in eigrpd
-    assert "eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id)" in eigrpd
+    assert "eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as," in eigrpd
 
 
 def test_ipv6_runtime_uses_the_normal_live_datapath_lifecycle():
@@ -59,7 +59,7 @@ def test_ipv6_runtime_uses_the_normal_live_datapath_lifecycle():
     ipv6 = read(ROOT / "eigrpd" / "code" / "eigrp_ipv6.c")
     sys_header = read(ROOT / "eigrpd" / "code" / "eigrp_sys.h")
 
-    assert "eigrp_instance_lookup_or_create_by_af(EIGRP_AFI_IPV4, as, vrf_id)" in eigrpd
+    assert "eigrp_instance_t *eigrp_instance_create(eigrp_afi_t afi, uint16_t as," in eigrpd
     assert "vectors->packet_send = eigrp_ipv6_packet_send;" in ipv6
     assert "vectors->packet_receive = eigrp_ipv6_packet_receive;" in ipv6
     assert "eigrp_sys_ipv6_packet_send" in sys_header
@@ -77,12 +77,14 @@ def test_runtime_has_no_per_instance_data_path_capability_gate():
     assert "EIGRP_AF_VECTOR_REQUIRE(packet_send);" in eigrpd
     assert "EIGRP_AF_VECTOR_REQUIRE(packet_receive);" in eigrpd
 
-def test_router_id_refresh_uses_live_runtime_path_for_both_families():
+def test_router_id_refresh_uses_af_event_path_for_both_families():
     instance = read(INSTANCE)
-    start = instance.index("static void eigrp_instance_router_id_runtime_update")
-    end = instance.index("void eigrp_sys_router_id_update", start)
+    start = instance.index("void eigrp_instance_event_process")
+    end = instance.index("typedef enum eigrp_instance_control_message_type", start)
     block = instance[start:end]
+    assert "EIGRP_AF_EVENT_ROUTERID_UPDATE" in block
     assert "eigrp_router_id_update(runtime);" in block
+    assert "eigrp_instance_event_enqueue(" in block
 
 
 def test_ipv4_and_ipv6_summaries_share_generic_prefix_storage_and_targets():

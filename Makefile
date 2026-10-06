@@ -19,13 +19,13 @@ help: ## Show available make targets and their descriptions.
 	@awk 'BEGIN {FS = ":.*## "} /^[A-Za-z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 portable-build: ## Build the platform-independent EIGRP code.
-	$(MAKE) -C eigrpd/code
+	$(MAKE) -C eigrp/code
 
 portable-pytest: build ## Run the Python UUT test suite with pytest.
-	$(PYTHON) -m pytest eigrpd/test
+	$(PYTHON) -m pytest eigrp/test
 
 portable-scenarios: build ## Run all portable UUT scenario tests.
-	$(MAKE) -C eigrpd/test/uut all-scenarios
+	$(MAKE) -C eigrp/test/uut all-scenarios
 
 portable-test: portable-pytest portable-scenarios ## Run all portable pytest and scenario tests.
 
@@ -35,19 +35,19 @@ build: portable-build ## Build portable EIGRP code and Unix platform support.
 uut: portable-pytest portable-scenarios ## Run the complete UUT pytest and scenario suites.
 
 ipv4-basic-core: build ## Run the IPv4 basic-core UUT scenario.
-	$(MAKE) -C eigrpd/test/uut ipv4-basic-core
+	$(MAKE) -C eigrp/test/uut ipv4-basic-core
 
 ipv6-basic-core: build ## Run the IPv6 basic-core UUT scenario.
-	$(MAKE) -C eigrpd/test/uut ipv6-basic-core
+	$(MAKE) -C eigrp/test/uut ipv6-basic-core
 
 rtp-core: build ## Run the RTP core UUT scenario.
-	$(MAKE) -C eigrpd/test/uut rtp-core
+	$(MAKE) -C eigrp/test/uut rtp-core
 
 core-topology: build ## Run the four-router square and cross-connected core redundancy scenarios.
-	$(MAKE) -C eigrpd/test/uut core-topology
+	$(MAKE) -C eigrp/test/uut core-topology
 
 mesh-topology: build ## Run the six-router full-mesh DUAL/query-storm qualification scenarios.
-	$(MAKE) -C eigrpd/test/uut mesh-topology
+	$(MAKE) -C eigrp/test/uut mesh-topology
 
 test: ## Run all test groups and return failure if any group fails.
 	@status=0; \
@@ -63,6 +63,6 @@ frr-smoke: ## Run the optional FRR compile/link smoke test.
 	$(MAKE) -C frr/test/build
 
 clean: ## Remove generated build and UUT artifacts.
-	$(MAKE) -C eigrpd/code clean
+	$(MAKE) -C eigrp/code clean
 	$(MAKE) -C unix/code clean
-	$(MAKE) -C eigrpd/test/uut clean
+	$(MAKE) -C eigrp/test/uut clean

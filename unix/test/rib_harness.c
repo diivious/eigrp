@@ -9,7 +9,7 @@
 
 static unsigned source_adds;
 static unsigned source_removes;
-static eigrp_rib_source_route_t last_source;
+static eigrp_rib_route_t last_source;
 
 eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *eigrp)
 {
@@ -17,8 +17,8 @@ eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *eigrp)
 		: EIGRP_AFI_IPV6;
 }
 
-eigrp_result_t eigrp_rib_source_route_add(eigrp_instance_t *eigrp,
-	const eigrp_rib_source_route_t *route)
+eigrp_result_t eigrp_rib_redist_add(eigrp_instance_t *eigrp,
+	const eigrp_rib_route_t *route)
 {
 	assert(eigrp != NULL);
 	last_source = *route;
@@ -26,8 +26,8 @@ eigrp_result_t eigrp_rib_source_route_add(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_rib_source_route_remove(eigrp_instance_t *eigrp,
-	const eigrp_rib_source_route_t *route)
+eigrp_result_t eigrp_rib_redist_del(eigrp_instance_t *eigrp,
+	const eigrp_rib_route_t *route)
 {
 	assert(eigrp != NULL);
 	last_source = *route;
@@ -73,7 +73,8 @@ int main(void)
 {
 	eigrp_rib_nexthop_t nh = {0};
 	eigrp_rib_route_t learned = {0};
-	eigrp_rib_source_route_t source = {0};
+	eigrp_rib_route_t source = {0};
+	eigrp_rib_nexthop_t source_nh = {0};
 	eigrp_redist_source_t connected = {
 		.protocol = EIGRP_REDISTRIBUTE_PROTOCOL_CONNECTED,
 	};
@@ -86,15 +87,15 @@ int main(void)
 	learned.nexthops = &nh;
 	learned.nexthop_count = 1;
 	learned.metric = 111;
-	learned.administrative_distance = 90;
-	learned.type = EIGRP_RIB_ROUTE_INTERNAL;
-	assert(eigrp_rib_route_install((eigrp_instance_t *)1, &learned)
+	learned.install.admin_dist = 90;
+	learned.install.type = EIGRP_RIB_ROUTE_INTERNAL;
+	assert(eigrp_rib_route_add((eigrp_instance_t *)1, &learned)
 	       == EIGRP_RESULT_SUCCESS);
 	assert(eigrp_unix_rib_route_count() == 1);
 
 	/* ADD/install is replace semantics for an existing instance+prefix. */
 	learned.metric = 222;
-	assert(eigrp_rib_route_install((eigrp_instance_t *)1, &learned)
+	assert(eigrp_rib_route_add((eigrp_instance_t *)1, &learned)
 	       == EIGRP_RESULT_SUCCESS);
 	assert(eigrp_unix_rib_route_count() == 1);
 	eigrp_unix_rib_route_walk(learned_check, &seen);
@@ -103,17 +104,19 @@ int main(void)
 	/* IPv6 is stored by the same AF-aware host RIB contract. */
 	learned.prefix = prefix("2001:db8:2::", 64);
 	nh.gateway = address("2001:db8:12::2");
-	assert(eigrp_rib_route_install((eigrp_instance_t *)2, &learned)
+	assert(eigrp_rib_route_add((eigrp_instance_t *)2, &learned)
 	       == EIGRP_RESULT_SUCCESS);
 	assert(eigrp_unix_rib_route_count() == 2);
-	assert(eigrp_rib_route_remove((eigrp_instance_t *)2, &learned.prefix)
+	assert(eigrp_rib_route_del((eigrp_instance_t *)2, &learned.prefix)
 	       == EIGRP_RESULT_SUCCESS);
 	assert(eigrp_unix_rib_route_count() == 1);
 
 	/* Host source routes are retained even before EIGRP subscribes. */
 	source.prefix = prefix("192.0.2.0", 24);
-	source.ifindex = 7;
-	source.source = connected;
+	source_nh.ifindex = 7;
+	source.nexthops = &source_nh;
+	source.nexthop_count = 1;
+	source.redist.source = connected;
 	assert(eigrp_unix_rib_source_route_update(&source)
 	       == EIGRP_RESULT_SUCCESS);
 	assert(eigrp_unix_rib_source_count() == 1);
@@ -121,7 +124,8 @@ int main(void)
 	assert(eigrp_rib_redistribute_add((eigrp_instance_t *)1, &connected)
 	       == EIGRP_RESULT_SUCCESS);
 	assert(source_adds == 1);
-	assert(last_source.ifindex == 7);
+	assert(last_source.nexthop_count == 1);
+	assert(last_source.nexthops[0].ifindex == 7);
 
 	/* Changed source snapshots use add/update semantics. */
 	source.metric = 55;
@@ -134,7 +138,7 @@ int main(void)
 	assert(source_removes == 1);
 	assert(eigrp_unix_rib_source_count() == 0);
 
-	assert(eigrp_rib_route_remove((eigrp_instance_t *)1,
+	assert(eigrp_rib_route_del((eigrp_instance_t *)1,
 				      &(eigrp_prefix_t){.address = {.afi = EIGRP_AFI_IPV4,
 									.bytes = {10, 2, 0, 0}},
 							.prefix_length = 24})

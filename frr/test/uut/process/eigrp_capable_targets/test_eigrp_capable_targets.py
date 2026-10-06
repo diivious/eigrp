@@ -61,8 +61,8 @@ def test_named_hello_hold_and_passive_callbacks_reach_common_targets():
 
 
 def test_interface_targets_update_active_runtime_and_passive_controls_hello_io():
-    interface = read("eigrpd/code/eigrp_interface.c")
-    hello_source = read("eigrpd/code/eigrp_hello.c")
+    interface = read("eigrp/code/eigrp_interface.c")
+    hello_source = read("eigrp/code/eigrp_hello.c")
 
     hello = function_body(interface, "eigrp_intf_hello_interval_update")
     hold = function_body(interface, "eigrp_intf_hold_time_update")
@@ -81,8 +81,8 @@ def test_interface_targets_update_active_runtime_and_passive_controls_hello_io()
 
 def test_metric_weights_variance_and_maximum_paths_callbacks_reach_runtime_targets():
     northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
-    metric = read("eigrpd/code/eigrp_metric.c")
-    topology = read("eigrpd/code/eigrp_topology.c")
+    metric = read("eigrp/code/eigrp_metric.c")
+    topology = read("eigrp/code/eigrp_topology.c")
 
     weights = function_body(northbound, "eigrpd_named_metric_weights_apply")
     variance = function_body(northbound, "eigrpd_named_variance_modify")
@@ -103,8 +103,8 @@ def test_metric_weights_variance_and_maximum_paths_callbacks_reach_runtime_targe
 
 def test_named_md5_and_keychain_reach_runtime_and_late_interface_bind():
     northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
-    auth = read("eigrpd/code/eigrp_auth.c")
-    interface = read("eigrpd/code/eigrp_interface.c")
+    auth = read("eigrp/code/eigrp_auth.c")
+    interface = read("eigrp/code/eigrp_interface.c")
 
     apply = function_body(northbound, "eigrpd_named_af_interface_authentication_apply")
     keychain = function_body(northbound, "eigrpd_named_af_interface_keychain_modify")
@@ -137,11 +137,11 @@ def test_eigrp_stub_feature_is_not_implemented_by_audit_item_4():
     changed_modules = "\n".join(
         read(path)
         for path in (
-            "eigrpd/code/eigrp_interface.c",
-            "eigrpd/code/eigrp_hello.c",
-            "eigrpd/code/eigrp_metric.c",
-            "eigrpd/code/eigrp_topology.c",
-            "eigrpd/code/eigrp_auth.c",
+            "eigrp/code/eigrp_interface.c",
+            "eigrp/code/eigrp_hello.c",
+            "eigrp/code/eigrp_metric.c",
+            "eigrp/code/eigrp_topology.c",
+            "eigrp/code/eigrp_auth.c",
             "frr/code/eigrp_northbound.c",
         )
     )

@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_interface.h"
 #include "eigrp_instance.h"

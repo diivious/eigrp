@@ -24,7 +24,7 @@ def test_common_prefix_address_match(tmp_path):
             #include <assert.h>
             #include <string.h>
 
-            #include "eigrpd/code/eigrp_prefix.h"
+            #include "eigrp/code/eigrp_prefix.h"
 
             static void ipv4_prefix(eigrp_prefix_t *prefix, const char *text,
                                     unsigned int length)

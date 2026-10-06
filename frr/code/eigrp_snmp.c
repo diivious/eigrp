@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRP SNMP Support.
- * Copyright (C) 2013-2014
+ * Copyright (C) 2013-2014, 2026
  * Authors:
  *   Donnie Savage
  *   Jan Janovic
@@ -9,7 +9,7 @@
  *   Peter Orsag
  *   Peter Paluch
  */
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_snmp.h"
 

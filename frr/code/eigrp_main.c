@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EIGRP Main Routine.
- * Copyright (C) 2013-2015
+ * Copyright (C) 2013-2015, 2026
  * Authors:
  *   Donnie Savage
  *   Jan Janovic
@@ -32,7 +32,7 @@
 #include "vrf.h"
 #include "libagentx.h"
 
-#include "eigrpd.h"
+#include "eigrp.h"
 #include "eigrp_features.h"
 #include "eigrp_structs.h"
 #include "eigrp_debug.h"
@@ -183,10 +183,12 @@ int main(int argc, char **argv, char **envp)
 
 	eigrp_sw_version_init();
 
-	/* EIGRP frr event init. */
-	eigrp_init();
+	/* FRR thread/logging infrastructure must exist before eigrp_init() starts
+	 * EIGRP-owned pthreads.  Those threads register their host logging context
+	 * through eigrp_log_start() before executing protocol work. */
 	master = frr_init();
 	eigrpd_event = master;
+	eigrp_init();
 	libagentx_init();
 
 	eigrp_error_init();

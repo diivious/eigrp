@@ -2,13 +2,27 @@
 /* EIGRP FRR logging adapter. Copyright (C) 2026 Donnie V. Savage */
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <zebra.h>
+#include "lib/frr_pthread.h"
 #include "log.h"
 
 #include "eigrp_log.h"
 
 #define EIGRP_FRR_LOG_BUFFER_SIZE 2048U
+
+void eigrp_log_start(void)
+{
+	if (frr_pthread_non_controlled_startup(pthread_self(), "eigrp", "eigrp")
+	    != 0)
+		abort();
+}
+
+void eigrp_log_stop(void)
+{
+	frr_pthread_non_controlled_shutdown(pthread_self());
+}
 
 static void eigrp_log_write(eigrp_log_level_t level, const char *message)
 {

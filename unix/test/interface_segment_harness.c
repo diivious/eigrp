@@ -15,7 +15,7 @@ static unsigned link_removes;
 static unsigned address_removes;
 static eigrp_intf_runtime_state_t last_state;
 
-void eigrp_sys_interface_state_update(eigrp_vrf_id_t vrf_id,
+void eigrp_sys_intf_update(eigrp_vrf_id_t vrf_id,
 	const eigrp_intf_runtime_state_t *state)
 {
 	assert(vrf_id == EIGRP_VRF_DEFAULT);
@@ -23,7 +23,7 @@ void eigrp_sys_interface_state_update(eigrp_vrf_id_t vrf_id,
 	state_updates++;
 }
 
-void eigrp_sys_interface_link_down(eigrp_vrf_id_t vrf_id,
+void eigrp_sys_intf_down(eigrp_vrf_id_t vrf_id,
 	eigrp_ifindex_t ifindex, const char *name, uint8_t type,
 	uint32_t bandwidth, uint32_t mtu)
 {
@@ -34,7 +34,7 @@ void eigrp_sys_interface_link_down(eigrp_vrf_id_t vrf_id,
 	link_downs++;
 }
 
-void eigrp_sys_interface_link_remove(eigrp_vrf_id_t vrf_id,
+void eigrp_sys_intf_remove(eigrp_vrf_id_t vrf_id,
 	eigrp_ifindex_t ifindex, eigrp_intf_remove_reason_t reason)
 {
 	assert(vrf_id == EIGRP_VRF_DEFAULT);
@@ -43,7 +43,7 @@ void eigrp_sys_interface_link_remove(eigrp_vrf_id_t vrf_id,
 	link_removes++;
 }
 
-void eigrp_sys_interface_address_remove(eigrp_vrf_id_t vrf_id,
+void eigrp_sys_intf_addr_update(eigrp_vrf_id_t vrf_id,
 	eigrp_ifindex_t ifindex, const eigrp_prefix_t *address,
 	eigrp_intf_remove_reason_t reason)
 {
@@ -62,16 +62,16 @@ eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *eigrp)
 		: EIGRP_AFI_IPV6;
 }
 
-eigrp_result_t eigrp_rib_source_route_add(
-	eigrp_instance_t *eigrp, const eigrp_rib_source_route_t *route)
+eigrp_result_t eigrp_rib_redist_add(
+	eigrp_instance_t *eigrp, const eigrp_rib_route_t *route)
 {
 	(void)eigrp;
 	(void)route;
 	return EIGRP_RESULT_SUCCESS;
 }
 
-eigrp_result_t eigrp_rib_source_route_remove(
-	eigrp_instance_t *eigrp, const eigrp_rib_source_route_t *route)
+eigrp_result_t eigrp_rib_redist_del(
+	eigrp_instance_t *eigrp, const eigrp_rib_route_t *route)
 {
 	(void)eigrp;
 	(void)route;
