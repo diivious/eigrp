@@ -137,14 +137,6 @@ retained config. That is the same work as Section 3 max-prefix items.
 
 Combined with 5.3, junk Hellos still allocate.
 
-#### 5.12 Update/Query/Reply decoder loop
-
-The loop keeps calling the decoder while `endp > getp`. TLV1/TLV2 abort to
-`endp` on unknown type, so they advance. A future codec that returns NULL
-without moving `getp` hangs the read callback.
-
-Fix: if decoder returns NULL and `getp` did not move, drop the packet.
-
 #### 5.13 `eigrp_print_addr()` is `inet_ntoa` of IPv4 only
 
 Static buffer, IPv6-wrong. Two prints in one log can alias. Not an

@@ -118,11 +118,17 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 	// process all TLVs in the packet
 	while (pkt->endp > pkt->getp) {
-		route = (nbr->decoder)(eigrp, nbr, pkt, length);
+		size_t tlv_start = pkt->getp;
 
-		// should have got route off the packet, but one never knows
-		if (!route)
-			break;
+		route = (nbr->decoder)(eigrp, nbr, pkt, length);
+		if (!route) {
+			/* A decoder failure must consume input or terminate the walk.
+			 * Otherwise a malformed TLV can spin this receive callback. */
+			if (pkt->getp == tlv_start)
+				return;
+			continue;
+		}
+
 
 		/* Manual summaries are local query boundaries.  The aggregate is
 		 * synthesized on advertisement, so answer a QUERY for the aggregate

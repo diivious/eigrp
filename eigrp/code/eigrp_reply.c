@@ -64,9 +64,16 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	eigrp_hello_send_ack(nbr);
 
 	while (pkt->endp > pkt->getp) {
+		size_t tlv_start = pkt->getp;
+
 		route = (nbr->decoder)(eigrp, nbr, pkt, length);
-		if (!route)
-			break;
+		if (!route) {
+			/* A decoder failure must consume input or terminate the walk.
+			 * Otherwise a malformed TLV can spin this receive callback. */
+			if (pkt->getp == tlv_start)
+				return;
+			continue;
+		}
 
 		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);
