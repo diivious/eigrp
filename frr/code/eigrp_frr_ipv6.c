@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * EIGRP FRR IPv6 southbound integration.
+ * EIGRP FRR IPv6 integration.
  *
- * Code migrated from eigrp_southbound.c during the address-family
- * integration split.
+ * FRR-specific IPv6 northbound value adaptation and southbound socket,
+ * multicast, and packet I/O live together here.  Public EIGRP API names
+ * remain owned by the portable core interfaces they implement.
  *
  * Copyright (C) 2026 Donnie V. Savage
  */
+
 #include <zebra.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,9 +21,24 @@
 #include "eigrp_instance.h"
 #include "eigrp_packet.h"
 #include "eigrp_sys.h"
-#include "eigrp_southbound_internal.h"
+#include "eigrp_northbound.h"
+#include "eigrp_southbound.h"
 #include "lib/sockopt.h"
 #include "vrf.h"
+
+bool eigrp_northbound_ipv6_neighbor_address_copy(
+	eigrp_address_t *destination, const struct in6_addr *address)
+{
+	if (!destination || !address)
+		return false;
+
+	memset(destination, 0, sizeof(*destination));
+	destination->afi = EIGRP_AFI_IPV6;
+	memcpy(destination->bytes, address, sizeof(*address));
+	return true;
+}
+
+/* FRR IPv6 packet/socket services. */
 
 static bool eigrp_southbound_ipv6_interface_linklocal(
 	eigrp_instance_t *eigrp, const eigrp_intf_t *ei,

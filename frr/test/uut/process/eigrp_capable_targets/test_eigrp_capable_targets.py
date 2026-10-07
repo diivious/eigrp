@@ -35,7 +35,7 @@ def function_body(source: str, name: str) -> str:
 
 
 def test_named_interface_context_uses_address_family_runtime_binding():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
     resolve = function_body(northbound, "eigrpd_named_interface_context_resolve")
 
     assert "runtime = af->runtime;" in resolve
@@ -43,7 +43,7 @@ def test_named_interface_context_uses_address_family_runtime_binding():
 
 
 def test_named_hello_hold_and_passive_callbacks_reach_common_targets():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
 
     hello = function_body(northbound, "eigrpd_named_af_interface_hello_modify")
     hello_no = function_body(northbound, "eigrpd_named_af_interface_hello_destroy")
@@ -80,7 +80,7 @@ def test_interface_targets_update_active_runtime_and_passive_controls_hello_io()
 
 
 def test_metric_weights_variance_and_maximum_paths_callbacks_reach_runtime_targets():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
     metric = read("eigrp/code/eigrp_metric.c")
     topology = read("eigrp/code/eigrp_topology.c")
 
@@ -102,7 +102,7 @@ def test_metric_weights_variance_and_maximum_paths_callbacks_reach_runtime_targe
 
 
 def test_named_md5_and_keychain_reach_runtime_and_late_interface_bind():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
     auth = read("eigrp/code/eigrp_auth.c")
     interface = read("eigrp/code/eigrp_interface.c")
 
@@ -125,7 +125,7 @@ def test_named_md5_and_keychain_reach_runtime_and_late_interface_bind():
 
 
 def test_ipv6_named_af_interface_now_resolves_live_runtime_for_task5():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
     resolve = function_body(northbound, "eigrpd_named_interface_context_resolve")
 
     assert 'strcmp(interface_name, "default") != 0' in resolve

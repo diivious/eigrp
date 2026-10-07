@@ -15,7 +15,7 @@ TYPES_H = ROOT / "eigrpd" / "code" / "eigrp_types.h"
 IPV4_C = ROOT / "eigrpd" / "code" / "eigrp_ipv4.c"
 IPV6_C = ROOT / "eigrpd" / "code" / "eigrp_ipv6.c"
 NORTHBOUND = ROOT / "frr" / "code" / "eigrp_northbound.c"
-CLI_NAMED = ROOT / "frr" / "code" / "eigrp_cli_named.c"
+CLI_NAMED = ROOT / "frr" / "code" / "eigrp_frr_named.c"
 
 
 def read(path: Path) -> str:
@@ -74,7 +74,7 @@ def test_manual_summary_common_path_has_no_frr_or_ipv4_wire_types():
 
 
 def test_named_summary_adapter_uses_generic_prefix_boundary():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     cli = read(CLI_NAMED)
     parser = function_body(northbound, "eigrpd_named_prefix_parse")
     ipv4_adapter = function_body(cli, "eigrp_cli_ipv4_summary_prefix")

@@ -28,7 +28,7 @@ def test_ipv6_sequence_tlv_and_static_neighbor_identity_are_af_aware():
     assert "dst.afi = AF_INET6;" in neighbor
 
 def test_named_show_uses_bound_ipv6_runtime():
-    cli = read("frr/code/eigrp_cli_named.c")
+    cli = read("frr/code/eigrp_frr_named.c")
     runtime_lookup = cli[cli.index("eigrp_vty_named_runtime_lookup"):cli.index("typedef eigrp_result_t", cli.index("eigrp_vty_named_runtime_lookup"))]
     assert "af->afi != EIGRP_AFI_IPV4" not in runtime_lookup
     assert "return af->runtime;" in runtime_lookup

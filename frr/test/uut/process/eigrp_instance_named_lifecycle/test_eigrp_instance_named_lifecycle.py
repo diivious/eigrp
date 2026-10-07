@@ -17,7 +17,7 @@ NORTHBOUND = ROOT / "frr" / "code" / "eigrp_northbound.c"
 EIGRPD_C = ROOT / "eigrpd" / "code" / "eigrp.c"
 INTERFACE_C = ROOT / "eigrpd" / "code" / "eigrp_interface.c"
 SUMMARY_C = ROOT / "eigrpd" / "code" / "eigrp_summary.c"
-NAMED_CLI = ROOT / "frr" / "code" / "eigrp_cli_named.c"
+NAMED_CLI = ROOT / "frr" / "code" / "eigrp_frr_named.c"
 
 
 def read(path: Path) -> str:
@@ -137,7 +137,7 @@ def test_router_id_runtime_refresh_is_owned_by_common_instance_code():
 
 
 def test_classic_process_creation_rejects_a_runtime_owned_by_named_mode():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     create = function_body(northbound, "eigrpd_instance_create")
 
     assert "eigrp_instance_classic_validate(asn, vrf_id, &owner_name)" in create
@@ -151,7 +151,7 @@ def test_classic_process_creation_rejects_a_runtime_owned_by_named_mode():
 
 
 def test_named_configuration_commands_consume_lifecycle_binding_not_relookup_process():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     instance_resolver = function_body(
         northbound, "eigrpd_named_instance_context_resolve"
     )
@@ -176,7 +176,7 @@ def test_named_configuration_commands_consume_lifecycle_binding_not_relookup_pro
 
 def test_runtime_binding_does_not_prevent_retained_interface_configuration():
     interface = read(INTERFACE_C)
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
 
     targets = (
         ("eigrp_intf_bandwidth_percent_update", "bandwidth_percent"),
@@ -215,7 +215,7 @@ def test_runtime_binding_does_not_prevent_retained_interface_configuration():
 
 def test_runtime_binding_does_not_prevent_retained_summary_configuration():
     summary = read(SUMMARY_C)
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     create = function_body(summary, "eigrp_summary_create")
     delete = function_body(summary, "eigrp_summary_delete")
     destroy_cb = function_body(

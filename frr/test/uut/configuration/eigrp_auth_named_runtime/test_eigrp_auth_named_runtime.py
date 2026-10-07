@@ -39,7 +39,7 @@ def function_body(source: str, name: str) -> str:
 
 
 def test_named_authentication_callbacks_terminate_at_common_eigrp_targets():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
 
     mode_apply = function_body(
         northbound, "eigrpd_named_af_interface_authentication_apply"
@@ -151,7 +151,7 @@ def test_hmac_receive_path_rejects_malformed_auth_tlv_shape():
 
 
 def test_classic_authentication_converges_on_common_eigrp_targets():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
 
     classic_mode = function_body(
         northbound, "lib_interface_eigrp_instance_authentication_modify"

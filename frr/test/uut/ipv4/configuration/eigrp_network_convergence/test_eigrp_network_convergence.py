@@ -65,7 +65,7 @@ def test_network_public_target_uses_existing_eigrp_instance_context_and_prefix()
 
 def test_classic_and_named_converge_on_one_network_processor():
     network = read(NETWORK_C)
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
 
     processor = function_body(network, "eigrp_network_process")
     classic_create = function_body(northbound, "eigrpd_instance_network_create")
@@ -117,7 +117,7 @@ def test_common_network_processor_owns_runtime_decisions_and_uses_host_walk_only
 
 
 def test_named_network_uses_address_family_owned_runtime_binding():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     instance_resolver = function_body(
         northbound, "eigrpd_named_instance_context_resolve"
     )
@@ -131,7 +131,7 @@ def test_named_network_uses_address_family_owned_runtime_binding():
 
 
 def test_classic_frr_network_callbacks_convert_then_call_portable_targets():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     create = function_body(northbound, "eigrpd_instance_network_create")
     destroy = function_body(northbound, "eigrpd_instance_network_destroy")
 

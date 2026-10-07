@@ -33,7 +33,7 @@
 
 #include "eigrp.h"
 #include "eigrp_structs.h"
-#include "eigrp_cli_named.h"
+#include "eigrp_frr_named.h"
 #include "eigrp_interface.h"
 #include "eigrp_neighbor.h"
 #include "eigrp_eventlog.h"
@@ -43,9 +43,9 @@
 #include "eigrp_timer.h"
 #include "eigrp_packet.h"
 #include "eigrp_topology.h"
-#include "eigrp_zebra.h"
+#include "eigrp_frr_rib.h"
 #include "eigrp_network.h"
-#include "eigrp_dump.h"
+#include "eigrp_frr_console.h"
 #include "eigrp_const.h"
 #include "eigrp_instance.h"
 #include "eigrp_northbound.h"
@@ -55,7 +55,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
 #endif
-#include "eigrp_cli_named_clippy.c"
+#include "eigrp_frr_named_clippy.c"
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
@@ -3478,7 +3478,7 @@ bool eigrp_cli_named_context(struct vty *vty)
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/active-time
  * Target: eigrp_timer_active_time_update(EIGRP_SET) / eigrp_timer_active_time_update(EIGRP_RESET, 0)
- * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
+ * Note: the shared parser is declared in eigrp_frr_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_active_time_update(struct vty *vty, bool disabled,
                                       const char *timer, bool remove)
@@ -3496,7 +3496,7 @@ int eigrp_cli_named_active_time_update(struct vty *vty, bool disabled,
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/variance
  * Target: eigrp_metric_variance_update(EIGRP_SET) / eigrp_metric_variance_update(EIGRP_RESET, 0)
- * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
+ * Note: the shared parser is declared in eigrp_frr_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_variance_update(struct vty *vty, const char *variance,
                                    bool remove)
@@ -3514,7 +3514,7 @@ int eigrp_cli_named_variance_update(struct vty *vty, const char *variance,
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/maximum-paths
  * Target: eigrp_topology_maximum_paths_update(EIGRP_SET) / eigrp_topology_maximum_paths_update(EIGRP_RESET, 0)
- * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
+ * Note: the shared parser is declared in eigrp_frr_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_maximum_paths_update(struct vty *vty,
                                         const char *maximum_paths,
@@ -3533,7 +3533,7 @@ int eigrp_cli_named_maximum_paths_update(struct vty *vty,
  * Mode: Named address-family
  * XPath: /frr-eigrpd:eigrpd/named/address-family/metric-weights
  * Target: eigrp_metric_weights_update(EIGRP_SET) / eigrp_metric_weights_update(EIGRP_RESET, 0)
- * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
+ * Note: the shared parser is declared in eigrp_frr_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_metric_weights_update(struct vty *vty,
                                          const char *tos,
@@ -3575,7 +3575,7 @@ int eigrp_cli_named_metric_weights_update(struct vty *vty,
  * Mode: Named topology
  * XPath: /frr-eigrpd:eigrpd/named/address-family/topology/redistribute
  * Target: eigrp_redist_add() / eigrp_redist_remove()
- * Note: the shared parser is declared in eigrp_cli_classic.c and dispatches here when the VTY is in named context.
+ * Note: the shared parser is declared in eigrp_frr_classic.c and dispatches here when the VTY is in named context.
  */
 int eigrp_cli_named_redist_update(struct vty *vty,
                                        const char *protocol,

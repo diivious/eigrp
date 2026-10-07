@@ -27,7 +27,7 @@ def test_ipv6_interface_up_originates_connected_topology_route():
 
 def test_multicast_membership_tracks_interface_and_passive_lifecycle():
     interface = read("eigrp/code/eigrp_interface.c")
-    southbound = read("frr/code/eigrp_southbound_ipv6.c")
+    southbound = read("frr/code/eigrp_frr_ipv6.c")
     assert "eigrp_sys_multicast_join(ei->eigrp, ei)" in interface
     assert "eigrp_sys_multicast_leave(ei->eigrp, ei)" in interface
     assert "IPV6_JOIN_GROUP" in southbound
@@ -36,7 +36,7 @@ def test_multicast_membership_tracks_interface_and_passive_lifecycle():
 
 
 def test_named_af_interface_runtime_is_family_neutral_and_inherits_default():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
     interface = read("eigrp/code/eigrp_interface.c")
     assert 'strcmp(interface_name, "default") != 0' in northbound
     assert "afi == EIGRP_AFI_IPV4" not in northbound[

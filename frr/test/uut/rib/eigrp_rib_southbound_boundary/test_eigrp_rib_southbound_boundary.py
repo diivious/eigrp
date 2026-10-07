@@ -17,8 +17,8 @@ def read(path: str) -> str:
 def test_portable_code_does_not_call_or_include_zebra_rib_adapter_directly():
     forbidden = (
         'eigrp_zebra_',
-        '#include "eigrp/code/eigrp_zebra.h"',
-        '#include "eigrp_zebra.h"',
+        '#include "eigrp/code/eigrp_frr_rib.h"',
+        '#include "eigrp_frr_rib.h"',
         '#include "zclient.h"',
     )
 
@@ -68,8 +68,8 @@ def test_route_install_remove_cross_eigrp_southbound_contract():
 
 
 def test_zebra_adapter_builds_host_rib_objects_from_portable_snapshot():
-    zebra = read("frr/code/eigrp_zebra.c")
-    zebra_h = read("frr/code/eigrp_zebra.h")
+    zebra = read("frr/code/eigrp_frr_rib.c")
+    zebra_h = read("frr/code/eigrp_frr_rib.h")
 
     assert "struct zapi_route api;" in zebra
     assert "struct zapi_nexthop *api_nh;" in zebra
@@ -82,7 +82,7 @@ def test_zebra_adapter_builds_host_rib_objects_from_portable_snapshot():
 
 def test_host_redistribution_bookkeeping_is_not_core_instance_state():
     structs = read("eigrp/code/eigrp_structs.h")
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
 
     assert "ZEBRA_ROUTE_MAX" not in structs
     assert "dmetric[" not in structs

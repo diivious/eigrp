@@ -7,6 +7,7 @@
 #define _ZEBRA_EIGRP_FRR_H_
 
 #include "prefix.h"
+#include "memory.h"
 #include "if.h"
 #include "eigrp.h"
 #include "eigrp_sys.h"
@@ -20,5 +21,7 @@ uint8_t eigrp_frr_interface_type(const struct interface *ifp);
 eigrp_result_t eigrp_frr_interface_state_import(
 	const struct interface *ifp, const struct prefix *address, bool secondary,
 	eigrp_intf_runtime_state_t *state);
+
+DECLARE_MGROUP(EIGRPD);
 
 #endif /* _ZEBRA_EIGRP_FRR_H_ */

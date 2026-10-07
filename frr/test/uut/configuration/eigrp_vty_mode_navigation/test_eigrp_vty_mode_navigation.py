@@ -8,13 +8,13 @@ from pathlib import Path
 
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-CLASSIC = ROOT / "frr" / "code" / "eigrp_cli_classic.c"
-NAMED = ROOT / "frr" / "code" / "eigrp_cli_named.c"
+CLASSIC = ROOT / "frr" / "code" / "eigrp_frr_classic.c"
+NAMED = ROOT / "frr" / "code" / "eigrp_frr_named.c"
 VTYSH_PATCH = ROOT / "frr" / "patch" / "vtysh-named-eigrp.patch"
 YANG_PATCH = ROOT / "frr" / "patch" / "frr-eigrp-yang.patch"
 PATCH_SERIES = ROOT / "frr" / "patch" / "series"
 INSTALLER = ROOT / "tools" / "frr-install.sh"
-ZEBRA = ROOT / "frr" / "code" / "eigrp_zebra.c"
+ZEBRA = ROOT / "frr" / "code" / "eigrp_frr_rib.c"
 
 
 def read(path: Path) -> str:

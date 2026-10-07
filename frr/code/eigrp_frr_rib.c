@@ -33,14 +33,13 @@
 #include "eigrp_interface.h"
 #include "eigrp_instance.h"
 #include "eigrp_neighbor.h"
-#include "eigrp_zebra.h"
+#include "eigrp_frr_rib.h"
 #include "eigrp_vty.h"
 #include "eigrp_network.h"
 #include "eigrp_metric.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
 #include "eigrp_frr.h"
-#include "eigrp_frr_memory.h"
 
 /* Zebra structure to hold current status. */
 struct zclient *eigrp_zclient = NULL;

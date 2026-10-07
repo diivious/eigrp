@@ -7,7 +7,7 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrp" / "code"
 PACKET = ROOT / "eigrp" / "code" / "eigrp_packet.c"
 INSTANCE = ROOT / "eigrp" / "code" / "eigrp_instance.c"
 STRUCTS = ROOT / "eigrp" / "code" / "eigrp_structs.h"
-ZEBRA = ROOT / "frr" / "code" / "eigrp_zebra.c"
+ZEBRA = ROOT / "frr" / "code" / "eigrp_frr_rib.c"
 FRR_INTEGRATION = ROOT / "frr" / "specs" / "integration.md"
 
 

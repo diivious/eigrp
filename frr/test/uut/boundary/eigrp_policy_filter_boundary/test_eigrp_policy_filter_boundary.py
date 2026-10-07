@@ -91,7 +91,7 @@ def test_filter_feature_owner_uses_portable_runtime_state_and_southbound_decisio
 
 
 def test_frr_policy_adapter_owns_policy_objects_and_callbacks():
-    policy = read("frr/code/eigrp_policy.c")
+    policy = read("frr/code/eigrp_frr_policy.c")
 
     assert "struct distribute_ctx *distribute_ctx;" in policy
     assert "struct access_list *access;" in policy
@@ -125,8 +125,8 @@ def test_southbound_filter_contract_returns_eigrp_decision_only():
 
 
 def test_classic_distribute_context_is_private_to_frr_adapter():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
-    policy_h = read("frr/code/eigrp_policy.h")
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
+    policy_h = read("frr/code/eigrp_frr_policy.h")
     structs = read("eigrp/code/eigrp_structs.h")
 
     assert "eigrp_policy_distribute_context(eigrp)" in northbound

@@ -22,7 +22,7 @@ TYPES = ROOT / "eigrpd" / "code" / "eigrp_types.h"
 INSTANCE = ROOT / "eigrpd" / "code" / "eigrp_instance.c"
 SOUTHBOUND_H = ROOT / "eigrpd" / "code" / "eigrp_sys.h"
 FRR_SOUTHBOUND = ROOT / "frr" / "code" / "eigrp_southbound.c"
-VTY = ROOT / "frr" / "code" / "eigrp_cli_named.c"
+VTY = ROOT / "frr" / "code" / "eigrp_frr_named.c"
 CLI_SPEC = ROOT / "specs" / "design-spec.md"
 
 

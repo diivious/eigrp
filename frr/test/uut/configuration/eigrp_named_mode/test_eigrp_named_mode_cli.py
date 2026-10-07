@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-CLI = ROOT / "frr" / "code" / "eigrp_cli_named.c"
-CLASSIC_CLI = ROOT / "frr" / "code" / "eigrp_cli_classic.c"
+CLI = ROOT / "frr" / "code" / "eigrp_frr_named.c"
+CLASSIC_CLI = ROOT / "frr" / "code" / "eigrp_frr_classic.c"
 SPEC = ROOT / "specs" / "design-spec.md"
 YANG_PATCH = ROOT / "frr" / "patch" / "frr-eigrp-yang.patch"
 
@@ -226,7 +226,7 @@ def test_frr_installer_prefers_already_applied_patch_state_and_leaves_generated_
     assert "partial schema state is source drift" in installer
 
 def test_named_af_children_use_semantic_core_targets_and_writeback():
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     cli = read(CLI)
     modules = {
         "eigrp_instance_router_id_update": read(ROOT / "eigrpd" / "code" / "eigrp_instance.h"),
@@ -303,7 +303,7 @@ def test_frr_patch_series_remains_installer_order_source():
 def test_named_af_interface_schema_and_semantic_targets_are_real():
     patch = read(YANG_PATCH)
     cli = read(CLI)
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     interface = read(ROOT / "eigrpd" / "code" / "eigrp_interface.h")
     auth = read(ROOT / "eigrpd" / "code" / "eigrp_auth.h")
     summary = read(ROOT / "eigrpd" / "code" / "eigrp_summary.h")
@@ -372,8 +372,8 @@ def test_named_af_interface_schema_and_semantic_targets_are_real():
 
 def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api():
     cli = read(CLI)
-    header = read(ROOT / "frr" / "code" / "eigrp_cli_named.h")
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    header = read(ROOT / "frr" / "code" / "eigrp_frr_named.h")
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     adapter = cli + nb
 
     assert "eigrp_cli_not_configured" not in cli
@@ -407,7 +407,7 @@ def test_named_mode_has_no_generic_not_implemented_dispatcher_or_core_named_api(
 def test_named_topology_schema_and_stage1_commands_are_retained():
     patch = read(YANG_PATCH)
     cli = read(CLI)
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     init = function_body(cli, "eigrp_cli_named_init")
     classic_init = function_body(read(CLASSIC_CLI), "eigrp_cli_classic_init")
     all_init = init + classic_init
@@ -508,7 +508,7 @@ def test_named_topology_schema_and_stage1_commands_are_retained():
 
 
 def test_named_topology_uses_generic_portable_lifecycle_api():
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     topology_c = read(ROOT / "eigrpd" / "code" / "eigrp_topology.c")
     topology_h = read(ROOT / "eigrpd" / "code" / "eigrp_topology.h")
     eigrpd_c = read(ROOT / "eigrpd" / "code" / "eigrp.c")
@@ -533,7 +533,7 @@ def test_named_topology_uses_generic_portable_lifecycle_api():
 
 
 def test_named_topology_callbacks_match_compound_yang_shape():
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     patch = read(YANG_PATCH)
 
     # Compound CLI commands are represented by presence containers/lists whose
@@ -650,7 +650,7 @@ def test_frr_eigrp_yang_patch_and_cli_cover_classic_inherited_surface():
     patch = read(YANG_PATCH)
     cli = read(CLI)
     cli_surface = cli + "\n" + read(CLASSIC_CLI)
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     spec = read(ROOT / "specs" / "design-spec.md")
     uut = read(ROOT / "tools" / "frr-named-uut.sh")
 
@@ -759,7 +759,7 @@ def test_named_cli_grammar_matches_cisco_documented_forms():
     patch = read(YANG_PATCH)
 
     assert '"neighbor <A.B.C.D|X:X::X:X> maximum-prefix (1-4294967295) [(1-100)] [warning-only]"' in cli
-    assert "neighbor-policy/maximum-prefix/dampened" not in (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    assert "neighbor-policy/maximum-prefix/dampened" not in (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     assert '"authentication mode <md5|hmac-sha-256 <0|7> WORD>"' in cli
     assert '"summary-address A.B.C.D A.B.C.D [(1-255) [leak-map WORD]]"' in cli
     assert 'when "../administrative-distance";' in patch
@@ -822,7 +822,7 @@ def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
     the class of error that otherwise appears only when eigrpd calls
     nb_validate_callbacks() at startup.
     """
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
 
     required_snippets = (
         # Structural list parents.
@@ -874,8 +874,8 @@ def test_step1_optional_and_empty_yang_nodes_have_required_frr_callbacks():
 
 def test_classic_frr_cli_and_exec_surface_is_restored_without_named_mixing():
     classic = read(CLASSIC_CLI)
-    classic_header = read(ROOT / "frr" / "code" / "eigrp_cli_classic.h")
-    vty = read(ROOT / "frr" / "code" / "eigrp_vty.c")
+    classic_header = read(ROOT / "frr" / "code" / "eigrp_frr_classic.h")
+    vty = read(ROOT / "frr" / "code" / "eigrp_frr_console.c")
     named = read(CLI)
     spec = read(ROOT / "specs" / "design-spec.md")
 
@@ -924,7 +924,7 @@ def test_classic_frr_cli_and_exec_surface_is_restored_without_named_mixing():
     assert "install_element(EIGRP_NODE, &eigrp_neighbor_cmd);" in classic
     assert '"router eigrp (1-65535)$as [vrf NAME]"' in classic
 
-    # Original classic operational surface remains in eigrp_vty.c.
+    # Original classic operational surface remains in eigrp_frr_console.c.
     for command in (
         "show_ip_eigrp_topology_all_cmd",
         "show_ip_eigrp_topology_cmd",
@@ -953,7 +953,7 @@ def test_classic_frr_cli_and_exec_surface_is_restored_without_named_mixing():
 
 
 def test_named_bandwidth_delay_share_eigrp_runtime_processor_with_classic():
-    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_northbound_ipv6.c"))
+    nb = (read(ROOT / "frr" / "code" / "eigrp_northbound.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv4.c") + read(ROOT / "frr" / "code" / "eigrp_frr_ipv6.c"))
     interface_c = read(ROOT / "eigrpd" / "code" / "eigrp_interface.c")
     interface_h = read(ROOT / "eigrpd" / "code" / "eigrp_interface.h")
 

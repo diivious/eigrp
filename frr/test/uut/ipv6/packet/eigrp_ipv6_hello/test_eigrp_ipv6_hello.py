@@ -12,7 +12,7 @@ def read(path):
 
 def test_ipv6_hello_wire_destination_and_link_local_source_contract():
     hello = read("eigrp/code/eigrp_hello.c")
-    southbound = read("frr/code/eigrp_southbound_ipv6.c")
+    southbound = read("frr/code/eigrp_frr_ipv6.c")
     ipv6 = read("eigrp/code/eigrp_ipv6.c")
 
     assert 'inet_pton(AF_INET6, "ff02::a", &destination.ip.v6)' in hello

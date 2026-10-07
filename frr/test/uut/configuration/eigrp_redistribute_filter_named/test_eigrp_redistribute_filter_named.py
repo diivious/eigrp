@@ -15,8 +15,8 @@ REDIST_C = ROOT / "eigrpd" / "code" / "eigrp_redistribute.c"
 FILTER_C = ROOT / "eigrpd" / "code" / "eigrp_filter.c"
 SOUTHBOUND_H = ROOT / "eigrpd" / "code" / "eigrp_sys.h"
 SOUTHBOUND_C = ROOT / "frr" / "code" / "eigrp_southbound.c"
-POLICY_C = ROOT / "frr" / "code" / "eigrp_policy.c"
-ZEBRA_C = ROOT / "frr" / "code" / "eigrp_zebra.c"
+POLICY_C = ROOT / "frr" / "code" / "eigrp_frr_policy.c"
+ZEBRA_C = ROOT / "frr" / "code" / "eigrp_frr_rib.c"
 NORTHBOUND = ROOT / "frr" / "code" / "eigrp_northbound.c"
 CONVENTIONS = ROOT / "specs" / "design-spec.md"
 
@@ -107,7 +107,7 @@ def test_southbound_contract_is_eigrp_owned_not_frr_cli_or_yang_objects():
 
 
 def test_named_northbound_resolves_runtime_and_terminates_at_portable_targets():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     instance_resolver = function_body(
         northbound, "eigrpd_named_instance_context_resolve"
     )
@@ -173,7 +173,7 @@ def test_frr_filter_adapter_owns_host_policy_objects_and_returns_portable_decisi
 
 
 def test_classic_endpoints_remain_unmodified_and_separate():
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     classic_redist_create = function_body(northbound, "eigrpd_instance_redistribute_create")
     classic_redist_destroy = function_body(northbound, "eigrpd_instance_redistribute_destroy")
     classic_dist_create = function_body(northbound, "eigrp_northbound_distribute_list_create")

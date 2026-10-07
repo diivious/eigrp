@@ -1,18 +1,45 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * FRR EIGRP debug/VTY presentation adapter.
- * Copyright (C) 2013-2014
+ * EIGRP FRR console integration.
+ *
+ * Consolidates FRR debug/show rendering helpers, structured error
+ * registration, and the FRR logging backend. Operational VTY command
+ * handlers remain in eigrp_vty.c.  This is an implementation
+ * reorganization only; public EIGRP APIs and command behavior are unchanged.
+ *
+ * Copyright (C) 2013-2018, 2026
  * Authors:
  *   Donnie Savage
  *   Jan Janovic
  *   Matej Perina
  *   Peter Orsag
  *   Peter Paluch
+ *   Frantisek Gazo
+ *   Tomas Hvorkovy
+ *   Martin Kontsek
+ *   Lukas Koribsky
+ *   Donald Sharp
  * Copyright (C) 2026 Donnie V. Savage
  */
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include <zebra.h>
 #include "command.h"
+#include "distribute.h"
+#include "frrevent.h"
+#include "keychain.h"
+#include "lib/frr_pthread.h"
+#include "linklist.h"
+#include "log.h"
+#include "memory.h"
+#include "plist.h"
+#include "prefix.h"
+#include "table.h"
 #include "vty.h"
+#include "zclient.h"
+
 #include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_timer.h"
@@ -25,8 +52,17 @@
 #include "eigrp_network.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
-#include "eigrp_dump.h"
+#include "eigrp_table.h"
+#include "eigrp_eventlog.h"
+#include "eigrp_const.h"
+#include "eigrp_frr.h"
+#include "eigrp_frr_rib.h"
+#include "eigrp_log.h"
+#include "eigrp_frr_console.h"
 
+/* ==========================================================================
+ * Debug and show rendering
+ * ========================================================================== */
 static void eigrp_debug_transmit_write(struct vty *vty, unsigned long state)
 {
 	if (!state)
@@ -1128,4 +1164,82 @@ void eigrp_debug_init(void)
 	EIGRP_INSTALL_DEBUG_NODE(ENABLE_NODE);
 	EIGRP_INSTALL_DEBUG_NODE(CONFIG_NODE);
 #undef EIGRP_INSTALL_DEBUG_NODE
+}
+
+/* ==========================================================================
+ * FRR structured error catalog
+ * ========================================================================== */
+/* clang-format off */
+static struct log_ref ferr_eigrp_err[] = {
+	{
+		.code = EC_EIGRP_PACKET,
+		.title = "EIGRP Packet Error",
+		.description = "EIGRP has a packet that does not correctly decode or encode",
+		.suggestion = "Gather log files from both sides of the neighbor relationship and open an issue"
+	},
+	{
+		.code = EC_EIGRP_CONFIG,
+		.title = "EIGRP Configuration Error",
+		.description = "EIGRP has detected a configuration error",
+		.suggestion = "Correct the configuration issue, if it still persists open an Issue"
+	},
+	{
+		.code = END_FERR,
+	}
+};
+/* clang-format on */
+
+void eigrp_error_init(void)
+{
+	log_ref_add(ferr_eigrp_err);
+}
+
+/* ==========================================================================
+ * FRR logging adapter
+ * ========================================================================== */
+#define EIGRP_FRR_LOG_BUFFER_SIZE 2048U
+
+void eigrp_log_start(void)
+{
+	if (frr_pthread_non_controlled_startup(pthread_self(), "eigrp", "eigrp")
+	    != 0)
+		abort();
+}
+
+void eigrp_log_stop(void)
+{
+	frr_pthread_non_controlled_shutdown(pthread_self());
+}
+
+static void eigrp_log_write(eigrp_log_level_t level, const char *message)
+{
+	switch (level) {
+	case EIGRP_LOG_DEBUG:
+		zlog_debug("%s", message);
+		break;
+	case EIGRP_LOG_INFO:
+		zlog_info("%s", message);
+		break;
+	case EIGRP_LOG_NOTICE:
+		zlog_notice("%s", message);
+		break;
+	case EIGRP_LOG_WARNING:
+		zlog_warn("%s", message);
+		break;
+	case EIGRP_LOG_ERROR:
+	default:
+		zlog_err("%s", message);
+		break;
+	}
+}
+
+void eigrp_log(eigrp_log_level_t level, const char *format, ...)
+{
+	char message[EIGRP_FRR_LOG_BUFFER_SIZE];
+	va_list ap;
+
+	va_start(ap, format);
+	vsnprintf(message, sizeof(message), format, ap);
+	va_end(ap);
+	eigrp_log_write(level, message);
 }

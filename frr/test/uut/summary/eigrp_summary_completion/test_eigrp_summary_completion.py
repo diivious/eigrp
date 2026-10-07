@@ -8,7 +8,7 @@ SUMMARY = (ROOT / "eigrp/code/eigrp_summary.c").read_text()
 PACKETIZER = (ROOT / "eigrp/code/eigrp_packetizer.c").read_text()
 UPDATE = (ROOT / "eigrp/code/eigrp_update.c").read_text()
 SYS = (ROOT / "eigrp/code/eigrp_sys.h").read_text()
-POLICY = (ROOT / "frr/code/eigrp_policy.c").read_text()
+POLICY = (ROOT / "frr/code/eigrp_frr_policy.c").read_text()
 
 
 def body(source, name):

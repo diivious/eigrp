@@ -122,7 +122,7 @@ def test_authentication_keeps_md5_runtime_and_truthful_hmac_boundary():
 def test_filter_and_redistribution_targets_retain_policy_before_runtime_boundary():
     filter_source = read(FILTER_C)
     redistribute_source = read(REDISTRIBUTE_C)
-    northbound = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv6.c")))
 
     offset = function_body(filter_source, "eigrp_offset_add")
     offset_delete = function_body(filter_source, "eigrp_offset_remove")
@@ -210,7 +210,7 @@ def test_metric_targets_apply_supported_runtime_state_and_hop_limit():
 
 def test_neighbor_policy_targets_retain_configuration_and_logging_state():
     source = read(NEIGHBOR_C)
-    northbound = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv6.c")))
 
     description = function_body(source, "eigrp_nbr_description_update")
     maximum_prefix = function_body(source, "eigrp_nbr_max_prefix_update")
@@ -263,7 +263,7 @@ def test_neighbor_change_logging_switch_guards_adjacency_messages():
 
 
 def test_item5_northbound_commands_terminate_at_module_targets():
-    northbound = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv6.c")))
 
     targets = (
         # interface/auth

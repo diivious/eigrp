@@ -38,7 +38,7 @@ def test_transmit_path_preserves_selected_interface_to_host_send():
 
 
 def test_frr_ipv4_send_pins_each_packet_to_selected_ifindex():
-    southbound = read("frr/code/eigrp_southbound_ipv4.c")
+    southbound = read("frr/code/eigrp_frr_ipv4.c")
     send = function_body(southbound, "eigrp_sys_ipv4_packet_send")
 
     assert "ifindex = eigrp_intf_ifindex(ei);" in send
@@ -51,7 +51,7 @@ def test_frr_ipv4_send_pins_each_packet_to_selected_ifindex():
 
 
 def test_multicast_send_does_not_ignore_interface_selection_failure():
-    southbound = read("frr/code/eigrp_southbound_ipv4.c")
+    southbound = read("frr/code/eigrp_frr_ipv4.c")
     send = function_body(southbound, "eigrp_sys_ipv4_packet_send")
 
     assert "eigrp_sys_multicast_interface_update(EIGRP_SET, eigrp, ei) < 0" in send

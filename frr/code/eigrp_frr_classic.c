@@ -15,16 +15,16 @@
 
 #include "eigrp_structs.h"
 #include "eigrp.h"
-#include "eigrp_zebra.h"
-#include "eigrp_cli_classic.h"
-#include "eigrp_cli_named.h"
+#include "eigrp_frr_rib.h"
+#include "eigrp_frr_classic.h"
+#include "eigrp_frr_named.h"
 
 #ifndef EIGRP_STANDALONE_BUILD
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
 #endif
-#include "eigrp_cli_classic_clippy.c"
+#include "eigrp_frr_classic_clippy.c"
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif

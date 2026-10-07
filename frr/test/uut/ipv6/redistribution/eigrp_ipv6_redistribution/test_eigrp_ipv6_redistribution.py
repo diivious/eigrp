@@ -11,7 +11,7 @@ def read(path):
 
 
 def test_ipv6_zebra_redistribution_is_af_scoped_and_subscribed():
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
     assert "case EIGRP_AFI_IPV6:" in zebra
     assert "return AFI_IP6;" in zebra
     assert "eigrp_instance_afi(state->eigrp)" in zebra
@@ -43,7 +43,7 @@ def test_ipv6_external_route_is_encoded_by_both_tlv_families():
 
 
 def test_route_map_permit_deny_and_set_tag_stay_in_frr_policy_adapter():
-    policy = read("frr/code/eigrp_policy.c")
+    policy = read("frr/code/eigrp_frr_policy.c")
     core = read("eigrp/code/eigrp_redistribute.c")
     assert "route_map_lookup_by_name(name)" in policy
     assert "route_map_apply(route_map, &host_prefix, NULL)" in policy

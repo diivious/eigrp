@@ -105,20 +105,18 @@ use the public contract or extend it explicitly.
 |---|---|
 | `frr/code/eigrp_main.c` | FRR daemon lifecycle, signals, event-loop bootstrap |
 | `frr/code/eigrp_northbound.c` | FRR NB/YANG commit callbacks and normalization to portable semantic targets |
-| `frr/code/eigrp_northbound_ipv4.c` | IPv4-specific northbound value conversion |
-| `frr/code/eigrp_northbound_ipv6.c` | IPv6-specific northbound value conversion |
-| `frr/code/eigrp_cli_named.c` | FRR named-mode CLI/parser surface |
-| `frr/code/eigrp_cli_classic.c` | FRR classic CLI/parser surface |
+| `frr/code/eigrp_frr_named.c` | FRR named-mode CLI/parser surface |
+| `frr/code/eigrp_frr_classic.c` | FRR classic CLI/parser surface |
 | `frr/code/eigrp_southbound.c` | common FRR host-service implementation: events, timers, work queues, sockets, policy/key services and RIB forwarding |
-| `frr/code/eigrp_southbound_ipv4.c` | IPv4 raw socket, multicast and packet I/O |
-| `frr/code/eigrp_southbound_ipv6.c` | IPv6 socket, multicast and packet I/O |
-| `frr/code/eigrp_zebra.c` | Zebra registration, route install/delete, redistribution input, router-ID and interface-address callbacks |
+| `frr/code/eigrp_frr_ipv4.c` | FRR-specific IPv4 value adaptation, raw socket, multicast and packet I/O |
+| `frr/code/eigrp_frr_ipv6.c` | FRR-specific IPv6 value adaptation, socket, multicast and packet I/O |
+| `frr/code/eigrp_frr_rib.c` | Zebra registration, route install/delete, redistribution input, router-ID and interface-address callbacks |
 | `frr/code/eigrp_frr.c` | FRR-to-EIGRP and EIGRP-to-FRR datatype normalization |
-| `frr/code/eigrp_policy.c` | FRR route-map/distribute policy integration |
-| `frr/code/eigrp_vrf.c` | FRR VRF lifecycle/identity glue |
-| `frr/code/eigrp_vty.c` / `eigrp_dump.c` | FRR show/debug presentation |
+| `frr/code/eigrp_frr_policy.c` | FRR route-map/distribute policy integration |
+| `frr/code/eigrp_frr_vrf.c` | FRR VRF lifecycle/identity glue |
+| `frr/code/eigrp_frr_console.c` / `eigrp_frr_console.c` | FRR show/debug presentation |
 | `frr/code/eigrp_log.c` | FRR logging sink for portable logging |
-| `frr/code/eigrp_zebra.h`, `eigrp_frr.h`, internal adapter headers | FRR-local adapter declarations; not portable APIs |
+| `frr/code/eigrp_frr_rib.h`, `eigrp_frr.h`, internal adapter headers | FRR-local adapter declarations; not portable APIs |
 
 ## 5. Process startup and teardown
 
@@ -232,7 +230,7 @@ same portable feature targets where the feature semantics are the same.
 
 ```text
 FRR classic VTY command
-  -> eigrp_cli_classic.c
+  -> eigrp_frr_classic.c
   -> normalize FRR values/context
   -> portable eigrp_* semantic target
   -> portable configuration/runtime behavior
@@ -349,7 +347,7 @@ eigrp_packet_read()                         [portable]
   -> eigrp_ipv4_packet_receive()            [portable AF vector]
        -> eigrp_sys_packet_receive()
             -> eigrp_sys_ipv4_packet_receive()
-                 [frr/code/eigrp_southbound_ipv4.c]
+                 [frr/code/eigrp_frr_ipv4.c]
                  -> recvmsg(FRR-owned raw socket)
                  -> validate IPv4 header framing
                  -> extract src / dst / ingress ifindex
@@ -372,7 +370,7 @@ eigrp_packet_read()                         [portable]
   -> eigrp_ipv6_packet_receive()            [portable AF vector]
        -> eigrp_sys_packet_receive()
             -> eigrp_sys_ipv6_packet_receive()
-                 [frr/code/eigrp_southbound_ipv6.c]
+                 [frr/code/eigrp_frr_ipv6.c]
                  -> recvmsg()
                  -> read sockaddr_in6 source
                  -> read IPV6_PKTINFO destination + ifindex
@@ -549,7 +547,7 @@ portable topology / route-selection result
 ```
 
 DUAL descriptors and private topology objects must not cross into
-`eigrp_zebra.c`.
+`eigrp_frr_rib.c`.
 
 ### 13.2 Route delete
 
@@ -629,7 +627,7 @@ portable EIGRP policy use
   -> eigrp_sys_filter_evaluate(...) or
      eigrp_sys_redistribute_route_map_evaluate(...)
        [frr/code/eigrp_southbound.c]
-       -> frr/code/eigrp_policy.c
+       -> frr/code/eigrp_frr_policy.c
        -> FRR access-list/prefix-list/route-map APIs
   <- normalized EIGRP_FILTER_* / EIGRP_RESULT_* values
 ```
@@ -641,7 +639,7 @@ result means to EIGRP.
 
 ```text
 FRR distribute/policy update hook
-  -> eigrp_policy.c
+  -> eigrp_frr_policy.c
   -> normalize/replace portable filter snapshot as required
   -> eigrp_sys_policy_runtime_update()                [portable]
   -> EIGRP runtime refresh/resync behavior
@@ -691,7 +689,7 @@ FRR presentation must not become a second topology implementation.
 
 ```text
 vtysh show/debug request
-  -> eigrp_vty.c / eigrp_dump.c
+  -> eigrp_frr_console.c / eigrp_frr_console.c
   -> eigrp_mgnt.h read/iterate/snapshot API
   -> portable state snapshot
   -> FRR formatting / VTY output
@@ -810,21 +808,21 @@ host-specific protocol behavior.
 | Flow | FRR origin/target | Shim entry | Portable entry/target |
 |---|---|---|---|
 | Named config | YANG/NB | `eigrp_northbound.c` | `eigrp_cli.h` semantic targets |
-| Classic config | VTY | `eigrp_cli_classic.c` / NB glue | same owning portable targets |
+| Classic config | VTY | `eigrp_frr_classic.c` / NB glue | same owning portable targets |
 | Packet RX | socket/read event | `eigrp_southbound*.c` | `eigrp_packet_read()` -> packet/RTP/core |
 | Packet TX | socket | `eigrp_southbound*.c` | called from packet/RTP/packetizer core |
 | Timer/event | FRR event loop | `eigrp_southbound.c` | EIGRP callback supplied by core |
 | Work queue | FRR work queue | `eigrp_southbound.c` | EIGRP worker supplied by core |
-| Interface add/update | Zebra | `eigrp_zebra.c` + `eigrp_frr.c` | `eigrp_sys_intf_update()` -> instance event |
-| Address delete | Zebra | `eigrp_zebra.c` | `eigrp_sys_intf_addr_update()` -> instance event |
-| Router ID | Zebra | `eigrp_zebra.c` | `eigrp_process_routerid_cb()` -> instance event |
+| Interface add/update | Zebra | `eigrp_frr_rib.c` + `eigrp_frr.c` | `eigrp_sys_intf_update()` -> instance event |
+| Address delete | Zebra | `eigrp_frr_rib.c` | `eigrp_sys_intf_addr_update()` -> instance event |
+| Router ID | Zebra | `eigrp_frr_rib.c` | `eigrp_process_routerid_cb()` -> instance event |
 | RIB install | Zebra target | `eigrp_zebra_route_add()` | request from `eigrp_rib_route_add()` |
 | RIB withdraw | Zebra target | `eigrp_zebra_route_del()` | request from `eigrp_rib_route_del()` |
 | Redistribute subscribe | Zebra target | `eigrp_zebra_redistribute_update/delete()` | request from portable redistribution config |
 | Redistributed route RX | Zebra | `eigrp_zebra_redistribute_route()` | `eigrp_rib_redist_add/del()` |
-| Policy evaluation | FRR route-map/list | `eigrp_policy.c` | `eigrp_sys_filter_evaluate()` etc. |
+| Policy evaluation | FRR route-map/list | `eigrp_frr_policy.c` | `eigrp_sys_filter_evaluate()` etc. |
 | Auth key lookup | FRR keychain | `eigrp_southbound.c` | `eigrp_sys_auth_key_lookup()` |
-| Show/telemetry | VTY/SNMP | `eigrp_vty.c`, `eigrp_dump.c` | `eigrp_mgnt.h` snapshots |
+| Show/telemetry | VTY/SNMP | `eigrp_frr_console.c`, `eigrp_frr_console.c` | `eigrp_mgnt.h` snapshots |
 | Logging | FRR zlog target | `eigrp_log.c` | `eigrp_log()` calls from core |
 
 ## 23. Integration invariants

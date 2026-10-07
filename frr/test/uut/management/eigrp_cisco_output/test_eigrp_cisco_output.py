@@ -8,13 +8,13 @@ from pathlib import Path
 
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-DUMP = ROOT / "frr" / "code" / "eigrp_dump.c"
+DUMP = ROOT / "frr" / "code" / "eigrp_frr_console.c"
 DEBUG = ROOT / "eigrpd" / "code" / "eigrp_debug.c"
 HELLO = ROOT / "eigrpd" / "code" / "eigrp_hello.c"
 UPDATE = ROOT / "eigrpd" / "code" / "eigrp_update.c"
 PACKET = ROOT / "eigrpd" / "code" / "eigrp_packet.c"
-NAMED = ROOT / "frr" / "code" / "eigrp_cli_named.c"
-CLASSIC_VTY = ROOT / "frr" / "code" / "eigrp_vty.c"
+NAMED = ROOT / "frr" / "code" / "eigrp_frr_named.c"
+CLASSIC_VTY = ROOT / "frr" / "code" / "eigrp_frr_console.c"
 SPEC = ROOT / "specs" / "design-spec.md"
 
 

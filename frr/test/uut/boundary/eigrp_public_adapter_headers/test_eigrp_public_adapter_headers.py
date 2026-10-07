@@ -12,7 +12,7 @@ def test_small_frr_boundary_headers_do_not_pull_private_portable_headers():
         '"eigrp_types.h"', '"eigrp_structs.h"', '"eigrpd.h"',
         '"eigrp_neighbor.h"', '"eigrp_interface.h"', '"eigrp_topology.h"',
     )
-    for name in ("eigrp_frr.h", "eigrp_northbound.h", "eigrp_policy.h"):
+    for name in ("eigrp_frr.h", "eigrp_northbound.h", "eigrp_frr_policy.h"):
         text = (FRR / name).read_text()
         for token in forbidden:
             assert token not in text, f"{name} still includes {token}"

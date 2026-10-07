@@ -12,9 +12,9 @@ def _portable_source(name: str) -> str:
     here = Path(__file__).resolve()
     project_root = _project_root()
     if project_root:
-        return (project_root / "eigrpd" / "code" / name).read_text() + (project_root / "frr" / "code" / "eigrp_southbound_ipv6.c").read_text()
+        return (project_root / "eigrpd" / "code" / name).read_text() + (project_root / "frr" / "code" / "eigrp_frr_ipv6.c").read_text()
     staged = here.parents[2] / "eigrpd"
-    return (staged / name).read_text() + (staged / "eigrp_southbound_ipv6.c").read_text()
+    return (staged / name).read_text() + (staged / "eigrp_frr_ipv6.c").read_text()
 
 
 def _southbound_source() -> str:
@@ -22,9 +22,9 @@ def _southbound_source() -> str:
     project_root = _project_root()
     if project_root:
         frr_code = project_root / "frr" / "code"
-        return (frr_code / "eigrp_southbound.c").read_text() + (frr_code / "eigrp_southbound_ipv6.c").read_text()
+        return (frr_code / "eigrp_southbound.c").read_text() + (frr_code / "eigrp_frr_ipv6.c").read_text()
     staged = here.parents[2] / "eigrpd"
-    return (staged / "eigrp_southbound.c").read_text() + (staged / "eigrp_southbound_ipv6.c").read_text()
+    return (staged / "eigrp_southbound.c").read_text() + (staged / "eigrp_frr_ipv6.c").read_text()
 
 
 def test_ipv6_hello_frr_source_selection_and_capture_fields():

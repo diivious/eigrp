@@ -46,9 +46,9 @@ def test_named_ipv4_4453_uut_covers_redistribution_configuration_lifecycle():
 
 
 def test_named_adapter_preserves_route_instance_metric_and_route_map_identity():
-    cli = read("frr/code/eigrp_cli_named.c")
-    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
-    zebra = read("frr/code/eigrp_zebra.c")
+    cli = read("frr/code/eigrp_frr_named.c")
+    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
+    zebra = read("frr/code/eigrp_frr_rib.c")
 
     assert "[route-instance='%u']" in cli
     assert "eigrpd_named_redistribute_source_get" in nb
@@ -105,8 +105,8 @@ def test_redistributed_routes_remain_external_through_update_and_withdrawal():
 
 
 def test_classic_redistribution_surface_remains_separate_and_installed():
-    classic = read("frr/code/eigrp_cli_classic.c")
-    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    classic = read("frr/code/eigrp_frr_classic.c")
+    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
 
     assert "&eigrp_redistribute_source_metric_cmd" in classic
     assert "if (eigrp_cli_named_context(vty))" in classic
@@ -115,7 +115,7 @@ def test_classic_redistribution_surface_remains_separate_and_installed():
 
 
 def test_named_redistribution_runtime_sync_occurs_only_at_apply_finish():
-    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
 
     apply_finish = nb.index("static void eigrpd_named_redistribute_apply_finish")
     destroy = nb.index("static int eigrpd_named_redistribute_destroy", apply_finish)

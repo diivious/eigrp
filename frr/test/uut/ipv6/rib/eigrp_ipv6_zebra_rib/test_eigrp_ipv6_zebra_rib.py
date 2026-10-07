@@ -17,7 +17,7 @@ def test_ipv6_link_local_nexthop_and_ecmp_cross_portable_rib_snapshot():
     assert "EIGRP_MAX_PATHS_MAX" in topology
 
 def test_zebra_encodes_ipv6_gateway_ifindex_distance_tag_and_ecmp():
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
     assert "NEXTHOP_TYPE_IPV6_IFINDEX" in zebra
     assert "api_nh->ifindex = nexthop->ifindex" in zebra
     assert "api.distance = route->install.admin_dist" in zebra
@@ -43,7 +43,7 @@ def test_default_and_configured_administrative_distance_feed_rib_updates():
 
 def test_add_update_delete_and_successor_change_use_one_zebra_route_key():
     topology = read("eigrp/code/eigrp_topology.c")
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
     assert "eigrp_rib_route_add(eigrp, &rib_route)" in topology
     assert "eigrp_rib_route_del(eigrp, &prefix->destination)" in topology
     assert "zclient_route_send(ZEBRA_ROUTE_ADD" in zebra
@@ -55,7 +55,7 @@ def test_neighbor_loss_shutdown_and_zebra_reconnect_cleanup_are_wired():
     topology = read("eigrp/code/eigrp_topology.c")
     daemon = read("eigrp/code/eigrp.c")
     rib = read("eigrp/code/eigrp_rib.c")
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
     assert "void eigrp_topology_neighbor_down" in topology
     assert "eigrp_fsm_event(&msg)" in topology
     assert "eigrp_topology_table_delete(eigrp, eigrp->topology_table)" in daemon

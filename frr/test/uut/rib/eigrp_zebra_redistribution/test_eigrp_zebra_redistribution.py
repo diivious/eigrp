@@ -12,7 +12,7 @@ import textwrap
 
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-ZEBRA_C = ROOT / "frr" / "code" / "eigrp_zebra.c"
+ZEBRA_C = ROOT / "frr" / "code" / "eigrp_frr_rib.c"
 
 
 def read(path: Path) -> str:

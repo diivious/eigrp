@@ -40,8 +40,8 @@ Config commit. YANG and classic/named CLI both have to land on the same
 vtysh / frr-reload / netconf
         |
         v
-FRR YANG + VTY parser          frr/code/eigrp_cli_named.c
-        |                      frr/code/eigrp_cli_classic.c
+FRR YANG + VTY parser          frr/code/eigrp_frr_named.c
+        |                      frr/code/eigrp_frr_classic.c
         |                      frr/patch YANG schema
         v
 northbound adapter             frr/code/eigrp_northbound.c + AF-specific modules
@@ -53,7 +53,7 @@ portable core                  eigrp/code/
         +-- eigrp_sys.h -----> southbound     frr/code/eigrp_southbound*.c
         |                      sockets, timers, multicast, IPv4 I/O
         |
-        +-- eigrp_rib.h -----> zebra adapter  frr/code/eigrp_zebra.c
+        +-- eigrp_rib.h -----> zebra adapter  frr/code/eigrp_frr_rib.c
                                install / withdraw / redistribute
 ```
 
@@ -67,7 +67,7 @@ flowchart TB
   sys["eigrp_sys.h"]
   rib["eigrp_rib.h"]
   sb["eigrp_southbound*.c"]
-  zebra["eigrp_zebra.c"]
+  zebra["eigrp_frr_rib.c"]
   frrsys["FRR event loop, sockets, interfaces"]
   frrrib["Zebra RIB"]
 
@@ -93,7 +93,7 @@ Show and debug do not walk DUAL objects. They ask core for snapshots.
 vtysh show
    |
    v
-eigrp_vty.c / eigrp_dump.c
+eigrp_frr_console.c / eigrp_frr_console.c
    |
    | eigrp_mgnt.h
    v
@@ -103,7 +103,7 @@ core neighbor / interface / topology / stats snapshots
 ```mermaid
 flowchart LR
   show["vtysh show / tech-support"]
-  vty["eigrp_vty.c / eigrp_dump.c"]
+  vty["eigrp_frr_console.c / eigrp_frr_console.c"]
   mgnt["eigrp_mgnt.h"]
   core["eigrp/ state"]
 
@@ -120,13 +120,13 @@ route TLVs.
 kernel / socket
    |  IPv4 proto 88
    v
-eigrp_southbound_ipv4.c     eigrp_sys_ipv4_packet_receive
+eigrp_frr_ipv4.c     eigrp_sys_ipv4_packet_receive
    |
    v
 eigrpd packet / RTP / DUAL
    |
    v
-eigrp_southbound_ipv4.c     eigrp_sys_ipv4_packet_send
+eigrp_frr_ipv4.c     eigrp_sys_ipv4_packet_send
    |
    v
 kernel / socket
@@ -136,18 +136,19 @@ kernel / socket
 
 | File | Job | Public header it should sit on |
 |---|---|---|
-| `eigrp_southbound.c`, `eigrp_southbound_ipv4.c`, `eigrp_southbound_ipv6.c` | common host services plus AF-specific socket, multicast, and packet I/O | `eigrp_sys.h` |
-| `eigrp_zebra.c` | route install/remove and redistribution feed | `eigrp_rib.h` |
+| `eigrp_southbound.c` | AF-independent host service dispatch | `eigrp_sys.h` |
+| `eigrp_frr_rib.c` | route install/remove and redistribution feed | `eigrp_rib.h` |
 | `eigrp_frr.c` / `eigrp_frr.h` | convert FRR `prefix` / `interface` objects into EIGRP values | `eigrp.h`, `eigrp_sys.h` |
-| `eigrp_northbound.c`, `eigrp_northbound_ipv4.c`, `eigrp_northbound_ipv6.c` | common and AF-specific committed FRR config to semantic EIGRP targets | `eigrp_cli.h` |
-| `eigrp_cli_named.c` | named-mode CLI front end | host parser only, then `eigrp_cli.h` |
-| `eigrp_cli_classic.c` | classic CLI front end | host parser only, then `eigrp_cli.h` |
-| `eigrp_vty.c` / `eigrp_dump.c` | show and operational output | `eigrp_mgnt.h` |
-| `eigrp_policy.c` | FRR route-map / filter lookup | `eigrp_sys.h` policy calls |
+| `eigrp_northbound.c` | AF-independent committed FRR config to semantic EIGRP targets | `eigrp_cli.h` |
+| `eigrp_frr_ipv4.c`, `eigrp_frr_ipv6.c` | AF-specific FRR value adaptation plus socket, multicast, and packet I/O | `eigrp_cli.h`, `eigrp_sys.h` |
+| `eigrp_frr_named.c` | named-mode CLI front end | host parser only, then `eigrp_cli.h` |
+| `eigrp_frr_classic.c` | classic CLI front end | host parser only, then `eigrp_cli.h` |
+| `eigrp_frr_console.c` / `eigrp_frr_console.c` | show and operational output | `eigrp_mgnt.h` |
+| `eigrp_frr_policy.c` | FRR route-map / filter lookup | `eigrp_sys.h` policy calls |
 | `eigrp_main.c` | FRR process, signals, init/teardown | host lifecycle, then `eigrp_sys.h` / `eigrp_rib.h` |
 | `eigrp_log.c` | FRR zlog sink for `eigrp_log()` | replaces the stderr fallback in `eigrp/code/eigrp_log.c` |
-| `eigrp_vrf.c` | FRR VRF glue | host identity only |
-| `eigrp_snmp.c` | optional SNMP | not part of the base five-header contract |
+| `eigrp_frr_vrf.c` | FRR VRF glue | host identity only |
+| `eigrp_frr_snmp.c` | optional SNMP | not part of the base five-header contract |
 | `patch/` | FRR-wide YANG/vtysh changes outside `eigrpd/` | host tree, not portable core |
 
 `subdir.am` is the FRR automake fragment used after staging. Do not treat it as

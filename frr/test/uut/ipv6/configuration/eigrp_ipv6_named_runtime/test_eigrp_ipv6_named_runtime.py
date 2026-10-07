@@ -13,7 +13,7 @@ STRUCTS = ROOT / "eigrpd" / "code" / "eigrp_structs.h"
 INSTANCE = ROOT / "eigrpd" / "code" / "eigrp_instance.c"
 SOUTHBOUND = ROOT / "frr" / "code" / "eigrp_southbound.c"
 NORTHBOUND = ROOT / "frr" / "code" / "eigrp_northbound.c"
-VTY = ROOT / "frr" / "code" / "eigrp_cli_named.c"
+VTY = ROOT / "frr" / "code" / "eigrp_frr_named.c"
 INTERFACE = ROOT / "eigrpd" / "code" / "eigrp_interface.c"
 NEIGHBOR = ROOT / "eigrpd" / "code" / "eigrp_neighbor.c"
 TOPOLOGY = ROOT / "eigrpd" / "code" / "eigrp_topology.c"
@@ -89,7 +89,7 @@ def test_router_id_refresh_uses_af_event_path_for_both_families():
 
 def test_ipv4_and_ipv6_summaries_share_generic_prefix_storage_and_targets():
     vty = read(VTY)
-    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_northbound_ipv6.c")))
+    northbound = (read(NORTHBOUND) + read(NORTHBOUND.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND.with_name("eigrp_frr_ipv6.c")))
     patch = read(YANG_PATCH)
 
     assert '"summary-address X:X::X:X/M' in vty

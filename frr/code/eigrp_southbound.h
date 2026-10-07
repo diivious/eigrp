@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * EIGRP FRR southbound private declarations.
+ * EIGRP FRR southbound adapter declarations.
  * Copyright (C) 2026 Donnie V. Savage
  */
-#ifndef _EIGRP_SOUTHBOUND_INTERNAL_H
-#define _EIGRP_SOUTHBOUND_INTERNAL_H
+#ifndef _FRR_EIGRP_SOUTHBOUND_H_
+#define _FRR_EIGRP_SOUTHBOUND_H_
 
 #include "eigrp.h"
 
@@ -28,4 +28,4 @@ int eigrp_southbound_ipv6_multicast_join(eigrp_instance_t *eigrp,
 int eigrp_southbound_ipv6_multicast_leave(eigrp_instance_t *eigrp,
                                           eigrp_intf_t *ei);
 
-#endif /* _EIGRP_SOUTHBOUND_INTERNAL_H */
+#endif /* _FRR_EIGRP_SOUTHBOUND_H_ */

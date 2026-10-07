@@ -10,11 +10,11 @@ def _southbound_source() -> str:
     project_dir = project_root / "frr" / "code" if project_root else Path()
     project_source = project_dir / "eigrp_southbound.c"
     if project_source.exists():
-        return project_source.read_text() + (project_dir / "eigrp_southbound_ipv6.c").read_text()
+        return project_source.read_text() + (project_dir / "eigrp_frr_ipv6.c").read_text()
 
     # FRR UUT staging: frr/tests/eigrpd -> frr/eigrpd/eigrp_southbound.c
     frr_dir = Path(__file__).resolve().parents[2] / "eigrpd"
-    return (frr_dir / "eigrp_southbound.c").read_text() + (frr_dir / "eigrp_southbound_ipv6.c").read_text()
+    return (frr_dir / "eigrp_southbound.c").read_text() + (frr_dir / "eigrp_frr_ipv6.c").read_text()
 
 
 def test_frr_ipv6_raw_socket_and_multicast_contract():

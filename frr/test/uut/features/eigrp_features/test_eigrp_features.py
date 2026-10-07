@@ -29,14 +29,14 @@ def test_common_af_create_rejects_disabled_family():
 
 
 def test_named_cli_installs_only_supported_address_families():
-    source = read("frr/code/eigrp_cli_named.c")
+    source = read("frr/code/eigrp_frr_named.c")
     assert "if (eigrp_afi_supported(EIGRP_AFI_IPV4))" in source
     assert "if (eigrp_afi_supported(EIGRP_AFI_IPV6))" in source
 
 
 def test_tech_support_reads_common_capability_snapshot():
     status = read("eigrp/code/eigrp_status.c")
-    cli = read("frr/code/eigrp_cli_named.c")
+    cli = read("frr/code/eigrp_frr_named.c")
     assert "eigrp_status_capability_state_read" in status
     assert "eigrp_feature_supported(EIGRP_FEATURE_AFI_IPV4)" in status
     assert "eigrp_feature_supported(EIGRP_FEATURE_AFI_IPV6)" in status

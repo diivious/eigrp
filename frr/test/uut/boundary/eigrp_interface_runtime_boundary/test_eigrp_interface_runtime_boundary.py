@@ -122,9 +122,9 @@ def test_interface_discovery_and_socket_host_objects_are_owned_by_frr_adapter():
 
 
 def test_frr_management_and_zebra_no_longer_store_runtime_in_ifp_info():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
-    zebra = read("frr/code/eigrp_zebra.c")
-    vty = read("frr/code/eigrp_vty.c")
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
+    zebra = read("frr/code/eigrp_frr_rib.c")
+    vty = read("frr/code/eigrp_frr_console.c")
 
     assert "ifp->info" not in northbound
     assert "ifp->info" not in zebra

@@ -134,8 +134,8 @@ def test_common_instance_code_owns_runtime_identity_and_address_family_operation
 
 
 def test_frr_management_and_zebra_callbacks_delegate_instead_of_mutating_runtime():
-    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
-    zebra = read("frr/code/eigrp_zebra.c")
+    northbound = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
+    zebra = read("frr/code/eigrp_frr_rib.c")
 
     assert "eigrp_intf_delay_update(EIGRP_SET, " in northbound
     assert "eigrp_intf_bandwidth_update(EIGRP_SET, " in northbound
@@ -249,15 +249,15 @@ def test_frr_memory_tracking_stays_inside_frr_adapter():
     common = "\n".join(
         path.read_text() for path in sorted((ROOT / "eigrpd").glob("*.[ch]"))
     )
-    memory_header = read("frr/code/eigrp_frr_memory.h")
-    memory_source = read("frr/code/eigrp_frr_memory.c")
+    memory_header = read("frr/code/eigrp_frr.h")
+    memory_source = read("frr/code/eigrp_frr.c")
     southbound = read("frr/code/eigrp_southbound.c")
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
 
     assert "DECLARE_MGROUP(EIGRPD)" in memory_header
     assert 'DEFINE_MGROUP(EIGRPD, "eigrpd")' in memory_source
-    assert "eigrp_frr_memory.h" in southbound
-    assert "eigrp_frr_memory.h" in zebra
+    assert "eigrp_frr.h" in southbound
+    assert "eigrp_frr.h" in zebra
     assert "DEFINE_MGROUP(EIGRPD" not in common
     assert "DECLARE_MGROUP(EIGRPD" not in common
     assert "DEFINE_MTYPE" not in common
@@ -307,8 +307,8 @@ def test_address_family_vectors_are_validated_once_before_common_use():
 def test_frr_debug_logging_uses_eigrp_logging_boundary():
     frr_log = read("frr/code/eigrp_log.c")
     frr_main = read("frr/code/eigrp_main.c")
-    zebra = read("frr/code/eigrp_zebra.c")
-    common_dump = read("eigrp/code/eigrp_dump.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
+    common_dump = read("eigrp/code/eigrp_frr_console.c")
 
     assert "frr_pthread_non_controlled_startup(" in frr_log
     assert "frr_pthread_non_controlled_shutdown(" in frr_log
@@ -321,7 +321,7 @@ def test_frr_debug_logging_uses_eigrp_logging_boundary():
 
 def test_frr_event_and_rib_ingress_logs_invalid_host_data_at_boundary():
     southbound = read("frr/code/eigrp_southbound.c")
-    zebra = read("frr/code/eigrp_zebra.c")
+    zebra = read("frr/code/eigrp_frr_rib.c")
 
     event_prepare = function_body(southbound, "eigrp_southbound_event_prepare")
     event_run = function_body(southbound, "eigrp_southbound_event_run")

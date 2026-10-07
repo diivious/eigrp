@@ -11,15 +11,14 @@ endif
 eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_auth.c \
 	eigrpd/eigrp_checksum.c \
-	eigrpd/eigrp_cli_classic.c \
-	eigrpd/eigrp_cli_named.c \
+	eigrpd/eigrp_frr_classic.c \
+	eigrpd/eigrp_frr_named.c \
 	eigrpd/eigrp_debug.c \
-	eigrpd/eigrp_dump.c \
-	eigrpd/eigrp_errors.c \
+	eigrpd/eigrp_frr_console.c \
+	eigrpd/eigrp_vty.c \
 	eigrpd/eigrp_eventlog.c \
 	eigrpd/eigrp_filter.c \
 	eigrpd/eigrp_frr.c \
-	eigrpd/eigrp_frr_memory.c \
 	eigrpd/eigrp_fsm.c \
 	eigrpd/eigrp_hello.c \
 	eigrpd/eigrp_interface.c \
@@ -27,7 +26,6 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_ipv4.c \
 	eigrpd/eigrp_ipv6.c \
 	eigrpd/eigrp_list.c \
-	eigrpd/eigrp_log.c \
 	eigrpd/eigrp_main.c \
 	eigrpd/eigrp_md5.c \
 	eigrpd/eigrp_memory.c \
@@ -35,11 +33,11 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_neighbor.c \
 	eigrpd/eigrp_network.c \
 	eigrpd/eigrp_northbound.c \
-	eigrpd/eigrp_northbound_ipv4.c \
-	eigrpd/eigrp_northbound_ipv6.c \
+	eigrpd/eigrp_frr_ipv4.c \
+	eigrpd/eigrp_frr_ipv6.c \
 	eigrpd/eigrp_packet.c \
 	eigrpd/eigrp_packetizer.c \
-	eigrpd/eigrp_policy.c \
+	eigrpd/eigrp_frr_policy.c \
 	eigrpd/eigrp_prefix.c \
 	eigrpd/eigrp_query.c \
 	eigrpd/eigrp_redistribute.c \
@@ -49,9 +47,7 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_siaquery.c \
 	eigrpd/eigrp_siareply.c \
 	eigrpd/eigrp_southbound.c \
-	eigrpd/eigrp_southbound_ipv4.c \
-	eigrpd/eigrp_southbound_ipv6.c \
-	eigrpd/eigrp_snmp.c \
+	eigrpd/eigrp_frr_snmp.c \
 	eigrpd/eigrp_statistics.c \
 	eigrpd/eigrp_status.c \
 	eigrpd/eigrp_features.c \
@@ -63,9 +59,8 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_timer.c \
 	eigrpd/eigrp_topology.c \
 	eigrpd/eigrp_update.c \
-	eigrpd/eigrp_vrf.c \
-	eigrpd/eigrp_vty.c \
-	eigrpd/eigrp_zebra.c \
+	eigrpd/eigrp_frr_vrf.c \
+	eigrpd/eigrp_frr_rib.c \
 	eigrpd/eigrp.c \
 	# end
 
@@ -79,23 +74,24 @@ eigrpdheader_HEADERS = \
 	# end
 
 clippy_scan += \
-	eigrpd/eigrp_cli_classic.c \
-	eigrpd/eigrp_cli_named.c \
+	eigrpd/eigrp_frr_classic.c \
+	eigrpd/eigrp_frr_named.c \
 	eigrpd/eigrp_vty.c \
 	# end
 
 noinst_HEADERS += \
 	eigrpd/eigrp_auth.h \
 	eigrpd/eigrp_checksum.h \
-	eigrpd/eigrp_cli_classic.h \
-	eigrpd/eigrp_cli_named.h \
+	eigrpd/eigrp_frr_classic.h \
+	eigrpd/eigrp_frr_named.h \
 	eigrpd/eigrp_const.h \
 	eigrpd/eigrp_debug.h \
-	eigrpd/eigrp_errors.h \
+	eigrpd/eigrp_frr_console.h \
+	eigrpd/eigrp_vty.h \
+	eigrpd/eigrp_yang.h \
 	eigrpd/eigrp_eventlog.h \
 	eigrpd/eigrp_filter.h \
 	eigrpd/eigrp_frr.h \
-	eigrpd/eigrp_frr_memory.h \
 	eigrpd/eigrp_fsm.h \
 	eigrpd/eigrp_interface.h \
 	eigrpd/eigrp_list.h \
@@ -107,15 +103,14 @@ noinst_HEADERS += \
 	eigrpd/eigrp_neighbor.h \
 	eigrpd/eigrp_network.h \
 	eigrpd/eigrp_northbound.h \
-	eigrpd/eigrp_northbound_internal.h \
 	eigrpd/eigrp_packet.h \
 	eigrpd/eigrp_packetizer.h \
-	eigrpd/eigrp_policy.h \
+	eigrpd/eigrp_frr_policy.h \
 	eigrpd/eigrp_prefix.h \
 	eigrpd/eigrp_redistribute.h \
 	eigrpd/eigrp_sha256.h \
-	eigrpd/eigrp_southbound_internal.h \
-	eigrpd/eigrp_snmp.h \
+	eigrpd/eigrp_southbound.h \
+	eigrpd/eigrp_frr_snmp.h \
 	eigrpd/eigrp_statistics.h \
 	eigrpd/eigrp_status.h \
 	eigrpd/eigrp_stream.h \
@@ -126,10 +121,8 @@ noinst_HEADERS += \
 	eigrpd/eigrp_tlv2.h \
 	eigrpd/eigrp_timer.h \
 	eigrpd/eigrp_types.h \
-	eigrpd/eigrp_vrf.h \
-	eigrpd/eigrp_vty.h \
-	eigrpd/eigrp_yang.h \
-	eigrpd/eigrp_zebra.h \
+	eigrpd/eigrp_frr_vrf.h \
+	eigrpd/eigrp_frr_rib.h \
 	# end
 
 nodist_eigrpd_eigrpd_SOURCES = \

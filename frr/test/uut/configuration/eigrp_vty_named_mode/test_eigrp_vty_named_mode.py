@@ -8,12 +8,12 @@ from pathlib import Path
 
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-VTY = ROOT / "frr" / "code" / "eigrp_cli_named.c"
-CLASSIC_VTY = ROOT / "frr" / "code" / "eigrp_vty.c"
-DUMP = ROOT / "frr" / "code" / "eigrp_dump.c"
+VTY = ROOT / "frr" / "code" / "eigrp_frr_named.c"
+CLASSIC_VTY = ROOT / "frr" / "code" / "eigrp_frr_console.c"
+DUMP = ROOT / "frr" / "code" / "eigrp_frr_console.c"
 DEBUG = ROOT / "eigrpd" / "code" / "eigrp_debug.c"
 DEBUG_H = ROOT / "eigrpd" / "code" / "eigrp_debug.h"
-CLIPPY = ROOT / "frr" / "code" / "eigrp_cli_named_clippy.c"
+CLIPPY = ROOT / "frr" / "code" / "eigrp_frr_named_clippy.c"
 NEIGHBOR_C = ROOT / "eigrpd" / "code" / "eigrp_neighbor.c"
 NEIGHBOR_H = ROOT / "eigrpd" / "code" / "eigrp_neighbor.h"
 NORTHBOUND_C = ROOT / "frr" / "code" / "eigrp_northbound.c"
@@ -110,7 +110,7 @@ def test_neighbor_clear_uses_one_portable_neighbor_target():
 def test_named_neighbor_clear_accepts_ipv6_at_northbound_boundary():
     named = read(VTY)
     clippy = read(CLIPPY)
-    northbound_c = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_northbound_ipv6.c")))
+    northbound_c = (read(NORTHBOUND_C) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv4.c")) + read(NORTHBOUND_C.with_name("eigrp_frr_ipv6.c")))
     northbound_h = read(NORTHBOUND_H)
     neighbor_h = read(ROOT / "eigrpd" / "code" / "eigrp_cli.h")
 
@@ -533,7 +533,7 @@ def test_debug_families_have_runtime_hooks_at_their_protocol_owners():
     siaquery = read(ROOT / "eigrpd" / "code" / "eigrp_siaquery.c")
     siareply = read(ROOT / "eigrpd" / "code" / "eigrp_siareply.c")
     topology = read(TOPOLOGY_C)
-    zebra = read(ROOT / "frr" / "code" / "eigrp_zebra.c")
+    zebra = read(ROOT / "frr" / "code" / "eigrp_frr_rib.c")
 
     assert "EIGRP_DEBUG_AF_ROUTE" in fsm
     assert "eigrp_debug_neighbor_state" in neighbor

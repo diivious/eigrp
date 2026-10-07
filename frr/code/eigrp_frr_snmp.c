@@ -11,7 +11,7 @@
  */
 #include "eigrp.h"
 #include "eigrp_structs.h"
-#include "eigrp_snmp.h"
+#include "eigrp_frr_snmp.h"
 
 #ifdef HAVE_SNMP
 #include <net-snmp/net-snmp-config.h>

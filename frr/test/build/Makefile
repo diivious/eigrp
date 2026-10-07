@@ -31,7 +31,11 @@ COMMON_CFLAGS := \
 
 # Match the FRR install projection: common eigrpd/ first, then top-level frr/
 # daemon adapter files overlaid into the same eigrpd directory.
-ALL_SOURCES = $(filter-out $(STAGE)/%_clippy.c,$(sort $(wildcard $(STAGE)/*.c)))
+ALL_SOURCES = $(filter-out \
+	$(STAGE)/%_clippy.c \
+	$(STAGE)/eigrp_dump.c \
+	$(STAGE)/eigrp_log.c, \
+	$(sort $(wildcard $(STAGE)/*.c)))
 SMOKE_SOURCES = $(ALL_SOURCES)
 
 all: all-sources link-guard

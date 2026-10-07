@@ -63,7 +63,7 @@ def test_topology_api_does_not_reject_non_base_tid():
 
 
 def test_multicast_af_is_not_exposed_by_current_frr_cli():
-    cli = ROOT / "frr/code/eigrp_cli_named.c"
+    cli = ROOT / "frr/code/eigrp_frr_named.c"
     text = read(cli)
     assert "[multicast]" not in text
     assert "eigrp_af_config_iterate" in text
@@ -108,12 +108,12 @@ def test_production_targets_do_not_return_or_tolerate_not_implemented():
             assert "== EIGRP_RESULT_NOT_IMPLEMENTED" not in text, source
             assert "!= EIGRP_RESULT_NOT_IMPLEMENTED" not in text, source
 
-    renderer = body(ROOT / "frr/code/eigrp_cli_named.c", "eigrp_cli_result_render")
+    renderer = body(ROOT / "frr/code/eigrp_frr_named.c", "eigrp_cli_result_render")
     assert "case EIGRP_RESULT_NOT_IMPLEMENTED:" in renderer
 
 
 def test_frr_named_hmac_cli_exposes_plaintext_and_type7_password_forms():
-    cli = read(ROOT / "frr/code/eigrp_cli_named.c")
+    cli = read(ROOT / "frr/code/eigrp_frr_named.c")
     assert 'authentication mode <md5|hmac-sha-256 <0|7> WORD>' in cli
     auth_mode = body(ROOT / "eigrp/code/eigrp_auth.c", "eigrp_auth_mode_update")
     assert "hmac->encryption_type == 7" in auth_mode

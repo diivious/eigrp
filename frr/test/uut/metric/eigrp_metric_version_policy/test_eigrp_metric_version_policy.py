@@ -49,8 +49,8 @@ def test_mixed_peer_aggregate_policy_is_preserved():
 
 
 def test_named_cli_retains_and_writes_32bit_override_for_both_afs():
-    cli = read("frr/code/eigrp_cli_named.c")
-    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_northbound_ipv4.c") + read("frr/code/eigrp_northbound_ipv6.c"))
+    cli = read("frr/code/eigrp_frr_named.c")
+    nb = (read("frr/code/eigrp_northbound.c") + read("frr/code/eigrp_frr_ipv4.c") + read("frr/code/eigrp_frr_ipv6.c"))
     yang = read("frr/patch/frr-eigrp-yang.patch")
     assert '"metric version 32bit"' in cli
     assert '"no metric version 32bit"' in cli

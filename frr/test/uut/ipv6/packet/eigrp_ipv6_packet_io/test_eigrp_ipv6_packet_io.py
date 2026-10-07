@@ -49,8 +49,8 @@ def test_ipv6_receive_preserves_link_local_interface_context():
 
 def test_frr_keeps_existing_family_specific_socket_backends():
     common = read("frr/code/eigrp_southbound.c")
-    ipv4 = read("frr/code/eigrp_southbound_ipv4.c")
-    ipv6 = read("frr/code/eigrp_southbound_ipv6.c")
+    ipv4 = read("frr/code/eigrp_frr_ipv4.c")
+    ipv6 = read("frr/code/eigrp_frr_ipv6.c")
 
     assert "int eigrp_sys_ipv4_packet_send(" in ipv4
     assert "bool eigrp_sys_ipv4_packet_receive(" in ipv4
@@ -62,7 +62,7 @@ def test_frr_keeps_existing_family_specific_socket_backends():
 
 def test_frr_ipv6_backend_uses_link_local_source_and_required_socket_context():
     common = read("frr/code/eigrp_southbound.c")
-    ipv6 = read("frr/code/eigrp_southbound_ipv6.c")
+    ipv6 = read("frr/code/eigrp_frr_ipv6.c")
 
     assert "vrf_socket(family, SOCK_RAW, IPPROTO_EIGRPIGP" in common
     assert "IPV6_UNICAST_HOPS" in ipv6

@@ -40,7 +40,7 @@ def test_ipv6_update_reaches_common_host_rib_path():
     assert "eigrp_rib_route_del(eigrp, &prefix->destination)" in rib
 
 def test_named_ipv6_topology_show_uses_common_state_walk():
-    cli = read("frr/code/eigrp_cli_named.c")
+    cli = read("frr/code/eigrp_frr_named.c")
     assert '"show eigrp address-family <ipv4|ipv6>$afi' in cli
     assert "eigrp_topology_state_iterate(" in cli
     assert "INET6_ADDRSTRLEN" in cli

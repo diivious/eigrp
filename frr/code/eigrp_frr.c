@@ -9,6 +9,8 @@
 #include "eigrp_frr.h"
 #include "eigrp_const.h"
 
+DEFINE_MGROUP(EIGRPD, "eigrpd");
+
 static eigrp_afi_t eigrp_frr_address_family_import(uint8_t family)
 {
 	switch (family) {

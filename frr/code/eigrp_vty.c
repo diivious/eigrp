@@ -37,10 +37,10 @@
 #include "eigrp_topology.h"
 #include "eigrp_table.h"
 #include "eigrp_frr.h"
-#include "eigrp_zebra.h"
+#include "eigrp_frr_rib.h"
 #include "eigrp_vty.h"
 #include "eigrp_network.h"
-#include "eigrp_dump.h"
+#include "eigrp_frr_console.h"
 #include "eigrp_const.h"
 #ifndef EIGRP_STANDALONE_BUILD
 #if defined(__GNUC__)

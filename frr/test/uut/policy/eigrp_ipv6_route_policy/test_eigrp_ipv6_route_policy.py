@@ -8,7 +8,7 @@ def read(path):
 
 
 def test_ipv6_filter_policy_reaches_runtime_data_path():
-    policy = read("frr/code/eigrp_policy.c")
+    policy = read("frr/code/eigrp_frr_policy.c")
     filt = read("eigrp/code/eigrp_filter.c")
     update = read("eigrp/code/eigrp_update.c")
     packetizer = read("eigrp/code/eigrp_packetizer.c")
@@ -24,7 +24,7 @@ def test_ipv6_filter_policy_reaches_runtime_data_path():
 
 def test_route_maps_filter_redistributed_ipv6_candidates():
     system = read("eigrp/code/eigrp_sys.h")
-    policy = read("frr/code/eigrp_policy.c")
+    policy = read("frr/code/eigrp_frr_policy.c")
     redist = read("eigrp/code/eigrp_redistribute.c")
 
     assert "eigrp_sys_redistribute_route_map_evaluate" in system
@@ -35,7 +35,7 @@ def test_route_maps_filter_redistributed_ipv6_candidates():
 
 
 def test_policy_edits_force_reevaluation():
-    policy = read("frr/code/eigrp_policy.c")
+    policy = read("frr/code/eigrp_frr_policy.c")
     redist = read("eigrp/code/eigrp_redistribute.c")
     filt = read("eigrp/code/eigrp_filter.c")
 
@@ -48,7 +48,7 @@ def test_policy_edits_force_reevaluation():
 
 
 def test_classic_ipv6_distribute_uses_ipv6_slots():
-    policy = read("frr/code/eigrp_policy.c")
+    policy = read("frr/code/eigrp_frr_policy.c")
 
     assert "DISTRIBUTE_V6_IN" in policy
     assert "DISTRIBUTE_V6_OUT" in policy
@@ -86,7 +86,7 @@ def test_frr_route_map_types_do_not_leak_into_portable_code():
         for token in forbidden:
             assert token not in content, f"{token} leaked into {path}"
 
-    shim = read("frr/code/eigrp_policy.c")
+    shim = read("frr/code/eigrp_frr_policy.c")
     assert '#include "routemap.h"' in shim
     assert "struct route_map" in shim
     assert "route_map_result_t" in shim
@@ -94,7 +94,7 @@ def test_frr_route_map_types_do_not_leak_into_portable_code():
 
 
 def test_policy_shim_header_matches_route_map_boundary():
-    header = read("frr/code/eigrp_policy.h")
+    header = read("frr/code/eigrp_frr_policy.h")
     assert "eigrp_policy_redistribute_route_map_evaluate" in header
     assert "eigrp_rib_route_t" in header
     for native in ("struct route_map", "route_map_result_t", "RMAP_", "routemap.h"):
@@ -118,8 +118,8 @@ def test_packet_host_contract_keeps_generic_and_af_specific_entry_points():
 def test_route_map_contract_is_const_end_to_end():
     system = read("eigrp/code/eigrp_sys.h")
     southbound = read("frr/code/eigrp_southbound.c")
-    policy_h = read("frr/code/eigrp_policy.h")
-    policy_c = read("frr/code/eigrp_policy.c")
+    policy_h = read("frr/code/eigrp_frr_policy.h")
+    policy_c = read("frr/code/eigrp_frr_policy.c")
 
     signature = "const eigrp_rib_route_t *route"
     assert signature in system
@@ -130,9 +130,9 @@ def test_route_map_contract_is_const_end_to_end():
 
 def test_split_southbound_packet_io_has_single_symbol_owner():
     generic = read("frr/code/eigrp_southbound.c")
-    ipv4 = read("frr/code/eigrp_southbound_ipv4.c")
-    ipv6 = read("frr/code/eigrp_southbound_ipv6.c")
-    internal = read("frr/code/eigrp_southbound_internal.h")
+    ipv4 = read("frr/code/eigrp_frr_ipv4.c")
+    ipv6 = read("frr/code/eigrp_frr_ipv6.c")
+    internal = read("frr/code/eigrp_southbound.h")
 
     assert "int eigrp_sys_ipv4_packet_send(" not in generic
     assert "bool eigrp_sys_ipv4_packet_receive(" not in generic

@@ -8,7 +8,7 @@
 
 #include "vrf.h"
 
-#include "eigrp_vrf.h"
+#include "eigrp_frr_vrf.h"
 
 static int eigrp_vrf_new(struct vrf *vrf)
 {

@@ -24,7 +24,7 @@
 #include "eigrp_summary.h"
 #include "eigrp_structs.h"
 #include "eigrp_frr.h"
-#include "eigrp_policy.h"
+#include "eigrp_frr_policy.h"
 
 #include "filter.h"
 #include "plist.h"

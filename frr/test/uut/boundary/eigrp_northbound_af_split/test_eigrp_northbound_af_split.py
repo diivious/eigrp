@@ -9,8 +9,8 @@ def read(path: str) -> str:
 
 def test_frr_northbound_is_split_without_duplicate_classic_callbacks():
     common = read("frr/code/eigrp_northbound.c")
-    ipv4 = read("frr/code/eigrp_northbound_ipv4.c")
-    ipv6 = read("frr/code/eigrp_northbound_ipv6.c")
+    ipv4 = read("frr/code/eigrp_frr_ipv4.c")
+    ipv6 = read("frr/code/eigrp_frr_ipv6.c")
     build = read("frr/code/subdir.am")
 
     assert "const struct frr_yang_module_info frr_eigrpd_info" in common
@@ -19,14 +19,14 @@ def test_frr_northbound_is_split_without_duplicate_classic_callbacks():
     assert "EIGRP_AFI_IPV4" in ipv4
     assert "eigrp_northbound_ipv6_neighbor_address_copy(" in ipv6
     assert "EIGRP_AFI_IPV6" in ipv6
-    assert "eigrpd/eigrp_northbound_ipv4.c" in build
-    assert "eigrpd/eigrp_northbound_ipv6.c" in build
+    assert "eigrpd/eigrp_frr_ipv4.c" in build
+    assert "eigrpd/eigrp_frr_ipv6.c" in build
 
 
 def test_ipv4_only_helpers_are_private_to_ipv4_northbound():
     common = read("frr/code/eigrp_northbound.c")
-    ipv4 = read("frr/code/eigrp_northbound_ipv4.c")
-    internal = read("frr/code/eigrp_northbound_internal.h")
+    ipv4 = read("frr/code/eigrp_frr_ipv4.c")
+    internal = read("frr/code/eigrp_northbound.h")
 
     assert "void redistribute_get_metrics(" not in common
     assert "eigrp_interface_lookup_host(" not in common
@@ -37,9 +37,9 @@ def test_ipv4_only_helpers_are_private_to_ipv4_northbound():
 
 
 def test_ipv6_northbound_does_not_pull_unrelated_protocol_modules():
-    ipv6 = read("frr/code/eigrp_northbound_ipv6.c")
+    ipv6 = read("frr/code/eigrp_frr_ipv6.c")
 
     assert '#include "eigrp.h"' in ipv6
     assert '#include "eigrp/code/eigrp_topology.h"' not in ipv6
-    assert '#include "eigrp_zebra.h"' not in ipv6
-    assert '#include "eigrp_policy.h"' not in ipv6
+    assert '#include "eigrp_frr_rib.h"' not in ipv6
+    assert '#include "eigrp_frr_policy.h"' not in ipv6
