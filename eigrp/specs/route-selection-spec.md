@@ -15,6 +15,9 @@ the repository-wide integration contract.
 
 ## 2. Destination and path storage
 
+![Portable route-selection flow](images/route-selection-flow.svg)
+
+
 Each destination is represented by a prefix descriptor. Individual learned or
 locally generated paths are represented by route descriptors.
 
@@ -155,6 +158,9 @@ After DUAL permits a committed selection, route-selection/topology code creates
 the normalized public RIB representation for the selected successor set.
 
 The host adapter then installs or removes that route through `eigrp_rib.h`.
+The diagnostic event history records the committed successor-set change and the
+result of the southbound RIB add/delete so a field trace can distinguish a
+DUAL/selection decision from a host-RIB failure.
 
 Host RIB callbacks must not reach back into private route descriptors to change
 selection decisions.

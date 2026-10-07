@@ -66,6 +66,8 @@ The adapter translates host-native identities, configuration objects, RIB
 objects, events, timers, sockets, and policy results into OpenEIGRP-owned values
 and calls the portable API.
 
+![Host/platform integration boundary](images/platform-boundary.svg)
+
 It does not reimplement:
 
 - DUAL;
@@ -348,19 +350,25 @@ boundary.
 
 Do not return host-native status codes through portable APIs.
 
-A real feature target may return `EIGRP_RESULT_NOT_IMPLEMENTED`. The adapter
-must preserve that distinction from invalid input or a generic host error.
+The adapter must preserve the exact structured result returned by the portable
+target. `EIGRP_RESULT_UNSUPPORTED` is used for valid operations whose required
+capability is unavailable in the active runtime/host.
+
+`EIGRP_RESULT_NOT_IMPLEMENTED` remains defined by the public API but the current
+portable production source has no feature target that returns it; an adapter
+must not synthesize that result or hide any future occurrence behind success.
 
 ## 17. Optional capabilities
 
 A host may not support every optional OpenEIGRP capability immediately.
 
-Optional integration should follow these rules:
+Optional integration follows these rules:
 
 1. capability absence is explicit;
 2. the base public contract remains buildable;
 3. configuration required for retention is not silently discarded;
-4. unsupported runtime behavior reports a structured result;
+4. unsupported runtime behavior reports `EIGRP_RESULT_UNSUPPORTED` or another
+   precise structured result;
 5. host-specific capability checks stay in the adapter or a public feature
    contract, not scattered through protocol modules.
 
@@ -455,7 +463,7 @@ BIRD channels, or Unix test-shim internals.
 Use:
 
 - `frr/README.md` and `frr/specs/` for FRR-specific mapping;
-- `bird/README.md` and `bird/specs/` for BIRD/BSD-specific mapping;
+- `bird/README.md` for the current BIRD/BSD integration boundary;
 - `unix/README.md` and `unix/specs/integration.md` for the standalone Unix host;
 - `specs/EIGRP-Config-Guide.md` for the user-visible EIGRP semantic command
   surface that host front ends should represent.

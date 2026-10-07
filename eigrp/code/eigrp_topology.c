@@ -402,9 +402,15 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 					: EIGRP_RIB_ROUTE_INTERNAL,
 			};
 
-			if (eigrp_rib_route_add(eigrp, &rib_route)
-			    == EIGRP_RESULT_SUCCESS)
-				route->flags |= EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG;
+			{
+				eigrp_result_t rib_result = eigrp_rib_route_add(eigrp, &rib_route);
+
+				(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RIB_INSTALL,
+					&node->destination, node->distance, 1, rib_route.install.type,
+					rib_result);
+				if (rib_result == EIGRP_RESULT_SUCCESS)
+					route->flags |= EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG;
+			}
 		}
 	}
 }
@@ -583,7 +589,12 @@ void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 	eigrp_timer_cancel(pe->active_eigrp, &pe->t_active);
 	pe->active_eigrp = NULL;
 	eigrp_list_delete(&pe->rij);
-	(void)eigrp_rib_route_del(eigrp, &pe->destination);
+	{
+		eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &pe->destination);
+
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RIB_WITHDRAW,
+			&pe->destination, rib_result, 0, 0, 0);
+	}
 
 	rn->info = NULL;
 	eigrp_table_node_release(rn); /* lookup reference */
@@ -603,9 +614,16 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
 	if (eigrp_list_lookup(routes, route) != NULL) {
 		bool installed = (route->flags & EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG) != 0;
 
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_TOPOLOGY_ROUTE_DELETE,
+			&node->destination, route->ei ? route->ei->ifindex : 0,
+			route->reported_distance, route->distance, installed);
 		eigrp_list_delete_data(routes, route);
-		if (installed)
-			(void)eigrp_rib_route_del(eigrp, &node->destination);
+		if (installed) {
+			eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &node->destination);
+
+			(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RIB_WITHDRAW,
+				&node->destination, rib_result, 0, 0, 0);
+		}
 		free(route);
 	}
 }
@@ -1272,6 +1290,35 @@ void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 	eigrp_list_item_t *node;
 	eigrp_route_descriptor_t *route;
 	size_t nexthop_count;
+	uint32_t old_successor_count = 0;
+	uint32_t new_successor_count = 0;
+	bool successor_changed = false;
+
+	/* Compare the currently installed successor set with the newly selected
+	 * DUAL successor set before INTABLE is cleared.  This catches replacement
+	 * of one successor by another even when the path count is unchanged. */
+	{
+		eigrp_topology_route_iterator_t iterator;
+
+		for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
+		     route = eigrp_topology_route_iterator_next(&iterator)) {
+			bool old_successor =
+				(route->flags & EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG) != 0;
+			bool new_successor =
+				(route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG) != 0;
+
+			if (old_successor)
+				old_successor_count++;
+			if (new_successor)
+				new_successor_count++;
+			if (old_successor != new_successor)
+				successor_changed = true;
+		}
+	}
+	if (successor_changed)
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SUCCESSOR_CHANGE,
+			&prefix->destination, old_successor_count, new_successor_count,
+			prefix->distance, prefix->fdistance);
 
 	/* INTABLE describes the current southbound successor set, not historical
 	 * ownership. Clear stale flags before replacing the RIB snapshot so a
@@ -1308,14 +1355,25 @@ void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 				}
 				break;
 			}
-			(void)eigrp_rib_route_add(eigrp, &rib_route);
+			{
+				eigrp_result_t rib_result = eigrp_rib_route_add(eigrp, &rib_route);
+
+				(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RIB_INSTALL,
+					&prefix->destination, prefix->distance, nexthop_count,
+					rib_route.install.type, rib_result);
+			}
 		}
 		for (EIGRP_LIST_ITERATE_RO(successors, node, route))
 			route->flags |= EIGRP_ROUTE_DESCRIPTOR_INTABLE_FLAG;
 
 		eigrp_list_delete(&successors);
 	} else {
-		(void)eigrp_rib_route_del(eigrp, &prefix->destination);
+		{
+			eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &prefix->destination);
+
+			(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RIB_WITHDRAW,
+				&prefix->destination, rib_result, 0, 0, 0);
+		}
 		eigrp_topology_route_iterator_t iterator;
 		for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
 		     route = eigrp_topology_route_iterator_next(&iterator))
@@ -1516,7 +1574,12 @@ static bool eigrp_topology_prefix_detach(eigrp_instance_t *eigrp,
 		return false;
 
 	eigrp_list_delete_data(eigrp->topology_changes, prefix);
-	(void)eigrp_rib_route_del(eigrp, &prefix->destination);
+	{
+		eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &prefix->destination);
+
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RIB_WITHDRAW,
+			&prefix->destination, rib_result, 0, 0, 0);
+	}
 	rn->info = NULL;
 	eigrp_table_node_release(rn); /* lookup reference */
 	eigrp_table_node_release(rn); /* initial creation reference */
@@ -2238,7 +2301,13 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 			eigrp_log(EIGRP_LOG_WARNING,
 				  "EIGRP topology maximum-prefix threshold reached (%u/%u)",
 				  count + 1U, limit->maximum);
-		return eigrp_prefix_limit_allows(limit, count, false);
+		if (!eigrp_prefix_limit_allows(limit, count, false)) {
+			(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
+				prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_TOPOLOGY, count + 1U,
+				limit->maximum, 0);
+			return false;
+		}
+		return true;
 	}
 }
 

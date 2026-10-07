@@ -105,6 +105,8 @@ extern void eigrp_nbr_holddown_expired(void *arg);
 
 extern void eigrp_nbr_holddown_update(eigrp_nbr_t *);
 extern void eigrp_nbr_state_update(eigrp_operation_t, eigrp_nbr_t *, uint8_t state);
+extern void eigrp_nbr_state_update_reason(eigrp_operation_t, eigrp_nbr_t *,
+	uint8_t state, uint16_t reason);
 extern void eigrp_nbr_codec_select(eigrp_nbr_t *, uint8_t tlv_version);
 extern void eigrp_nbr_codec_update(eigrp_instance_t *);
 extern uint8_t eigrp_nbr_state(eigrp_nbr_t *);

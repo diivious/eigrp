@@ -29,6 +29,7 @@
 #include "eigrp_timer.h"
 #include "eigrp_rib.h"
 #include "eigrp_metric.h"
+#include "eigrp_eventlog.h"
 
 /*
  * @fn eigrp_hello_timer
@@ -82,6 +83,19 @@ static bool eigrp_hello_goodbye(const struct TLV_Parameter_Type *param)
 	       && param->K3 == 0xff && param->K4 == 0xff && param->K5 == 0xff;
 }
 
+static void eigrp_hello_reject_event(eigrp_instance_t *eigrp,
+				    const eigrp_addr_t *source,
+				    eigrp_eventlog_packet_reject_reason_t reason)
+{
+	eigrp_prefix_t peer_addr;
+
+	if (!eigrp || !source)
+		return;
+	eigrp_eventlog_addr_from_legacy(&peer_addr, source);
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_PACKET_REJECT,
+		&peer_addr, EIGRP_OPC_HELLO, reason, 0, 0);
+}
+
 static void eigrp_hello_k_update(eigrp_nbr_t *nbr,
 				 struct TLV_Parameter_Type *param)
 {
@@ -130,17 +144,22 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			eigrp_log(EIGRP_LOG_INFO,
 				  "Neighbor %s (%s) is down: Interface Goodbye received",
 				  eigrp_print_addr(&nbr->src), nbr->ei->name);
+		eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+			EIGRP_EVENTLOG_NEIGHBOR_REASON_GOODBYE);
 		eigrp_nbr_delete(nbr);
 		return NULL;
 	}
 
 	if (!eigrp_hello_k_match(eigrp, nbr)) {
+		eigrp_hello_reject_event(eigrp, &nbr->src,
+			EIGRP_EVENTLOG_PACKET_REJECT_HELLO_K_MISMATCH);
 		if (eigrp_nbr_state(nbr) != EIGRP_NEIGHBOR_DOWN) {
 			if (eigrp->log_neighbor_changes)
 				eigrp_log(EIGRP_LOG_INFO,
 					  "Neighbor %s (%s) is down: K-value mismatch",
 					  eigrp_print_addr(&nbr->src), nbr->ei->name);
-			eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+			eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+				EIGRP_EVENTLOG_NEIGHBOR_REASON_K_MISMATCH);
 		}
 		return nbr;
 	}
@@ -236,6 +255,8 @@ static void eigrp_peer_termination_decode(eigrp_instance_t *eigrp,
 		eigrp_log(EIGRP_LOG_INFO,
 			  "Neighbor %s (%s) is down: Peer Termination received",
 			  eigrp_print_addr(&nbr->src), nbr->ei->name);
+	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+		EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_TERMINATION);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -376,12 +397,17 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 	adjacency_start_allowed = true;
 
 	if (!eigrp_hello_tlvs_validate(ei, (const uint8_t *)eigrph->tlv,
-				       (uint16_t)size))
+				       (uint16_t)size)) {
+		eigrp_hello_reject_event(eigrp, src, EIGRP_EVENTLOG_PACKET_REJECT_HELLO_TLV);
 		return;
+	}
 
 	/* Static-neighbor interfaces accept Hellos only from configured peers. */
-	if (!eigrp_nbr_static_source_allowed(ei, src))
+	if (!eigrp_nbr_static_source_allowed(ei, src)) {
+		eigrp_hello_reject_event(eigrp, src,
+			EIGRP_EVENTLOG_PACKET_REJECT_STATIC_NEIGHBOR);
 		return;
+	}
 
 	/* see if we know this neighbor, if not, then lets make friends */
 	nbr = eigrp_nbr_lookup(ei, eigrph, src);

@@ -19,6 +19,9 @@ Protocol behavior follows RFC 7868 and explicit OpenEIGRP design decisions.
 
 ## 2. DUAL topology objects
 
+![DUAL decision and convergence flow](images/dual-flow.svg)
+
+
 DUAL separates destination state from per-neighbor path state.
 
 ```text
@@ -320,7 +323,10 @@ record old -> new at that assignment site
 ```
 
 The event log is diagnostic evidence of what the implementation did, not what a
-caller expected it to do.
+caller expected it to do. The same exact-site rule applies to FC/feasible-
+successor decisions, metric commits, ACTIVE reply accounting, and committed
+successor-set changes: log the decision where the authoritative state is
+changed, not in a later observer that infers what should have happened.
 
 ## 20. Source ownership
 

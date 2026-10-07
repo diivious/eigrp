@@ -37,6 +37,20 @@
 #include "eigrp_network.h"
 #include "eigrp_metric.h"
 #include "eigrp_summary.h"
+#include "eigrp_eventlog.h"
+
+
+static void eigrp_update_nsf_eventlog(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
+	uint32_t reason, uint32_t flags, uint32_t sequence)
+{
+	eigrp_prefix_t peer;
+
+	if (!eigrp || !nbr)
+		return;
+	eigrp_eventlog_addr_from_legacy(&peer, &nbr->src);
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_NSF_EVENT, &peer,
+		reason, flags, sequence, nbr->ei ? nbr->ei->ifindex : 0);
+}
 
 
 /**
@@ -148,6 +162,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		/* Graceful restart Update received with all routes */
 		eigrp_debug_nsf_event(eigrp, nbr, flags,
 				      "peer graceful restart complete in one UPDATE");
+		eigrp_update_nsf_eventlog(eigrp, nbr, 3, flags, ntohl(eigrph->sequence));
 		if (eigrp->log_neighbor_changes)
 			eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is resync: peer graceful-restart",
 				  eigrp_print_addr(&nbr->src),
@@ -163,6 +178,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		 */
 		eigrp_debug_nsf_event(eigrp, nbr, flags,
 				      "peer graceful restart started");
+		eigrp_update_nsf_eventlog(eigrp, nbr, 1, flags, ntohl(eigrph->sequence));
 		if (eigrp->log_neighbor_changes)
 			eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is resync: peer graceful-restart",
 				  eigrp_print_addr(&nbr->src),
@@ -183,6 +199,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			/* this is final packet of GR */
 			eigrp_debug_nsf_event(eigrp, nbr, flags,
 					      "peer graceful restart EOT received");
+			eigrp_update_nsf_eventlog(eigrp, nbr, 2, flags, ntohl(eigrph->sequence));
 			nbr_prefixes = nbr->nbr_gr_prefixes;
 			nbr->nbr_gr_prefixes = NULL;
 
@@ -214,7 +231,9 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 		if (nbr->state == EIGRP_NEIGHBOR_UP) {
 			eigrp_debug_nsf_event(eigrp, nbr, flags, "peer restarted");
-			eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+		eigrp_update_nsf_eventlog(eigrp, nbr, 4, flags, ntohl(eigrph->sequence));
+			eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+				EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
 			if (eigrp->log_neighbor_changes)
@@ -584,9 +603,12 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 			}
 			if (encoded > 0)
 				route_count++;
-			else if (encoded < 0)
+			else if (encoded < 0) {
+				(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_ROUTE_ENCODE_FAILURE,
+					&wire_prefix->destination, EIGRP_OPC_UPDATE, ei->ifindex, packet_limit, 0);
 				eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 					  ei->name, packet_limit);
+			}
 
 			if (summarized && leak_specific
 			    && !eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_OUT,
@@ -616,10 +638,13 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 				}
 				if (encoded > 0)
 					route_count++;
-				else if (encoded < 0)
+				else if (encoded < 0) {
+					(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_ROUTE_ENCODE_FAILURE,
+						&prefix->destination, EIGRP_OPC_UPDATE, ei->ifindex, packet_limit, 0);
 					eigrp_log(EIGRP_LOG_WARNING,
 						  "interface %s: EIGRP route TLV exceeds packet limit %u",
 						  ei->name, packet_limit);
+				}
 			}
 			}
 		}
@@ -720,6 +745,8 @@ static void eigrp_update_send_GR_part(eigrp_nbr_t *nbr)
 		if (encoded < 0 && route_count)
 			break;
 		if (encoded < 0) {
+			(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_ROUTE_ENCODE_FAILURE,
+				&prefix->destination, EIGRP_OPC_UPDATE, ei->ifindex, packet_limit, 0);
 			eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 				  ei->name, packet_limit);
 			eigrp_list_delete_data(prefixes, prefix);

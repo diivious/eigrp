@@ -21,6 +21,7 @@
 #include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
 #include "eigrp_debug.h"
+#include "eigrp_eventlog.h"
 
 /* EIGRP SIA-REPLY read function */
 void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
@@ -44,6 +45,10 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SIA_REPLY_RX,
+			&route->dest, ei ? ei->ifindex : 0,
+			(route->metric.flags & EIGRP_OPAQUE_ACTIVE) ? 1 : 0,
+			prefix ? prefix->state : EIGRP_FSM_STATE_PASSIVE, 0);
 		if (!prefix) {
 			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
 
@@ -95,6 +100,9 @@ void eigrp_siareply_send(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	eigrp_debug_neighbor_sia(nbr, "SIA-REPLY send");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
 				   nbr ? nbr->ei : NULL, nbr, "queue SIA-REPLY");
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SIA_REPLY_TX,
+		&prefix->destination, nbr && nbr->ei ? nbr->ei->ifindex : 0,
+		active ? 1 : 0, 0, 0);
 	work = eigrp_packetizer_work_create(EIGRP_OPC_SIAREPLY);
 	work->nbr = nbr;
 	work->prefix = prefix;

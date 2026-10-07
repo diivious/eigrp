@@ -706,6 +706,10 @@ DEFPY(show_ip_eigrp_events,
 		return CMD_WARNING;
 
 	vty_out(vty, "Event information for AS %u:\n", eigrp->AS);
+	vty_out(vty,
+		"  Event log capacity %u stored %u written %llu overwritten %llu\n",
+		state.capacity, state.count, (unsigned long long)state.written,
+		(unsigned long long)state.overwritten);
 	if (!state.count) {
 		vty_out(vty, "  No events recorded\n");
 		return CMD_SUCCESS;

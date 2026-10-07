@@ -74,6 +74,16 @@ def test_ipv6_dual_successor_selection_executes(tmp_path):
             return EIGRP_RESULT_SUCCESS;
         }
 
+        eigrp_result_t eigrp_eventlog_msg_add(
+            eigrp_instance_t *eigrp, uint16_t opcode,
+            const eigrp_prefix_t *addr, eventmsg_arg_t arg1,
+            eventmsg_arg_t arg2, eventmsg_arg_t arg3, eventmsg_arg_t arg4)
+        {
+            (void)eigrp; (void)opcode; (void)addr;
+            (void)arg1; (void)arg2; (void)arg3; (void)arg4;
+            return EIGRP_RESULT_SUCCESS;
+        }
+
         eigrp_result_t eigrp_rib_route_del(
             eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix)
         {

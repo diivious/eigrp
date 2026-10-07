@@ -4,22 +4,13 @@ Copyright (C) 2026 Donnie V. Savage
 
 ## Purpose
 
-This file holds three kinds of work.
+This file contains only unresolved work that is intentionally deferred from
+normal feature changes. Completed work is removed rather than retained as
+history.
 
-Sections 1-2 are naming and architecture items parked until a coordinated
-review. Do not use those as an excuse to rename half the tree in a feature
-PR.
-
-Section 3 is incomplete feature work. The public target exists, config is
-retained, and the runtime path still returns `NOT_IMPLEMENTED`. A contributor
-can pick one of those items, implement it, and send a PR.
-
-Section 4 is packet-path and parser hardening. P0-P2 are the items worth
-doing before trusting an unauthenticated LAN image. P3 and below are
-low-value cleanup that can wait.
-
-Completed work comes out of this file. Historical audit notes do not belong
-here.
+The items here are bounded reviews or current capability/hardening gaps. They do
+not override `specs/architecture.md`, `specs/code-conventions.md`, or the owning
+protocol specification.
 
 ## 1. DUAL topology descriptor naming
 
@@ -34,139 +25,117 @@ prefix_descriptor
 ```
 
 Cisco historical terminology maps these concepts to DNDB/NDB and DRDB/RDB.
+Final source/API naming remains intentionally parked until a coordinated
+pre-production review because `route` is also used for host/RIB objects.
 
-Before production, choose one final source/API navigation convention after
-reviewing real usage across:
+Review actual usage across:
 
 ```text
 eigrp_topology
 DUAL/FSM processing
 query/update/reply/SIA processing
 packetizer and TLV codecs
-show/debug/dump output
+show/debug/event output
 southbound RIB installation
 tests
 ```
 
-Candidate naming families include:
-
-```text
-eigrp_topology_prefix_* / eigrp_topology_route_*
-eigrp_topology_prefix_descriptor_* / eigrp_topology_route_descriptor_*
-eigrp_topology_dndb_* / eigrp_topology_drdb_*
-```
-
-The decision must optimize human navigation and make it immediately clear
-whether an operation acts on a DUAL destination, a DUAL path, or a host/RIB
-route.
-
-Until the review:
+Until that review:
 
 - preserve `prefix_descriptor` / `route_descriptor` names;
 - do not perform rename-only churn;
 - do not introduce new ambiguous bare `route` APIs;
-- DNDB/DRDB terminology may appear in comments/debug output where it improves
-  EIGRP understanding.
+- DNDB/DRDB terminology may appear in comments or diagnostics when it improves
+  EIGRP navigation.
 
-## 2. Naming consistency pass
+## 2. Bounded naming consistency review
 
-Before production, perform one bounded navigation/naming review against
-`design-spec.md`:
+Before production, perform one finite navigation/naming review against
+`specs/code-conventions.md`.
+
+The review should verify that:
 
 - module/file and public symbol prefixes normally align;
-- object/detail follows the module name;
-- action appears last;
-- configuration uses the intended `set/reset`, `add/remove`, or
-  `create/delete` semantics;
-- operational actions use `clear` only where appropriate;
-- generic CLI/not-implemented dispatchers do not exist;
-- grouped-module exceptions remain intentional;
-- no obsolete alias wrappers remain after approved renames.
+- narrow object/detail follows the module name and the action appears last;
+- public configuration actions use the intended `set/reset`, `add/remove`, or
+  `create/delete` vocabulary;
+- operational actions use `clear` only for operational state;
+- grouped-module exceptions remain deliberate;
+- no obsolete aliases or temporary compatibility wrappers remain without an
+  approved migration reason.
 
-The public namespace should name the EIGRP object a developer is navigating to,
-not mechanically repeat the implementation module.  A detail that has no useful
-protocol meaning outside its owning area may still be the object-level namespace.
-For example, variance is a metric behavior, but `eigrp_metric_variance_update()`
-obscures the object/action pattern; the bounded naming pass should move that family
-toward `eigrp_variance_*`.  Apply the same test to other compound public names
-rather than preserving module prefixes by habit.
+Do not combine this review with protocol feature work. Produce a finite rename
+set and review it as a separate refactor.
 
-This review should produce a finite rename set and be committed separately from
-protocol feature changes.
+## 3. Current capability boundaries
 
-## 3. Intentional incomplete capability boundaries
+These are current, explicit boundaries rather than placeholder feature targets.
 
-The broad feature-completion list that previously lived here became stale as the
-feature work landed.  TASK1-8 audits the remaining `EIGRP_RESULT_NOT_IMPLEMENTED`
-paths individually in `task1-8-not-implemented-audit.md`.  Do not use this section
-as a backlog of already-completed features.
+### 3.1 Public result enum
 
-The legacy `metric holddown` configuration surface has been removed; it is not an EIGRP feature target. Named HMAC-SHA-256 encryption type
-7 also remains a capability boundary because the project has no portable type-7
-decoder; encoded configuration text must never be used as the HMAC key.
+`EIGRP_RESULT_NOT_IMPLEMENTED` remains defined for public API stability, but the
+portable production source has no feature target that returns it. Valid options
+that exceed an active runtime/host capability use `EIGRP_RESULT_UNSUPPORTED` or
+another precise structured result.
 
-Protocol runtimes no longer carry a per-instance data-path readiness flag. AF
-support is an image/host integration capability, and a created runtime requires
-its packet/RIB services rather than exposing a config-only runtime mode. Current
-FRR/BIRD CLI surfaces expose only the unicast address-family and base topology.
-Those host CLI limits must not become portable-core prohibitions: topology IDs
-remain protocol identities carried by the common API and multiprotocol TLVs.
+### 3.2 HMAC-SHA-256 encryption type 7
 
-Stub routing stays out of scope.
+Named HMAC-SHA-256 accepts encryption type 7 configuration text for retention
+and writeback. The portable core does not decode Cisco type-7 text and never
+uses encoded text as HMAC key material. Applying type 7 to a live runtime is an
+unsupported capability until a deliberate decoder/key-handling design is added.
 
-## 4. Packet-path and parser hardening
+### 3.3 Maximum-prefix advanced controls
 
-This is an on-link protocol. Anyone on the LAN can send proto 88. Auth-off
-is the common case today. Remaining P2 items should be completed before production use.
+Neighbor, topology, and redistribution maximum-prefix admission enforce the
+configured maximum, threshold, and `warning-only` behavior. The grammar also
+retains `dampened`, `reset-time`, `restart`, and `restart-count`; those advanced
+restart/dampening controls are not active runtime behavior and return
+`EIGRP_RESULT_UNSUPPORTED` when requested on a live runtime.
 
-A PR should add a crafted-packet test for the hole it closes. Do not "harden"
-by rewriting the codec.
+### 3.4 Host integration boundaries
 
-### P2. Resource and loop abuse
+- The FRR integration exposes the current unicast address-family and base
+  topology command model.
+- The standalone Unix host supports the default VRF and does not provide a
+  native ACL/prefix-list/route-map or key-chain database.
+- The `bird/` tree is the BIRD/BSD integration boundary; no BIRD runtime adapter
+  is present in the current repository.
 
-#### 5.10 No cap on neighbors or topology entries
+These host limits must not become portable EIGRP protocol prohibitions.
 
-Each accepted Hello can `calloc` a neighbor. Each route TLV can `calloc` a
-descriptor. Prefix-limit config still returns `NOT_IMPLEMENTED`. On-link
-flood is memory and CPU.
+EIGRP Stub runtime behavior remains outside project scope.
 
-Fix: enforce max-neighbors and max-prefix on the receive path, not just
-retained config. That is the same work as Section 3 max-prefix items.
+## 4. Remaining receive-path resource hardening
 
-#### 5.11 Unknown Hello TLVs are skipped after the neighbor exists
+The packet parser performs framing, length, authentication, source, and TLV
+validation before protocol processing. Remaining hardening work should be small,
+targeted, and accompanied by crafted-packet tests.
 
-Combined with 5.3, junk Hellos still allocate.
+### 4.1 Neighbor-object admission bound
 
-#### 5.13 `eigrp_print_addr()` is `inet_ntoa` of IPv4 only
+A valid on-link Hello can create a neighbor object before an adjacency reaches
+UP. Prefix limits bound learned route growth but do not provide a process-wide
+or interface-wide cap on neighbor objects. Before production exposure on large
+shared LANs, decide whether the host/core contract needs an explicit neighbor
+admission limit and define the operational behavior when it is exceeded.
 
-Static buffer, IPv6-wrong. Two prints in one log can alias. Not an
-overflow. Logging lie.
+### 4.2 Unknown Hello TLVs
 
-### P3. Low value. Already in decent shape. Pick up later if you want.
+Unknown Hello TLVs are skipped so future/optional TLVs do not break adjacency
+interoperability. Keep that behavior, but preserve the rule that framing and
+known mandatory TLVs are validated before an unknown TLV can drive unbounded
+state allocation or looping.
 
-These are not holes to burn a release on. They can still be cleaned up.
+### 4.3 Parser regression coverage
 
-- IPv4/IPv6 prefix decode already caps bitlen and checks remaining before
-  `stream_get`. Keep that pattern. Add tests so it cannot regress.
-- FRR `recvmsg` already requires `ip_v == 4`, sane `ip_hl`, and
-  `ip_len == recv size`. Keep a portable contract test so a new shim cannot
-  drop those checks.
-- Auth TLV framing walk already rejects `tlv_length < 4` or
-  `tlv_length > remaining`. Keep it. Do not rewrite it.
-- Debug dump prefix printer already checks length before copy.
-- `eigrp_stream_get()` already caps the copy to available bytes. The
-  problem is the untyped `getc`/`getw`/`getl` wrappers in 5.7, not `get()`.
-- TLV1/TLV2 `tlv_start + length` is safe today because `length <= remaining`
-  and `size_t` is wide. Do not churn it. If you copy that walk, keep the
-  check.
-- `eigrp_header.tlv[0]` is typed as `char *` and used as bytes. Ugly, not
-  an overflow by itself. Cleanup only.
+Keep regression tests around the existing safety properties rather than
+rewriting working codecs:
 
-### P4. Later hygiene. Not security-critical.
-
-- Replace `inet_ntoa` in `eigrp_print_addr()` with a caller-supplied buffer
-  that handles IPv4 and IPv6.
-- Stop ignoring `pktlen` once 5.2 clamps the stream. Pass one bound and use
-  it.
-- Document that SHA-256 config may be retained while receive stays
-  `NOT_IMPLEMENTED`. That is already a Section 3 auth item.
+- prefix bit lengths are bounded before address copies;
+- packet/TLV lengths are checked against remaining bytes;
+- authentication TLV framing is bounded before digest processing;
+- packet receive metadata is validated before checksum/TLV access;
+- stream copies are bounded by available data;
+- IPv4 and IPv6 address formatting remains family-correct and reentrant enough
+  for diagnostic call sites.

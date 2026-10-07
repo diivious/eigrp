@@ -23,6 +23,8 @@ struct eigrp_eventlog {
 	uint32_t capacity;
 	uint32_t count;
 	uint32_t next;
+	uint64_t written;
+	uint64_t overwritten;
 };
 
 /* The opcode stored in each fixed ring entry is the direct index into this
@@ -48,6 +50,37 @@ static const char *const eigrp_eventlog_formats[] = {
 	[EIGRP_EVENTLOG_OPCODE_REDIST_ROUTE_WITHDRAW] = "Redistribute route withdraw",
 	[EIGRP_EVENTLOG_OPCODE_REDIST_ROUTE_FILTERED] = "Redistribute route filtered",
 	[EIGRP_EVENTLOG_OPCODE_REDIST_ROUTE_REJECT] = "Redistribute route reject",
+	[EIGRP_EVENTLOG_OPCODE_DUAL_METRIC_SET] = "Metric set",
+	[EIGRP_EVENTLOG_OPCODE_DUAL_FIND_FS] = "Find FS",
+	[EIGRP_EVENTLOG_OPCODE_DUAL_FC_SAT] = "FC sat",
+	[EIGRP_EVENTLOG_OPCODE_DUAL_FC_NOT_SAT] = "FC not sat",
+	[EIGRP_EVENTLOG_OPCODE_DUAL_ACTIVE_PEERS] = "Active net/peers",
+	[EIGRP_EVENTLOG_OPCODE_QUERY_RX] = "Rcv query",
+	[EIGRP_EVENTLOG_OPCODE_REPLY_RX] = "Rcv reply",
+	[EIGRP_EVENTLOG_OPCODE_REPLY_TX] = "Send reply",
+	[EIGRP_EVENTLOG_OPCODE_REPLY_STATUS] = "Reply status",
+	[EIGRP_EVENTLOG_OPCODE_TOPOLOGY_ROUTE_DELETE] = "RDB delete",
+	[EIGRP_EVENTLOG_OPCODE_UPDATE_PACKETIZED] = "Update packetized",
+	[EIGRP_EVENTLOG_OPCODE_POISON_REVERSE] = "Poison reverse",
+	[EIGRP_EVENTLOG_OPCODE_NSF_EVENT] = "NSF event",
+	[EIGRP_EVENTLOG_OPCODE_SIA_QUERY_TX] = "SIA query sent",
+	[EIGRP_EVENTLOG_OPCODE_SIA_QUERY_RX] = "SIA query received",
+	[EIGRP_EVENTLOG_OPCODE_SIA_REPLY_TX] = "SIA reply sent",
+	[EIGRP_EVENTLOG_OPCODE_SIA_REPLY_RX] = "SIA reply received",
+	[EIGRP_EVENTLOG_OPCODE_SIA_EXPIRE] = "SIA timer expired",
+	[EIGRP_EVENTLOG_OPCODE_PACKET_REJECT] = "Packet rejected",
+	[EIGRP_EVENTLOG_OPCODE_ROUTE_FILTERED] = "Route filtered",
+	[EIGRP_EVENTLOG_OPCODE_OFFSET_APPLIED] = "Offset applied",
+	[EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT] = "Prefix limit reject",
+	[EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_PEER] = "Prefix limit peer",
+	[EIGRP_EVENTLOG_OPCODE_RIB_INSTALL] = "RIB install",
+	[EIGRP_EVENTLOG_OPCODE_RIB_WITHDRAW] = "RIB withdraw",
+	[EIGRP_EVENTLOG_OPCODE_ROUTE_ENCODE_FAILURE] = "Route encode failure",
+	[EIGRP_EVENTLOG_OPCODE_PACKET_TX_FAILURE] = "Packet transmit failure",
+	[EIGRP_EVENTLOG_OPCODE_RTP_ACK_UNEXPECTED] = "Unexpected RTP ACK",
+	[EIGRP_EVENTLOG_OPCODE_PEER_CAPABILITY] = "Peer capability",
+	[EIGRP_EVENTLOG_OPCODE_INTERFACE_STATE] = "Interface state",
+	[EIGRP_EVENTLOG_OPCODE_SUCCESSOR_CHANGE] = "Successor change",
 };
 
 static const eigrp_eventlog_msg_t *
@@ -92,6 +125,89 @@ static const char *eigrp_eventlog_neighbor_state_name(eventmsg_arg_t state)
 	}
 }
 
+
+static const char *eigrp_eventlog_neighbor_reason_name(eventmsg_arg_t reason)
+{
+	switch (reason) {
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE: return "none";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_HOLD_EXPIRED: return "holding time expired";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_K_MISMATCH: return "K-value mismatch";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_GOODBYE: return "Interface Goodbye received";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART: return "peer restarted";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_RTP_RETRY_LIMIT: return "retry limit exceeded";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_ADMIN_CLEAR: return "manually cleared";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_INTERFACE_DOWN: return "interface down";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_TERMINATION: return "Peer Termination received";
+	case EIGRP_EVENTLOG_NEIGHBOR_REASON_SIA: return "stuck in active";
+	default: return "unknown";
+	}
+}
+
+static const char *eigrp_eventlog_packet_reject_reason_name(eventmsg_arg_t reason)
+{
+	switch (reason) {
+	case EIGRP_EVENTLOG_PACKET_REJECT_BOUNDS: return "invalid packet bounds";
+	case EIGRP_EVENTLOG_PACKET_REJECT_PASSIVE_INTERFACE: return "passive interface";
+	case EIGRP_EVENTLOG_PACKET_REJECT_SHORT_HEADER: return "short EIGRP header";
+	case EIGRP_EVENTLOG_PACKET_REJECT_VERSION: return "unsupported EIGRP version";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AS_MISMATCH: return "AS mismatch";
+	case EIGRP_EVENTLOG_PACKET_REJECT_VRID_MISMATCH: return "VRID mismatch";
+	case EIGRP_EVENTLOG_PACKET_REJECT_CHECKSUM: return "checksum failure";
+	case EIGRP_EVENTLOG_PACKET_REJECT_SOURCE_OFFLINK: return "source not on-link";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_TLV_FRAMING: return "malformed authentication TLV";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_UNEXPECTED: return "authentication unexpected";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_NO_KEY: return "authentication key unavailable";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_MISSING: return "authentication missing";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_NOT_FIRST: return "authentication TLV not first";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_TYPE_MISMATCH: return "authentication type mismatch";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_LENGTH: return "authentication TLV length";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_UNSUPPORTED: return "unsupported authentication type";
+	case EIGRP_EVENTLOG_PACKET_REJECT_AUTH_DIGEST: return "authentication digest failure";
+	case EIGRP_EVENTLOG_PACKET_REJECT_NO_NEIGHBOR: return "no neighbor";
+	case EIGRP_EVENTLOG_PACKET_REJECT_CR_NOT_ELIGIBLE: return "conditional receive not eligible";
+	case EIGRP_EVENTLOG_PACKET_REJECT_HELLO_TLV: return "invalid Hello TLV";
+	case EIGRP_EVENTLOG_PACKET_REJECT_STATIC_NEIGHBOR: return "not configured static neighbor";
+	case EIGRP_EVENTLOG_PACKET_REJECT_HELLO_K_MISMATCH: return "K-value mismatch";
+	case EIGRP_EVENTLOG_PACKET_REJECT_UNSUPPORTED_OPCODE: return "unsupported opcode";
+	case EIGRP_EVENTLOG_PACKET_REJECT_NO_INTERFACE: return "interface not participating";
+	default: return "unknown";
+	}
+}
+
+
+static const char *eigrp_eventlog_filter_reason_name(eventmsg_arg_t reason)
+{
+	switch (reason) {
+	case EIGRP_EVENTLOG_FILTER_REASON_DEFAULT_INFORMATION: return "default-information";
+	case EIGRP_EVENTLOG_FILTER_REASON_PROCESS: return "process policy";
+	case EIGRP_EVENTLOG_FILTER_REASON_INTERFACE: return "interface policy";
+	default: return "unknown";
+	}
+}
+
+static const char *eigrp_eventlog_prefix_limit_scope_name(eventmsg_arg_t scope)
+{
+	switch (scope) {
+	case EIGRP_EVENTLOG_PREFIX_LIMIT_NEIGHBOR: return "neighbor";
+	case EIGRP_EVENTLOG_PREFIX_LIMIT_TOPOLOGY: return "topology";
+	case EIGRP_EVENTLOG_PREFIX_LIMIT_REDISTRIBUTION: return "redistribution";
+	default: return "unknown";
+	}
+}
+
+static const char *eigrp_eventlog_interface_state_name(eventmsg_arg_t state)
+{
+	switch (state) {
+	case EIGRP_EVENTLOG_INTERFACE_STATE_UP: return "up";
+	case EIGRP_EVENTLOG_INTERFACE_STATE_DOWN: return "down";
+	case EIGRP_EVENTLOG_INTERFACE_STATE_PASSIVE: return "passive";
+	case EIGRP_EVENTLOG_INTERFACE_STATE_ACTIVE: return "active";
+	case EIGRP_EVENTLOG_INTERFACE_STATE_MULTICAST_JOIN_FAILED:
+		return "multicast join failed";
+	default: return "unknown";
+	}
+}
+
 static const char *eigrp_eventlog_redist_reject_name(eventmsg_arg_t reason)
 {
 	switch (reason) {
@@ -119,11 +235,25 @@ static const char *eigrp_eventlog_opcode_name(eventmsg_arg_t opcode)
 {
 	switch (opcode) {
 	case EIGRP_OPC_UPDATE: return "UPDATE";
+	case EIGRP_OPC_REQUEST: return "REQUEST";
 	case EIGRP_OPC_QUERY: return "QUERY";
 	case EIGRP_OPC_REPLY: return "REPLY";
+	case EIGRP_OPC_HELLO: return "HELLO";
+	case EIGRP_OPC_PROBE: return "PROBE";
 	case EIGRP_OPC_SIAQUERY: return "SIA-QUERY";
 	case EIGRP_OPC_SIAREPLY: return "SIA-REPLY";
 	default: return "UNKNOWN";
+	}
+}
+
+static const char *eigrp_eventlog_nsf_name(eventmsg_arg_t reason)
+{
+	switch (reason) {
+	case 1: return "peer graceful restart started";
+	case 2: return "peer graceful restart EOT received";
+	case 3: return "peer graceful restart complete";
+	case 4: return "peer restarted";
+	default: return "unknown";
 	}
 }
 
@@ -155,10 +285,18 @@ eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 			       eigrp_eventlog_dual_state_name(entry->arg2));
 		break;
 	case EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE:
-		(void)snprintf(message, sizeof(message), "Peer %s: %s -> %s ifindex %lu",
-			       addr, eigrp_eventlog_neighbor_state_name(entry->arg1),
-			       eigrp_eventlog_neighbor_state_name(entry->arg2),
-			       (unsigned long)entry->arg3);
+		if (entry->arg4 != EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE)
+			(void)snprintf(message, sizeof(message),
+				       "Peer %s: %s -> %s ifindex %lu reason %s",
+				       addr, eigrp_eventlog_neighbor_state_name(entry->arg1),
+				       eigrp_eventlog_neighbor_state_name(entry->arg2),
+				       (unsigned long)entry->arg3,
+				       eigrp_eventlog_neighbor_reason_name(entry->arg4));
+		else
+			(void)snprintf(message, sizeof(message), "Peer %s: %s -> %s ifindex %lu",
+				       addr, eigrp_eventlog_neighbor_state_name(entry->arg1),
+				       eigrp_eventlog_neighbor_state_name(entry->arg2),
+				       (unsigned long)entry->arg3);
 		break;
 	case EIGRP_EVENTLOG_OPCODE_PACKET_RX:
 	case EIGRP_EVENTLOG_OPCODE_PACKET_TX:
@@ -167,6 +305,94 @@ eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 			       eigrp_eventlog_opcode_name(entry->arg1), addr,
 			       (unsigned long)entry->arg2, (unsigned long)entry->arg3,
 			       (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_PACKET_REJECT:
+		(void)snprintf(message, sizeof(message),
+			       "Packet rejected from %s %s reason %s detail %lu/%lu",
+			       addr, eigrp_eventlog_opcode_name(entry->arg1),
+			       eigrp_eventlog_packet_reject_reason_name(entry->arg2),
+			       (unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_ROUTE_FILTERED:
+		(void)snprintf(message, sizeof(message),
+			       "Route filtered %s %s ifindex %lu reason %s", addr,
+			       entry->arg1 == EIGRP_FILTER_IN ? "in" : "out",
+			       (unsigned long)entry->arg2,
+			       eigrp_eventlog_filter_reason_name(entry->arg3));
+		break;
+	case EIGRP_EVENTLOG_OPCODE_OFFSET_APPLIED:
+		(void)snprintf(message, sizeof(message),
+			       "Offset applied %s %s ifindex %lu delay %lu -> %lu", addr,
+			       entry->arg1 == EIGRP_FILTER_IN ? "in" : "out",
+			       (unsigned long)entry->arg2, (unsigned long)entry->arg3,
+			       (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT:
+		(void)snprintf(message, sizeof(message),
+			       "Prefix limit reject %s scope %s count %lu max %lu", addr,
+			       eigrp_eventlog_prefix_limit_scope_name(entry->arg1),
+			       (unsigned long)entry->arg2, (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_PEER:
+		(void)snprintf(message, sizeof(message),
+			       "Prefix limit peer %s count %lu max %lu ifindex %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RIB_INSTALL:
+		(void)snprintf(message, sizeof(message),
+			       "RIB install %s metric %lu nexthops %lu type %lu result %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RIB_WITHDRAW:
+		(void)snprintf(message, sizeof(message), "RIB withdraw %s result %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_ROUTE_ENCODE_FAILURE:
+		(void)snprintf(message, sizeof(message),
+			       "Route encode failure %s %s ifindex %lu packet-limit %lu", addr,
+			       eigrp_eventlog_opcode_name(entry->arg1),
+			       (unsigned long)entry->arg2, (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_PACKET_TX_FAILURE:
+		(void)snprintf(message, sizeof(message),
+			       "Packet transmit failure %s %s seq %lu len %lu result %ld", addr,
+			       eigrp_eventlog_opcode_name(entry->arg1),
+			       (unsigned long)entry->arg2, (unsigned long)entry->arg3,
+			       (long)(intptr_t)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_ACK_UNEXPECTED:
+		(void)snprintf(message, sizeof(message),
+			       "Unexpected RTP ACK from %s ack %lu expected %lu queue %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_PEER_CAPABILITY:
+		(void)snprintf(message, sizeof(message),
+			       "Peer capability %s TLV %lu -> %lu advertised %lu K6 %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_INTERFACE_STATE:
+		if (entry->arg1 == EIGRP_EVENTLOG_INTERFACE_STATE_MULTICAST_JOIN_FAILED)
+			(void)snprintf(message, sizeof(message),
+				       "Interface %s ifindex %lu %s result %ld", addr,
+				       (unsigned long)entry->arg2,
+				       eigrp_eventlog_interface_state_name(entry->arg1),
+				       (long)(intptr_t)entry->arg3);
+		else
+			(void)snprintf(message, sizeof(message),
+				       "Interface %s ifindex %lu %s mtu %lu", addr,
+				       (unsigned long)entry->arg2,
+				       eigrp_eventlog_interface_state_name(entry->arg1),
+				       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SUCCESSOR_CHANGE:
+		(void)snprintf(message, sizeof(message),
+			       "Successor change %s old %lu new %lu metric %lu FD %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3, (unsigned long)entry->arg4);
 		break;
 	case EIGRP_EVENTLOG_OPCODE_RTP_ACK:
 		(void)snprintf(message, sizeof(message), "RTP ACK from %s seq %lu queue %lu",
@@ -228,6 +454,86 @@ eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 			       addr, eigrp_eventlog_redist_source_name(entry->arg1),
 			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
 			       eigrp_eventlog_redist_reject_name(entry->arg3));
+		break;
+	case EIGRP_EVENTLOG_OPCODE_DUAL_METRIC_SET:
+		(void)snprintf(message, sizeof(message), "Metric set: %s %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_DUAL_FIND_FS:
+		(void)snprintf(message, sizeof(message), "Find FS: %s %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_DUAL_FC_SAT:
+		(void)snprintf(message, sizeof(message),
+			       "FC sat rdbmet/succmet: %lu %lu ifindex %lu",
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_DUAL_FC_NOT_SAT:
+		(void)snprintf(message, sizeof(message), "FC not sat Dmin/met: %lu %lu",
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_DUAL_ACTIVE_PEERS:
+		(void)snprintf(message, sizeof(message), "Active net/peers: %s %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_QUERY_RX:
+		(void)snprintf(message, sizeof(message),
+			       "Rcv query dest/met/succmet: %s %lu %lu ifindex %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_REPLY_RX:
+		(void)snprintf(message, sizeof(message),
+			       "Rcv reply dest/met/succmet: %s %lu %lu ifindex %lu", addr,
+			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_REPLY_TX:
+		(void)snprintf(message, sizeof(message), "Send reply: %s ifindex %lu metric %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_REPLY_STATUS:
+		(void)snprintf(message, sizeof(message), "Reply status: %s remaining %lu ifindex %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_TOPOLOGY_ROUTE_DELETE:
+		(void)snprintf(message, sizeof(message), "RDB delete: %s ifindex %lu RD %lu CD %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			       (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_UPDATE_PACKETIZED:
+		(void)snprintf(message, sizeof(message), "Update packetized: %s ifindex %lu metric %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_POISON_REVERSE:
+		(void)snprintf(message, sizeof(message), "Poison reverse: %s ifindex %lu", addr,
+			       (unsigned long)entry->arg1);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_NSF_EVENT:
+		(void)snprintf(message, sizeof(message), "NSF %s: %s flags 0x%lx seq %lu",
+			       eigrp_eventlog_nsf_name(entry->arg1), addr,
+			       (unsigned long)entry->arg2, (unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SIA_QUERY_TX:
+		(void)snprintf(message, sizeof(message), "SIA-QUERY sent: %s ifindex %lu attempt %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SIA_QUERY_RX:
+		(void)snprintf(message, sizeof(message), "SIA-QUERY received: %s ifindex %lu metric %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SIA_REPLY_TX:
+		(void)snprintf(message, sizeof(message), "SIA-REPLY sent: %s ifindex %lu active %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SIA_REPLY_RX:
+		(void)snprintf(message, sizeof(message), "SIA-REPLY received: %s ifindex %lu active %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_SIA_EXPIRE:
+		(void)snprintf(message, sizeof(message), "SIA active timer expired: %s ifindex %lu queries %lu",
+			       addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2);
 		break;
 	default:
 		(void)snprintf(message, sizeof(message),
@@ -315,6 +621,8 @@ eigrp_result_t eigrp_eventlog_resize(eigrp_instance_t *eigrp,
 	}
 
 	keep = log->count < capacity ? log->count : capacity;
+	if (log->count > keep)
+		log->overwritten += (uint64_t)(log->count - keep);
 	/* Copy the retained newest events back in oldest-to-newest order. */
 	for (i = 0; i < keep; i++) {
 		const eigrp_eventlog_msg_t *entry =
@@ -367,6 +675,10 @@ eigrp_result_t eigrp_eventlog_msg_add(eigrp_instance_t *eigrp,
 	if (!log || !log->capacity || !log->entries)
 		return EIGRP_RESULT_SUCCESS;
 
+	if (log->count == log->capacity)
+		log->overwritten++;
+	log->written++;
+
 	entry = &log->entries[log->next];
 	memset(entry, 0, sizeof(*entry));
 	entry->timestamp = eigrp_sys_wallclock_msec();
@@ -406,6 +718,8 @@ eigrp_result_t eigrp_eventlog_clear(eigrp_instance_context_t *context)
 	/* Logical clear is intentionally O(1); the fixed ring remains allocated. */
 	log->count = 0;
 	log->next = 0;
+	log->written = 0;
+	log->overwritten = 0;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -519,6 +833,8 @@ eigrp_result_t eigrp_eventlog_state_read(
 	log = context->runtime->eventlog;
 	state->capacity = log->capacity;
 	state->count = log->count;
+	state->written = log->written;
+	state->overwritten = log->overwritten;
 	return EIGRP_RESULT_SUCCESS;
 }
 

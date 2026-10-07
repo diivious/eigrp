@@ -65,6 +65,8 @@ The management API is queried by the shim but returns core-owned snapshots. RIB
 and system headers contain functions in both directions, so function ownership
 must be determined per symbol rather than inferred from the header name.
 
+![Public API call directions](images/public-api-directions.svg)
+
 ### 2.1 Direction notation
 
 This specification uses:
@@ -105,7 +107,7 @@ Opaque public pointers are identities, not permission to inspect private layout.
 | Value | Meaning |
 |---|---|
 | `EIGRP_RESULT_SUCCESS` | operation completed successfully |
-| `EIGRP_RESULT_NOT_IMPLEMENTED` | real semantic target exists but runtime behavior is not implemented |
+| `EIGRP_RESULT_NOT_IMPLEMENTED` | reserved public result value; no current portable production feature target returns it |
 | `EIGRP_RESULT_INVALID_ARGUMENT` | malformed, invalid, or inconsistent caller input |
 | `EIGRP_RESULT_NOT_FOUND` | requested OpenEIGRP object or configuration does not exist |
 | `EIGRP_RESULT_CONFLICT` | requested operation conflicts with existing configuration or ownership |
@@ -813,13 +815,17 @@ typedef struct eigrp_eventlog_msg {
 typedef struct eigrp_eventlog_state {
     uint32_t capacity;
     uint32_t count;
+    uint64_t written;
+    uint64_t overwritten;
 } eigrp_eventlog_state_t;
 ```
 
 `timestamp` is Unix epoch milliseconds for cross-router correlation. The
 `addr` field carries the event prefix/address context; four machine-word
-arguments carry event-specific scalar/address-token data interpreted by the
-portable event formatter.
+arguments carry event-specific scalar data interpreted by the portable event
+formatter. `written` counts records accepted since the log was cleared and
+`overwritten` counts records displaced by ring wrap or resize, allowing a host
+to show whether diagnostic history was lost.
 
 ```c
 typedef eigrp_result_t (*eigrp_eventlog_msg_cb)(
@@ -1328,13 +1334,15 @@ Platform-specific thread mappings are documented in each shim specification.
 
 ## 11. Configuration retention versus runtime capability
 
-Public configuration APIs describe semantic OpenEIGRP configuration, not merely
-currently implemented forwarding behavior.
+Public configuration APIs describe semantic OpenEIGRP configuration and the
+capabilities of the active runtime/host.
 
-A shim must permit configuration retention/writeback where the project requires
-it even if the real runtime target returns `EIGRP_RESULT_NOT_IMPLEMENTED` or
-`EIGRP_RESULT_UNSUPPORTED`. Incomplete runtime behavior must terminate at its own
-real semantic target; it must not be hidden behind a generic platform stub.
+A shim must permit configuration retention/writeback where the contract requires
+it even when a valid option returns `EIGRP_RESULT_UNSUPPORTED` for the active
+runtime. Capability limits terminate at the real semantic target and must not be
+hidden behind a generic platform stub or false success. The current portable
+production source has no feature target that returns
+`EIGRP_RESULT_NOT_IMPLEMENTED`.
 
 ## 12. Data translation requirements
 
@@ -1367,7 +1375,7 @@ portable core must not cache host pointers.
 
 ## 13. Public API inventory by implementation owner
 
-This section is the completeness checklist for Alpha 130.
+This section inventories the current public symbols by implementation owner.
 
 ### 13.1 Portable-core implemented symbols — shim may call
 
@@ -1675,8 +1683,8 @@ specs/public-api.md
 frr/specs/integration.md
     FRR/YANG/Zebra/event-loop/socket/policy call flows implementing that contract
 
-bird/... platform spec
-    BIRD/BSD call flows implementing the same contract
+bird/README.md
+    current BIRD/BSD boundary; no runtime adapter is present in this tree
 ```
 
 A platform spec may name native functions and objects, but it may not enlarge the

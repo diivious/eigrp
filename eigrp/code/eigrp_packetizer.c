@@ -20,6 +20,7 @@
 #include "eigrp_filter.h"
 #include "eigrp_fsm.h"
 #include "eigrp_summary.h"
+#include "eigrp_eventlog.h"
 typedef struct eigrp_packetizer_builder {
 	eigrp_instance_t *eigrp;
 	eigrp_intf_t *ei;
@@ -227,8 +228,14 @@ static int eigrp_packetizer_builder_route_add(
 		builder->eigrp, builder->ei, builder->nbr, builder->encoder,
 		builder->packet->s, &wire_route, builder->packet_limit);
 	if (encoded >= 0) {
-		if (encoded > 0)
+		if (encoded > 0) {
 			builder->route_count++;
+			if (builder->opcode == EIGRP_OPC_UPDATE)
+				(void)eigrp_eventlog_msg_add(builder->eigrp,
+					EIGRP_EVENTLOG_OPCODE_UPDATE_PACKETIZED, prefix,
+					builder->ei ? builder->ei->ifindex : 0, route->distance,
+					route->reported_distance, 0);
+		}
 		return encoded;
 	}
 
@@ -247,11 +254,20 @@ static int eigrp_packetizer_builder_route_add(
 	encoded = eigrp_packet_route_encode_append(
 		builder->eigrp, builder->ei, builder->nbr, builder->encoder,
 		builder->packet->s, &wire_route, builder->packet_limit);
-	if (encoded > 0)
+	if (encoded > 0) {
 		builder->route_count++;
-	else if (encoded < 0)
+		if (builder->opcode == EIGRP_OPC_UPDATE)
+			(void)eigrp_eventlog_msg_add(builder->eigrp,
+				EIGRP_EVENTLOG_OPCODE_UPDATE_PACKETIZED, prefix,
+				builder->ei ? builder->ei->ifindex : 0, route->distance,
+				route->reported_distance, 0);
+	} else if (encoded < 0) {
+		(void)eigrp_eventlog_msg_add(builder->eigrp,
+			EIGRP_EVENTLOG_OPCODE_ROUTE_ENCODE_FAILURE, prefix, builder->opcode,
+			builder->ei ? builder->ei->ifindex : 0, builder->packet_limit, 0);
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP route TLV exceeds packet limit %u",
 			  builder->ei->name, builder->packet_limit);
+	}
 	return encoded > 0 ? encoded : 0;
 }
 
@@ -301,6 +317,9 @@ static eigrp_route_descriptor_t *eigrp_packetizer_poison_reverse(
 	if (opcode != EIGRP_OPC_UPDATE || !eigrp_nbr_split_horizon(route, ei))
 		return route;
 
+	(void)eigrp_eventlog_msg_add(ei->eigrp, EIGRP_EVENTLOG_OPCODE_POISON_REVERSE,
+		route->prefix ? &route->prefix->destination : &route->dest,
+		ei->ifindex, route->distance, route->reported_distance, 0);
 	*poison = *route;
 	poison->metric.delay = EIGRP_MAX_METRIC;
 	poison->metric.flags = 0;

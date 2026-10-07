@@ -79,6 +79,8 @@ The required ownership boundary is:
 The shim may translate representation and lifecycle. It must not make protocol
 decisions that should be identical on FRR, BIRD/BSD, Unix, or another host.
 
+![FRR integration call flow](images/frr-call-flow.svg)
+
 ### 3.1 Public portable contracts used by FRR
 
 The intended integration surface is centered on:
@@ -796,8 +798,10 @@ portable target result
   -> FRR NB/CLI status, Zebra/log diagnostic, or host callback result
 ```
 
-Do not hide `EIGRP_RESULT_NOT_IMPLEMENTED` by pretending success in FRR. The
-real feature target must remain visible.
+Preserve structured portable results at the FRR edge. In particular, do not
+turn `EIGRP_RESULT_UNSUPPORTED`, validation failures, or host-service failures
+into false success. `EIGRP_RESULT_NOT_IMPLEMENTED` remains part of the public
+enum but is not returned by any current portable production feature target.
 
 For data-plane receive callbacks, malformed host packets or missing required
 metadata are dropped at the adapter/packet boundary without introducing
@@ -863,7 +867,7 @@ Before accepting a change under `frr/`, verify:
   shim?
 - Are FRR YANG/VTY/Zebra/event/socket types absent from portable public APIs?
 - Does error handling preserve the structured EIGRP result rather than hiding
-  an incomplete feature?
+  an unsupported capability or host failure?
 - Is the appropriate FRR-native test under `frr/test/`, with portable behavior
   tested under `eigrp/test/` where possible?
 

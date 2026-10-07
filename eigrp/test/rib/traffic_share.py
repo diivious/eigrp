@@ -41,6 +41,16 @@ def test_balanced_traffic_share_weights_selected_successors_only(tmp_path):
         { (void)eigrp; (void)category; (void)neighbor; return false; }
         eigrp_afi_t eigrp_instance_afi(const eigrp_instance_t *runtime)
         { return runtime ? runtime->af_vectors.afi : 0; }
+        eigrp_result_t eigrp_eventlog_msg_add(
+            eigrp_instance_t *eigrp, uint16_t opcode,
+            const eigrp_prefix_t *addr, eventmsg_arg_t arg1,
+            eventmsg_arg_t arg2, eventmsg_arg_t arg3, eventmsg_arg_t arg4)
+        {
+            (void)eigrp; (void)opcode; (void)addr;
+            (void)arg1; (void)arg2; (void)arg3; (void)arg4;
+            return EIGRP_RESULT_SUCCESS;
+        }
+
         eigrp_result_t eigrp_rib_route_del(eigrp_instance_t *eigrp,
             const eigrp_prefix_t *prefix)
         { (void)eigrp; (void)prefix; return EIGRP_RESULT_SUCCESS; }

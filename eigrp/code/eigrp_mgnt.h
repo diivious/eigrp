@@ -162,6 +162,8 @@ typedef struct eigrp_eventlog_msg {
 typedef struct eigrp_eventlog_state {
 	uint32_t capacity;
 	uint32_t count;
+	uint64_t written;
+	uint64_t overwritten;
 } eigrp_eventlog_state_t;
 
 typedef eigrp_result_t (*eigrp_eventlog_msg_cb)(
