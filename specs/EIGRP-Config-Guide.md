@@ -34,6 +34,8 @@ system configured under the address family is the EIGRP protocol AS.
 Configuration syntax shown here follows the current FRR-facing command surface,
 but the semantics are project-wide.
 
+![Classic and named configuration converge on the same portable targets](images/configuration-scope.svg)
+
 ## 3. Classic IPv4 router configuration
 
 ### 3.1 Process lifecycle
@@ -288,8 +290,10 @@ neighbor 192.0.2.2 maximum-prefix 5000 80 warning-only
 neighbor maximum-prefix 20000 80 warning-only
 ```
 
-The maximum-prefix grammar may also expose `dampened`, `reset-time`, `restart`,
-and `restart-count` options.
+The grammar also retains `dampened`, `reset-time`, `restart`, and
+`restart-count`. The current runtime enforces the maximum, threshold, and
+`warning-only` behavior. A live runtime returns `EIGRP_RESULT_UNSUPPORTED` when
+restart/dampening fields are requested; the configuration remains retainable.
 
 ### 6.5 Neighbor logging
 
@@ -367,7 +371,10 @@ HMAC-SHA-256 form:
 authentication mode hmac-sha-256 0 secret
 ```
 
-The encryption-type field accepts `0` or `7` in the current command surface.
+The encryption-type field accepts `0` or `7`. Type `0` supplies plaintext HMAC
+key material to the runtime. Type `7` text is retained for configuration
+compatibility but is not decoded or used as HMAC key material; applying it to
+a live runtime returns `EIGRP_RESULT_UNSUPPORTED`.
 
 ### 7.4 Passive, next-hop-self, and split horizon
 
@@ -482,8 +489,10 @@ Redistribution limit:
 redistribute maximum-prefix 5000 80 warning-only
 ```
 
-The full grammar may also expose `dampened`, `reset-time`, `restart`, and
-`restart-count`.
+The grammar also retains `dampened`, `reset-time`, `restart`, and
+`restart-count`. Runtime admission enforcement currently supports the maximum,
+threshold, and `warning-only` behavior; restart/dampening controls are retained
+but report `EIGRP_RESULT_UNSUPPORTED` on a live runtime.
 
 ### 8.7 Metric and traffic controls
 
@@ -605,6 +614,13 @@ view.
 show ip eigrp events
 show ip eigrp vrf BLUE events
 ```
+
+The bounded event history is intended for protocol diagnosis rather than
+full-packet tracing. It records DUAL/FC/FD/RD decisions, successor changes,
+packet and RTP failures, peer transitions and down reasons, filtering and
+prefix-limit decisions, poison-reverse decisions, interface/capability changes,
+and RIB ingress/install/withdraw outcomes. The display includes stored/capacity
+and total-written/overwritten accounting so history loss is visible.
 
 ### 10.5 Clear neighbors
 
@@ -759,13 +775,15 @@ EIGRP protocol-88 packet flow before treating the problem as a DUAL/RIB issue.
 
 ## 14. Implementation status rule
 
-This guide defines the intended command/semantic surface. It is not permission
-to fake runtime support.
+This guide describes the current command/semantic surface. Every command reaches
+its real OpenEIGRP feature target; host parser or YANG layers do not substitute
+generic success or generic not-implemented handlers.
 
-Every command must reach its real OpenEIGRP feature target. If the runtime
-feature is incomplete, the semantic target returns the structured
-`EIGRP_RESULT_NOT_IMPLEMENTED` result as appropriate while required
-configuration remains retained/writeable.
+Where a valid configured option exceeds the active runtime or host capability,
+the owning semantic target returns a precise structured result such as
+`EIGRP_RESULT_UNSUPPORTED` while intentionally retainable configuration remains
+writeable. The current portable production source has no feature target that
+returns `EIGRP_RESULT_NOT_IMPLEMENTED`.
 
 EIGRP Stub runtime behavior is outside project scope and is not expanded by
 this guide.

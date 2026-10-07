@@ -71,6 +71,9 @@ Built packets are not topology state.
 
 ## 4. Queue model
 
+![Packetization and reliable-transport flow](images/rtp-flow.svg)
+
+
 OpenEIGRP uses two different queue concepts:
 
 ```text
@@ -505,4 +508,7 @@ A packetization/RTP change is not complete unless:
 - RTT samples obey retransmission ambiguity rules;
 - RTO/retry behavior remains within the defined transport policy;
 - packet sizing never splits a TLV or overruns the packet limit;
+- terminal route-encoding failure, host send failure, unexpected ACK, retry
+  limit, and protocol-significant suppression decisions remain visible through
+  the diagnostic event log;
 - host socket/event objects do not leak into portable protocol APIs.

@@ -113,6 +113,9 @@ None of the `eigrp_unix_*` types are portable public OpenEIGRP API types.
 
 ## 5. Boundary model
 
+![Standalone Unix integration flow](images/unix-call-flow.svg)
+
+
 The Unix shim sits between host mechanics and the portable public API.
 
 ```text
@@ -656,26 +659,29 @@ any other VRF name
     -> EIGRP_RESULT_UNSUPPORTED
 ```
 
-Multi-VRF behavior belongs in a future Unix host implementation and must not be
-faked by mapping distinct names to the default VRF.
+Names other than the default VRF return `EIGRP_RESULT_UNSUPPORTED`; the Unix
+shim must not fake multi-VRF behavior by mapping distinct names to the default
+VRF.
 
-## 16. Policy and authentication status
+## 16. Policy and authentication host services
 
-The current Alpha 130 `unix/code/` adapter does not implement a complete Unix
-policy/key-chain service.
+The standalone Unix adapter implements the runtime, interface, virtual-wire, and
+RIB services used by the portable qualification environment. It does not provide
+a native Unix ACL/prefix-list/route-map database or key-chain implementation for
+the `eigrp_sys_*policy*` and `eigrp_sys_auth_key_lookup()` contracts.
 
-The UUT process currently supplies neutral host behavior for required public
-system hooks while the Unix authority shim is incomplete. Those UUT-local
-helpers are test-host behavior, not portable protocol implementation and not a
-new public API.
+Tests that need those host services may provide test-local neutral or fixture
+implementations. Those helpers are host-test behavior, not portable protocol
+implementation and not a new public API.
 
 Therefore:
 
-- policy matching must not be added to DUAL/topology/packet modules;
-- Unix-specific future policy objects must remain under `unix/`;
-- the public boundary remains the `eigrp_sys_*policy*` and authentication-key
-  contracts defined in `specs/public-api.md`;
-- unsupported Unix host capabilities should remain explicit rather than being
+- policy matching and key storage must not be added to DUAL/topology/packet
+  modules;
+- any native Unix policy/key objects belong under `unix/`;
+- the public boundary remains the policy and authentication-key contracts
+  defined in `specs/public-api.md`;
+- an unavailable Unix host capability remains explicit rather than being
   simulated in portable core code.
 
 ## 17. Management and observation

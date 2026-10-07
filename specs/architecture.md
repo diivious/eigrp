@@ -40,20 +40,24 @@ review.
 
 ## 3. Authority
 
+RFC 7868 is the primary reference for EIGRP protocol behavior and wire
+semantics. Repository specifications define the implementation contracts used
+to realize that behavior.
+
 When sources disagree, use this order:
 
-1. Donnie V. Savage's explicit OpenEIGRP design decisions.
-2. RFC 7868 for EIGRP protocol behavior.
-3. OpenEIGRP specifications in the directory that owns the affected code.
-4. Host-platform contracts required to integrate with FRR, BIRD, or another
-   routing stack.
-5. Existing implementation behavior when it does not conflict with the above.
+1. RFC 7868 for protocol behavior and interoperability.
+2. The OpenEIGRP specification that owns the affected implementation area.
+3. Public host-integration contracts required by FRR, Unix, BIRD/BSD, or
+   another routing stack.
+4. Existing implementation behavior when it is consistent with the above.
 
-FRR and BIRD are host frameworks. They are not protocol authorities.
-
-Cisco behavior may be used to understand interoperability or operational
-expectations, but implementation choices must still comply with RFC 7868 and
-OpenEIGRP design decisions.
+Project-specific choices that RFC 7868 does not determine belong in the owning
+specification and must not silently change wire-visible protocol semantics.
+FRR, Unix, BIRD/BSD, and other routing stacks provide host/integration
+mechanisms rather than defining EIGRP protocol behavior. Cisco behavior may be
+consulted for interoperability and operational presentation where the RFC does
+not fully specify those details.
 
 ## 4. Repository ownership
 
@@ -71,9 +75,8 @@ eigrp/
     test/          FRR-native integration/UUT material
     patch/         managed changes outside FRR's staged daemon tree
   bird/
-    code/          BIRD/BSD adapters, when implemented
-    specs/         BIRD-specific specifications, when needed
-    test/          BIRD/BSD-native tests
+    README.md      BIRD/BSD integration boundary and current status
+    test/           BIRD/BSD-native test area
   unix/
     code/          standalone Unix host shim
     test/          Unix-host tests
@@ -118,6 +121,12 @@ The central rule is:
 > every host, that decision belongs in the portable core.
 
 Host adapters provide mechanisms. Portable code owns protocol decisions.
+
+![OpenEIGRP project architecture](images/project-architecture.svg)
+
+The diagram is architectural, not a call-graph substitute: exact callable
+boundaries are defined by `specs/public-api.md` and the installed public
+headers.
 
 ## 6. Portable/core boundary
 
@@ -221,12 +230,16 @@ neighbor authentication   -> authentication/neighbor target
 Do not create generic command stubs or unrelated dispatch functions just to
 make a CLI path parse.
 
-If a feature is not implemented, its real target remains present and returns a
-structured OpenEIGRP/EIGRP result such as `EIGRP_RESULT_NOT_IMPLEMENTED`.
-Configuration that the project requires to retain must remain representable and
-writeable even when the runtime behavior is incomplete.
+Every current production configuration path terminates at its real semantic
+target. Optional capability limits are reported with a structured result such
+as `EIGRP_RESULT_UNSUPPORTED`; they are not hidden behind parser stubs or false
+success. Configuration that is intentionally retainable remains representable
+and writeable even when an optional host/runtime capability is unavailable.
 
-EIGRP Stub runtime behavior is explicitly outside project scope.
+`EIGRP_RESULT_NOT_IMPLEMENTED` remains part of the public result enum for API
+stability, but the current portable production source has no feature target
+that returns it. EIGRP Stub runtime behavior is explicitly outside project
+scope.
 
 ## 9. Runtime ownership
 
@@ -257,9 +270,10 @@ Address-family-specific protocol encoding or behavior may be separated inside
 the portable core where the protocol requires it. Host-specific IPv4/IPv6
 socket representation stays in the adapter.
 
-Named-mode configuration must retain IPv6 configuration even when a particular
-runtime/data-path capability is incomplete. A missing runtime capability must
-not be confused with a parser or configuration-retention failure.
+Named-mode IPv4 and IPv6 configuration use the same portable ownership model.
+A host-specific capability limit must be reported explicitly at the public
+boundary and must not be confused with a parser, writeback, or configuration
+retention failure.
 
 ## 11. Specification ownership
 
@@ -282,15 +296,16 @@ Portable implementation internals:
 - DUAL state machine;
 - route selection and topology storage;
 - packetization and RTP;
-- future protocol-module design documents.
+- additional portable protocol-module specifications owned by the core.
 
 ### `frr/specs/`
 
 Only FRR-specific contracts that cannot be expressed generically.
 
-### `bird/specs/`
+### `bird/`
 
-Only BIRD/BSD-specific contracts that cannot be expressed generically.
+`bird/README.md` defines the current BIRD/BSD integration boundary. The current
+tree does not contain a BIRD runtime adapter or a `bird/specs/` subtree.
 
 Do not make a root specification a dumping ground for implementation details
 owned by a lower directory.
@@ -357,8 +372,8 @@ Before accepting a design, ask:
 3. Does the portable core receive only OpenEIGRP-owned normalized values?
 4. Could FRR and BIRD use the same portable decision without duplicating it?
 5. Does every command or management operation reach its real feature target?
-6. Does an incomplete runtime capability fail structurally rather than through
-   a parser stub?
+6. Does an unsupported host/runtime capability return a structured result rather
+   than being hidden by a parser stub or false success?
 7. Did the change preserve existing protocol/API names unless a separate rename
    was intentionally approved?
 

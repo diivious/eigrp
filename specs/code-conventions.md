@@ -271,9 +271,10 @@ Do not collapse materially different outcomes into a boolean when callers need
 to distinguish invalid input, absence, unsupported capability, or an internal
 failure.
 
-`EIGRP_RESULT_NOT_IMPLEMENTED` is a legitimate structured result for a real
-feature target whose runtime behavior is not implemented. It is not a license
-to create a generic CLI stub.
+`EIGRP_RESULT_NOT_IMPLEMENTED` remains a defined public result value for API
+stability, but current portable production targets do not return it. Optional
+capability limits use `EIGRP_RESULT_UNSUPPORTED` (or another precise result) and
+must still terminate at the real owning semantic target.
 
 ## 12. Event-log terminology
 
@@ -307,12 +308,12 @@ Required pattern:
 
 ```text
 parser -> adapter normalization -> owning eigrp_<module>_* target
-                                      -> implemented behavior, or
-                                      -> EIGRP_RESULT_NOT_IMPLEMENTED
+                                      -> implemented behavior
+                                      -> precise structured capability/error result
 ```
 
-This rule keeps configuration retention, validation, tests, and eventual
-runtime implementation attached to the correct module.
+This rule keeps configuration retention, validation, tests, and runtime
+behavior attached to the correct module.
 
 ## 14. Classic and named configuration convergence
 
