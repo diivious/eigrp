@@ -22,6 +22,7 @@
 #include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
 #include "eigrp_summary.h"
+#include "eigrp_eventlog.h"
 
 
 static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
@@ -148,6 +149,10 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_QUERY_RX,
+			&route->dest, route->distance,
+			prefix ? prefix->distance : EIGRP_MAX_METRIC,
+			ei ? ei->ifindex : 0, 0);
 		if (!prefix) {
 			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
 

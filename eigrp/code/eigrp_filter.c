@@ -27,6 +27,7 @@
 #include "eigrp_timer.h"
 #include "eigrp_rib.h"
 #include "eigrp_topology.h"
+#include "eigrp_eventlog.h"
 
 struct eigrp_offset_config {
 	char *access_list;
@@ -273,14 +274,25 @@ bool eigrp_filter_prefix_update(eigrp_instance_t *eigrp,
 		    eigrp, direction == EIGRP_FILTER_IN
 			       ? EIGRP_DEFAULT_INFORMATION_IN
 			       : EIGRP_DEFAULT_INFORMATION_OUT,
-		    prefix))
+		    prefix)) {
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_ROUTE_FILTERED,
+			prefix, direction, ei->ifindex,
+			EIGRP_EVENTLOG_FILTER_REASON_DEFAULT_INFORMATION, 0);
 		return true;
+	}
 
 	if (eigrp_filter_runtime_state_denies(eigrp, &eigrp->filter, direction,
-					       prefix))
+					       prefix)) {
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_ROUTE_FILTERED,
+			prefix, direction, ei->ifindex, EIGRP_EVENTLOG_FILTER_REASON_PROCESS, 0);
 		return true;
-	return eigrp_filter_runtime_state_denies(eigrp, &ei->filter, direction,
-						 prefix);
+	}
+	if (eigrp_filter_runtime_state_denies(eigrp, &ei->filter, direction, prefix)) {
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_ROUTE_FILTERED,
+			prefix, direction, ei->ifindex, EIGRP_EVENTLOG_FILTER_REASON_INTERFACE, 0);
+		return true;
+	}
+	return false;
 }
 
 void eigrp_distribute_timer_process(void *arg)
@@ -386,8 +398,15 @@ void eigrp_offset_metric_update(eigrp_instance_t *eigrp,
 	/* EIGRP's retained vector has no separate scalar policy-metric field.
 	 * Apply the offset to delay, which is the monotonic vector component used
 	 * by the composite metric calculation and by both classic/wide TLVs. */
-	delay = metric->delay + (uint64_t)config->offset;
-	metric->delay = delay >= EIGRP_MAX_METRIC ? EIGRP_MAX_METRIC : delay;
+	{
+		uint64_t old_delay = metric->delay;
+
+		delay = metric->delay + (uint64_t)config->offset;
+		metric->delay = delay >= EIGRP_MAX_METRIC ? EIGRP_MAX_METRIC : delay;
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_OFFSET_APPLIED,
+			prefix, direction, ei->ifindex, (eventmsg_arg_t)old_delay,
+			(eventmsg_arg_t)metric->delay);
+	}
 }
 
 /*

@@ -351,7 +351,13 @@ bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 			eigrp_log(EIGRP_LOG_WARNING,
 				  "EIGRP redistribution maximum-prefix threshold reached (%u/%u)",
 				  count + 1U, limit->maximum);
-		return eigrp_prefix_limit_allows(limit, count, false);
+		if (!eigrp_prefix_limit_allows(limit, count, false)) {
+			(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
+				&route->prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_REDISTRIBUTION,
+				count + 1U, limit->maximum, 0);
+			return false;
+		}
+		return true;
 	}
 }
 

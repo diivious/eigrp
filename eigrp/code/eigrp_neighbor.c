@@ -645,10 +645,12 @@ eigrp_result_t eigrp_nbr_state_iterate(
 void eigrp_nbr_codec_select(eigrp_nbr_t *nbr, uint8_t tlv_version)
 {
 	const eigrp_tlv_codec_t *codec;
+	uint8_t old_version;
 
 	assert(nbr);
 	assert(nbr->ei);
 	assert(nbr->ei->eigrp);
+	old_version = nbr->tlv_version;
 
 	switch (tlv_version) {
 	case EIGRP_TLV_32B_VERSION:
@@ -666,6 +668,15 @@ void eigrp_nbr_codec_select(eigrp_nbr_t *nbr, uint8_t tlv_version)
 	nbr->tlv_version = tlv_version;
 	nbr->decoder = codec->decoder;
 	nbr->encoder = codec->encoder;
+
+	if (old_version != tlv_version) {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+		(void)eigrp_eventlog_msg_add(nbr->ei->eigrp,
+			EIGRP_EVENTLOG_OPCODE_PEER_CAPABILITY, &peer_addr, old_version,
+			tlv_version, nbr->tlv_rel_major, nbr->K6);
+	}
 }
 
 void eigrp_nbr_codec_update(eigrp_instance_t *eigrp)
@@ -951,7 +962,8 @@ void eigrp_nbr_holddown_expired(void *arg)
 		eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: holding time expired",
 			  eigrp_print_addr(&nbr->src),
 			  nbr->ei->name);
-	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+		EIGRP_EVENTLOG_NEIGHBOR_REASON_HOLD_EXPIRED);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -961,6 +973,13 @@ uint8_t eigrp_nbr_state(eigrp_nbr_t *nbr)
 }
 
 void eigrp_nbr_state_update(eigrp_operation_t operation, eigrp_nbr_t *nbr, uint8_t state)
+{
+	eigrp_nbr_state_update_reason(operation, nbr, state,
+		EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE);
+}
+
+void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr,
+				   uint8_t state, uint16_t reason)
 {
 	uint8_t old_state;
 
@@ -979,7 +998,7 @@ void eigrp_nbr_state_update(eigrp_operation_t operation, eigrp_nbr_t *nbr, uint8
 		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
 		(void)eigrp_eventlog_msg_add(nbr->ei->eigrp,
 			EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE, &peer_addr,
-			old_state, nbr->state, nbr->ei->ifindex, 0);
+			old_state, nbr->state, nbr->ei->ifindex, reason);
 	}
 	eigrp_debug_neighbor_state(nbr, old_state, state);
 	if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP)
@@ -1149,7 +1168,8 @@ static void eigrp_nbr_clear_hard(eigrp_nbr_t *nbr,
 		eigrp_hello_send(nbr->ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN_NBR,
 				 &nbr->src);
 
-	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+		EIGRP_EVENTLOG_NEIGHBOR_REASON_ADMIN_CLEAR);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -1482,7 +1502,19 @@ bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 		eigrp_log(EIGRP_LOG_WARNING,
 			  "EIGRP neighbor maximum-prefix threshold reached (%u/%u)",
 			  count + 1U, limit->maximum);
-	return eigrp_prefix_limit_allows(limit, count, false);
+	if (!eigrp_prefix_limit_allows(limit, count, false)) {
+		eigrp_prefix_t peer_addr;
+
+		(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
+			prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_NEIGHBOR, count + 1U,
+			limit->maximum, 0);
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &neighbor->src);
+		(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_PEER,
+			&peer_addr, count + 1U, limit->maximum,
+			neighbor->ei ? neighbor->ei->ifindex : 0, 0);
+		return false;
+	}
+	return true;
 }
 
 eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_address_t *address, const eigrp_prefix_limit_t *limit)

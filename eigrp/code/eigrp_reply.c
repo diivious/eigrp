@@ -24,6 +24,7 @@
 #include "eigrp_fsm.h"
 #include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
+#include "eigrp_eventlog.h"
 
 void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			   eigrp_prefix_descriptor_t *prefix,
@@ -34,6 +35,9 @@ void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	if (!eigrp || !nbr || !prefix)
 		return;
 
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_REPLY_TX,
+		&prefix->destination, nbr->ei ? nbr->ei->ifindex : 0,
+		route ? route->distance : prefix->distance, 0, 0);
 	work = eigrp_packetizer_work_create(EIGRP_OPC_REPLY);
 	work->nbr = nbr;
 	work->prefix = prefix;
@@ -77,6 +81,10 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 		prefix = eigrp_topology_table_lookup(eigrp->topology_table,
 						       &route->dest);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_REPLY_RX,
+			&route->dest, route->distance,
+			prefix ? prefix->distance : EIGRP_MAX_METRIC,
+			ei ? ei->ifindex : 0, 0);
 		if (!prefix) {
 			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
 

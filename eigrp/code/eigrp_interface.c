@@ -22,6 +22,7 @@
 #include "eigrp_interface.h"
 #include "eigrp_instance.h"
 #include "eigrp_neighbor.h"
+#include "eigrp_eventlog.h"
 #include "eigrp_packet.h"
 #include "eigrp_tlv1.h"
 #include "eigrp_tlv2.h"
@@ -46,6 +47,20 @@ static bool eigrp_intf_destination(const eigrp_intf_t *ei,
 	*destination = ei->address;
 	eigrp_prefix_normalize(destination);
 	return true;
+}
+
+static void eigrp_intf_eventlog_state(eigrp_intf_t *ei,
+		eigrp_eventlog_interface_state_t state, eventmsg_arg_t detail)
+{
+	const eigrp_prefix_t *address = NULL;
+
+	if (!ei || !ei->eigrp)
+		return;
+	if (eigrp_prefix_valid(&ei->address))
+		address = &ei->address;
+	(void)eigrp_eventlog_msg_add(ei->eigrp,
+		EIGRP_EVENTLOG_OPCODE_INTERFACE_STATE, address, state, ei->ifindex,
+		detail, 0);
 }
 
 static char *eigrp_intf_string_dup(const char *value)
@@ -414,9 +429,11 @@ void eigrp_intf_config_update(eigrp_intf_t *runtime,
 {
 	eigrp_intf_context_t context = {.runtime = runtime};
 	const eigrp_intf_config_t *defaults;
+	bool old_passive;
 
 	if (!runtime || !config)
 		return;
+	old_passive = eigrp_intf_is_passive(runtime);
 
 	/* Rebuild inheritable named af-interface state from protocol defaults,
 	 * then layer the default template and the specific interface object.
@@ -471,6 +488,13 @@ void eigrp_intf_config_update(eigrp_intf_t *runtime,
 		(void)eigrp_auth_mode_update(EIGRP_SET, &context, EIGRP_AUTHENTICATION_MD5, NULL);
 	if (config->keychain)
 		(void)eigrp_auth_keychain_update(EIGRP_SET, &context, config->keychain);
+
+	if (old_passive != eigrp_intf_is_passive(runtime))
+		eigrp_intf_eventlog_state(runtime,
+			eigrp_intf_is_passive(runtime)
+				? EIGRP_EVENTLOG_INTERFACE_STATE_PASSIVE
+				: EIGRP_EVENTLOG_INTERFACE_STATE_ACTIVE,
+			runtime->curr_mtu);
 }
 
 static void eigrp_intf_context_runtime_rebind(eigrp_intf_context_t *context)
@@ -864,6 +888,8 @@ eigrp_result_t eigrp_intf_passive_update(eigrp_operation_t operation, eigrp_intf
 	if (eigrp_instance_thread_dispatch_needed(instance))
 		return eigrp_intf_message_dispatch(EIGRP_INTF_MESSAGE_PASSIVE, operation, context, 0);
 	bool passive;
+	bool old_passive = context && context->runtime
+		? eigrp_intf_is_passive(context->runtime) : false;
 
 	if (operation != EIGRP_SET && operation != EIGRP_RESET)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
@@ -877,6 +903,11 @@ eigrp_result_t eigrp_intf_passive_update(eigrp_operation_t operation, eigrp_intf
 	if (context->runtime) {
 		context->runtime->params.passive_interface =
 			passive ? EIGRP_INTF_PASSIVE : EIGRP_INTF_ACTIVE;
+		if (old_passive != eigrp_intf_is_passive(context->runtime))
+			eigrp_intf_eventlog_state(context->runtime,
+				passive ? EIGRP_EVENTLOG_INTERFACE_STATE_PASSIVE
+					: EIGRP_EVENTLOG_INTERFACE_STATE_ACTIVE,
+				context->runtime->curr_mtu);
 		eigrp_intf_multicast_update(EIGRP_SET, context->runtime);
 	}
 	eigrp_intf_context_runtime_rebind(context);
@@ -1517,6 +1548,8 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 		eigrp_update_send_all(eigrp, NULL);
 	}
 
+	eigrp_intf_eventlog_state(ei, EIGRP_EVENTLOG_INTERFACE_STATE_UP,
+		ei->curr_mtu);
 	return 1;
 }
 
@@ -1541,10 +1574,14 @@ int eigrp_intf_down(eigrp_intf_t *ei)
 	/*Set infinite metrics to routes learned by this interface and start
 	 * query process*/
 	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
+		eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+			EIGRP_EVENTLOG_NEIGHBOR_REASON_INTERFACE_DOWN);
 		eigrp_nbr_delete(nbr);
 	}
 	eigrp_topology_connected_interface_down(ei->eigrp, ei);
 	eigrp_intf_encoder_clear(ei);
+	eigrp_intf_eventlog_state(ei, EIGRP_EVENTLOG_INTERFACE_STATE_DOWN,
+		ei->curr_mtu);
 
 	return 1;
 }
@@ -1562,9 +1599,16 @@ void eigrp_intf_multicast_update(eigrp_operation_t operation, eigrp_intf_t *ei)
 		return;
 
 	if (!eigrp_intf_is_passive(ei)) {
-		if (!ei->member_allrouters
-		    && eigrp_sys_multicast_join(ei->eigrp, ei) >= 0)
-			ei->member_allrouters = true;
+		if (!ei->member_allrouters) {
+			int result = eigrp_sys_multicast_join(ei->eigrp, ei);
+
+			if (result >= 0)
+				ei->member_allrouters = true;
+			else
+				eigrp_intf_eventlog_state(ei,
+					EIGRP_EVENTLOG_INTERFACE_STATE_MULTICAST_JOIN_FAILED,
+					(eventmsg_arg_t)(intptr_t)result);
+		}
 	} else if (ei->member_allrouters) {
 		(void)eigrp_sys_multicast_leave(ei->eigrp, ei);
 		ei->member_allrouters = false;

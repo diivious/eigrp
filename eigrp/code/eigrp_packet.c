@@ -49,6 +49,7 @@ const eigrp_message_t eigrp_packet_type_str[] = {
 static int eigrp_packet_header_validate(eigrp_intf_t *ei, eigrp_addr_t *source,
 			       struct eigrp_header *header, uint16_t length);
 static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
+					     const eigrp_addr_t *source,
 					     struct eigrp_header *eigrph,
 					     uint16_t length);
 static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
@@ -224,6 +225,20 @@ static const char *eigrp_packet_addr_text(eigrp_instance_t *eigrp,
 	return buf;
 }
 
+static void eigrp_packet_reject_event(eigrp_intf_t *ei,
+				      const eigrp_addr_t *source, uint8_t opcode,
+				      eigrp_eventlog_packet_reject_reason_t reason,
+				      eventmsg_arg_t detail1, eventmsg_arg_t detail2)
+{
+	eigrp_prefix_t peer_addr;
+
+	if (!ei || !ei->eigrp || !source)
+		return;
+	eigrp_eventlog_addr_from_legacy(&peer_addr, source);
+	(void)eigrp_eventlog_msg_add(ei->eigrp, EIGRP_EVENTLOG_OPCODE_PACKET_REJECT,
+		&peer_addr, opcode, reason, detail1, detail2);
+}
+
 eigrp_route_descriptor_t *eigrp_packet_decoder_safe(eigrp_instance_t *eigrp,
 						    eigrp_nbr_t *nbr,
 						    eigrp_stream_t *pkt,
@@ -322,6 +337,8 @@ static void eigrp_packet_retransmit_limit_exceeded(eigrp_nbr_t *nbr)
 			  eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
 					 sizeof(address)),
 			  nbr->ei->name);
+	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
+		EIGRP_EVENTLOG_NEIGHBOR_REASON_RTP_RETRY_LIMIT);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -374,6 +391,13 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 			eigrp_update_send_EOT(nbr);
 		} else
 			eigrp_packet_send_reliably(eigrp, nbr);
+	} else {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RTP_ACK_UNEXPECTED,
+			&peer_addr, ack, packet ? packet->sequence_number : 0,
+			nbr->retrans_queue->count, 0);
 	}
 }
 
@@ -516,8 +540,15 @@ void eigrp_packet_write(void *arg)
 				ntohl(eigrph->ack), packet->length);
 		}
 		eigrp_packet_reliable_send_update(ei, packet);
-	} else
+	} else {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &packet->dst);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_PACKET_TX_FAILURE,
+			&peer_addr, eigrph->opcode, ntohl(eigrph->sequence), packet->length,
+			(eventmsg_arg_t)(intptr_t)ret);
 		eigrp_packet_reliable_send_failure_update(ei, packet);
+	}
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		char destination[EIGRP_PACKET_ADDR_TEXT_SIZE];
@@ -584,8 +615,15 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	dst = input->destination;
 	meta = input->meta;
 	ei = eigrp_intf_lookup_by_ifindex(eigrp, input->ifindex);
-	if (!ei)
+	if (!ei) {
+		eigrp_prefix_t peer_addr;
+
+		eigrp_eventlog_addr_from_legacy(&peer_addr, &src);
+		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_PACKET_REJECT,
+			&peer_addr, 0, EIGRP_EVENTLOG_PACKET_REJECT_NO_INTERFACE,
+			input->ifindex, 0);
 		return;
+	}
 
 	/* The stream is the receive-side memory boundary.  The process thread
 	 * validates this metadata before enqueue, but keep the same boundary at
@@ -593,8 +631,11 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	 * or TLV processing read beyond bytes actually present in ibuf. */
 	endp = eigrp_stream_get_endp(ibuf);
 	if (!eigrp_packet_input_bounds_validate(endp, meta.network_header_length,
-					meta.eigrp_length, &offset, &length))
+					meta.eigrp_length, &offset, &length)) {
+		eigrp_packet_reject_event(ei, &src, 0, EIGRP_EVENTLOG_PACKET_REJECT_BOUNDS,
+			meta.eigrp_length, endp);
 		return;
+	}
 
 	eigrp_stream_set_getp(ibuf, offset);
 	eigrph = (struct eigrp_header *)eigrp_stream_pnt(ibuf);
@@ -615,6 +656,8 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 				eigrp_intf_name_string(ei));
 		}
 
+		eigrp_packet_reject_event(ei, &src, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_PASSIVE_INTERFACE, 0, 0);
 		if (meta.destination_multicast)
 			eigrp_intf_multicast_update(EIGRP_SET, ei);
 		return;
@@ -672,6 +715,10 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 			 * processing; an ACK must never create a new adjacency. */
 			if (nbr)
 				eigrp_packet_ack(eigrp, eigrph, nbr);
+			else
+				eigrp_packet_reject_event(ei, &src, opcode,
+					EIGRP_EVENTLOG_PACKET_REJECT_NO_NEIGHBOR,
+					ntohl(eigrph->ack), 0);
 			return;
 		}
 		eigrp_hello_receive(eigrp, eigrph, &src, ei, ibuf, length);
@@ -679,8 +726,11 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	}
 
 	/* A neighbor must exist before accepting non-Hello packets. */
-	if (!nbr)
+	if (!nbr) {
+		eigrp_packet_reject_event(ei, &src, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_NO_NEIGHBOR, 0, 0);
 		return;
+	}
 
 	if (eigrp_packet_auth_digest_validate(ei, nbr, &src, eigrph, length) < 0)
 		return;
@@ -702,6 +752,9 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 			eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, ei, nbr,
 					   "discard CR sequence %u while not eligible",
 					   sequence);
+			eigrp_packet_reject_event(ei, &src, opcode,
+				EIGRP_EVENTLOG_PACKET_REJECT_CR_NOT_ELIGIBLE, sequence,
+				nbr->cr_sequence);
 			return;
 		}
 
@@ -722,6 +775,8 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 
 	switch (opcode) {
 	case EIGRP_OPC_PROBE:
+		eigrp_packet_reject_event(ei, &src, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_UNSUPPORTED_OPCODE, opcode, 0);
 		break;
 	case EIGRP_OPC_QUERY:
 		eigrp_query_receive(eigrp, nbr, eigrph, ibuf, ei, length);
@@ -730,6 +785,8 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 		eigrp_reply_receive(eigrp, nbr, eigrph, ibuf, ei, length);
 		break;
 	case EIGRP_OPC_REQUEST:
+		eigrp_packet_reject_event(ei, &src, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_UNSUPPORTED_OPCODE, opcode, 0);
 		break;
 	case EIGRP_OPC_SIAQUERY:
 		eigrp_siaquery_receive(eigrp, nbr, eigrph, ibuf, ei, length);
@@ -743,6 +800,8 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	default:
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP packet header type %d unsupported",
 			  eigrp_intf_name_string(ei), opcode);
+		eigrp_packet_reject_event(ei, &src, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_UNSUPPORTED_OPCODE, opcode, 0);
 		break;
 	}
 }
@@ -1767,14 +1826,18 @@ static int eigrp_packet_auth_tlv_lookup(struct eigrp_header *eigrph,
 }
 
 static int eigrp_packet_auth_tlv_validate(eigrp_intf_t *ei,
+					  const eigrp_addr_t *source, uint8_t opcode,
 					  struct eigrp_tlv_hdr_type *auth_tlv,
 					  uint16_t length)
 {
 	uint16_t auth_type;
 	uint16_t auth_length;
 
-	if (length < EIGRP_AUTH_MD5_TLV_SIZE)
+	if (length < EIGRP_AUTH_MD5_TLV_SIZE) {
+		eigrp_packet_reject_event(ei, source, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_LENGTH, length, EIGRP_AUTH_MD5_TLV_SIZE);
 		return -1;
+	}
 
 	auth_type = ntohs(((struct TLV_MD5_Authentication_Type *)auth_tlv)->auth_type);
 	auth_length = ntohs(((struct TLV_MD5_Authentication_Type *)auth_tlv)->auth_length);
@@ -1782,28 +1845,39 @@ static int eigrp_packet_auth_tlv_validate(eigrp_intf_t *ei,
 	if (auth_type != ei->params.auth_type) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication type mismatch: received %u expected %u",
 			  eigrp_intf_name_string(ei), auth_type, ei->params.auth_type);
+		eigrp_packet_reject_event(ei, source, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_TYPE_MISMATCH, auth_type, ei->params.auth_type);
 		return -1;
 	}
 
 	switch (auth_type) {
 	case EIGRP_AUTH_TYPE_MD5:
 		if (length != EIGRP_AUTH_MD5_TLV_SIZE
-		    || auth_length != EIGRP_AUTH_TYPE_MD5_LEN)
+		    || auth_length != EIGRP_AUTH_TYPE_MD5_LEN) {
+			eigrp_packet_reject_event(ei, source, opcode,
+				EIGRP_EVENTLOG_PACKET_REJECT_AUTH_LENGTH, length, auth_length);
 			return -1;
+		}
 		return 0;
 	case EIGRP_AUTH_TYPE_SHA256:
 		if (length != EIGRP_AUTH_SHA256_TLV_SIZE
-		    || auth_length != EIGRP_AUTH_TYPE_SHA256_LEN)
+		    || auth_length != EIGRP_AUTH_TYPE_SHA256_LEN) {
+			eigrp_packet_reject_event(ei, source, opcode,
+				EIGRP_EVENTLOG_PACKET_REJECT_AUTH_LENGTH, length, auth_length);
 			return -1;
+		}
 		return 0;
 	default:
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: unsupported EIGRP authentication type %u",
 			  eigrp_intf_name_string(ei), auth_type);
+		eigrp_packet_reject_event(ei, source, opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_UNSUPPORTED, auth_type, 0);
 		return -1;
 	}
 }
 
 static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
+					     const eigrp_addr_t *source,
 					     struct eigrp_header *eigrph,
 					     uint16_t length)
 {
@@ -1815,6 +1889,8 @@ static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
 	if (ret < 0) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: malformed EIGRP TLV framing",
 			  eigrp_intf_name_string(ei));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_TLV_FRAMING, 0, 0);
 		return -1;
 	}
 
@@ -1822,6 +1898,8 @@ static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
 		if (auth_tlv) {
 			eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication TLV received on unauthenticated interface",
 				  eigrp_intf_name_string(ei));
+			eigrp_packet_reject_event(ei, source, eigrph->opcode,
+				EIGRP_EVENTLOG_PACKET_REJECT_AUTH_UNEXPECTED, 0, 0);
 			return -1;
 		}
 		return 0;
@@ -1830,22 +1908,29 @@ static int eigrp_packet_auth_header_validate(eigrp_intf_t *ei,
 	if (!eigrp_auth_material_available(ei)) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication configured without key material",
 			  eigrp_intf_name_string(ei));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_NO_KEY, ei->params.auth_type, 0);
 		return -1;
 	}
 
 	if (!auth_tlv) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authenticated interface received packet without auth TLV",
 			  eigrp_intf_name_string(ei));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_MISSING, ei->params.auth_type, 0);
 		return -1;
 	}
 
 	if (!auth_first) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication TLV is not first TLV",
 			  eigrp_intf_name_string(ei));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_NOT_FIRST, 0, 0);
 		return -1;
 	}
 
-	return eigrp_packet_auth_tlv_validate(ei, auth_tlv, ntohs(auth_tlv->length));
+	return eigrp_packet_auth_tlv_validate(ei, source, eigrph->opcode, auth_tlv,
+		ntohs(auth_tlv->length));
 }
 
 static uint8_t eigrp_packet_auth_flags(struct eigrp_header *eigrph)
@@ -1876,12 +1961,18 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 		return 0;
 
 	ret = eigrp_packet_auth_tlv_lookup(eigrph, length, &auth_tlv, &auth_first);
-	if (ret < 0 || !auth_tlv || !auth_first)
+	if (ret < 0 || !auth_tlv || !auth_first) {
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_TLV_FRAMING, 0, 0);
 		return -1;
+	}
 
 	if (ei->params.auth_type != EIGRP_AUTH_TYPE_MD5
-	    && ei->params.auth_type != EIGRP_AUTH_TYPE_SHA256)
+	    && ei->params.auth_type != EIGRP_AUTH_TYPE_SHA256) {
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_UNSUPPORTED, ei->params.auth_type, 0);
 		return -1;
+	}
 
 	memset(&tmp_nbr, 0, sizeof(tmp_nbr));
 	if (!nbr) {
@@ -1912,6 +2003,8 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 	if (!ret) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP authentication failed",
 			  eigrp_intf_name_string(ei));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AUTH_DIGEST, ei->params.auth_type, 0);
 		return -1;
 	}
 
@@ -1928,12 +2021,16 @@ static int eigrp_packet_header_validate(eigrp_intf_t *ei, eigrp_addr_t *source,
 	if (length < EIGRP_HEADER_LEN) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP packet too short: %u",
 			  eigrp_intf_name_string(ei), length);
+		eigrp_packet_reject_event(ei, source, 0,
+			EIGRP_EVENTLOG_PACKET_REJECT_SHORT_HEADER, length, EIGRP_HEADER_LEN);
 		return -1;
 	}
 
 	if (eigrph->version != EIGRP_HEADER_VERSION) {
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: unsupported EIGRP header version %u",
 			  eigrp_intf_name_string(ei), eigrph->version);
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_VERSION, eigrph->version, EIGRP_HEADER_VERSION);
 		return -1;
 	}
 
@@ -1941,6 +2038,9 @@ static int eigrp_packet_header_validate(eigrp_intf_t *ei, eigrp_addr_t *source,
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP AS mismatch: received %u expected %u",
 			  eigrp_intf_name_string(ei), ntohs(eigrph->ASNumber),
 			  ei->eigrp->AS);
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_AS_MISMATCH, ntohs(eigrph->ASNumber),
+			ei->eigrp->AS);
 		return -1;
 	}
 
@@ -1948,6 +2048,9 @@ static int eigrp_packet_header_validate(eigrp_intf_t *ei, eigrp_addr_t *source,
 		eigrp_log(EIGRP_LOG_WARNING, "interface %s: EIGRP VRID mismatch: received %u expected %u",
 			  eigrp_intf_name_string(ei), ntohs(eigrph->vrid),
 			  ei->eigrp->virt_router->vrid);
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_VRID_MISMATCH, ntohs(eigrph->vrid),
+			ei->eigrp->virt_router->vrid);
 		return -1;
 	}
 
@@ -1957,10 +2060,12 @@ static int eigrp_packet_header_validate(eigrp_intf_t *ei, eigrp_addr_t *source,
 			  eigrp_intf_name_string(ei),
 			  eigrp_packet_addr_text(ei->eigrp, source, source_text,
 					 sizeof(source_text)));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_CHECKSUM, checksum, 0);
 		return -1;
 	}
 
-	if (eigrp_packet_auth_header_validate(ei, eigrph, length) < 0)
+	if (eigrp_packet_auth_header_validate(ei, source, eigrph, length) < 0)
 		return -1;
 
 	/* Raw sockets can receive protocol-matched packets from other links. */
@@ -1969,6 +2074,8 @@ static int eigrp_packet_header_validate(eigrp_intf_t *ei, eigrp_addr_t *source,
 			  eigrp_intf_name_string(ei),
 			  eigrp_packet_addr_text(ei->eigrp, source, source_text,
 					 sizeof(source_text)));
+		eigrp_packet_reject_event(ei, source, eigrph->opcode,
+			EIGRP_EVENTLOG_PACKET_REJECT_SOURCE_OFFLINK, 0, 0);
 		return -1;
 	}
 
