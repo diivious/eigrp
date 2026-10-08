@@ -632,6 +632,24 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	return 0;
 }
 
+/* Zebra carries 32-bit route metrics.  Preserve protocol infinity before
+ * converting wide metrics to the host RIB scale; never narrow an infinite
+ * metric into a finite cost.
+ */
+static uint32_t eigrp_zebra_rib_metric(const eigrp_instance_t *eigrp,
+                                      uint64_t metric)
+{
+	if (eigrp->metric_version >= EIGRP_TLV_64B_VERSION) {
+		if (metric >= EIGRP_64BIT_METRIC_INFINITY)
+			return EIGRP_RIB_METRIC_INFINITY;
+		return (uint32_t)(metric / 128U);
+	}
+
+	if (metric >= EIGRP_32BIT_METRIC_INFINITY)
+		return EIGRP_RIB_METRIC_INFINITY;
+	return (uint32_t)metric;
+}
+
 eigrp_result_t eigrp_zebra_route_add(
 	eigrp_instance_t *eigrp, const eigrp_rib_route_t *route)
 {
@@ -655,7 +673,7 @@ eigrp_result_t eigrp_zebra_route_add(
 	api.type = ZEBRA_ROUTE_EIGRP;
 	api.instance = eigrp_instance_asn(eigrp);
 	api.safi = SAFI_UNICAST;
-	api.metric = route->metric;
+	api.metric = eigrp_zebra_rib_metric(eigrp, route->metric);
 	api.distance = route->install.admin_dist;
 	api.tag = route->tag;
 	api.prefix = host_prefix;
