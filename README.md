@@ -6,27 +6,27 @@ OpenEIGRP is a portable implementation of the Enhanced Interior Gateway Routing 
 
 RFC 7868 is the primary protocol reference for this implementation. Project design decisions are made to remain consistent with that behavior, while FRR, Unix, BIRD, and other routing stacks are treated as host and integration environments rather than sources of protocol semantics.
 
-## Project state
+## Architecture and code overview
 
-The repository contains a portable EIGRP protocol core, an FRR integration, and a standalone Unix host used for development and protocol qualification. The `bird/` tree defines the BIRD/BSD integration area; BIRD host integration is not implemented in the current tree.
+```text
++-----------------------------------------------------------+
+| Host routing stack / operating environment                |
+| Configuration, RIB, interfaces, sockets, timers, logging  |
++----------------------------+------------------------------+
+                             |
++----------------------------v------------------------------+
+| Host adapter (FRR / Unix / BIRD / other)                  |
+| Normalization, management, and host-service implementation|
++----------------------------+------------------------------+
+                             |
++----------------------------v------------------------------+
+| Portable EIGRP protocol core                              |
+| DUAL, topology, metrics, neighbors, RTP, packetizer, TLVs  |
++-----------------------------------------------------------+
+```
 
-The portable core owns protocol state and decisions for:
-
-- EIGRP instances, address families, interfaces, and neighbors;
-- DUAL state transitions, feasibility-condition evaluation, feasible-successor selection, successor selection, and ACTIVE processing;
-- classic and wide metrics, variance, maximum paths, metric weights, offset lists, and summary metrics;
-- topology descriptors and route selection;
-- UPDATE, QUERY, REPLY, SIA-QUERY, and SIA-REPLY processing;
-- reliable transport, sequencing, acknowledgements, retransmission, conditional receive, and packetization;
-- IPv4 and IPv6 protocol addressing through EIGRP-owned address/prefix types;
-- route filtering, redistribution, default information, summaries, static neighbors, and prefix limits;
-- MD5 and HMAC-SHA-256 authentication;
-- graceful restart / NSF protocol processing;
-- event logging and operational state exposed through portable management APIs.
-
-Classic IPv4 configuration and named-mode configuration terminate at the same portable feature targets. Named mode supports IPv4 and IPv6 address-family configuration, `af-interface`, `topology base`, multiple autonomous-system contexts under one named parent, and case-sensitive named parents.
-
-EIGRP Stub runtime behavior is outside project scope.
+**Architectural rule:** equivalent normalized inputs must yield the same EIGRP protocol decisions regardless of host. The portable core owns protocol behavior; adapters implement operating-system and routing-stack services through EIGRP-owned interfaces.
+Portable APIs use EIGRP-owned types and structured results. FRR, BIRD, and Unix-specific objects remain in their respective adapters. The public integration contracts include `eigrp.h`, `eigrp_cli.h`, `eigrp_mgnt.h`, `eigrp_rib.h`, and `eigrp_sys.h` under `eigrp/code/`. See [architecture](specs/architecture.md), [platform integration](specs/platform-integration.md), and [public API](specs/public-api.md).
 
 ## Start here by role
 
@@ -38,6 +38,145 @@ EIGRP Stub runtime behavior is outside project scope.
 | Portable protocol developer | `specs/architecture.md` | `eigrp/specs/dual.md`, `eigrp/specs/route-selection-spec.md`, `eigrp/specs/rtp.md`, `specs/rfc7868.md` |
 | FRR adapter developer | `frr/README.md`, `frr/patch/README.md` | `specs/platform-integration.md`, `specs/EIGRP-Config-Guide.md` |
 | Unix host developer | `unix/README.md`, `unix/specs/integration.md` | `specs/public-api.md` |
+| BIRD/BSD adapter developer | `bird/README.md` | `specs/platform-integration.md`, `specs/public-api.md` |
+
+## Project State
+
+### Cisco EIGRP / OpenEIGRP capability matrix
+
+The following comparison presents the supplied Alpha 144 feature assessment. **Yes** indicates supported capability, **Partial** indicates incomplete coverage, and **No** indicates unavailable functionality. These are feature-status declarations, not a claim of completed production certification or identical host support. Platform-specific deployment readiness must be assessed separately.
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
+| **Address Families** | | | |
+| IPv4 | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| IPv6 | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| IPv4/IPv6 named mode | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Multiple autonomous systems | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Multiple named instances | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| VRF / VRF-Lite | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> |  |
+| **Core Protocol** | | | |
+| DUAL FSM | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Feasibility Condition | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Feasible Successors | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Active/Passive states | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Query / Reply | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| SIA-Query / SIA-Reply | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Reliable Transport Protocol | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Reliable multicast | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Reliable unicast | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Conditional Receive (CR) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Neighbor discovery / adjacency | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Neighbor resynchronization | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Graceful Restart (GR) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| NSF awareness | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| NSF restarting router | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> |  |
+| End-of-Table (EOT) signaling | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| **Metric and Path Selection** | | | |
+| Classic composite metrics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Wide metrics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Configurable K-values | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Bandwidth / Delay metrics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Reliability / Load metrics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| MTU advertisement | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Unequal-cost load balancing | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Variance | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Maximum paths | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Maximum hops | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Administrative distance | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Loop-Free Alternate (LFA FRR) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Planned |
+| Add-Path | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Under consideration |
+| **Route Management** | | | |
+| Internal routes | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| External routes | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Route redistribution | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Redistribute connected | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Redistribute static | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Redistribute OSPF | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Redistribute BGP | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Redistribute RIP / IS-IS | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Redistribution route maps | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Default metric | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| External route tagging | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Route tag filtering | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Route-tag filtering (match tag) and modification (set tag) need to be implemented |
+| Default route advertisement | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| **Summarization** | | | |
+| Manual summarization | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Automatic summarization (IPv4) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Summary metric configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Summary leak maps | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Summary discard / Null0 route | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | The summary implementation does not install a  local discard route,  |
+| Summary administrative distance | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Needs the Summary discard route support |
+| **Policy and Filtering** | | | |
+| Distribute lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Prefix lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Access lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Route maps | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Offset lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Per-interface filtering | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Inbound / outbound filtering | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| **Interface and Neighbor Controls** | | | |
+| Passive interfaces | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Static neighbors | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Hello interval | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Hold interval | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Split horizon | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Next-hop-self | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Bandwidth percentage | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Interface delay configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Neighbor descriptions | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Neighbor prefix limits | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | EIGRP MPLS VPN PE-CE features |
+| Topology prefix limits | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | EIGRP MPLS VPN PE-CE features |
+| Active timer | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Path Graph Feasibility | <span style="color: #c62828; font-weight: 700;">No</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Planned |
+| Peer Groups | <span style="color: #c62828; font-weight: 700;">No</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Planned |
+| **Security** | | | |
+| MD5 authentication | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| HMAC-SHA-256 authentication | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | The digest primitives and packet integration already exist,  tbd is type-7 support, and interoperability tests |
+| Key chains | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Key rollover | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Runtime selection not fully established |
+| **Fast Convergence** | | | |
+| BFD integration (IPv4) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | [BFD Design](specs/feature-bfd.md) |
+| BFD integration (IPv6) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | [BFD Design](specs/feature-bfd.md) |
+| SIA detection | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Graceful neighbor recovery | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Nonstop Forwarding (NSF) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Requires host support |
+| **Advanced / Specialized** | | | |
+| EIGRP Stub | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
+| EIGRP Over the Top (OTP) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | [OTP Design](specs/feature-otp.md) |
+| EIGRP MANET | Legacy/specialized | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
+| Multi-Topology Routing (MTR) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
+| DMVPN integration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | OpenEIGRP can support DMVPN, but the host must provide the underlying tunnel and NHRP functionality |
+| EIGRP MPLS VPN PE-CE | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
+| EIGRP 6PE / 6VPE | Platform-dependent | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
+| EIGRP Site of Origin (SoO) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | EIGRP MPLS VPN PE-CE features |
+| **Configuration and Operations** | | | |
+| Classic IPv4 configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Named-mode configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| IPv6 named-mode configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Configuration writeback | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Show interfaces | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Show neighbors | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Show topology | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Show protocol statistics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Show traffic counters | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Debug packet / neighbor / DUAL | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> | minimal logs |
+| Event logging | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| DUAL state transition logging | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Clear neighbors | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Clear topology | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| Clear event logs | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
+| SNMP EIGRP MIB | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Conditional on host SNMP |
+
+### Implementation and integration status
+
+The portable core implements EIGRP protocol state and decisions, including DUAL, topology and metric selection, neighbor management, reliable transport, packet encoding, and IPv4/IPv6 addressing. Classic IPv4 and named-mode configuration use portable feature targets. EIGRP Stub runtime behavior is intentionally outside project scope.
+
+FRR integration and the standalone Unix host are present. The `bird/` tree currently defines an integration boundary rather than a working BIRD runtime. The feature matrix must not be interpreted as proof that every capability is operational on every host.
+
+### Qualification and deployment readiness
+
+The capability matrix describes implementation scope, not a platform-wide production qualification result. The repository provides automated portable and host-specific test paths, but deployment evaluation must distinguish protocol feature coverage, regression test results, interoperability with other EIGRP implementations, and qualification of each host adapter on the target appliance. The build and test section below identifies available test entry points; no blanket production certification is asserted.
 
 ## Repository layout
 
@@ -65,51 +204,20 @@ eigrp/
   CONTRIBUTING.md Contribution, style, AI, and test rules
 ```
 
+### Source areas
+
+| Source area | Responsibility |
+|:--|:--|
+| [`eigrp/code/`](eigrp/code/) | Portable protocol implementation and public EIGRP APIs |
+| [`eigrp/specs/`](eigrp/specs/) | DUAL, route selection, RTP, and other protocol-module designs |
+| [`frr/`](frr/README.md) | FRR routing-stack adapter and integration |
+| [`unix/`](unix/README.md) | Standalone Unix host and portable qualification |
+| [`bird/`](bird/README.md) | BIRD/BSD integration area |
+| [`specs/`](specs/) | Cross-platform architecture, integration, and configuration contracts |
+| [`tools/`](tools/README.md) | Build, staging, and test orchestration |
+
 The repository tree is the source of truth. Platform staging projects portable code and platform adapters into the host build tree; staged copies are not development sources.
 
-## Architecture
-
-OpenEIGRP has three logical layers:
-
-```text
-+-------------------------------------------------------------+
-| Host routing stack                                          |
-| CLI/config, RIB, interfaces, sockets, timers, policy, logs  |
-+------------------------------+------------------------------+
-                               |
-                               v
-+-------------------------------------------------------------+
-| Host adapter                                                 |
-| FRR, Unix, BIRD/BSD, or another platform                    |
-| normalizes host state and implements EIGRP host services    |
-+------------------------------+------------------------------+
-                               |
-                               v
-+-------------------------------------------------------------+
-| Portable EIGRP core                                          |
-| instances, neighbors, DUAL, metrics, topology, RTP, TLVs    |
-+-------------------------------------------------------------+
-```
-
-The governing rule is:
-
-> If equivalent normalized inputs must produce the same EIGRP decision on every host, that decision belongs in the portable core.
-
-Host adapters provide mechanisms. Portable code owns protocol decisions.
-
-### Public integration boundary
-
-The primary integration contracts are:
-
-```text
-eigrp/code/eigrp.h
-eigrp/code/eigrp_cli.h
-eigrp/code/eigrp_mgnt.h
-eigrp/code/eigrp_rib.h
-eigrp/code/eigrp_sys.h
-```
-
-Configuration and administrative requests enter through EIGRP-owned semantic targets. Portable code requests host services through EIGRP-owned southbound contracts. FRR, BIRD, Zebra, VTY, YANG, routing-table, event-loop, timer, socket, and other host-native objects do not cross into portable protocol APIs.
 
 ## Protocol behavior and feature ownership
 
@@ -130,7 +238,7 @@ event history                      -> event-log module
 host RIB operations                -> eigrp_rib.h boundary
 ```
 
-Portable production code uses structured EIGRP result codes and contains no `EIGRP_RESULT_NOT_IMPLEMENTED` return path. Unsupported runtime capabilities return the appropriate structured result without substituting placeholder behavior.
+Portable code uses structured EIGRP result codes. Where a feature remains incomplete, its real feature target retains configuration and reports `EIGRP_RESULT_NOT_IMPLEMENTED` rather than simulating support in a CLI or adapter.
 
 Human-navigation naming follows:
 
@@ -140,70 +248,6 @@ eigrp_<module>_<object>_<action>()
 ```
 
 See `specs/code-conventions.md` before adding or renaming public symbols.
-
-## Configuration models
-
-OpenEIGRP exposes two configuration models through the host adapter.
-
-### Classic IPv4
-
-Classic configuration uses `router eigrp <asn>` and includes process, network, neighbor, metric, filtering, redistribution, interface timer/authentication, and summary controls.
-
-### Named mode
-
-Named mode uses `router eigrp <name>` with address-family, `af-interface`, and `topology base` scopes. The named parent is local configuration identity; autonomous-system identity belongs to the address-family context.
-
-Named mode supports:
-
-- IPv4 and IPv6 address-family configuration;
-- multiple autonomous-system contexts under one named parent;
-- distinct case-sensitive named parents;
-- network participation and static neighbors;
-- router ID and neighbor controls;
-- interface bandwidth/delay, timers, authentication, passive mode, next-hop-self, split horizon, and summaries;
-- variance, maximum paths, active timer, default information, default metric, administrative distance, prefix limits, metric/traffic controls, event-log sizing, distribute lists, offset lists, redistribution, and summary metrics.
-
-The authoritative command and writeback contract is `specs/EIGRP-Config-Guide.md`.
-
-## Authentication
-
-Portable authentication supports:
-
-- no authentication;
-- MD5;
-- HMAC-SHA-256.
-
-Authentication policy, TLV validation, digest validation, and replay handling are owned by portable EIGRP code. Host key-chain/configuration objects are normalized at the platform boundary.
-
-Encoded type-7 configuration text is retained as configuration where exposed by the host but is not treated as HMAC key material. A runtime that cannot obtain plaintext key material reports the capability as unsupported rather than authenticating with encoded text.
-
-## Diagnostic event log
-
-Each EIGRP runtime owns a bounded diagnostic event ring. Event entries contain a timestamp, one address/prefix, and four scalar arguments; they do not retain pointers to mutable protocol objects.
-
-Events are emitted at the operation that performs the decision or state mutation. DUAL state changes are logged at the exact assignment site so the event history records what the implementation actually committed.
-
-The event log covers the protocol path needed for field diagnosis, including:
-
-- DUAL state transitions;
-- metric commits, feasible-successor search, FC satisfied/not-satisfied decisions, FD/RD-related selection context, ACTIVE peer counts, and committed successor changes;
-- UPDATE, QUERY, REPLY, SIA-QUERY, and SIA-REPLY activity;
-- route packetization and poison-reverse decisions;
-- packet receive/transmit, packet rejection reasons, transmit failures, and route-encoding failures;
-- RTP acknowledgements, unexpected acknowledgements, retransmissions, and retry-limit failures;
-- neighbor state changes and explicit down reasons;
-- peer capability/codec selection changes;
-- interface protocol-state changes and multicast participation failures;
-- graceful-restart/NSF lifecycle events;
-- summary and redistribution decisions;
-- filtering, offset-list metric changes, and prefix-limit rejections;
-- route updates received from the host RIB;
-- route install/withdraw requests and southbound results;
-- topology route deletion.
-
-The ring tracks stored entries, total writes, and overwritten history so operators can determine whether an incident exceeded the configured history depth. Event-log size is configurable and the log can be cleared operationally.
-
-The event log is diagnostic evidence, not a trace of every successful routine operation. High-frequency events that do not change protocol behavior remain in normal debugging/statistics paths so large convergences do not immediately erase the useful failure history.
 
 ## Specifications
 
@@ -261,86 +305,6 @@ make help
 for the complete target list.
 
 GitHub Actions runs the root portable gate on Linux and macOS.
-
-## FRR integration
-
-Keep the OpenEIGRP and FRR repositories as sibling checkouts when practical:
-
-```text
-~/devel/eigrp/
-~/devel/frr/
-```
-
-Stage the current source into FRR with:
-
-```sh
-tools/frr.sh --install --frr-root ../frr
-```
-
-The projection is:
-
-```text
-eigrp/code/ + frr/code/  -> ../frr/eigrpd/
-frr/test/                 -> ../frr/tests/eigrpd/
-```
-
-FRR-wide changes are managed patches under `frr/patch/`. Apply them explicitly:
-
-```sh
-tools/frr.sh --patch --frr-root ../frr
-```
-
-Patch application is idempotent and stops on source drift rather than fuzzing or forcing a patch.
-
-Build an already configured FRR tree with:
-
-```sh
-tools/frr.sh --build --frr-root ../frr
-```
-
-Run the complete configure/build/check gate with:
-
-```sh
-tools/frr.sh --all --frr-root ../frr
-```
-
-Run the live FRR UUT with:
-
-```sh
-tools/frr.sh --uut --frr-root ../frr
-```
-
-`tools/frr-uut.sh` provides aggregate and remote UUT execution. See `frr/README.md` and `tools/README.md` for the integration workflow.
-
-## Unix host
-
-The `unix/` tree is the native macOS/Linux host for portable development and protocol qualification. It implements the same public integration contract used by routing-stack adapters without importing FRR behavior into the portable core.
-
-The Unix host provides the event/timer, interface, packet-wire, RIB, and host-service mechanisms required by the standalone build and UUT scenarios. See `unix/README.md` and `unix/specs/integration.md`.
-
-## BIRD/BSD integration
-
-The `bird/` tree is the BIRD/BSD integration boundary. BIRD-specific configuration, protocol, channel, table, interface, event-loop, timer, socket, and routing objects remain confined to that tree and must implement the same EIGRP-owned public contracts used by other hosts.
-
-The current repository does not contain a BIRD runtime implementation. Host-independent protocol behavior and tests remain under `eigrp/`.
-
-## Debugging
-
-For FRR daemon debugging, stop any service-managed or manually started EIGRP daemon before launching another instance. From the FRR checkout:
-
-```sh
-sudo gdb eigrpd/.libs/eigrpd
-```
-
-Useful operational commands include:
-
-```sh
-sudo vtysh -d eigrpd -c 'show running-config'
-sudo vtysh -d eigrpd -c 'show ip eigrp topology'
-sudo vtysh -d eigrpd -c 'show ip eigrp neighbors'
-```
-
-Use the event-log operational commands defined in `specs/EIGRP-Config-Guide.md` when diagnosing protocol decisions, convergence, adjacency loss, packet rejection, RTP failure, or RIB discrepancies.
 
 ## Contribution rules
 

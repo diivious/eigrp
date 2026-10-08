@@ -193,3 +193,22 @@ See `test/README.md`.
 
 Live named-mode config/writeback is driven by `tools/frr.sh --uut` and
 `tools/frr-uut.sh`.
+
+## Debugging
+
+For FRR daemon debugging, stop any service-managed or manually started EIGRP daemon before launching another instance. From the FRR checkout:
+
+```sh
+sudo gdb eigrpd/.libs/eigrpd
+```
+
+Useful operational commands include:
+
+```sh
+sudo vtysh -d eigrpd -c 'show running-config'
+sudo vtysh -d eigrpd -c 'show ip eigrp topology'
+sudo vtysh -d eigrpd -c 'show ip eigrp neighbors'
+```
+
+Use the event-log operational commands defined in `specs/EIGRP-Config-Guide.md` when diagnosing protocol decisions, convergence, adjacency loss, packet rejection, RTP failure, or RIB discrepancies.
+
