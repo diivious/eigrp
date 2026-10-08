@@ -40,9 +40,8 @@
 #define EIGRP_CLASSIC_MAX 0xffffffff // 4294967295
 #define EIGRP_CLASSIC_SCALER 256     // IGRP to EIGRP conversion
 
-/* Protocol metric infinity and 32-bit host RIB infinity. */
+/* EIGRP wide-metric infinity and the 32-bit host RIB sentinel. */
 #define EIGRP_64BIT_METRIC_INFINITY UINT64_MAX
-#define EIGRP_32BIT_METRIC_INFINITY UINT32_MAX
 #define EIGRP_RIB_METRIC_INFINITY UINT32_MAX
 
 

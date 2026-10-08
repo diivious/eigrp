@@ -632,21 +632,18 @@ static int eigrp_zebra_interface_address_delete(ZAPI_CALLBACK_ARGS)
 	return 0;
 }
 
-/* Zebra carries 32-bit route metrics.  Preserve protocol infinity before
- * converting wide metrics to the host RIB scale; never narrow an infinite
- * metric into a finite cost.
+/* Convert wide EIGRP metrics to the 32-bit Zebra RIB scale.  Infinity
+ * is mapped to RIB infinity before scaling; classic metrics pass through.
  */
 static uint32_t eigrp_zebra_rib_metric(const eigrp_instance_t *eigrp,
                                       uint64_t metric)
 {
-	if (eigrp->metric_version >= EIGRP_TLV_64B_VERSION) {
+	if (eigrp->metric_version == EIGRP_TLV_64B_VERSION) {
 		if (metric >= EIGRP_64BIT_METRIC_INFINITY)
 			return EIGRP_RIB_METRIC_INFINITY;
 		return (uint32_t)(metric / 128U);
 	}
 
-	if (metric >= EIGRP_32BIT_METRIC_INFINITY)
-		return EIGRP_RIB_METRIC_INFINITY;
 	return (uint32_t)metric;
 }
 
