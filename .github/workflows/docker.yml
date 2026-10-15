@@ -168,14 +168,14 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           VERSION="${RELEASE_TAG#rel-}"
-          repository=ghcr.io/diivious/eigrp-frr
+          repository=ghcr.io/diivious/openeigrp-frr
           # Check every destination tag before pushing anything. Docker's
           # generic inspect error can mean network failure or permission denial;
           # only an authenticated OCI registry HTTP 404 means a tag is absent.
           registry_token="$(curl --fail --silent --show-error --retry 2 \
             --connect-timeout 15 --max-time 45 \
             --user "$GHCR_USERNAME:$GHCR_TOKEN" \
-            'https://ghcr.io/token?service=ghcr.io&scope=repository:diivious/eigrp-frr:pull' \
+            'https://ghcr.io/token?service=ghcr.io&scope=repository:diivious/openeigrp-frr:pull' \
             | jq -er '.token // .access_token // empty')" || {
               echo 'unable to authenticate GHCR tag checks; publication stopped' >&2
               exit 1
@@ -190,7 +190,7 @@ jobs:
               --output /dev/null --write-out '%{http_code}' \
               --header "Authorization: Bearer $registry_token" \
               --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
-              "https://ghcr.io/v2/diivious/eigrp-frr/manifests/$tag")" || {
+              "https://ghcr.io/v2/diivious/openeigrp-frr/manifests/$tag")" || {
                 echo "GHCR registry request failed for $repository:$tag; publication stopped" >&2
                 exit 1
               }

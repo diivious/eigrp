@@ -45,15 +45,15 @@ Portable APIs use EIGRP-owned types and structured results. FRR, BIRD, and Unix-
 <details open>
 <summary><strong>Using Docker Images</strong></summary>
 
-Pull a **published** multi-platform release from GHCR (example version `0.1.0`; availability depends on publication). Git tag `rel-0.1.0` is the publishing trigger; the Docker image tag is `0.1.0`.
+Pull a **published** multi-platform release from GHCR (example version `0.2.0`; availability depends on publication). Git tag `rel-0.2.0` is the publishing trigger; the Docker image tag is `0.2.0`.
 
 ```sh
-docker pull ghcr.io/diivious/eigrp-frr:0.1.0
+docker pull ghcr.io/diivious/openeigrp-frr:0.2.0
 docker volume create openeigrp-vol
 docker run -d --name openeigrp \
   --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
   -v openeigrp-vol:/etc/frr \
-  ghcr.io/diivious/eigrp-frr:0.1.0
+  ghcr.io/diivious/openeigrp-frr:0.2.0
 
 docker exec -it openeigrp vtysh
 ```

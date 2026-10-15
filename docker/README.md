@@ -1,6 +1,6 @@
 # OpenEIGRP + FRR Docker
 
-`ghcr.io/diivious/eigrp-frr` packages Alpine Linux, FRRouting (Zebra,
+`ghcr.io/diivious/openeigrp-frr` packages Alpine Linux, FRRouting (Zebra,
 mgmtd, staticd, watchfrr, vtysh), and the OpenEIGRP `eigrpd` daemon.
 Published releases contain native Linux `amd64` and `arm64` images behind a
 single multi-platform tag. This is a Linux container; Docker Desktop on macOS
@@ -16,7 +16,7 @@ assertion that it is already available. The Git publishing tag is
 `rel-0.1.0`, while the Docker image tag is `0.1.0`.
 
 ```sh
-docker pull ghcr.io/diivious/eigrp-frr:0.1.0
+docker pull ghcr.io/diivious/openeigrp-frr:0.1.0
 ```
 
 For a private GHCR package, authenticate first with an appropriate GitHub
@@ -29,7 +29,7 @@ docker volume create openeigrp-vol
 docker run -d --name openeigrp \
   --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
   -v openeigrp-vol:/etc/frr \
-  ghcr.io/diivious/eigrp-frr:0.1.0
+  ghcr.io/diivious/openeigrp-frr:0.1.0
 
 docker ps
 ```
@@ -192,7 +192,7 @@ docker image inspect openeigrp:docker-test --format '{{json .Config.Labels}}'
 
 - Use one OpenEIGRP Git tag `rel-X.Y.Z` for each publication, regardless of
   whether the project is in beta, gamma, or general availability. `rel-0.1.0`
-  produces `ghcr.io/diivious/eigrp-frr:0.1.0`; the `rel-` prefix is **not**
+  produces `ghcr.io/diivious/openeigrp-frr:0.1.0`; the `rel-` prefix is **not**
   part of the Docker image tag.
 - Commit, review, and verify sources **before** tagging. Tag the intended
   OpenEIGRP commit (including the Docker workflow). Tags may point to `docker`
@@ -243,8 +243,8 @@ git tag -a rel-0.1.0 -m 'OpenEIGRP Docker release 0.1.0'
 git push origin refs/tags/rel-0.1.0
 
 # Inspect the published multi-platform image after GitHub Actions succeeds.
-docker buildx imagetools inspect ghcr.io/diivious/eigrp-frr:0.1.0
-docker pull ghcr.io/diivious/eigrp-frr:0.1.0
+docker buildx imagetools inspect ghcr.io/diivious/openeigrp-frr:0.1.0
+docker pull ghcr.io/diivious/openeigrp-frr:0.1.0
 ```
 
 ### Validation before publication
@@ -500,7 +500,7 @@ A `rel-X.Y.Z` tag push runs `.github/workflows/docker.yml` **from the tagged
 commit**, building native `amd64` and `arm64` images. Both jobs run
 `./tools/docker.sh --verify`; only if both succeed does the publish job push
 `X.Y.Z-amd64`, `X.Y.Z-arm64`, and the combined `X.Y.Z` manifest to
-`ghcr.io/diivious/eigrp-frr`. Ordinary pushes to `master` or `docker` affecting the workflow's watched
+`ghcr.io/diivious/openeigrp-frr`. Ordinary pushes to `master` or `docker` affecting the workflow's watched
 paths, pull requests, and manual workflow runs are build-and-test-only; they
 never publish. Manual dispatch is
 available only when the workflow is on the default branch, but a tagged
@@ -509,9 +509,9 @@ commit can trigger tag publication independently.
 Release example (not a claim of an already published image):
 
 ```text
-ghcr.io/diivious/eigrp-frr:0.1.0
-ghcr.io/diivious/eigrp-frr:0.1.0-amd64
-ghcr.io/diivious/eigrp-frr:0.1.0-arm64
+ghcr.io/diivious/openeigrp-frr:0.1.0
+ghcr.io/diivious/openeigrp-frr:0.1.0-amd64
+ghcr.io/diivious/openeigrp-frr:0.1.0-arm64
 ```
 
 Monitor the build and publication results at
@@ -520,9 +520,9 @@ If the published image is used for deployment, pull and verify it on the
 actual target platform:
 
 ```sh
-docker pull ghcr.io/diivious/eigrp-frr:0.1.0
-./tools/docker.sh --verify ghcr.io/diivious/eigrp-frr:0.1.0
-./tools/docker.sh --deploy ghcr.io/diivious/eigrp-frr:0.1.0 \
+docker pull ghcr.io/diivious/openeigrp-frr:0.1.0
+./tools/docker.sh --verify ghcr.io/diivious/openeigrp-frr:0.1.0
+./tools/docker.sh --deploy ghcr.io/diivious/openeigrp-frr:0.1.0 \
   --name openeigrp-release-test --volume openeigrp-release-test-vol
 ```
 

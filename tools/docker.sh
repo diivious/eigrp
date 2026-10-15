@@ -232,7 +232,7 @@ elif [[ $# -gt 0 && "$1" != --* ]]; then
 fi
 version_valid "$version" || die "invalid image version: $version"
 if [[ "$operation" == --build ]]; then
-    image="ghcr.io/diivious/eigrp-frr:$version"
+    image="ghcr.io/diivious/openeigrp-frr:$version"
 else
     image="openeigrp:$version"
 fi
