@@ -7,7 +7,8 @@ CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wno-unused-parameter
 CORE := $(filter-out ../../../eigrp/code/eigrp_log.c ../../../eigrp/code/eigrp_dump.c,$(wildcard ../../../eigrp/code/*.c))
 UNIX := ../../../unix/code/eigrp_unix_sys.c ../../../unix/code/eigrp_unix_rib.c \
         ../../../unix/code/eigrp_unix_interface.c ../../../unix/code/eigrp_unix_segment.c \
-        ../../../unix/code/eigrp_unix_wire.c ../../../eigrp/code/eigrp_log.c
+        ../../../unix/code/eigrp_unix_wire.c ../../../unix/code/eigrp_unix_policy.c \
+        ../../../unix/code/eigrp_unix_keychain.c ../../../eigrp/code/eigrp_log.c
 
 .PHONY: all clean
 all: eigrp-uut-node
@@ -19,13 +20,16 @@ clean:
 	rm -f eigrp-uut-node
 	rm -rf logs
 
-.PHONY: ipv4-basic-core ipv6-basic-core basic-core rtp-core dual-diamond kite-topology core-topology mesh-topology active-topology all-scenarios
+.PHONY: ipv4-basic-core ipv6-basic-core basic-core md5-mixed-lan rtp-core dual-diamond kite-topology core-topology mesh-topology active-topology all-scenarios
 ipv4-basic-core: eigrp-uut-node
 	$(PYTHON) run.py examples/ipv4-basic-core.yaml examples/ipv4-basic-core-gate.yaml
 
 
 ipv6-basic-core: eigrp-uut-node
 	$(PYTHON) run.py examples/ipv6-basic-core.yaml examples/ipv6-basic-core-gate.yaml
+
+md5-mixed-lan: eigrp-uut-node
+	$(PYTHON) run.py auth-topology/ipv4-md5-mixed-lan.yaml auth-topology/scenario-md5-mixed-lan.yaml
 
 basic-core: eigrp-uut-node
 	@status=0; \

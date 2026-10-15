@@ -1,0 +1,32 @@
+# Two MD5 routers and one unauthenticated router share a broadcast LAN.
+schema: eigrp-uut-topology/v1
+segments:
+  shared-lan: {}
+routers:
+  r1:
+    asn: 4453
+    router_id: 10.255.0.1
+    interfaces:
+      lan0:
+        segment: shared-lan
+        ipv4: 10.41.0.1/24
+        authentication: {mode: md5, keychain: md5-lan, key: eigrprocks}
+    attached_networks:
+      - {prefix: 10.21.0.1/24, interface: loop1}
+  r2:
+    asn: 4453
+    router_id: 10.255.0.2
+    interfaces:
+      lan0:
+        segment: shared-lan
+        ipv4: 10.41.0.2/24
+        authentication: {mode: md5, keychain: md5-lan, key: eigrprocks}
+    attached_networks:
+      - {prefix: 10.22.0.1/24, interface: loop2}
+  r3:
+    asn: 4453
+    router_id: 10.255.0.3
+    interfaces:
+      lan0: {segment: shared-lan, ipv4: 10.41.0.3/24}
+    attached_networks:
+      - {prefix: 10.23.0.1/24, interface: loop3}

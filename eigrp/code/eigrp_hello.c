@@ -421,6 +421,17 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 		return;
 	}
 
+	/* The packet receive path authenticated this Hello before creating
+	 * the neighbor.  Retain its verified sequence: otherwise the first
+	 * Hello can be replayed against the new neighbor's zero sequence. */
+	if (new_nbr && ei->params.auth_type != EIGRP_AUTH_TYPE_NONE) {
+		const struct TLV_MD5_Authentication_Type *auth =
+			(const struct TLV_MD5_Authentication_Type *)eigrph->tlv;
+
+		/* MD5 and SHA-256 authentication TLVs share this field offset. */
+		nbr->crypt_seqnum = auth->key_sequence;
+	}
+
 	tlv_header = (struct eigrp_tlv_hdr_type *)eigrph->tlv;
 	do {
 		type = ntohs(tlv_header->type);

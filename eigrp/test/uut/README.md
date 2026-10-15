@@ -114,6 +114,34 @@ The gate covers HELLO/adjacency startup, reliable UPDATE/ACK delivery, end-to-en
 route propagation and metrics, Unix RIB state, DUAL Passive state, R2-R3 link
 failure with QUERY/REPLY convergence, and adjacency/route recovery.
 
+## MD5 mixed-authentication LAN regression
+
+Run the three-router authentication isolation test with:
+
+```
+make -C eigrp/test/uut md5-mixed-lan
+```
+
+R1 and R2 share a LAN and authenticate their EIGRP packets with an MD5
+keychain containing the **test-only** secret `eigrprocks`. R3 is on the same
+segment and runs EIGRP without authentication. The scenario requires R1/R2
+to form a neighbor relationship, exchange their distinct attached prefixes,
+and converge Passive, while R3's Hello packets are delivered but never
+accepted as an adjacency and no R3 prefixes enter R1/R2's RIBs.
+
+The Unix shim owns the in-memory keychain provider in
+`unix/code/eigrp_unix_keychain.c` and implements the existing
+`eigrp_sys_auth_key_lookup()` southbound contract. The test node only registers
+its configured key with `eigrp_unix_keychain_add()`; neither the key nor an
+authentication override is built into the UUT executable. Unregistered
+keychains fail closed. The portable authentication implementation is unchanged.
+
+The topology schema accepts optional per-interface `authentication` mappings,
+e.g. `authentication: {mode: md5, keychain: md5-lan, key: eigrprocks}`.
+Negative neighbor expectations may specify `state: down, observe: N` to assert
+that no adjacency forms for the *whole* N-second interval, rather than only
+at one instant. These cases are also discovered by `make uut`.
+
 ## RTP Core Gate
 
 Run the standalone reliable-transport qualification from the repository root:

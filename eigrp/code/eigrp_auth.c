@@ -27,10 +27,26 @@ static bool eigrp_auth_sequence_newer(uint32_t received_wire, uint32_t stored_wi
 	uint32_t stored = ntohl(stored_wire);
 	uint32_t delta = received - stored;
 
-	/* Serial-number arithmetic: equal is a replay; values within the
-	 * forward half of the 32-bit sequence space are newer.  This also
-	 * permits the natural UINT32_MAX -> 0 wrap. */
+	/* Zero is not transmitted.  A new neighbor has no prior sequence:
+	 * accept any nonzero starting value, including values above INT32_MAX.
+	 * Once initialized, use half-range serial-number arithmetic to reject
+	 * duplicate and stale packets while permitting 32-bit wraparound. */
+	if (received == 0)
+		return false;
+	if (stored == 0)
+		return true;
 	return delta != 0 && delta < 0x80000000U;
+}
+
+/* The interface owns a single transmit sequence shared by Hello, UPDATE,
+ * QUERY and REPLY, regardless of authentication algorithm.  The TLV is
+ * encoded only once for a packet; reliable retransmissions reuse the same
+ * packet image and must not consume another cryptographic sequence. */
+static uint32_t eigrp_auth_sequence_next(eigrp_intf_t *ei)
+{
+	if (++ei->crypt_seqnum == 0)
+		++ei->crypt_seqnum;
+	return htonl(ei->crypt_seqnum);
 }
 
 bool eigrp_auth_material_available(const eigrp_intf_t *ei)
@@ -335,17 +351,21 @@ uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *s, eigrp_intf_t *ei)
 	uint32_t key_id = 0;
 	struct TLV_MD5_Authentication_Type *authTLV;
 
+	if (!s || !ei)
+		return 0;
 	authTLV = eigrp_auth_tlv_md5_create();
+	if (!authTLV)
+		return 0;
 
 	authTLV->type = htons(EIGRP_TLV_AUTH);
 	authTLV->length = htons(EIGRP_AUTH_MD5_TLV_SIZE);
 	authTLV->auth_type = htons(EIGRP_AUTH_TYPE_MD5);
 	authTLV->auth_length = htons(EIGRP_AUTH_TYPE_MD5_LEN);
-	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
 	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = htonl(key_id);
+		authTLV->key_sequence = eigrp_auth_sequence_next(ei);
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_MD5_Authentication_Type));
@@ -365,17 +385,21 @@ uint16_t eigrp_auth_tlv_sha256_encode(eigrp_stream_t *s,
 	uint32_t key_id = 0;
 	struct TLV_SHA256_Authentication_Type *authTLV;
 
+	if (!s || !ei)
+		return 0;
 	authTLV = eigrp_auth_tlv_sha256_create();
+	if (!authTLV)
+		return 0;
 
 	authTLV->type = htons(EIGRP_TLV_AUTH);
 	authTLV->length = htons(EIGRP_AUTH_SHA256_TLV_SIZE);
 	authTLV->auth_type = htons(EIGRP_AUTH_TYPE_SHA256);
 	authTLV->auth_length = htons(EIGRP_AUTH_TYPE_SHA256_LEN);
-	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
 	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = 0;
+		authTLV->key_sequence = eigrp_auth_sequence_next(ei);
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_SHA256_Authentication_Type));

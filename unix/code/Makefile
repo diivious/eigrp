@@ -5,7 +5,7 @@ CFLAGS ?= -O2 -g
 CPPFLAGS += -I../../eigrp/code -I.
 CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror -pthread
 
-OBJS = eigrp_unix_sys.o eigrp_unix_config.o eigrp_unix_rib.o eigrp_unix_interface.o eigrp_unix_segment.o eigrp_unix_wire.o eigrp_log.o
+OBJS = eigrp_unix_sys.o eigrp_unix_config.o eigrp_unix_rib.o eigrp_unix_interface.o eigrp_unix_segment.o eigrp_unix_wire.o eigrp_unix_policy.o eigrp_unix_keychain.o eigrp_log.o
 
 .PHONY: all clean
 all: libeigrp-unix-runtime.a eigrp-wire
@@ -18,6 +18,12 @@ eigrp_unix_sys.o: eigrp_unix_sys.c eigrp_unix.h ../../eigrp/code/eigrp_sys.h
 
 eigrp_unix_config.o: eigrp_unix_config.c eigrp_unix_config.h eigrp_unix.h ../../eigrp/code/eigrp_cli.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ eigrp_unix_config.c
+
+eigrp_unix_policy.o: eigrp_unix_policy.c ../../eigrp/code/eigrp_sys.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ eigrp_unix_policy.c
+
+eigrp_unix_keychain.o: eigrp_unix_keychain.c eigrp_unix_keychain.h ../../eigrp/code/eigrp_sys.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ eigrp_unix_keychain.c
 
 eigrp_unix_rib.o: eigrp_unix_rib.c eigrp_unix_rib.h ../../eigrp/code/eigrp_rib.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ eigrp_unix_rib.c
