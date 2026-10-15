@@ -101,20 +101,44 @@ eigrp_release_tag() {
 	command -v git >/dev/null 2>&1 || return 1
 	git -C "$eigrp_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 		|| return 1
-	tag="$(git -C "$eigrp_root" describe --tags --exact-match \
-		--match 'alpha[0-9]*' HEAD 2>/dev/null)" || return 1
-	[[ -n "$tag" ]] || return 1
-	printf '%s\n' "$tag"
+	# Release identifiers are major-minor-edit-beta. Do not accept a
+	# similarly named development tag or an arbitrary tag at HEAD.
+	while IFS= read -r tag; do
+		if [[ "$tag" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]]; then
+			printf '%s\n' "$tag"
+			return 0
+		fi
+	done < <(git -C "$eigrp_root" tag --points-at HEAD --list '*-beta')
+	return 1
 }
 
 inject_eigrp_release() {
 	local stage="$1"
 	local header="$stage/eigrp_features.h"
-	local release
+	local release=""
+	local tag=""
 
 	[[ -f "$header" ]] || fail "staged feature header not found: $header"
-	if ! release="$(eigrp_release_tag)"; then
-		echo "warning: EIGRP checkout is not on an alpha tag; using development release label" >&2
+	if tag="$(eigrp_release_tag)"; then
+		release="$tag"
+	fi
+
+	# Docker's exact source-lock version is supplied to the *same* staging
+	# path. A tagged build cannot report a different version than its tag.
+	if [[ -n "${EIGRP_BUILD_VERSION:-}" ]]; then
+		[[ "$EIGRP_BUILD_VERSION" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]] || \
+			fail "invalid EIGRP_BUILD_VERSION: $EIGRP_BUILD_VERSION"
+		if [[ -n "$release" && "$EIGRP_BUILD_VERSION" != "$release" ]]; then
+			fail "release tag $release does not match build version $EIGRP_BUILD_VERSION"
+		fi
+		if [[ "$EIGRP_BUILD_VERSION" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ \
+		      && "$EIGRP_BUILD_VERSION" != "$release" ]]; then
+			fail "release build requires a matching EIGRP git tag"
+		fi
+		release="$EIGRP_BUILD_VERSION"
+	fi
+	if [[ -z "$release" ]]; then
+		echo "warning: no OpenEIGRP release tag or build version; using development" >&2
 		return 0
 	fi
 

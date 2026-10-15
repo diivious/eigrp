@@ -1,0 +1,201 @@
+# Copyright (C) 2026 Donnie V. Savage
+# Alpine FRR + OpenEIGRP native amd64/arm64 build, integration test and GHCR release.
+name: OpenEIGRP Docker
+
+on:
+  push:
+    branches: [master]
+    tags: ['[0-9]*-[0-9]*-[0-9]*-beta']
+    paths:
+      - '.github/workflows/docker.yml'
+      - 'docker/**'
+      - 'tools/docker*.sh'
+      - 'tools/docker*.py'
+      - 'tools/frr.sh'
+      - 'tools/frr-install.sh'
+      - 'eigrp/code/**'
+      - 'frr/code/**'
+      - 'frr/patch/**'
+  pull_request:
+    paths:
+      - '.github/workflows/docker.yml'
+      - 'docker/**'
+      - 'tools/docker*.sh'
+      - 'tools/docker*.py'
+      - 'tools/frr.sh'
+      - 'tools/frr-install.sh'
+      - 'eigrp/code/**'
+      - 'frr/code/**'
+      - 'frr/patch/**'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional matching EIGRP + FRR release tag to test (never publishes manually)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout build tooling
+        uses: actions/checkout@v4
+      - name: Configure Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Select immutable source refs
+        id: source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          GIT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MANUAL_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'push' && "$GIT_REF" == refs/tags/* ]]; then
+            version="${GIT_REF#refs/tags/}"
+            [[ "$version" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]] || {
+              echo "invalid release tag: $version" >&2; exit 1;
+            }
+            eigrp_ref="$version"
+            frr_ref="$version"
+            release=yes
+          elif [[ "$EVENT_NAME" == 'workflow_dispatch' && -n "$MANUAL_TAG" ]]; then
+            version="$MANUAL_TAG"
+            [[ "$version" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]] || {
+              echo "invalid test release tag: $version" >&2; exit 1;
+            }
+            eigrp_ref="$version"
+            frr_ref="$version"
+            release=no
+          else
+            version="dev-${GIT_SHA:0:12}"
+            if [[ "$EVENT_NAME" == pull_request ]]; then
+              eigrp_ref="refs/pull/$PR_NUMBER/merge"
+            else
+              eigrp_ref="$GIT_SHA"
+            fi
+            # CI development builds use a known FRR revision verified with
+            # the project's two managed patches; releases use matching tags.
+            frr_ref=ebfd886fd46b19f9886b0872b39ad3edf5e6c053
+            release=no
+          fi
+          {
+            echo "version=$version"
+            echo "eigrp_ref=$eigrp_ref"
+            echo "frr_ref=$frr_ref"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build from GitHub EIGRP and FRR sources
+        shell: bash
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+          EIGRP_REF: ${{ steps.source.outputs.eigrp_ref }}
+          FRR_REF: ${{ steps.source.outputs.frr_ref }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          image="openeigrp-ci:$VERSION-$ARCH"
+          if [[ "$VERSION" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]]; then
+            ./tools/docker.sh --build "$VERSION" --platform "$PLATFORM" --image "$image"
+          else
+            ./tools/docker.sh --build "$VERSION" --platform "$PLATFORM" --image "$image" \
+              --eigrp-ref "$EIGRP_REF" --frr-ref "$FRR_REF"
+          fi
+      - name: Verify FRR, configuration, adjacency and route exchange
+        shell: bash
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: ./tools/docker.sh --verify "openeigrp-ci:$VERSION-$ARCH"
+      - name: Save tested release architecture
+        if: steps.source.outputs.release == 'yes'
+        shell: bash
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: docker save "openeigrp-ci:$VERSION-$ARCH" | gzip -1 > "image-$ARCH.tar.gz"
+      - name: Transfer tested release architecture
+        if: steps.source.outputs.release == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: image-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 2
+
+  publish:
+    name: Publish GHCR release manifest
+    needs: [build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download both tested architecture images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: ./images
+          merge-multiple: true
+      - name: Install Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate and publish architecture images and manifest
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]] || exit 1
+          repository=ghcr.io/diivious/eigrp-frr
+          for arch in amd64 arm64; do
+            gzip -dc "images/image-$arch.tar.gz" | docker load
+            local_image="openeigrp-ci:$VERSION-$arch"
+            image_arch="$(docker image inspect -f '{{.Architecture}}' "$local_image")"
+            image_os="$(docker image inspect -f '{{.Os}}' "$local_image")"
+            image_version="$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$local_image")"
+            [[ "$image_arch" == "$arch" && "$image_os" == linux && "$image_version" == "$VERSION" ]] || exit 1
+            git_eigrp="$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$local_image")"
+            git_frr="$(docker image inspect -f '{{index .Config.Labels "org.openeigrp.frr.revision"}}' "$local_image")"
+            [[ "$git_eigrp" =~ ^[0-9a-f]{40}$ && "$git_frr" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            if [[ "$arch" == arm64 ]]; then
+              [[ "$git_eigrp" == "$eigrp_amd64" && "$git_frr" == "$frr_amd64" ]] || {
+                echo 'architecture builds have different Git source revisions' >&2; exit 1;
+              }
+            else
+              eigrp_amd64="$git_eigrp"
+              frr_amd64="$git_frr"
+            fi
+          done
+          # Nothing is published until BOTH builds and integration tests succeed.
+          for arch in amd64 arm64; do
+            docker tag "openeigrp-ci:$VERSION-$arch" "$repository:$VERSION-$arch"
+            docker push "$repository:$VERSION-$arch"
+          done
+          docker buildx imagetools create -t "$repository:$VERSION" \
+            "$repository:$VERSION-amd64" "$repository:$VERSION-arm64"
+          docker buildx imagetools inspect "$repository:$VERSION"
