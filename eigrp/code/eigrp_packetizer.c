@@ -326,6 +326,16 @@ static eigrp_route_descriptor_t *eigrp_packetizer_poison_reverse(
 	return poison;
 }
 
+/* Suppress a QUERY on the successor interface when a QUERY from that
+ * successor caused this destination to enter ACTIVE.  The RIJ is populated
+ * at the same packetizer decision point as the transmitted QUERY. */
+static bool eigrp_packetizer_query_split_horizon(
+	const eigrp_prefix_descriptor_t *prefix, const eigrp_intf_t *ei)
+{
+	return prefix && ei && ei->split_horizon && prefix->query_origin
+		&& prefix->query_origin->ei == ei;
+}
+
 static void eigrp_packetizer_query_rij_add(eigrp_prefix_descriptor_t *prefix,
 					    eigrp_intf_t *ei)
 {
@@ -353,6 +363,10 @@ static void eigrp_packetizer_intf_prefix_send(
 	if (!eigrp || !ei || !work || !work->prefix
 	    || !eigrp_packetizer_intf_up_neighbors(ei)
 	    || work->exception == ei)
+		return;
+
+	if (work->opcode == EIGRP_OPC_QUERY
+	    && eigrp_packetizer_query_split_horizon(work->prefix, ei))
 		return;
 
 	/* A configured summary is a DUAL query boundary for its covered
@@ -493,6 +507,9 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 			size_t i;
 
 			if (!(prefix->req_action & action))
+				continue;
+			if (work->opcode == EIGRP_OPC_QUERY
+			    && eigrp_packetizer_query_split_horizon(prefix, ei))
 				continue;
 			if (work->opcode == EIGRP_OPC_QUERY
 			    && eigrp_summary_covers(eigrp, ei, &prefix->destination))

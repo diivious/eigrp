@@ -39,6 +39,9 @@ bool eigrp_fsm_reply_status_remove(eigrp_prefix_descriptor_t *prefix,
 				   eigrp_nbr_t *nbr);
 bool eigrp_fsm_reply_status_pending(const eigrp_prefix_descriptor_t *prefix,
 				    const eigrp_nbr_t *nbr);
+/* A lost peer may have an outstanding QUERY reply even when it has no RDB. */
+void eigrp_fsm_neighbor_down(eigrp_instance_t *eigrp,
+			    eigrp_prefix_descriptor_t *prefix, eigrp_nbr_t *nbr);
 void eigrp_fsm_sia_reply_received(eigrp_prefix_descriptor_t *prefix,
 				  eigrp_nbr_t *nbr);
 void eigrp_fsm_active_timer_start(eigrp_instance_t *eigrp,

@@ -1,0 +1,38 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-static-three-router.yaml
+name: Static Redistribution Three-Router Source Withdrawal
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 172.30.50.0/24, table: source}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: topology, active: false, successors: 1}
+  - packet-mark: source-withdrawal
+  - source-route-remove: {uut: r1, prefix: 172.30.50.0/24}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 172.30.50.0/24, table: source, present: false}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib, present: false}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib, present: false}
+        - route: {uut: r1, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r3, since: source-withdrawal, min: 1, timeout: 5}
+  - validate-packet: {opcode: reply, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, since: source-withdrawal, min: 1, timeout: 5}
+  - validate-packet: {opcode: update, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, since: source-withdrawal, min: 1, timeout: 5}
+  - packet-mark: source-restore
+  - source-route-add: {uut: r1, prefix: 172.30.50.0/24, metric: 10}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib}
+  - validate-packet: {opcode: update, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, since: source-restore, min: 1, timeout: 5}
+  - stop: all

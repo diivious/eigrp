@@ -32,7 +32,7 @@ def validate_topology(t):
     if not isinstance(t.get("segments",{}),dict): raise SpecError("topology.segments must be a mapping")
     for rn,r in t["routers"].items():
         if not isinstance(r,dict): raise SpecError(f"router {rn} must be a mapping")
-        check_keys(r,{"asn","router_id","active_time","interfaces","attached_networks","source_networks","summary_metrics"},f"router {rn}")
+        check_keys(r,{"asn","router_id","active_time","interfaces","attached_networks","source_networks","summary_metrics","redistribute"},f"router {rn}")
         if not 1<=int(r.get("asn",0))<=65535: raise SpecError(f"router {rn}: invalid asn")
         ipaddress.IPv4Address(r.get("router_id"))
         if "active_time" in r and not 1 <= int(r["active_time"]) <= 65535: raise SpecError(f"router {rn}: active_time must be 1..65535 seconds")
@@ -47,6 +47,9 @@ def validate_topology(t):
                 vals=i.get(key,[]); vals=[vals] if isinstance(vals,str) else vals
                 if not isinstance(vals,list): raise SpecError(f"{rn}.{name}.{key} must be string/list")
                 for p in vals: ipaddress.ip_interface(p)
+        sources = r.get("redistribute", [])
+        if not isinstance(sources, list) or any(v != "static" for v in sources):
+            raise SpecError(f"router {rn}: redistribute must be a list containing only 'static'")
         for sm in r.get("summary_metrics",[]):
             check_keys(sm,{"prefix","bandwidth","delay","reliability","load","mtu"},f"{rn}.summary_metrics")
             ipaddress.ip_network(sm["prefix"],strict=False)
@@ -78,7 +81,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list): raise SpecError("scenario.steps must be a list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","source-route-add","source-route-remove","redistribute-add","redistribute-remove"}
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
         op=next(iter(step));
@@ -137,6 +140,18 @@ class Node:
         # result instead of declaring a live UUT dead under dense-mesh load.
         r=self.cmd(("UP" if up else "DOWN")+" "+ifname,timeout=10)
         if r!="RESULT|0": raise RuntimeError(f"{self.name}:{ifname}: link operation failed: {r}")
+    def source_route_change(self, prefix, add, metric=1):
+        command = (f"SOURCE-ADD {prefix} {metric}" if add
+                   else f"SOURCE-DEL {prefix}")
+        result = self.cmd(command, timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: source route change failed: {result}")
+
+    def redistribute_change(self, source, add):
+        result = self.cmd(f"REDIST-{'ON' if add else 'OFF'} {source}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: redistribution change failed: {result}")
+
     def stop(self):
         if not self.p: return
         if self.p.poll() is None:
@@ -165,6 +180,8 @@ class Runner:
                 lines += [f"interface {name} {next_if} {int(n.get('bandwidth',1000000))} {int(n.get('mtu',1500))}",f"address {name} {p}",f"up {name}"]; next_if+=1
             for n in r.get("source_networks",[]):
                 lines.append(f"source {ipaddress.ip_interface(n['prefix']).network} {int(n.get('metric', 1))}")
+            for source in r.get("redistribute", []):
+                lines.append(f"redistribute {source}")
             lines.append(f"router-id {r['router_id']}")
             if "active_time" in r: lines.append(f"active-time {int(r['active_time'])}")
             for name,i in r.get("interfaces",{}).items():
@@ -314,6 +331,13 @@ class Runner:
             for thread in threads: thread.start()
             for thread in threads: thread.join()
             if errors: raise RuntimeError(f"batched link operation failed: {errors}")
+        elif op in ("source-route-add", "source-route-remove"):
+            prefix = str(ipaddress.ip_network(arg["prefix"], strict=False))
+            self.nodes[arg["uut"]].source_route_change(
+                prefix, op=="source-route-add", int(arg.get("metric", 1)))
+        elif op in ("redistribute-add", "redistribute-remove"):
+            self.nodes[arg["uut"]].redistribute_change(
+                arg["source"], op=="redistribute-add")
         elif op=="wait": time.sleep(float(arg if isinstance(arg,(int,float)) else arg.get("seconds",1)))
         elif op=="packet-mark": self.packet_marks[str(arg)]=len(self.broker.journal)
         elif op=="fault-add": self.broker.add_fault(arg)

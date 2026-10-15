@@ -1467,6 +1467,9 @@ void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
 			msg.route = route;
 			msg.prefix = pe;
 			eigrp_fsm_event(&msg);
+		} else {
+			/* A pending REPLY need not have a corresponding route RDB. */
+			eigrp_fsm_neighbor_down(eigrp, pe, nbr);
 		}
 	}
 

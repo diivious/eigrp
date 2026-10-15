@@ -86,3 +86,16 @@ def test_topology_accepts_configured_active_time():
                           "interfaces":{"eth0":{"segment":"s","ipv4":"10.0.0.1/24"}}}},
     }
     assert m.validate_topology(topology)["routers"]["r1"]["active_time"] == 4
+
+
+def test_redistribution_scenarios_use_three_real_routers():
+    root = Path(__file__).resolve().parents[2] / "redistribution"
+    topology = m.validate_topology(m.load_yaml(root / "ipv4-static-three-router.yaml"))
+    assert set(topology["routers"]) == {"r1", "r2", "r3"}
+    assert topology["routers"]["r1"]["redistribute"] == ["static"]
+    for name in ("scenario-static-source-withdrawal.yaml",
+                 "scenario-static-disable-redistribution.yaml"):
+        scenario = m.validate_scenario(m.load_yaml(root / name))
+        operations = [next(iter(s)) for s in scenario["steps"]]
+        assert "validate-convergence" in operations
+        assert all(target in str(scenario["steps"]) for target in ("r2", "r3"))

@@ -1,0 +1,26 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-static-three-router.yaml
+name: Static Redistribution Three-Router Disable and Restore
+steps:
+  - start: all
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib}
+  - packet-mark: redist-disable
+  - redistribute-remove: {uut: r1, source: static}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 172.30.50.0/24, table: source}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib, present: false}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib, present: false}
+  - packet-mark: redist-restore
+  - redistribute-add: {uut: r1, source: static}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib}
+  - stop: all

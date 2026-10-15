@@ -39,12 +39,14 @@ segments may have any number of attachments.  `attached_networks` create
 synthetic host interfaces on a router and participate in EIGRP like normal
 connected networks.  `source_networks` create host-originated static-route fixtures in the Unix RIB.
 They are observable with `validate-route: {table: source, ...}`; advertising them
-through EIGRP still requires explicit redistribution configuration when that
-scenario operation is added, rather than silently treating them as connected.
+through EIGRP requires an explicit `redistribute: [static]` on the originating
+router; source routes are never automatically treated as connected networks.
 
 Scenario operations in v1 are `start`, `stop`, `link-up`, `link-down`, `links-up`,
 `links-down`, `wait`, `packet-mark`, `validate-neighbor`, `validate-route`,
-`validate-packet`, and `validate-convergence`. `links-up` / `links-down` issue a
+`validate-packet`, `validate-convergence`, `source-route-add`,
+`source-route-remove`, `redistribute-add`, and `redistribute-remove`.
+`links-up` / `links-down` issue a
 batched physical-event transition to multiple UUT interfaces, which is useful for
 full-mesh and shared-failure qualification. Packet marks let later phases require packets emitted after a
 specific failure/recovery boundary.  `validate-convergence` contains declarative neighbor
@@ -68,6 +70,20 @@ at any point. For route-bearing IPv4 packets, `prefix` restricts the match to pa
 whose classic or multiprotocol internal-route TLV carries that destination. This allows
 DUAL tests to prove, for example, that no QUERY for one prefix was emitted after a
 packet mark without forbidding unrelated QUERY traffic.
+
+## Three-router redistribution qualification
+
+`make uut` automatically discovers the scenarios under `eigrp/test/redistribution/`.
+They run three independent EIGRP routers on the R1--R2--R3 line topology,
+using the actual portable protocol implementation and Unix RIB notifications.
+`source-route-add` / `source-route-remove` modify a static route in the UUT
+host RIB; `redistribute-add` / `redistribute-remove` invoke the real portable
+redistribution target. They are separate operations: disabling redistribution
+must not delete the static route from the source RIB.
+
+Both scenarios verify that the route propagates to the far-end R3 and is
+withdrawn from R2 and R3 before the test can pass. These end-to-end tests
+complement, but do not replace, fast direct portable FSM unit tests.
 
 ## DUAL Diamond Gate
 
