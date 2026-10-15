@@ -166,7 +166,7 @@ eigrp_metric_t eigrp_metric_total_calculate(eigrp_instance_t *eigrp,
 		entry->total_metric.delay = EIGRP_METRIC_MAX;
 
 	bw = eigrp_bandwidth_to_scaled(ei->params.bandwidth);
-	entry->total_metric.bandwidth = entry->total_metric.bandwidth > bw
+	entry->total_metric.bandwidth = (bw > entry->total_metric.bandwidth)
 						? bw
 						: entry->total_metric.bandwidth;
 
