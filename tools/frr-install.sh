@@ -95,21 +95,24 @@ infer_frr_root() {
 	return 1
 }
 
+# A rel-X.Y.Z Git tag on the EIGRP checkout identifies a Docker publication.
+# The runtime release string is X.Y.Z, independent of development maturity.
 eigrp_release_tag() {
-	local tag
+	local tag selected=""
 
 	command -v git >/dev/null 2>&1 || return 1
 	git -C "$eigrp_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 		|| return 1
-	# Release identifiers are major-minor-edit-beta. Do not accept a
-	# similarly named development tag or an arbitrary tag at HEAD.
 	while IFS= read -r tag; do
-		if [[ "$tag" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]]; then
-			printf '%s\n' "$tag"
-			return 0
+		[[ "$tag" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+		if [[ -n "$selected" ]]; then
+			echo "error: multiple release tags at HEAD; set EIGRP_BUILD_VERSION" >&2
+			return 2
 		fi
-	done < <(git -C "$eigrp_root" tag --points-at HEAD --list '*-beta')
-	return 1
+		selected="${tag#rel-}"
+	done < <(git -C "$eigrp_root" tag --points-at HEAD)
+	[[ -n "$selected" ]] || return 1
+	printf '%s\n' "$selected"
 }
 
 inject_eigrp_release() {
@@ -117,25 +120,26 @@ inject_eigrp_release() {
 	local header="$stage/eigrp_features.h"
 	local release=""
 	local tag=""
+	local lookup_status=0
 
 	[[ -f "$header" ]] || fail "staged feature header not found: $header"
-	if tag="$(eigrp_release_tag)"; then
-		release="$tag"
-	fi
 
-	# Docker's exact source-lock version is supplied to the *same* staging
-	# path. A tagged build cannot report a different version than its tag.
+	# Explicit build versions take priority. A release version must be tied
+	# to the corresponding immutable EIGRP source tag at HEAD; this does not
+	# require a matching tag in the independent FRR repository.
 	if [[ -n "${EIGRP_BUILD_VERSION:-}" ]]; then
 		[[ "$EIGRP_BUILD_VERSION" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]] || \
 			fail "invalid EIGRP_BUILD_VERSION: $EIGRP_BUILD_VERSION"
-		if [[ -n "$release" && "$EIGRP_BUILD_VERSION" != "$release" ]]; then
-			fail "release tag $release does not match build version $EIGRP_BUILD_VERSION"
-		fi
-		if [[ "$EIGRP_BUILD_VERSION" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ \
-		      && "$EIGRP_BUILD_VERSION" != "$release" ]]; then
-			fail "release build requires a matching EIGRP git tag"
+		if [[ "$EIGRP_BUILD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+			tag="rel-$EIGRP_BUILD_VERSION"
+			git -C "$eigrp_root" tag --points-at HEAD --list "$tag" \
+				| grep -Fxq "$tag" || \
+				fail "release build requires EIGRP tag $tag at HEAD"
 		fi
 		release="$EIGRP_BUILD_VERSION"
+	else
+		release="$(eigrp_release_tag)" || lookup_status=$?
+		[[ "$lookup_status" -le 1 ]] || fail "unable to select an unambiguous OpenEIGRP release tag"
 	fi
 	if [[ -z "$release" ]]; then
 		echo "warning: no OpenEIGRP release tag or build version; using development" >&2

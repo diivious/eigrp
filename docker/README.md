@@ -1,26 +1,59 @@
-# OpenEIGRP + FRR Alpine image
+# OpenEIGRP + FRR Docker
 
-`ghcr.io/diivious/eigrp-frr` contains Alpine Linux, an FRR source build,
-OpenEIGRP (`eigrpd`), Zebra, mgmtd, staticd, watchfrr, and vtysh. Builds are
-native Linux `amd64` and `arm64` and share one multi-platform GHCR release tag.
+`ghcr.io/diivious/eigrp-frr` packages Alpine Linux, FRRouting (Zebra,
+mgmtd, staticd, watchfrr, vtysh), and the OpenEIGRP `eigrpd` daemon.
+Published releases contain native Linux `amd64` and `arm64` images behind a
+single multi-platform tag. This is a Linux container; Docker Desktop on macOS
+is useful for development and container-to-container testing, but does not
+provide raw EIGRP adjacency to the physical LAN using its default networking.
 
-## Pull, start and configure
+## Quick Start
 
-Use a published **major-minor-edit-beta** release tag, for example
-`0-1-0-beta` (the example is not a claim that the image is already published):
+### Pull
+
+Pull a **published** version from GHCR. Version `0.1.0` is an example, not an
+assertion that it is already available. The Git publishing tag is
+`rel-0.1.0`, while the Docker image tag is `0.1.0`.
 
 ```sh
-docker pull ghcr.io/diivious/eigrp-frr:0-1-0-beta
+docker pull ghcr.io/diivious/eigrp-frr:0.1.0
+```
+
+For a private GHCR package, authenticate first with an appropriate GitHub
+token. Public packages may be pulled without authentication.
+
+### Start
+
+```sh
 docker volume create openeigrp-vol
 docker run -d --name openeigrp \
   --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
   -v openeigrp-vol:/etc/frr \
-  ghcr.io/diivious/eigrp-frr:0-1-0-beta
+  ghcr.io/diivious/eigrp-frr:0.1.0
 
+docker ps
+```
+
+The volume retains `/etc/frr/frr.conf` and `/etc/frr/daemons` across container
+replacement. For an image you have already built locally, you can instead use
+`./tools/docker.sh --deploy IMAGE:TAG` (see Development).
+
+`NET_ADMIN` and `NET_RAW` are needed for the router and IP protocol 88. This
+FRR build also needs `SYS_ADMIN` for its Linux capability setup; this is a
+broad privilege and should be granted only to trusted images on suitably
+isolated hosts. For direct adjacency on a **Linux host LAN**, use
+`--network host` instead of Docker's default bridge and ensure IP protocol
+**88** and multicast **224.0.0.10** are allowed by the network/firewall.
+Bridge networking works for isolated container labs, but does not by itself
+expose EIGRP to the physical LAN.
+
+### Configure
+
+```sh
 docker exec -it openeigrp vtysh
 ```
 
-Within vtysh:
+In `vtysh`, for example:
 
 ```text
 configure terminal
@@ -35,244 +68,204 @@ show running-config
 show eigrp tech-support
 ```
 
-`write memory` stores the unified FRR configuration in `/etc/frr/frr.conf`
-on the Docker volume. Keep the `daemons` file in that volume, with
-`eigrpd=yes`, when customizing configuration. FRR starts Zebra, mgmtd and
-staticd as supporting services; `watchfrr` supervises all enabled daemons.
-`show eigrp tech-support` reports the `EIGRP_RELEASE` build version.
-`show eigrp plugin` can use the same portable release API when that CLI is
-implemented; it is not part of this Docker delivery.
+Use network and router ID values appropriate to your deployment. `write memory`
+saves the unified FRR configuration in the volume. Keep `daemons` with
+`eigrpd=yes` when supplying a custom `/etc/frr`. The image has no default SSH
+server or password; administrative access uses Docker, for example
+`docker exec -it -u root openeigrp sh`.
 
-For a container attached directly to a **Linux** host's LAN, use
-`--network host` instead of the Docker bridge, and grant `NET_ADMIN`,
-`NET_RAW`, and `SYS_ADMIN`. IP protocol **88** and multicast `224.0.0.10` must be allowed by
-host networking and firewalls. The current FRR zebra/mgmtd build additionally
-requires `SYS_ADMIN` for its Linux capability setup; these Docker commands grant
-that capability rather than using `--privileged`. Treat `SYS_ADMIN` as a broad
-privilege and run only trusted images on an appropriately isolated host.
-Docker bridge networking also permits
-container-to-container experiments but does not by itself expose EIGRP to a
-physical LAN. Docker Desktop on macOS does not provide direct raw protocol 88
-LAN adjacency through its default networking; this is not a macOS VM guide.
-
-No container SSH server or default password is installed. For administrative
-shell access use `docker exec -it -u root openeigrp sh` (or `bash`); Docker
-access is the authorization boundary and root needs no `sudo` password.
-
-## Troubleshooting
+### Troubleshooting
 
 ```sh
 docker logs -f openeigrp
 docker exec openeigrp pidof watchfrr zebra mgmtd staticd eigrpd
 docker exec openeigrp vtysh -c 'show version'
 docker exec openeigrp vtysh -d eigrpd -c 'show eigrp tech-support'
+docker exec openeigrp vtysh -c 'show running-config'
 docker exec openeigrp cat /etc/frr/daemons
 docker restart openeigrp
 ```
 
-If mounting your own directory at `/etc/frr`, supply **both** `daemons` and
-`frr.conf`, readable by the FRR daemon user. A fresh named volume copies the
-image's defaults. Container process failures should surface through the
-foreground `watchfrr` supervisor.
+If binding your own directory to `/etc/frr`, provide both `frr.conf` and
+`daemons`, readable by the FRR daemon user. An initially empty named volume
+gets the defaults from the image. The foreground `watchfrr` supervisor makes
+container process failures visible through Docker logs.
 
-## Local development, release builds and deployment
+## Development
 
-Requirements: Docker Engine / Docker Desktop with Buildx, Git, and `rsync`.
-The **same** Dockerfile and FRR patch → install → configure → build pipeline
-are used for both source modes.
+**Requirements:** Docker Engine / Docker Desktop with Buildx, Git, and `rsync`.
+The same Dockerfile and `tools/frr.sh` patch/install/configure/build pipeline
+are used by both source modes. Neither build command publishes an image.
 
-### Local source (no GitHub source checkout)
+### Build with local repos
 
-From your local `eigrp/` checkout, with a sibling `../frr` checkout:
-
-```sh
-./tools/docker.sh --local                     # defaults to $USER; platform auto-detected
-./tools/docker.sh --test "openeigrp:${USER:-$(id -un)}"
-./tools/docker.sh --deploy "openeigrp:${USER:-$(id -un)}"
-
-docker exec -it openeigrp vtysh
-```
-
-To specify paths and platform explicitly:
+From the OpenEIGRP repository root, with an independent FRR checkout at
+`../frr`:
 
 ```sh
-./tools/docker.sh --local --eigrp-root "$HOME/projects/eigrp" \
-  --frr-root "$HOME/projects/frr" --platform linux/arm64 --jobs 8
+./tools/docker.sh --local --platform linux/arm64 --image openeigrp:docker-test
+./tools/docker.sh --test openeigrp:docker-test
+./tools/docker.sh --verify openeigrp:docker-test
+./tools/docker.sh --deploy openeigrp:docker-test \
+  --name openeigrp-test --volume openeigrp-test-vol
+
+docker exec -it openeigrp-test vtysh
 ```
 
-`--local` includes tracked modifications and new, nonignored files in both
-source trees; it does **not** re-download either repository from GitHub.
-It labels the resulting image using each checkout's HEAD SHA, but such a
-SHA does **not** capture uncommitted changes. Local builds with a release
-version (for example `0-1-0-beta`) require matching local EIGRP and FRR Git
-tags at HEAD and clean working trees.
-
-`--test` is an **integration test**, not the portable/Unix UUT suite: it
-starts a throwaway container with its own temporary configuration volume,
-verifies required daemons and `vtysh`, configures EIGRP AS 4453, checks
-release reporting, saves configuration, restarts, and checks persistence.
-It deletes that test container and volume afterward. It requires the image
-to be available locally, rather than pulling a missing GHCR release.
-
-`--verify` runs the `--test` integration suite followed by an automated
-FRR inspection and **bidirectional EIGRP adjacency plus three-network route
-exchange** between two throwaway Docker routers on three isolated bridges.
-It verifies the shared /16 and both advertised /24 prefixes, then removes both
-containers, both temporary configuration volumes, and all three networks on
-success, failure, or interruption. It does **not** alter your image, existing deployments, or
-`openeigrp-vol`; an unsuccessful adjacency check returns a nonzero exit status.
-For local images you may omit the image argument (defaults to `openeigrp:$USER`):
+On an AMD64 system, choose `--platform linux/amd64` or omit `--platform` for
+auto-detection. Alternatively specify sources and build parallelism:
 
 ```sh
-./tools/docker.sh --verify
-# or specify an image explicitly:
-./tools/docker.sh --verify ghcr.io/diivious/eigrp-frr:0-1-0-beta
+./tools/docker.sh --local --eigrp-root "$HOME/Projects/eigrp" \
+  --frr-root "$HOME/Projects/frr" --platform linux/arm64 --jobs 8 \
+  --image openeigrp:docker-test
 ```
 
-`--verify` includes `--test` itself; running both separately is allowed but
-repeats the integration checks. The optional verification is intended for
-pre-publication manual acceptance; GitHub Actions continues to run `--test`
-until explicitly updated. It does not qualify route convergence or Cisco
-interoperability.
+`--local` uses your local tracked changes and nonignored new files from both
+repositories; no GitHub source fetch occurs. Image revision labels report the
+respective checkout `HEAD` SHAs, which do not describe uncommitted changes.
+For an exact local release build using `--local 0.1.0`, OpenEIGRP `HEAD` must
+carry `rel-0.1.0`, FRR `HEAD` must equal the pinned SHA in `tools/docker.sh`,
+and both source trees must be clean.
 
-`--deploy` starts a **persistent** container named `openeigrp`, verifies
-that its required daemons and vtysh are ready, and uses the
-`openeigrp-vol` named Docker volume. It uses an image from the local cache
-when available and pulls it only if missing. It does **not** run or delete
-the test environment. Optional arguments are `--name`, `--volume`, and
-`--network bridge|host`. The same named container cannot be deployed twice;
-use `docker start openeigrp` or `docker restart openeigrp` thereafter.
-If changing Docker capabilities for an existing container, recreate it with
-`docker rm -f openeigrp` followed by `--deploy`; restarting an existing
-container does not update its capabilities. The named configuration volume is
-not removed by `docker rm`.
+### Build with GitHub repos
 
-### Build from GitHub (not from the local working tree)
+For a development image built from the pushed `docker` branch rather than local
+working trees:
 
 ```sh
-./tools/docker.sh --build 0-1-0-beta --platform linux/arm64
-./tools/docker.sh --test ghcr.io/diivious/eigrp-frr:0-1-0-beta
-./tools/docker.sh --deploy ghcr.io/diivious/eigrp-frr:0-1-0-beta
+./tools/docker.sh --build dev-docker \
+  --eigrp-ref refs/heads/docker \
+  --platform linux/arm64 --image openeigrp:docker-test
+./tools/docker.sh --verify openeigrp:docker-test
 ```
 
-Both `0-1-0-beta` release tags **must already exist** on GitHub:
-`diivious/eigrp` and `diivious/frr`. The wrapper fetches and verifies the
-exact source commits before passing the sources to Docker Buildx. For CI
-nonrelease versions, an explicit `--eigrp-ref` is required and FRR defaults
-to a known, compatible commit. Neither local nor remote build automatically
-pushes an image to GHCR.
+For a tagged source release, after `rel-0.1.0` exists in `diivious/eigrp`:
 
-The build always runs these established steps on the selected sources:
-
-```text
-tools/frr.sh --patch
-tools/frr.sh --install
-tools/frr.sh --configure
-tools/frr.sh --build
-make DESTDIR=... install
+```sh
+./tools/docker.sh --build 0.1.0 --platform linux/arm64 \
+  --image openeigrp:release-test
+./tools/docker.sh --verify openeigrp:release-test
 ```
 
-Any managed FRR patch drift fails the build rather than silently applying
-fuzz or invoking a separate integration route.
+`--build` downloads the selected OpenEIGRP revision from
+`github.com/diivious/eigrp` and the **pinned FRR commit** from
+`github.com/diivious/frr`. Development builds require `--eigrp-ref`, a Git
+SHA or branch/PR ref; `--frr-ref` can override the default for development
+only. Tagged release builds require an OpenEIGRP `rel-X.Y.Z` tag and select
+the FRR SHA pinned in that tagged commit's `tools/docker.sh`. They do **not**
+require a matching FRR tag. The wrapper verifies the exact fetched SHAs
+before handing sources to Docker Buildx.
+
+Both modes execute the managed FRR patch/install/configure/build pipeline.
+Patch drift stops the build rather than applying fuzz or forcing a mismatch.
 
 ### Alpine image caching
 
-The Dockerfile uses **`alpine:3.22`** for both build and runtime stages,
-with Docker's platform-specific ARM64 or AMD64 manifest selected by Buildx.
-Pre-download the base image, if desired:
+The Dockerfile uses **`alpine:3.22`** as its build and runtime base. The
+correct AMD64 or ARM64 manifest is selected for the target platform. To
+prefetch the base image when desired:
 
 ```sh
 docker pull --platform linux/arm64 alpine:3.22
-# On an AMD64 host, or if preparing that architecture:
+# Alternatively on AMD64:
 docker pull --platform linux/amd64 alpine:3.22
 ```
 
-Ordinary builds **do not use `--pull`**. Rebuilds reuse the BuildKit base-image
-and compilation cache when available. To explicitly check for a newer base
-image, append `--pull-base` to `--local` or `--build`.
+Builds reuse Docker's base image and BuildKit compilation cache by default.
+Append `--pull-base` to `--local` or `--build` to refresh Alpine explicitly.
+Docker Desktop may maintain a separate Buildx cache: `docker pull` does not
+guarantee an offline build. `apk` dependencies and source checkout contents
+also require network access or previously populated caches. Alpine `3.22`
+pins a minor release, **not an immutable digest**; exact historical rebuilds
+also need the resolved image digest and APK revisions.
 
-Docker Desktop's Buildx builder may have its own cache separate from the
-`docker pull` image store; a pre-pull is **not** a guarantee of offline
-compilation. Alpine build packages fetched by `apk` and the source checkout
-are independent of the Alpine base image and still need to be available or
-cached. Alpine `3.22` pins the minor release, **not** an immutable image digest;
-an exact historical rebuild also requires preserving the resolved Alpine
-image digest and the APK package revisions.
-
-Both Git source SHA labels and the selected release label can be inspected:
+Inspect source version/revision labels with:
 
 ```sh
-docker image inspect "openeigrp:${USER:-$(id -un)}" \
-  --format '{{json .Config.Labels}}'
+docker image inspect openeigrp:docker-test --format '{{json .Config.Labels}}'
 ```
 
-## GitHub Actions release publishing
+## Release/Publishing
 
-`.github/workflows/docker.yml` builds amd64 on an x86 runner and arm64 on an
-ARM runner. Pushes and pull requests affecting the implementation exercise
-both builds. A manual run can test either current development source or an
-optional matching release tag **without publishing**. Both jobs execute `tools/docker.sh --verify`, covering daemon startup,
-vtysh, named IPv4 AS 4453, configuration save/readback, restart, two-router
-adjacency and three-network topology exchange. A tag push publishes only
-after **both** jobs pass. It publishes per-architecture images and combines
-them into the multi-platform tag:
+### Best practices
 
-```text
-ghcr.io/diivious/eigrp-frr:0-1-0-beta
-ghcr.io/diivious/eigrp-frr:0-1-0-beta-amd64
-ghcr.io/diivious/eigrp-frr:0-1-0-beta-arm64
-```
+- Use one OpenEIGRP Git tag `rel-X.Y.Z` for each publication, regardless of
+  whether the project is in beta, gamma, or general availability. `rel-0.1.0`
+  produces `ghcr.io/diivious/eigrp-frr:0.1.0`; the `rel-` prefix is **not**
+  part of the Docker image tag.
+- Commit, review, and verify sources **before** tagging. Tag the intended
+  OpenEIGRP commit (including the Docker workflow). Tags may point to `docker`
+  or `master`; a merge to `master` is not a prerequisite for tag publishing.
+- Record the compatible FRR Git SHA in `tools/docker.sh` **before** tagging.
+  Both platforms must build from the same exact OpenEIGRP and FRR commits;
+  there is no requirement to tag the separate FRR repository.
+- Treat publication tags as immutable. Protect `rel-*` with GitHub rulesets;
+  do not move or reuse a published tag. The publisher refuses to overwrite an
+  existing multi-platform version tag. Do not automatically update a `latest`
+  tag—select versions explicitly in deployments and record image digests.
+- Publish only after **both** architecture verification jobs pass. `--verify`
+  tests FRR startup/configuration plus two-router EIGRP adjacency and route
+  exchange; it is not a claim of large-scale convergence or Cisco
+  interoperability qualification.
+- The GitHub Actions publisher needs `packages: write` permission via
+  `GITHUB_TOKEN`; ensure Actions and GHCR package permissions permit the
+  repository to publish. Set package visibility deliberately (public if
+  unauthenticated pulls are desired). No personal access token is normally
+  needed by the workflow.
 
-Before your first release:
+### Quick command reference
 
-1. Review the changes and commit them on `diivious/eigrp:master`.
-2. On **both** GitHub repositories, create/push the **same** approved release
-   tag, pointing at the reviewed, compatible source commits. The EIGRP tag
-   push is the release trigger; its FRR tag must already be available.
-3. In the EIGRP repo, enable GitHub Actions and allow workflows to use
-   `GITHUB_TOKEN` for GHCR. The release publish job requests
-   `packages: write`; no PAT or stored secret is required. Ensure organization
-   policies and GHCR package permissions allow the repo to publish. Configure
-   desired package visibility (for public pulls, make the package public).
-4. Restrict who can create/move/delete release tags using GitHub rulesets;
-   tags should not change after publication.
-5. Inspect the Actions run for **both** platform integration tests and the manifest
-   publication before advertising the tag.
-
-GitHub read/write actions are separate: this delivery does **not** create tags,
-change repository settings, push commits, or publish packages on your behalf.
-
-**Validation boundary:** Building this image and starting actual FRR daemons
-requires Docker; repository-only syntax/patch tests do not substitute for the
-GitHub Actions integration tests. Physical EIGRP adjacency with Cisco and network
-convergence/interoperability are intentionally not release gates here.
-
-## The Docker image has built successfully!
-
-Next verify that FRR starts, OpenEIGRP runs, configuration works, and the
-routing daemon can actually communicate with another EIGRP router.
-
-To run **all the checks below automatically**, without leaving a persistent
-container or modifying the image you intend to publish, use:
+Run these commands from the OpenEIGRP repository root. The two build modes
+are alternatives; both produce a **local**, unpublished image. `--verify`
+already includes `--test`, so running both explicitly is optional.
 
 ```sh
-./tools/docker.sh --verify "openeigrp:${USER:-$(id -un)}"
+# Local checkout build (both repositories on disk).
+./tools/docker.sh --local --image openeigrp:docker-test
+
+# OR build GitHub's pushed docker branch with pinned FRR source.
+./tools/docker.sh --build dev-docker --eigrp-ref refs/heads/docker \
+  --image openeigrp:docker-test
+
+# Temporary container / restart / configuration-persistence tests.
+./tools/docker.sh --test openeigrp:docker-test
+
+# Full test, including bidirectional protocol-88 adjacency / route exchange.
+./tools/docker.sh --verify openeigrp:docker-test
+
+# Persistent deployment (does not erase the image or test results).
+./tools/docker.sh --deploy openeigrp:docker-test \
+  --name openeigrp-test --volume openeigrp-test-vol
+
+# After reviewing and testing a committed source revision, create release tag.
+git tag -a rel-0.1.0 -m 'OpenEIGRP Docker release 0.1.0'
+git push origin refs/tags/rel-0.1.0
+
+# Inspect the published multi-platform image after GitHub Actions succeeds.
+docker buildx imagetools inspect ghcr.io/diivious/eigrp-frr:0.1.0
+docker pull ghcr.io/diivious/eigrp-frr:0.1.0
 ```
 
-The verifier executes Section 1 first, performs the equivalent of Section 2
-in disposable containers, and automates the two-router adjacency and route
-exchange checks in Section 3. The following commands remain available for
-manual inspection and troubleshooting. `--verify` reports failure unless
-**both neighbors remain established and each topology contains exactly three
-networks**, including a remote /24 learned via the other router. It always
-removes its temporary resources.
+### Validation before publication
+
+Set the name of the local image you intend to test once (same shell):
+
+```sh
+IMAGE=openeigrp:docker-test
+```
+
+`--test` and `--verify` operate on disposable resources and never alter the
+image. `--deploy` creates a persistent container/volume and must use a unique
+name if another instance is already running.
+
 
 ### 1. Run the automated Docker integration test
 
 Start with the existing integration test, using the image you just built:
 
 ```sh
-./tools/docker.sh --test "openeigrp:${USER:-$(id -un)}"
+./tools/docker.sh --test "$IMAGE"
 ```
 
 The test performs these checks:
@@ -292,32 +285,32 @@ The test performs these checks:
 A successful test reports a message similar to:
 
 ```text
-PASS: openeigrp:diivious — FRR, OpenEIGRP, AS 4453, version diivious, save and restart
+PASS: openeigrp:docker-test — FRR, OpenEIGRP, AS 4453, version docker-test, save and restart
 ```
 
 The integration test uses a temporary container and Docker volume, removing
-both afterward. It **does not** yet check EIGRP neighbor formation or run the
-portable/Unix UUT suite.
+both afterward. It does **not** check EIGRP neighbor formation or run the
+portable/Unix UUT suite; `--verify` adds the two-router network tests.
 
 ### 2. Deploy and inspect OpenEIGRP manually
 
 After the integration test passes, deploy the image for interactive use:
 
 ```sh
-./tools/docker.sh --deploy "openeigrp:${USER:-$(id -un)}"
+./tools/docker.sh --deploy "$IMAGE" --name openeigrp-test --volume openeigrp-test-vol
 ```
 
 Verify that the container is running and the required FRR processes exist:
 
 ```sh
 docker ps
-docker exec openeigrp pidof watchfrr zebra mgmtd staticd eigrpd
+docker exec openeigrp-test pidof watchfrr zebra mgmtd staticd eigrpd
 ```
 
 Open the FRR CLI:
 
 ```sh
-docker exec -it openeigrp vtysh
+docker exec -it openeigrp-test vtysh
 ```
 
 Within vtysh, inspect the installation and configuration:
@@ -332,11 +325,12 @@ show running-config
 You can inspect the startup and runtime logs from the host:
 
 ```sh
-docker logs --tail 100 openeigrp
+docker logs --tail 100 openeigrp-test
 ```
 
-Unlike the automated test, the deployed container uses a persistent
-configuration volume and is **not** automatically removed.
+Unlike the automated test, the deployed `openeigrp-test` container uses a persistent configuration
+volume and is **not** automatically removed. When finished, run
+`docker rm -f openeigrp-test` and optionally `docker volume rm openeigrp-test-vol`.
 
 ### 3. Verify actual EIGRP communication and three-network routing
 
@@ -376,12 +370,12 @@ docker network create --driver bridge --subnet 10.47.45.0/24 eigrp-test-r2-lan
 docker run -d --name eigrp-r1 \
   --network eigrp-test-transit --ip 10.56.41.11 \
   --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
-  "openeigrp:${USER:-$(id -un)}"
+  "$IMAGE"
 
 docker run -d --name eigrp-r2 \
   --network eigrp-test-transit --ip 10.56.41.12 \
   --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
-  "openeigrp:${USER:-$(id -un)}"
+  "$IMAGE"
 
 docker network connect --ip 10.53.41.11 eigrp-test-r1-lan eigrp-r1
 docker network connect --ip 10.47.45.12 eigrp-test-r2-lan eigrp-r2
@@ -478,8 +472,8 @@ docker logs --tail 100 eigrp-r2
 ```
 
 When finished, remove **only these manual lab resources**, including Docker's
-anonymous configuration volumes. Your regular `openeigrp` deployment and
-`openeigrp-vol` remain untouched:
+anonymous configuration volumes. Your separate persistent test deployment and
+its named configuration volume remain untouched:
 
 ```sh
 docker rm -fv eigrp-r1 eigrp-r2
@@ -489,3 +483,51 @@ docker network rm eigrp-test-r1-lan eigrp-test-r2-lan eigrp-test-transit
 The two-router test is automated by `tools/docker.sh --verify`. GitHub Actions
 also runs `--verify` on both native architectures before publishing any
 GHCR release image.
+
+### Publish a reviewed version through GitHub Actions
+
+Select a committed OpenEIGRP revision, for example the `docker` branch:
+
+```sh
+git switch docker
+git status --short           # must be clean
+git log -1 --oneline         # review the exact commit
+git tag -a rel-0.1.0 -m 'OpenEIGRP Docker release 0.1.0'
+git push origin refs/tags/rel-0.1.0
+```
+
+A `rel-X.Y.Z` tag push runs `.github/workflows/docker.yml` **from the tagged
+commit**, building native `amd64` and `arm64` images. Both jobs run
+`./tools/docker.sh --verify`; only if both succeed does the publish job push
+`X.Y.Z-amd64`, `X.Y.Z-arm64`, and the combined `X.Y.Z` manifest to
+`ghcr.io/diivious/eigrp-frr`. Ordinary pushes to `master` or `docker` affecting the workflow's watched
+paths, pull requests, and manual workflow runs are build-and-test-only; they
+never publish. Manual dispatch is
+available only when the workflow is on the default branch, but a tagged
+commit can trigger tag publication independently.
+
+Release example (not a claim of an already published image):
+
+```text
+ghcr.io/diivious/eigrp-frr:0.1.0
+ghcr.io/diivious/eigrp-frr:0.1.0-amd64
+ghcr.io/diivious/eigrp-frr:0.1.0-arm64
+```
+
+Monitor the build and publication results at
+[OpenEIGRP Docker GitHub Actions](https://github.com/diivious/eigrp/actions/workflows/docker.yml).
+If the published image is used for deployment, pull and verify it on the
+actual target platform:
+
+```sh
+docker pull ghcr.io/diivious/eigrp-frr:0.1.0
+./tools/docker.sh --verify ghcr.io/diivious/eigrp-frr:0.1.0
+./tools/docker.sh --deploy ghcr.io/diivious/eigrp-frr:0.1.0 \
+  --name openeigrp-release-test --volume openeigrp-release-test-vol
+```
+
+The deployment command creates a persistent test instance; it does not
+replace an existing container. GitHub Actions qualifies the image inside
+Docker networks, **not** on physical Cisco/EIGRP networks. Production rollout,
+site-specific routing policy, security, and interoperability remain separate
+acceptance decisions.

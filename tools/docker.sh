@@ -7,7 +7,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 eigrp_url=https://github.com/diivious/eigrp.git
 frr_url=https://github.com/diivious/frr.git
 # Compatible with the managed FRR patches in the October 3 reference archive.
-development_frr_sha=ebfd886fd46b19f9886b0872b39ad3edf5e6c053
+pinned_frr_sha=ebfd886fd46b19f9886b0872b39ad3edf5e6c053
 alpine_version=3.22
 
 usage() {
@@ -27,9 +27,9 @@ Usage:
   --local   Build from local EIGRP and FRR checkouts (including working edits).
             Default VERSION: $USER; image: openeigrp:VERSION.
             Default FRR root: sibling ../frr (or ~/projects/frr).
-  --build   Fetch both repositories from GitHub; release VERSION must match
-            the immutable major-minor-edit-beta tags in BOTH repositories.
-            Nonrelease versions require --eigrp-ref; FRR defaults to a pinned SHA.
+  --build   Fetch both repositories from GitHub. Version X.Y.Z requires
+            the immutable OpenEIGRP Git tag rel-X.Y.Z; FRR uses a pinned SHA.
+            Nonrelease versions require --eigrp-ref; FRR defaults to the same SHA.
   --deploy  Start a persistent container. Pull an image only if not present.
   --test    Run automated, destructive-on-temporary-volume integration tests;
             requires an existing local image; cleans up its test container.
@@ -46,10 +46,11 @@ USAGE
 }
 
 die() { echo "error: $*" >&2; exit 1; }
-release_version() { [[ "$1" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]]; }
+release_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+release_git_tag() { [[ "$1" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 version_valid() { [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]]; }
 ref_valid() {
-    release_version "$1" ||
+    release_git_tag "$1" ||
       [[ "$1" =~ ^[0-9a-f]{40}$ || "$1" =~ ^refs/pull/[0-9]+/merge$ ||
          "$1" =~ ^refs/heads/[a-zA-Z0-9._/-]+$ ]]
 }
@@ -62,7 +63,7 @@ resolve_sha() {
         printf '%s\n' "$ref"
         return 0
     fi
-    if release_version "$ref"; then
+    if release_git_tag "$ref"; then
         result="$(git ls-remote "$url" "refs/tags/$ref" "refs/tags/$ref^{}")" || return 1
         sha="$(awk -v x="refs/tags/$ref^{}" '$2 == x {print $1}' <<< "$result")"
         [[ -n "$sha" ]] || sha="$(awk -v x="refs/tags/$ref" '$2 == x {print $1}' <<< "$result")"
@@ -80,12 +81,10 @@ require_git_checkout() {
     git -C "$src" rev-parse --show-toplevel >/dev/null 2>&1 || die "$description is not a Git checkout: $src"
 }
 
-# Local release builds must come from the matching release of both trees.
-# Development builds intentionally accept local edits and untracked files.
-verify_local_release() {
-    local src="$1" description="$2" version="$3"
-    git -C "$src" tag --points-at HEAD --list "$version" | grep -Fxq "$version" ||
-        die "$description HEAD is not tagged $version"
+# Local release builds must match the EIGRP publication tag and the pinned
+# FRR source commit; neither checkout may contain uncommitted changes.
+verify_local_clean() {
+    local src="$1" description="$2"
     [[ -z "$(git -C "$src" status --porcelain --untracked-files=normal)" ]] ||
         die "$description has working changes; release builds require clean checkouts (use a nonrelease version for development)"
 }
@@ -97,7 +96,7 @@ checkout_remote() {
     local url="$1" ref="$2" sha="$3" dst="$4"
     git init -q "$dst"
     git -C "$dst" remote add origin "$url"
-    if release_version "$ref"; then
+    if release_git_tag "$ref"; then
         git -C "$dst" fetch -q --no-tags --depth 1 origin "+refs/tags/$ref:refs/tags/$ref"
         git -C "$dst" checkout -q --detach "$ref"
     else
@@ -243,7 +242,7 @@ fi
 platform="$(host_platform)"
 jobs=4
 pull_base=0
-eigrp_ref="$version"; frr_ref="$version"
+eigrp_ref="$version"; frr_ref="$pinned_frr_sha"
 eigrp_ref_set=0; frr_ref_set=0
 eigrp_root="$root"; frr_root=""
 while [[ $# -gt 0 ]]; do
@@ -285,18 +284,25 @@ if [[ "$operation" == --local ]]; then
     eigrp_sha="$(git -C "$eigrp_root" rev-parse HEAD)"
     frr_sha="$(git -C "$frr_root" rev-parse HEAD)"
     if release_version "$version"; then
-        verify_local_release "$eigrp_root" EIGRP "$version"
-        verify_local_release "$frr_root" FRR "$version"
+        release_tag="rel-$version"
+        git -C "$eigrp_root" tag --points-at HEAD --list "$release_tag" \
+            | grep -Fxq "$release_tag" || die "EIGRP HEAD is not tagged $release_tag"
+        [[ "$frr_sha" == "$pinned_frr_sha" ]] || \
+            die "local release requires FRR commit $pinned_frr_sha; found $frr_sha"
+        verify_local_clean "$eigrp_root" EIGRP
+        verify_local_clean "$frr_root" FRR
     fi
 else
     [[ -z "$frr_root" && "$eigrp_root" == "$root" ]] || die 'source roots apply only to --local'
     if release_version "$version"; then
         [[ "$eigrp_ref_set" == 0 && "$frr_ref_set" == 0 ]] || \
-            die 'release builds use matching GitHub tags in both repositories'
+            die 'release builds use rel-X.Y.Z in OpenEIGRP and the pinned FRR commit'
+        eigrp_ref="rel-$version"
+        frr_ref="$pinned_frr_sha"
     else
         [[ "$eigrp_ref_set" == 1 ]] || die 'development builds require --eigrp-ref'
-        [[ "$frr_ref_set" == 1 ]] || frr_ref="$development_frr_sha"
-        release_version "$eigrp_ref" && die 'development version cannot use a release tag'
+        [[ "$frr_ref_set" == 1 ]] || frr_ref="$pinned_frr_sha"
+        release_git_tag "$eigrp_ref" && die 'development version cannot use a release tag'
     fi
     ref_valid "$eigrp_ref" || die "invalid EIGRP ref: $eigrp_ref"
     ref_valid "$frr_ref" || die "invalid FRR ref: $frr_ref"
