@@ -66,8 +66,6 @@ The adapter translates host-native identities, configuration objects, RIB
 objects, events, timers, sockets, and policy results into OpenEIGRP-owned values
 and calls the portable API.
 
-![Host/platform integration boundary](images/platform-boundary.svg)
-
 It does not reimplement:
 
 - DUAL;
@@ -178,13 +176,18 @@ A host integration should follow this lifecycle ordering.
 2. initialize eigrp_sys host services
 3. initialize eigrp_rib host services
 4. initialize policy services if used
-5. call eigrp_init()
-6. bind host configuration/admin to eigrp_cli.h
-7. begin feeding interface, RIB, and packet events
+5. call eigrp_init() to initialize process state (without starting receive threads)
+6. finish any host daemonization/fork, if applicable
+7. call eigrp_process_receive_start() and handle a false result as startup failure
+8. bind host configuration/admin to eigrp_cli.h
+9. begin feeding interface, RIB, and packet events
 ```
 
 The portable runtime must not receive callbacks that depend on an uninitialized
-host service.
+host service. The receive worker belongs to the process, not to any individual
+address family. When the host forks, it must start the worker in the final
+process: POSIX fork() does not preserve pthreads other than the calling thread.
+A host without daemonization (such as the Unix UUT) starts it after eigrp_init().
 
 ### 6.2 Stop
 
@@ -350,25 +353,19 @@ boundary.
 
 Do not return host-native status codes through portable APIs.
 
-The adapter must preserve the exact structured result returned by the portable
-target. `EIGRP_RESULT_UNSUPPORTED` is used for valid operations whose required
-capability is unavailable in the active runtime/host.
-
-`EIGRP_RESULT_NOT_IMPLEMENTED` remains defined by the public API but the current
-portable production source has no feature target that returns it; an adapter
-must not synthesize that result or hide any future occurrence behind success.
+A real feature target may return `EIGRP_RESULT_NOT_IMPLEMENTED`. The adapter
+must preserve that distinction from invalid input or a generic host error.
 
 ## 17. Optional capabilities
 
 A host may not support every optional OpenEIGRP capability immediately.
 
-Optional integration follows these rules:
+Optional integration should follow these rules:
 
 1. capability absence is explicit;
 2. the base public contract remains buildable;
 3. configuration required for retention is not silently discarded;
-4. unsupported runtime behavior reports `EIGRP_RESULT_UNSUPPORTED` or another
-   precise structured result;
+4. unsupported runtime behavior reports a structured result;
 5. host-specific capability checks stay in the adapter or a public feature
    contract, not scattered through protocol modules.
 
@@ -463,7 +460,7 @@ BIRD channels, or Unix test-shim internals.
 Use:
 
 - `frr/README.md` and `frr/specs/` for FRR-specific mapping;
-- `bird/README.md` for the current BIRD/BSD integration boundary;
+- `bird/README.md` and `bird/specs/` for BIRD/BSD-specific mapping;
 - `unix/README.md` and `unix/specs/integration.md` for the standalone Unix host;
 - `specs/EIGRP-Config-Guide.md` for the user-visible EIGRP semantic command
   surface that host front ends should represent.

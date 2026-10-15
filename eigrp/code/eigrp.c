@@ -374,6 +374,33 @@ void eigrp_router_id_update(eigrp_instance_t *eigrp)
 		eigrp_network_intfs_update(eigrp);
 }
 
+/* Start the process packet receiver after host daemonization and before
+ * accepting packet input.  A pre-fork pthread does not survive fork() in
+ * the daemon child, even though its process state remains inherited. */
+bool eigrp_process_receive_start(void)
+{
+	int error;
+
+	pthread_mutex_lock(&eigrp_process.receive_lock);
+	if (eigrp_process.receive_started) {
+		pthread_mutex_unlock(&eigrp_process.receive_lock);
+		return true;
+	}
+	eigrp_process.receive_running = true;
+	error = pthread_create(&eigrp_process.receive_thread, NULL,
+			       eigrp_packet_thread, &eigrp_process);
+	if (error != 0) {
+		eigrp_process.receive_running = false;
+		pthread_mutex_unlock(&eigrp_process.receive_lock);
+		eigrp_log(EIGRP_LOG_ERROR,
+			"unable to start EIGRP packet thread (pthread_create: %d)", error);
+		return false;
+	}
+	eigrp_process.receive_started = true;
+	pthread_mutex_unlock(&eigrp_process.receive_lock);
+	return true;
+}
+
 void eigrp_init(void)
 {
 	struct timespec ts;
@@ -389,20 +416,9 @@ void eigrp_init(void)
 	else
 		eigrp_process.start_time = 0;
 
-	/* Start packet reception only after every process-owned object used by
-	 * the receive/demux path has been initialized.  pthread_create() is the
-	 * publication point for the packet thread; nothing below this point may
-	 * add a dependency that the thread can observe uninitialized.
-	 */
-	eigrp_process.receive_running = true;
-	if (pthread_create(&eigrp_process.receive_thread, NULL,
-			eigrp_packet_thread, &eigrp_process) == 0)
-		eigrp_process.receive_started = true;
-	else {
-		eigrp_process.receive_running = false;
-		eigrp_log(EIGRP_LOG_ERROR,
-			"unable to start EIGRP packet thread");
-	}
+	/* The host starts the receive worker explicitly after any daemonization
+	 * and before permitting packet input.  Creating it before fork() would
+	 * leave the child with inherited flags but no packet consumer. */
 }
 
 /* Shut down the entire process */

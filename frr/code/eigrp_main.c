@@ -183,9 +183,8 @@ int main(int argc, char **argv, char **envp)
 
 	eigrp_sw_version_init();
 
-	/* FRR thread/logging infrastructure must exist before eigrp_init() starts
-	 * EIGRP-owned pthreads.  Those threads register their host logging context
-	 * through eigrp_log_start() before executing protocol work. */
+	/* Set up FRR logging before initializing EIGRP process state.
+	 * EIGRP-owned receive pthreads must start only after daemonization. */
 	master = frr_init();
 	eigrpd_event = master;
 	eigrp_init();
@@ -214,6 +213,11 @@ int main(int argc, char **argv, char **envp)
 	eigrp_sys_policy_init();
 
 	frr_config_fork();
+	/* fork() preserves process state but not other pthreads.  Start the
+	 * EIGRP process receive worker in the final daemon process, before
+	 * FRR begins dispatching packet events. */
+	if (!eigrp_process_receive_start())
+		return EXIT_FAILURE;
 	frr_run(master);
 
 	/* Not reached. */

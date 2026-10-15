@@ -83,3 +83,31 @@ def test_packet_identity_demux_keeps_vrf_vrid_and_tid_explicit():
     assert "tid != EIGRP_TOPOLOGY_ID_BASE" not in tlv2
     assert "route->topology_id = (eigrp_topology_id_t)tid;" in tlv2
     assert "route->topology_id != EIGRP_TOPOLOGY_ID_BASE" not in tlv2
+
+
+def test_process_receive_thread_starts_after_frr_daemonization():
+    """The host must start the process worker after fork, not on first AF."""
+    daemon = (PORTABLE / "eigrp.c").read_text()
+    instance = (PORTABLE / "eigrp_instance.c").read_text()
+    frr_main = (ROOT / "frr" / "code" / "eigrp_main.c").read_text()
+    unix_uut = (ROOT / "eigrp" / "test" / "uut" / "node.c").read_text()
+
+    init = daemon[daemon.index("void eigrp_init(void)"):daemon.index("/* Shut down the entire process */")]
+    assert "pthread_create(" not in init
+    assert "eigrp_process.receive_running = true" not in init
+    start = daemon[daemon.index("bool eigrp_process_receive_start(void)"):daemon.index("void eigrp_init(void)")]
+    assert "pthread_create(&eigrp_process.receive_thread" in start
+    assert "eigrp_process.receive_started = true" in start
+
+    create = instance[instance.index("eigrp_instance_t *eigrp_instance_create("):instance.index("/* Final cleanup of eigrp instance */")]
+    assert "eigrp_process_receive_start()" not in create
+
+    init_at = frr_main.index("eigrp_init();")
+    fork_at = frr_main.index("frr_config_fork();")
+    receive_at = frr_main.index("eigrp_process_receive_start()")
+    run_at = frr_main.index("frr_run(master);")
+    assert init_at < fork_at < receive_at < run_at
+    assert "if (!eigrp_process_receive_start())" in frr_main
+
+    assert unix_uut.index("eigrp_init();") < unix_uut.index("eigrp_process_receive_start()")
+    assert "if(!eigrp_process_receive_start())" in unix_uut

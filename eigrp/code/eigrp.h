@@ -212,6 +212,10 @@ typedef eigrp_result_t (*eigrp_instance_iterate_cb)(eigrp_instance_t *instance,
 	void *arg);
 
 void eigrp_init(void);
+/* Start the process receive worker after host daemonization and before
+ * admitting packets.  Hosts call once during startup; calls are idempotent.
+ * Returns false when the receive worker cannot be created. */
+bool eigrp_process_receive_start(void);
 void eigrp_terminate(void);
 eigrp_instance_t *eigrp_instance_create(eigrp_virt_router_t *virt_router,
 	eigrp_afi_t afi, uint16_t as, eigrp_vrf_id_t vrf_id);
