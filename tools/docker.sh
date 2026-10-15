@@ -112,16 +112,13 @@ checkout_remote() {
 # HEAD from the local repository (no GitHub access, no historical clone), then
 # overlay working modifications/new files and remove locally deleted files.
 stage_local_frr() {
-    local src="$1" dst="$2" version="$3" sha="$4" names path
+    local src="$1" dst="$2" sha="$3" names path
     names="$workdir/frr-files.list"
     git init -q "$dst"
     git -C "$dst" remote add origin "$src"
     git -C "$dst" fetch -q --no-tags --depth 1 origin "$sha"
     git -C "$dst" checkout -q --detach FETCH_HEAD
-    if release_version "$version"; then
-        git -C "$dst" fetch -q --no-tags --depth 1 origin \
-            "+refs/tags/$version:refs/tags/$version"
-    fi
+    # FRR is identified solely by its pinned SHA; no FRR release tag is needed.
     (
         cd "$src"
         git ls-files --cached --others --exclude-standard -z | \
@@ -324,7 +321,7 @@ if [[ "$operation" == --local ]]; then
         --exclude='.pytest_cache/' --exclude='*.o' --exclude='*.lo' \
         --exclude='*.la' --exclude='obj/' --exclude='logs/' \
         "$eigrp_root/" "$workdir/eigrp/"
-    stage_local_frr "$frr_root" "$workdir/frr" "$version" "$frr_sha"
+    stage_local_frr "$frr_root" "$workdir/frr" "$frr_sha"
     eigrp_ref="local:$eigrp_root"
     frr_ref="local:$frr_root"
 else

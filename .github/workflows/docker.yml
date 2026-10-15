@@ -4,8 +4,9 @@ name: OpenEIGRP Docker
 
 on:
   push:
-    branches: [master]
-    tags: ['[0-9]*-[0-9]*-[0-9]*-beta']
+    branches: [master, docker]
+    # Publication tags are independent of beta/gamma/production maturity.
+    tags: ['rel-*']
     paths:
       - '.github/workflows/docker.yml'
       - 'docker/**'
@@ -30,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional matching EIGRP + FRR release tag to test (never publishes manually)'
+        description: 'Optional existing rel-X.Y.Z EIGRP tag to test (manual runs never publish)'
         required: false
         type: string
 
@@ -68,20 +69,18 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == 'push' && "$GIT_REF" == refs/tags/* ]]; then
-            version="${GIT_REF#refs/tags/}"
-            [[ "$version" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]] || {
-              echo "invalid release tag: $version" >&2; exit 1;
+            eigrp_ref="${GIT_REF#refs/tags/}"
+            [[ "$eigrp_ref" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "invalid publication tag: $eigrp_ref" >&2; exit 1;
             }
-            eigrp_ref="$version"
-            frr_ref="$version"
+            version="${eigrp_ref#rel-}"
             release=yes
           elif [[ "$EVENT_NAME" == 'workflow_dispatch' && -n "$MANUAL_TAG" ]]; then
-            version="$MANUAL_TAG"
-            [[ "$version" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]] || {
-              echo "invalid test release tag: $version" >&2; exit 1;
+            eigrp_ref="$MANUAL_TAG"
+            [[ "$eigrp_ref" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "invalid test tag: $eigrp_ref" >&2; exit 1;
             }
-            eigrp_ref="$version"
-            frr_ref="$version"
+            version="${eigrp_ref#rel-}"
             release=no
           else
             version="dev-${GIT_SHA:0:12}"
@@ -90,15 +89,11 @@ jobs:
             else
               eigrp_ref="$GIT_SHA"
             fi
-            # CI development builds use a known FRR revision verified with
-            # the project's two managed patches; releases use matching tags.
-            frr_ref=ebfd886fd46b19f9886b0872b39ad3edf5e6c053
             release=no
           fi
           {
             echo "version=$version"
             echo "eigrp_ref=$eigrp_ref"
-            echo "frr_ref=$frr_ref"
             echo "release=$release"
           } >> "$GITHUB_OUTPUT"
       - name: Build from GitHub EIGRP and FRR sources
@@ -106,17 +101,16 @@ jobs:
         env:
           VERSION: ${{ steps.source.outputs.version }}
           EIGRP_REF: ${{ steps.source.outputs.eigrp_ref }}
-          FRR_REF: ${{ steps.source.outputs.frr_ref }}
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           image="openeigrp-ci:$VERSION-$ARCH"
-          if [[ "$VERSION" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]]; then
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             ./tools/docker.sh --build "$VERSION" --platform "$PLATFORM" --image "$image"
           else
             ./tools/docker.sh --build "$VERSION" --platform "$PLATFORM" --image "$image" \
-              --eigrp-ref "$EIGRP_REF" --frr-ref "$FRR_REF"
+              --eigrp-ref "$EIGRP_REF"
           fi
       - name: Verify FRR, configuration, adjacency and route exchange
         shell: bash
@@ -167,11 +161,49 @@ jobs:
       - name: Validate and publish architecture images and manifest
         shell: bash
         env:
-          VERSION: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          [[ "$VERSION" =~ ^[0-9]+-[0-9]+-[0-9]+-beta$ ]] || exit 1
+          [[ "$RELEASE_TAG" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          VERSION="${RELEASE_TAG#rel-}"
           repository=ghcr.io/diivious/eigrp-frr
+          # Check every destination tag before pushing anything. Docker's
+          # generic inspect error can mean network failure or permission denial;
+          # only an authenticated OCI registry HTTP 404 means a tag is absent.
+          registry_token="$(curl --fail --silent --show-error --retry 2 \
+            --connect-timeout 15 --max-time 45 \
+            --user "$GHCR_USERNAME:$GHCR_TOKEN" \
+            'https://ghcr.io/token?service=ghcr.io&scope=repository:diivious/eigrp-frr:pull' \
+            | jq -er '.token // .access_token // empty')" || {
+              echo 'unable to authenticate GHCR tag checks; publication stopped' >&2
+              exit 1
+            }
+          [[ -n "$registry_token" ]] || {
+            echo 'GHCR token response was empty; publication stopped' >&2
+            exit 1
+          }
+          for tag in "$VERSION" "$VERSION-amd64" "$VERSION-arm64"; do
+            status="$(curl --silent --show-error --head --retry 2 \
+              --connect-timeout 15 --max-time 45 \
+              --output /dev/null --write-out '%{http_code}' \
+              --header "Authorization: Bearer $registry_token" \
+              --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/diivious/eigrp-frr/manifests/$tag")" || {
+                echo "GHCR registry request failed for $repository:$tag; publication stopped" >&2
+                exit 1
+              }
+            case "$status" in
+              404) ;;  # Confirmed absent.
+              200)
+                echo "refusing to overwrite published image: $repository:$tag" >&2
+                exit 1 ;;
+              *)
+                echo "GHCR returned HTTP $status for $repository:$tag; publication stopped" >&2
+                exit 1 ;;
+            esac
+          done
           for arch in amd64 arm64; do
             gzip -dc "images/image-$arch.tar.gz" | docker load
             local_image="openeigrp-ci:$VERSION-$arch"
