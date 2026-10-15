@@ -23,8 +23,9 @@ examples:
   tools/backup.sh --zip eigrp.zip
   tools/backup.sh --zip eigrp-active-code.zip
 
-Creates a clean copy of the project at ~/Downloads/$project_name and writes the
-requested zip file to ~/Downloads unless ZIPFILE is an absolute path.
+Creates a clean, temporary project copy and writes the requested zip file
+in ~/Downloads unless ZIPFILE is an absolute path. Existing folders under
+~/Downloads are never deleted. An existing zip is replaced only after success.
 USAGE
 }
 
@@ -57,47 +58,54 @@ else
 	zip_path="$download_dir/$zip_name"
 fi
 
-backup_dir="$download_dir/$project_name"
-cleanup_backup=0
+# Unique staging directories are owned by this invocation. In particular,
+# never delete or reuse ~/Downloads/$project_name: it may contain user files.
 mkdir -p "$download_dir"
+output_dir="$(dirname "$zip_path")"
+[[ -d "$output_dir" ]] || {
+    echo "error: output directory does not exist: $output_dir" >&2
+    exit 1
+}
+output_dir="$(cd "$output_dir" && pwd)"
+zip_path="$output_dir/$(basename "$zip_path")"
+staging_dir=""
+archive_dir=""
+cleanup() {
+    if [[ -n "$staging_dir" ]]; then rm -rf -- "$staging_dir"; fi
+    if [[ -n "$archive_dir" ]]; then rm -rf -- "$archive_dir"; fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-if [[ "$(cd "$project_root" && pwd)" == "$(mkdir -p "$backup_dir" && cd "$backup_dir" && pwd)" ]]; then
-	echo "error: source project and backup target are the same path: $project_root" >&2
-	exit 1
-fi
-
-rm -rf "$backup_dir"
-cleanup_backup=1
-trap 'if [[ "${cleanup_backup:-0}" -eq 1 ]]; then rm -rf "$backup_dir"; fi' EXIT
+staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/${project_name}-backup.XXXXXXXX")"
+archive_dir="$(mktemp -d "$output_dir/.${project_name}-archive.XXXXXXXX")"
+backup_dir="$staging_dir/$project_name"
 cp -R "$project_root" "$backup_dir"
 
+# Prune generated directories before enumerating individual generated files.
+# Keeping the traversal from entering .venv avoids including venv files in the zip.
 find "$backup_dir" \
-	-name .git -o \
-	-name .pytest_cache -o \
-	-name .deps -o \
-	-name .libs -o \
-	-name __pycache__ -o \
-	-name __MACOSX -o \
-	-name .DS_Store -o \
-	-name .dirstamp -o \
-	-name '*.pyc' -o \
-	-name '*.o' -o \
-	-name '*.lo' -o \
-	-name '*.la' -o \
-	-name '*~' | while IFS= read -r path; do
-		rm -rf "$path"
-	done
+    \( -name .git -o -name .venv -o -name .pytest_cache -o \
+       -name .deps -o -name .libs -o -name __pycache__ -o \
+       -name __MACOSX \) \
+    -prune -exec rm -rf -- {} +
+
+find "$backup_dir" -type f \
+    \( -name .DS_Store -o -name .dirstamp -o -name '*.pyc' -o \
+       -name '*.o' -o -name '*.lo' -o -name '*.la' -o -name '*~' \) \
+    -delete
 
 rm -rf "$backup_dir/frr/test/build/obj" "$backup_dir/frr/test/build/logs"
-rm -f "$zip_path"
-(
-	cd "$download_dir"
-	zip -qr "$zip_path" "$project_name"
-)
 
-rm -rf "$backup_dir"
-cleanup_backup=0
-trap - EXIT
+# Write a complete archive alongside its final destination before replacing
+# the old archive. Any failed zip leaves the previous backup intact.
+temporary_zip="$archive_dir/$(basename "$zip_path")"
+(
+    cd "$staging_dir"
+    zip -qr "$temporary_zip" "$project_name"
+)
+mv -f -- "$temporary_zip" "$zip_path"
 
 echo "created: $zip_path"
-echo "removed: $backup_dir"
+echo "removed temporary staging: $backup_dir"

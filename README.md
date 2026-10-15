@@ -33,12 +33,80 @@ Portable APIs use EIGRP-owned types and structured results. FRR, BIRD, and Unix-
 | Role | Read first | Then |
 |---|---|---|
 | Contributor | `CONTRIBUTING.md` | `specs/architecture.md`, `specs/code-conventions.md` |
-| Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md` |
+| Operator / CLI user | `specs/EIGRP-Config-Guide.md` | `tools/README.md`, `docker/README.md` |
 | Platform integrator | `specs/platform-integration.md`, `specs/public-api.md` | public headers under `eigrp/code/` and the platform README |
 | Portable protocol developer | `specs/architecture.md` | `eigrp/specs/dual.md`, `eigrp/specs/route-selection-spec.md`, `eigrp/specs/rtp.md`, `specs/rfc7868.md` |
 | FRR adapter developer | `frr/README.md`, `frr/patch/README.md` | `specs/platform-integration.md`, `specs/EIGRP-Config-Guide.md` |
 | Unix host developer | `unix/README.md`, `unix/specs/integration.md` | `specs/public-api.md` |
 | BIRD/BSD adapter developer | `bird/README.md` | `specs/platform-integration.md`, `specs/public-api.md` |
+
+## Quick Start
+
+<details open>
+<summary><strong>Using Docker Images</strong></summary>
+
+Pull a **published** multi-platform release from GHCR (example version `0.1.0`; availability depends on publication). Git tag `rel-0.1.0` is the publishing trigger; the Docker image tag is `0.1.0`.
+
+```sh
+docker pull ghcr.io/diivious/eigrp-frr:0.1.0
+docker volume create openeigrp-vol
+docker run -d --name openeigrp \
+  --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
+  -v openeigrp-vol:/etc/frr \
+  ghcr.io/diivious/eigrp-frr:0.1.0
+
+docker exec -it openeigrp vtysh
+```
+
+The Docker package uses Alpine Linux and FRR with OpenEIGRP. For local/GitHub builds, named-mode configuration, end-to-end verification, deployment, and release publishing, see **[Docker Quick Start and Release Guide](docker/README.md)**. Publishing tags are independent of beta, gamma, and production maturity. Direct EIGRP adjacency with a physical LAN requires an appropriate Linux network setup; Docker Desktop's default macOS bridge does not provide it.
+
+</details>
+
+<details>
+<summary><strong>Build and Test local</strong></summary>
+
+### Portable/Unix build
+
+From the repository root:
+
+```sh
+make
+```
+
+The root build compiles the portable EIGRP core and Unix host support without requiring an FRR checkout, BIRD checkout, VM, root privileges, or host VLAN configuration.
+
+### Portable qualification
+
+```sh
+make test
+```
+
+The root test gate includes portable compile/build validation, portable Python/UUT tests, Unix-host tests, IPv4 and IPv6 core scenarios, RTP qualification, and topology scenarios.
+
+Useful targets include:
+
+```sh
+make portable-build
+make portable-test
+make uut
+make ipv4-basic-core
+make ipv6-basic-core
+make rtp-core
+make core-topology
+make mesh-topology
+```
+
+Run:
+
+```sh
+make help
+```
+
+for the complete target list.
+
+GitHub Actions runs the root portable gate on Linux and macOS.
+
+</details>
 
 ## Project State
 
@@ -48,14 +116,25 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 
 | Feature | Cisco EIGRP | OpenEIGRP | Notes |
 |:--|:--:|:--:|:--|
-| **Address Families** | | | |
+<details>
+<summary><strong>Address Families</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | IPv4 | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | IPv6 | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | IPv4/IPv6 named mode | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Multiple autonomous systems | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Multiple named instances | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | VRF / VRF-Lite | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> |  |
-| **Core Protocol** | | | |
+
+</details>
+
+<details>
+<summary><strong>Core Protocol</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | DUAL FSM | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Feasibility Condition | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Feasible Successors | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
@@ -72,7 +151,14 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | NSF awareness | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | NSF restarting router | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> |  |
 | End-of-Table (EOT) signaling | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
-| **Metric and Path Selection** | | | |
+
+</details>
+
+<details>
+<summary><strong>Metric and Path Selection</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | Classic composite metrics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Wide metrics | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Configurable K-values | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
@@ -86,7 +172,14 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | Administrative distance | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Loop-Free Alternate (LFA FRR) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Planned |
 | Add-Path | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Under consideration |
-| **Route Management** | | | |
+
+</details>
+
+<details>
+<summary><strong>Route Management</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | Internal routes | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | External routes | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Route redistribution | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
@@ -100,14 +193,28 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | External route tagging | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Route tag filtering | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Route-tag filtering (match tag) and modification (set tag) need to be implemented |
 | Default route advertisement | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
-| **Summarization** | | | |
+
+</details>
+
+<details>
+<summary><strong>Summarization</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | Manual summarization | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Automatic summarization (IPv4) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Summary metric configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Summary leak maps | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Summary discard / Null0 route | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | The summary implementation does not install a  local discard route,  |
 | Summary administrative distance | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Needs the Summary discard route support |
-| **Policy and Filtering** | | | |
+
+</details>
+
+<details>
+<summary><strong>Policy and Filtering</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | Distribute lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Prefix lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Access lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
@@ -115,7 +222,14 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | Offset lists | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Per-interface filtering | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Inbound / outbound filtering | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
-| **Interface and Neighbor Controls** | | | |
+
+</details>
+
+<details>
+<summary><strong>Interface and Neighbor Controls</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | Passive interfaces | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Static neighbors | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Hello interval | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
@@ -130,18 +244,39 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | Active timer | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Path Graph Feasibility | <span style="color: #c62828; font-weight: 700;">No</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Planned |
 | Peer Groups | <span style="color: #c62828; font-weight: 700;">No</span> | <span style="color: #c62828; font-weight: 700;">No</span> | Planned |
-| **Security** | | | |
+
+</details>
+
+<details>
+<summary><strong>Security</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | MD5 authentication | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | HMAC-SHA-256 authentication | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | The digest primitives and packet integration already exist,  tbd is type-7 support, and interoperability tests |
 | Key chains | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Key rollover | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Runtime selection not fully established |
-| **Fast Convergence** | | | |
+
+</details>
+
+<details>
+<summary><strong>Fast Convergence</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | BFD integration (IPv4) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | [BFD Design](specs/feature-bfd.md) |
 | BFD integration (IPv6) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | [BFD Design](specs/feature-bfd.md) |
 | SIA detection | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Graceful neighbor recovery | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Nonstop Forwarding (NSF) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Requires host support |
-| **Advanced / Specialized** | | | |
+
+</details>
+
+<details>
+<summary><strong>Advanced / Specialized</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | EIGRP Stub | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
 | EIGRP Over the Top (OTP) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | [OTP Design](specs/feature-otp.md) |
 | EIGRP MANET | Legacy/specialized | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
@@ -150,7 +285,14 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | EIGRP MPLS VPN PE-CE | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
 | EIGRP 6PE / 6VPE | Platform-dependent | <span style="color: #c62828; font-weight: 700;">No</span> | No plans |
 | EIGRP Site of Origin (SoO) | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #c62828; font-weight: 700;">No</span> | EIGRP MPLS VPN PE-CE features |
-| **Configuration and Operations** | | | |
+
+</details>
+
+<details>
+<summary><strong>Configuration and Operations</strong></summary>
+
+| Feature | Cisco EIGRP | OpenEIGRP | Notes |
+|:--|:--:|:--:|:--|
 | Classic IPv4 configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Named-mode configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | IPv6 named-mode configuration | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
@@ -167,6 +309,8 @@ The following comparison presents the supplied Alpha 144 feature assessment. **Y
 | Clear topology | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | Clear event logs | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #16803c; font-weight: 700;">Yes</span> |  |
 | SNMP EIGRP MIB | <span style="color: #16803c; font-weight: 700;">Yes</span> | <span style="color: #1769c2; font-weight: 700;">Partial</span> | Conditional on host SNMP |
+
+</details>
 
 ### Implementation and integration status
 
@@ -200,6 +344,7 @@ eigrp/
     specs/         Unix-host integration specification
     test/          Unix-host tests
   specs/           Repository-wide architecture, public API, and operator contracts
+  docker/          Alpine FRR/OpenEIGRP image, container startup, and deployment guide
   tools/           Build, staging, patch, UUT, and packaging helpers
   CONTRIBUTING.md Contribution, style, AI, and test rules
 ```
@@ -215,9 +360,9 @@ eigrp/
 | [`bird/`](bird/README.md) | BIRD/BSD integration area |
 | [`specs/`](specs/) | Cross-platform architecture, integration, and configuration contracts |
 | [`tools/`](tools/README.md) | Build, staging, and test orchestration |
+| [`docker/`](docker/README.md) | Multi-architecture container build, testing, deployment, and GHCR release publication |
 
 The repository tree is the source of truth. Platform staging projects portable code and platform adapters into the host build tree; staged copies are not development sources.
-
 
 ## Protocol behavior and feature ownership
 
@@ -262,49 +407,6 @@ Repository-wide contracts live under `specs/`; portable protocol internals live 
 - `eigrp/specs/dual.md` — DUAL state-machine design.
 - `eigrp/specs/route-selection-spec.md` — topology path ordering and successor selection.
 - `eigrp/specs/rtp.md` — packetization and reliable transport design.
-
-## Build and test
-
-### Portable/Unix build
-
-From the repository root:
-
-```sh
-make
-```
-
-The root build compiles the portable EIGRP core and Unix host support without requiring an FRR checkout, BIRD checkout, VM, root privileges, or host VLAN configuration.
-
-### Portable qualification
-
-```sh
-make test
-```
-
-The root test gate includes portable compile/build validation, portable Python/UUT tests, Unix-host tests, IPv4 and IPv6 core scenarios, RTP qualification, and topology scenarios.
-
-Useful targets include:
-
-```sh
-make portable-build
-make portable-test
-make uut
-make ipv4-basic-core
-make ipv6-basic-core
-make rtp-core
-make core-topology
-make mesh-topology
-```
-
-Run:
-
-```sh
-make help
-```
-
-for the complete target list.
-
-GitHub Actions runs the root portable gate on Linux and macOS.
 
 ## Contribution rules
 

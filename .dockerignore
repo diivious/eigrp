@@ -1,0 +1,9 @@
+# Docker builds use staged source contexts. The main build context supplies
+# only packaging files. Keep every runtime COPY input available.
+**
+!docker/
+!docker/Dockerfile
+!docker/daemons
+!docker/frr.conf
+!docker/docker-start
+!docker/vtysh.conf
