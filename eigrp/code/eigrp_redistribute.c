@@ -180,14 +180,17 @@ eigrp_result_t eigrp_redist_add(
 		.type = EIGRP_REDIST_MESSAGE_ADD, .context = context,
 		.source = source, .metric = metric, .route_map = route_map,
 	};
+	eigrp_redist_config_t *config = NULL;
+	eigrp_redist_config_t *new_config = NULL;
+	eigrp_metric_values_t old_metric = {0};
+	char *new_route_map = NULL;
+	char *old_route_map = NULL;
+	bool old_metric_configured = false;
+	eigrp_result_t result;
 
 	if (context && eigrp_instance_thread_dispatch_needed(context->runtime))
 		return eigrp_instance_message_call(context->runtime,
 			eigrp_redist_message_process, &message);
-	eigrp_redist_config_t *config = NULL;
-	eigrp_redist_config_t *new_config = NULL;
-	char *new_route_map = NULL;
-	eigrp_result_t result;
 
 	result = eigrp_redist_validate(context, source, metric, route_map);
 	if (result != EIGRP_RESULT_SUCCESS)
@@ -199,9 +202,17 @@ eigrp_result_t eigrp_redist_add(
 			return EIGRP_RESULT_INTERNAL_FAILURE;
 	}
 
+	/* Register the policy before subscribing: a host can replay existing
+	 * source routes synchronously inside eigrp_rib_redistribute_add(). */
 	if (context->config) {
 		config = eigrp_redist_config_lookup(context->config, source);
-		if (!config) {
+		if (config) {
+			old_route_map = config->route_map;
+			old_metric = config->metric;
+			old_metric_configured = config->metric_configured;
+			config->route_map = new_route_map;
+			new_route_map = NULL;
+		} else {
 			new_config = calloc(1, sizeof(*new_config));
 			if (!new_config) {
 				free(new_route_map);
@@ -210,40 +221,35 @@ eigrp_result_t eigrp_redist_add(
 			new_config->source = *source;
 			new_config->route_map = new_route_map;
 			new_route_map = NULL;
-			new_config->metric_configured = metric != NULL;
-			if (metric)
-				new_config->metric = *metric;
+			new_config->next = context->config->redistributions;
+			context->config->redistributions = new_config;
+			config = new_config;
 		}
+		config->metric_configured = metric != NULL;
+		memset(&config->metric, 0, sizeof(config->metric));
+		if (metric)
+			config->metric = *metric;
 	}
 
-	result = EIGRP_RESULT_SUCCESS;
-	if (context->runtime)
-		result = eigrp_rib_redistribute_add(context->runtime, source);
+	result = context->runtime
+		? eigrp_rib_redistribute_add(context->runtime, source)
+		: EIGRP_RESULT_SUCCESS;
 	if (!eigrp_redist_runtime_result_committable(result)) {
-		free(new_route_map);
 		if (new_config) {
+			context->config->redistributions = new_config->next;
 			free(new_config->route_map);
 			free(new_config);
+		} else if (config) {
+			free(config->route_map);
+			config->route_map = old_route_map;
+			config->metric = old_metric;
+			config->metric_configured = old_metric_configured;
 		}
+		free(new_route_map);
 		return result;
 	}
 
-	if (context->config) {
-		if (config) {
-			free(config->route_map);
-			config->route_map = new_route_map;
-			new_route_map = NULL;
-			config->metric_configured = metric != NULL;
-			memset(&config->metric, 0, sizeof(config->metric));
-			if (metric)
-				config->metric = *metric;
-		} else if (new_config) {
-			new_config->next = context->config->redistributions;
-			context->config->redistributions = new_config;
-			new_config = NULL;
-		}
-	}
-
+	free(old_route_map);
 	free(new_route_map);
 	return result;
 }

@@ -8,14 +8,14 @@ steps:
   - validate-convergence:
       timeout: 7
       expect:
-        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 2094080}
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7336960}
   - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 1438720"}
   - packet-mark: best-down-static
   - link-down: {uut: r3, interface: n1}
   - validate-convergence:
       timeout: 10
       expect:
-        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 2094080}
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7336960}
         - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
   - wait: 0.5
   - validate-event: {uut: r2, contains: "Summary component: 10.30.2.0/24 metric 13762560"}
@@ -31,7 +31,7 @@ steps:
   - validate-convergence:
       timeout: 10
       expect:
-        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 2094080}
+        - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, metric: 7336960}
         - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
   - validate-event: {uut: r2, contains: "Summary metric: 10.30.0.0/16 1438720"}
   - stop: all

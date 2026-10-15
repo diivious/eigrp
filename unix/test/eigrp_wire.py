@@ -30,18 +30,23 @@ def recv_frame(sock):
 class WireFaultError(ValueError): pass
 
 def _route_prefixes(payload, afi):
-    """Return classic internal route destinations carried by an EIGRP packet."""
+    """Return IPv4 internal and external destinations (classic and MP TLVs)."""
     out=[]; off=20
     while off+4 <= len(payload):
         typ,length=struct.unpack_from("!HH",payload,off)
         if length < 4 or off+length > len(payload): break
         poff=None
-        if afi==4 and typ==0x0102 and length>=25:
-            poff=off+24
-        elif afi==4 and typ==0x0602 and length>=37:
+        if afi==4 and typ in (0x0102, 0x0103):
+            # 4-byte TLV, 4-byte next hop, 20-byte external metadata
+            # (external only), then 16-byte classic metric.
+            candidate=off+24+(20 if typ==0x0103 else 0)
+            if candidate < off+length: poff=candidate
+        elif afi==4 and typ in (0x0602, 0x0603) and length>=37:
+            # 12-byte MP header, 24-byte metric, variable attributes,
+            # and 16 bytes of redistributed-route metadata if external.
             metric=off+12
             attr_len=payload[metric]*2
-            candidate=metric+24+attr_len
+            candidate=metric+24+attr_len+(16 if typ==0x0603 else 0)
             if candidate < off+length: poff=candidate
         if poff is not None:
             plen=payload[poff]; n=(plen+7)//8

@@ -32,3 +32,17 @@ def test_fault_actions_match_delivery_metadata(tmp_path):
         b.add_fault({'name':'reconn','action':'reconnect','source_uut':'r1','destination_uut':'r2','opcode':'update','count':1})
         send_frame(a,_frame(2,'10.0.0.1','10.0.0.2',_eigrp(seq=11)));assert recv_frame(c)
     finally: a.close();c.close();b.close()
+
+
+def test_packet_journal_decodes_ipv4_external_route_prefixes():
+    import socket
+    import struct
+    from eigrp_wire import _route_prefixes
+
+    prefix = bytes([24, 172, 30, 50])
+    mp = struct.pack("!HH", 0x0603, 4 + 8 + 24 + 16 + len(prefix))
+    mp += bytes(8) + bytes(24) + bytes(16) + prefix
+    classic = struct.pack("!HH", 0x0103, 4 + 4 + 20 + 16 + len(prefix))
+    classic += bytes(4) + bytes(20) + bytes(16) + prefix
+    assert _route_prefixes(bytes(20) + mp, 4) == ["172.30.50.0/24"]
+    assert _route_prefixes(bytes(20) + classic, 4) == ["172.30.50.0/24"]

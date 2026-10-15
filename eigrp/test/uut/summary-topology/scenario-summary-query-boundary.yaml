@@ -53,7 +53,10 @@ steps:
         - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
         - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
         - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
-  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r3, since: downstream-link-failure, min: 1, timeout: 2}
+  # R3 is R2's successor for this component and originated the QUERY.
+  # RFC 7868 split horizon suppresses R2's reverse QUERY toward R3;
+  # summary boundary suppression independently excludes R1.
+  - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r3, since: downstream-link-failure, min: 0, max: 0, timeout: 1}
   - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r1, since: downstream-link-failure, min: 0, max: 0, timeout: 1}
   - link-up: {uut: r3, interface: n1}
   - validate-convergence:

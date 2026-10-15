@@ -1,0 +1,32 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-static-three-router.yaml
+name: Static Redistribution Three-Router Query Origin Split Horizon
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib}
+  - packet-mark: source-withdrawal
+  - source-route-remove: {uut: r1, prefix: 172.30.50.0/24}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
+        - route: {uut: r1, prefix: 172.30.50.0/24, table: source, present: false}
+        - route: {uut: r2, prefix: 172.30.50.0/24, table: rib, present: false}
+        - route: {uut: r3, prefix: 172.30.50.0/24, table: rib, present: false}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, event: delivered, since: source-withdrawal, min: 1, timeout: 3}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r3, event: delivered, since: source-withdrawal, min: 1, timeout: 3}
+  - validate-packet: {opcode: reply, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, event: delivered, since: source-withdrawal, min: 1, timeout: 3}
+  - validate-packet: {opcode: reply, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r1, event: delivered, since: source-withdrawal, min: 1, timeout: 3}
+  # RFC 7868 section 3.5 (step 3): a downstream router must not send
+  # the QUERY back on the successor interface while split horizon is on.
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r1, event: delivered, since: source-withdrawal, min: 0, max: 0, timeout: 1}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, event: delivered, since: source-withdrawal, min: 0, max: 0, timeout: 1}
+  - stop: all

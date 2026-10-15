@@ -239,17 +239,22 @@ void eigrp_fsm_query_sent(eigrp_instance_t *eigrp,
 	 * no eligible peers after QUERY target selection.  That is already the
 	 * last-reply condition; do not strand the destination ACTIVE. */
 	route = eigrp_topology_route_read(prefix);
-	if (!route)
-		return;
+	/* No retained path still means the empty QUERY reply set has completed.
+	 * DUAL must transition to PASSIVE with an unreachable metric. */
 	msg.packet_type = EIGRP_OPC_REPLY;
 	msg.eigrp = eigrp;
-	msg.adv_router = route->adv_router;
+	msg.adv_router = route ? route->adv_router : eigrp->neighbor_self;
 	msg.route = route;
 	msg.prefix = prefix;
-	msg.data_type = (route->type == EIGRP_TLV_IPv4_EXT
+	msg.data_type = (route && (route->type == EIGRP_TLV_IPv4_EXT
 			 || route->type == EIGRP_TLV_IPv6_EXT
-			 || route->type == EIGRP_TLV_MP_EXT) ? EIGRP_EXT : EIGRP_INT;
-	msg.metrics = route->reported_metric;
+			 || route->type == EIGRP_TLV_MP_EXT)) ? EIGRP_EXT : EIGRP_INT;
+	if (route)
+		msg.metrics = route->reported_metric;
+	else {
+		memset(&msg.metrics, 0, sizeof(msg.metrics));
+		msg.metrics.delay = EIGRP_MAX_METRIC;
+	}
 	eigrp_fsm_event_lr(&msg);
 }
 
@@ -522,11 +527,10 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 				&prefix->destination, prefix->rij ? prefix->rij->count : 0,
 				route->ei ? route->ei->ifindex : 0, 0, 0);
 
-			if (change == METRIC_INCREASE
-			    && (route->flags
-				& EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
-				return EIGRP_FSM_EVENT_DINC;
-			} else if (prefix->rij->count) {
+			/* The received REPLY discharges a RIJ obligation.  An increased
+			 * successor metric in this REPLY must not consume the last-reply
+			 * event and strand a deferred response to the QUERY origin. */
+			if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
 				eigrp_log(EIGRP_LOG_INFO, "All reply received");
@@ -590,11 +594,10 @@ eigrp_fsm_event_select(eigrp_fsm_action_message_t *msg)
 				&prefix->destination, prefix->rij ? prefix->rij->count : 0,
 				route->ei ? route->ei->ifindex : 0, 0, 0);
 
-			if (change == METRIC_INCREASE
-			    && (route->flags
-				& EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG)) {
-				return EIGRP_FSM_EVENT_DINC;
-			} else if (prefix->rij->count) {
+			/* The received REPLY discharges a RIJ obligation.  An increased
+			 * successor metric in this REPLY must not consume the last-reply
+			 * event and strand a deferred response to the QUERY origin. */
+			if (prefix->rij->count) {
 				return EIGRP_FSM_KEEP_STATE;
 			} else {
 				eigrp_log(EIGRP_LOG_INFO, "All reply received");
@@ -800,14 +803,23 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 	eigrp_prefix_descriptor_t *prefix = msg->prefix;
 	eigrp_route_descriptor_t *route = eigrp_topology_route_read(prefix);
 
-	prefix->fdistance = prefix->distance = prefix->rdistance =
-		route->distance;
-	prefix->reported_metric = route->total_metric;
+	if (route) {
+		prefix->fdistance = prefix->distance = prefix->rdistance =
+			route->distance;
+		prefix->reported_metric = route->total_metric;
+	} else {
+		prefix->fdistance = prefix->distance = prefix->rdistance =
+			EIGRP_MAX_METRIC;
+		memset(&prefix->reported_metric, 0, sizeof(prefix->reported_metric));
+		prefix->reported_metric.delay = EIGRP_MAX_METRIC;
+	}
 	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_DUAL_METRIC_SET,
 		&prefix->destination, prefix->distance, prefix->fdistance,
-		route->reported_distance, 0);
+		route ? route->reported_distance : 0, 0);
 
-	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_3 && prefix->query_origin)
+	if ((prefix->state == EIGRP_FSM_STATE_ACTIVE_3
+	     || prefix->state == EIGRP_FSM_STATE_ACTIVE_2)
+	    && prefix->query_origin)
 		eigrp_reply_send(eigrp, prefix->query_origin, prefix);
 	prefix->query_origin = NULL;
 
@@ -828,6 +840,50 @@ int eigrp_fsm_event_lr(eigrp_fsm_action_message_t *msg)
 	eigrp_update_send_all(eigrp, NULL);
 
 	return 1;
+}
+
+/* RFC 7868: neighbor loss counts as a reply to an outstanding QUERY.
+ * There need not be a route descriptor for that neighbor (a QUERY can be
+ * sent to a peer that never advertised this prefix).  Do not strand RIJ
+ * waiting for a peer whose topology RDB does not exist.
+ */
+void eigrp_fsm_neighbor_down(eigrp_instance_t *eigrp,
+			    eigrp_prefix_descriptor_t *prefix, eigrp_nbr_t *nbr)
+{
+	eigrp_fsm_action_message_t msg = {0};
+	eigrp_route_descriptor_t *route;
+
+	if (!eigrp || !prefix || !nbr
+	    || prefix->state == EIGRP_FSM_STATE_PASSIVE
+	    || !eigrp_fsm_reply_status_pending(prefix, nbr))
+		return;
+
+	eigrp_fsm_reply_status_remove(prefix, nbr);
+	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_REPLY_STATUS,
+		&prefix->destination, prefix->rij ? prefix->rij->count : 0,
+		nbr->ei ? nbr->ei->ifindex : 0, 0, 0);
+	if (prefix->rij && prefix->rij->count)
+		return;
+
+	route = eigrp_topology_route_read(prefix);
+	msg.eigrp = eigrp;
+	msg.prefix = prefix;
+	msg.adv_router = nbr;
+	msg.route = route;
+	msg.packet_type = EIGRP_OPC_REPLY;
+	msg.data_type = route && (route->type == EIGRP_TLV_IPv4_EXT
+				    || route->type == EIGRP_TLV_IPv6_EXT
+				    || route->type == EIGRP_TLV_MP_EXT)
+			? EIGRP_EXT : EIGRP_INT;
+
+	if (prefix->state == EIGRP_FSM_STATE_ACTIVE_0
+	    || prefix->state == EIGRP_FSM_STATE_ACTIVE_2) {
+		if (eigrp_topology_route_select(prefix))
+			eigrp_fsm_event_lr_fcs(&msg);
+		else
+			eigrp_fsm_event_lr_fcn(&msg);
+	} else
+		eigrp_fsm_event_lr(&msg);
 }
 
 int eigrp_fsm_event_dinc(eigrp_fsm_action_message_t *msg)
