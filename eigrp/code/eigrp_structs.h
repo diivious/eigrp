@@ -140,6 +140,7 @@ struct eigrp_instance {
 	eigrp_event_t *t_write;
 	eigrp_event_t *t_read;
 	eigrp_timer_event_t *t_distribute; /* timer for distribute list */
+	eigrp_timer_event_t *t_pacing; /* earliest pending interface TX budget */
 
 	struct eigrp_network_runtime *networks; /* EIGRP runtime networks. */
 
@@ -307,6 +308,14 @@ typedef struct eigrp_interface {
 	bool split_horizon;
 	bool next_hop_self;
 	uint32_t bandwidth_percent;
+	/* Per-interface transmit bandwidth budget (packet bytes * 800 units). */
+	uint64_t pacing_last_msec;
+	uint64_t pacing_rate;
+	uint64_t pacing_credit;
+	bool pacing_initialized;
+	uint64_t pacing_tx_bytes; /* successful EIGRP wire payload bytes */
+	uint64_t pacing_defer_count; /* scheduler budget deferrals */
+	uint64_t pacing_defer_msec; /* requested delay, not wall-clock benchmark */
 
 	/* Neighbor information. */
 	eigrp_list_t *nbrs; /* EIGRP Neighbor List */
@@ -357,6 +366,7 @@ typedef struct eigrp_packet {
 	eigrp_nbr_t *nbr;
 	uint32_t sequence_number;
 	bool retransmission;
+	bool retry_queued; /* original reliable head has one pending paced retry */
 	bool multicast_exception;
 	uint64_t sent_msec; /* first successful wire send; RTT sampling only */
 

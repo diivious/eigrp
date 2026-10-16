@@ -46,6 +46,9 @@ typedef struct eigrp_intf_state {
 	uint64_t multicast_exceptions;
 	uint64_t cr_packets_sent;
 	uint64_t retransmissions_sent;
+	uint64_t pacing_tx_bytes;
+	uint64_t pacing_defer_count;
+	uint64_t pacing_defer_msec;
 	bool bandwidth_percent_configured;
 	bool hello_interval_configured;
 	bool hold_time_configured;

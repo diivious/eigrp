@@ -8,7 +8,7 @@ PYTHON ?= $(CURDIR)/tools/python
 export PYTHON
 
 .PHONY: all help build uut portable-build portable-test portable-pytest \
-	portable-scenarios ipv4-basic-core ipv6-basic-core rtp-core core-topology mesh-topology test clean \
+	portable-scenarios ipv4-basic-core ipv6-basic-core rtp-core core-topology mesh-topology test scale scale-tests clean \
 	frr-smoke
 
 all: build ## Build the standalone EIGRP code and Unix platform support.
@@ -50,6 +50,21 @@ mesh-topology: build ## Run the six-router full-mesh DUAL/query-storm qualificat
 	$(MAKE) -C eigrp/test/uut mesh-topology
 
 test: uut ## Run the complete portable UUT gate once (pytest + all YAML scenarios).
+
+# Do not run 2048 operating-system UUT processes. The scale driver injects
+# 2048 synthetic EIGRP peers into one actual R1 UUT through the Unix wire.
+scale-tests: build ## Run portable high-fanout scale qualification scenarios.
+	@printf '\n%s\n\n' '========================================== scale test starts ==========================================='
+	$(MAKE) -C eigrp/test/uut eigrp-uut-node
+	$(PYTHON) eigrp/test/scale/neighbor_2048.py
+
+scale: ## Run the regular UUT, then the scale gate; report both even on failure.
+	@uut_status=0; scale_status=0; \
+	$(MAKE) uut || uut_status=$$?; \
+	$(MAKE) scale-tests || scale_status=$$?; \
+	if [ $$uut_status -ne 0 ]; then echo "UUT gate FAILED ($$uut_status)"; fi; \
+	if [ $$scale_status -ne 0 ]; then echo "Scale gate FAILED ($$scale_status)"; fi; \
+	test $$uut_status -eq 0 && test $$scale_status -eq 0
 
 # Optional FRR-owned compile/link smoke test; not part of the portable gate.
 frr-smoke: ## Run the optional FRR compile/link smoke test.

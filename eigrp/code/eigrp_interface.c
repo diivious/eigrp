@@ -150,6 +150,9 @@ static eigrp_result_t eigrp_intf_state_emit(
 		state.split_horizon = ei->split_horizon;
 		state.next_hop_self = ei->next_hop_self;
 		state.bandwidth_percent = ei->bandwidth_percent;
+		state.pacing_tx_bytes = ei->pacing_tx_bytes;
+		state.pacing_defer_count = ei->pacing_defer_count;
+		state.pacing_defer_msec = ei->pacing_defer_msec;
 		state.hello_timer_running = ei->t_hello != NULL;
 		state.hello_timer_remaining =
 			eigrp_timer_remaining_seconds(ei->eigrp, ei->t_hello);

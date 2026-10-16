@@ -53,6 +53,10 @@ extern void eigrp_packet_input_queue_clear(eigrp_instance_t *eigrp);
 extern void eigrp_packet_write(void *arg);
 extern void eigrp_packet_write_ready(void *arg);
 extern void eigrp_packet_write_schedule(eigrp_instance_t *eigrp);
+/* Portable per-interface TX budget. Clock supplied by caller for deterministic tests. */
+uint32_t eigrp_packet_pacing_delay_msec(eigrp_intf_t *ei,
+	uint16_t packet_length, uint64_t now_msec);
+void eigrp_packet_pacing_charge(eigrp_intf_t *ei, uint16_t packet_length);
 
 extern eigrp_packet_t *eigrp_packet_create(size_t, eigrp_nbr_t *);
 extern eigrp_packet_t *eigrp_packet_dup(eigrp_packet_t *,
@@ -74,6 +78,8 @@ extern void eigrp_packet_queue_clear(eigrp_packet_queue_t *);
 
 extern void eigrp_packet_output_enqueue(eigrp_instance_t *, eigrp_intf_t *,
 				       eigrp_packet_t *);
+/* Teardown: purge packets that still reference this neighbor. */
+void eigrp_packet_neighbor_output_clear(eigrp_nbr_t *nbr);
 extern bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *,
 						     eigrp_intf_t *,
 						     eigrp_packet_t *);

@@ -917,6 +917,9 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 		pthread_mutex_unlock(&nbr->ei->eigrp->peer_lock);
 	}
 
+	/* A paced packet can still point at nbr after its RTP queue was cleared. */
+	if (nbr->ei)
+		eigrp_packet_neighbor_output_clear(nbr);
 	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	if (nbr->ei)
 		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
