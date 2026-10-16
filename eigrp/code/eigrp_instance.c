@@ -306,6 +306,13 @@ eigrp_instance_t *eigrp_instance_create(eigrp_virt_router_t *virt_router,
 	/* The self-neighbor is wire/data-path state and is created only there. */
 	src.afi = afi == EIGRP_AFI_IPV6 ? AF_INET6 : AF_INET;
 	eigrp->neighbor_self = eigrp_nbr_create(NULL, &src);
+	if (!eigrp->neighbor_self) {
+		eigrp_log(EIGRP_LOG_ERROR,
+			"address-family %u AS %u self-neighbor allocation failed",
+			(unsigned)afi, (unsigned)as);
+		eigrp_instance_delete_final(eigrp);
+		return NULL;
+	}
 	eigrp_packetizer_init(eigrp);
 
 	/* The AF packet consumer is part of AF initialization.  Start it before

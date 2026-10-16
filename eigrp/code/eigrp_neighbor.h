@@ -25,6 +25,14 @@
 #include "eigrp_instance.h"
 #include "eigrp_types.h"
 
+/* Protective defaults for an AF runtime, not protocol-defined limits.  Leave
+ * room for large hub/spoke designs with over 1,000 live peers per interface. */
+#define EIGRP_NEIGHBOR_MAX_PER_INTERFACE 2048U
+#define EIGRP_NEIGHBOR_MAX_PER_INSTANCE 8192U
+
+/* Caller must hold instance->peer_lock (ingress authentication already does). */
+bool eigrp_nbr_admit_locked(const eigrp_intf_t *ei);
+
 /* Neighbor Data Structure */
 typedef struct eigrp_neighbor {
 

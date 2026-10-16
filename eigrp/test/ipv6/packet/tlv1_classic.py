@@ -23,6 +23,7 @@ def test_ipv6_classic_tlv1_codec_round_trip_and_rejection(tmp_path):
             #include <arpa/inet.h>
             #include <assert.h>
             #include <stdbool.h>
+            #include <stdio.h>
             #include <stdarg.h>
             #include <stdint.h>
             #include <string.h>
@@ -216,6 +217,12 @@ def test_ipv6_classic_tlv1_codec_round_trip_and_rejection(tmp_path):
                 assert(memcmp(stream->data + 4, &route.nexthop.ip.v6, 16) == 0);
                 assert(stream->data[4 + 16 + (external ? 20 : 0) + 16] == prefix_length);
 
+                /* Supply the real C-encoder bytes to the Python broker oracle. */
+                printf("VECTOR|%s|%u|", external ? "external" : "internal", prefix_length);
+                for (size_t n = 0; n < stream->endp; n++)
+                    printf("%02x", stream->data[n]);
+                printf("\n");
+
                 decoded = codec->decoder(eigrp, nbr, stream, (uint16_t)stream->endp);
                 assert(decoded != NULL);
                 assert(decoded->type == expected_type);
@@ -344,6 +351,25 @@ def test_ipv6_classic_tlv1_codec_round_trip_and_rejection(tmp_path):
         stderr=subprocess.PIPE,
     )
     assert result.returncode == 0, result.stderr
+
+    # Regress the independent read-only virtual-wire prefix parser against
+    # production C encoder output (internal + external, prefix lengths 0..128).
+    import ipaddress
+    import importlib.util
+    import pathlib
+    # sys is imported at module scope
+    wire_dir=ROOT / "unix" / "test"
+    sys.path.insert(0,str(wire_dir))
+    try:
+        from eigrp_wire import _route_prefixes
+        vectors=[row.split("|",3) for row in result.stdout.splitlines() if row.startswith("VECTOR|")]
+        assert len(vectors)==20
+        for _, route_kind, bitlen, payload_hex in vectors:
+            bitlen=int(bitlen)
+            expected=str(ipaddress.ip_network(f"2001:db8:1234:5678:9abc:def0:1234:5678/{bitlen}",strict=False))
+            assert _route_prefixes(bytes(20)+bytes.fromhex(payload_hex),6)==[expected],(route_kind,bitlen)
+    finally:
+        sys.path.remove(str(wire_dir))
 
 
 def test_forced_32bit_policy_refreshes_neighbor_codec_and_ipv6_uses_classic_types():

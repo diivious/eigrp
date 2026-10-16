@@ -50,5 +50,5 @@ jobs:
           name: eigrp-core-${{ matrix.os }}-failure-log
           path: |
             make-test.log
-            eigrpd/test/uut/logs/
+            eigrp/test/uut/logs/
           if-no-files-found: warn

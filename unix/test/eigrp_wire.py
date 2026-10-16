@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Donnie V. Savage
 """Fault-capable Unix virtual wire used by portable EIGRP UUT qualification."""
 from __future__ import annotations
-import collections, heapq, os, selectors, socket, struct, threading, time
+import collections, heapq, ipaddress, os, selectors, socket, struct, threading, time
 
 HDR=struct.Struct("!BBBBIHHHH16s16s"); REGISTER=1; PACKET=2; MULTICAST=1; CR_FLAG=0x02
 OPCODES={1:"update",2:"request",3:"query",4:"reply",5:"hello",6:"ipxsap",7:"probe",8:"ack",10:"sia-query",11:"sia-reply"}
@@ -30,30 +30,45 @@ def recv_frame(sock):
 class WireFaultError(ValueError): pass
 
 def _route_prefixes(payload, afi):
-    """Return IPv4 internal and external destinations (classic and MP TLVs)."""
+    """Read destination prefixes from classic and MP TLVs, without decoding protocol state.
+
+    The broker is diagnostic only. Never extract a destination from an invalid
+    TLV/AFI, truncated metric, unsupported prefix length, or missing prefix bytes.
+    """
     out=[]; off=20
+    family = {4: (socket.AF_INET,4,32), 6: (socket.AF_INET6,16,128)}.get(afi)
+    if not family: return out
+    _,addr_bytes,max_bits=family
     while off+4 <= len(payload):
         typ,length=struct.unpack_from("!HH",payload,off)
         if length < 4 or off+length > len(payload): break
-        poff=None
-        if afi==4 and typ in (0x0102, 0x0103):
-            # 4-byte TLV, 4-byte next hop, 20-byte external metadata
-            # (external only), then 16-byte classic metric.
-            candidate=off+24+(20 if typ==0x0103 else 0)
-            if candidate < off+length: poff=candidate
-        elif afi==4 and typ in (0x0602, 0x0603) and length>=37:
-            # 12-byte MP header, 24-byte metric, variable attributes,
-            # and 16 bytes of redistributed-route metadata if external.
-            metric=off+12
-            attr_len=payload[metric]*2
-            candidate=metric+24+attr_len+(16 if typ==0x0603 else 0)
-            if candidate < off+length: poff=candidate
+        end=off+length; poff=None
+        if (afi==4 and typ in (0x0102,0x0103)) or (afi==6 and typ in (0x0402,0x0403)):
+            # IPv4 classic: 4-byte next hop; IPv6 classic: 16-byte next hop.
+            # External routes additionally carry 20 bytes of origin metadata.
+            nexthop=4 if afi==4 else 16
+            candidate=off+4+nexthop+(20 if typ & 0xf == 3 else 0)+16
+            if candidate < end: poff=candidate
+        elif typ in (0x0602,0x0603) and off+13 <= end:
+            # MP header: 8 bytes (AFI, topology, flags). The AFI is a
+            # 16-bit EIGRP AF identity, not the outer Unix transport AFI.
+            protocol_afi=struct.unpack_from("!H",payload,off+4)[0]
+            if protocol_afi==(1 if afi==4 else 2):
+                metric=off+12
+                if metric+24<=end:
+                    attr_len=payload[metric]*2
+                    candidate=metric+24+attr_len+(16 if typ==0x0603 else 0)
+                    if candidate < end: poff=candidate
         if poff is not None:
-            plen=payload[poff]; n=(plen+7)//8
-            if plen<=32 and poff+1+n<=off+length:
-                raw=payload[poff+1:poff+1+n]+b"\0"*(4-n)
-                out.append(f"{socket.inet_ntop(socket.AF_INET,raw)}/{plen}")
-        off += length
+            plen=payload[poff]
+            # RFC 7868 6.8.4/6.9.5: IPv6 uses an extra encoded octet
+            # on exact 8-bit boundaries (except /128). Reject truncated TLVs.
+            n=(0 if plen==0 else 16 if plen==128 else plen//8+1) if afi==6 else (plen+7)//8
+            if plen<=max_bits and poff+1+n==end:
+                raw=payload[poff+1:poff+1+n]+bytes(addr_bytes-n)
+                destination=ipaddress.ip_network((ipaddress.ip_address(raw),plen),strict=False)
+                out.append(str(destination))
+        off=end
     return out
 
 def _packet_meta(payload, afi):

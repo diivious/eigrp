@@ -60,6 +60,7 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 
 #define EIGRP_PACKET_ADDR_TEXT_SIZE 64U
 #define EIGRP_AF_PACKET_INPUT_QUEUE_MAX 1024U
+#define EIGRP_AF_PACKET_DISCOVERY_QUEUE_MAX 256U
 
 /* Validate receive metadata against the bytes actually present in the stream.
  * Metadata is supplied by the host adapter and must never enlarge the portable
@@ -852,6 +853,8 @@ static eigrp_packet_input_t *eigrp_packet_input_dequeue_locked(eigrp_instance_t 
 	eigrp->packet_head = input->next;
 	if (eigrp->packet_count)
 		eigrp->packet_count--;
+	if (input->ingress_discovery && eigrp->packet_discovery_count)
+		eigrp->packet_discovery_count--;
 	if (!eigrp->packet_head)
 		eigrp->packet_tail = NULL;
 	input->next = NULL;
@@ -1438,7 +1441,9 @@ bool eigrp_packet_input_enqueue(eigrp_instance_t *eigrp,
 		return false;
 	pthread_mutex_lock(&eigrp->work_lock);
 	if (eigrp->shutdown || !eigrp->thread_running
-	    || eigrp->packet_count >= EIGRP_AF_PACKET_INPUT_QUEUE_MAX) {
+	    || eigrp->packet_count >= EIGRP_AF_PACKET_INPUT_QUEUE_MAX
+	    || (input->ingress_discovery
+		&& eigrp->packet_discovery_count >= EIGRP_AF_PACKET_DISCOVERY_QUEUE_MAX)) {
 		if (!eigrp->shutdown && eigrp->thread_running)
 			eigrp->packet_drop_count++;
 		pthread_mutex_unlock(&eigrp->work_lock);
@@ -1451,6 +1456,8 @@ bool eigrp_packet_input_enqueue(eigrp_instance_t *eigrp,
 		eigrp->packet_head = input;
 	eigrp->packet_tail = input;
 	eigrp->packet_count++;
+	if (input->ingress_discovery)
+		eigrp->packet_discovery_count++;
 	pthread_cond_signal(&eigrp->work_cond);
 	pthread_mutex_unlock(&eigrp->work_lock);
 	return true;
@@ -1468,6 +1475,7 @@ void eigrp_packet_input_queue_clear(eigrp_instance_t *eigrp)
 	eigrp->packet_head = NULL;
 	eigrp->packet_tail = NULL;
 	eigrp->packet_count = 0;
+	eigrp->packet_discovery_count = 0;
 	pthread_mutex_unlock(&eigrp->work_lock);
 
 	while (input) {
@@ -2095,12 +2103,16 @@ bool eigrp_packet_ingress_authenticate(eigrp_instance_t *instance,
 	/* Only discovery Hellos may arrive without an existing peer. */
 	if (!nbr && (header->opcode != EIGRP_OPC_HELLO || ntohl(header->ack)))
 		goto done;
+	/* Reject excess sources before spending work authenticating them. */
+	if (!nbr && !eigrp_nbr_admit_locked(ei))
+		goto done;
 	if (eigrp_packet_auth_digest_validate(ei, nbr, &input->source,
 					    header, length) < 0)
 		goto done;
 
 	input->ingress_authenticated = true;
 	input->ingress_neighbor_generation = nbr ? nbr->generation : 0;
+	input->ingress_discovery = !nbr || nbr->state != EIGRP_NEIGHBOR_UP;
 	if (nbr)
 		eigrp_nbr_holddown_update(nbr);
 	accepted = true;

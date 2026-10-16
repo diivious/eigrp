@@ -46,6 +46,7 @@ struct eigrp_packet_input {
 	eigrp_stream_t *stream;
 	/* Set only by process ingress after complete authentication and framing. */
 	bool ingress_authenticated;
+	bool ingress_discovery; /* New/non-UP peer, counted in AF input queue. */
 	uint64_t ingress_neighbor_generation;
 };
 
@@ -104,6 +105,7 @@ struct eigrp_instance {
 	eigrp_packet_input_t *packet_head;
 	eigrp_packet_input_t *packet_tail;
 	size_t packet_count;
+	size_t packet_discovery_count; /* Protected by work_lock. */
 	uint64_t packet_drop_count;
 
 	uint8_t k_values[6]; /*Array for K values configuration*/

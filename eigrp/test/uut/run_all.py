@@ -4,7 +4,11 @@
 """Discover and run every portable EIGRP YAML UUT scenario."""
 from __future__ import annotations
 
+import argparse
+import math
+import os
 import shlex
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -73,7 +77,85 @@ def display_arg(path: Path) -> str:
         return str(path)
 
 
-def main() -> int:
+
+# 180 seconds is a watchdog, not the convergence oracle: YAML steps retain
+# their own stricter timeouts. Override for slower CI hosts with
+# EIGRP_UUT_SCENARIO_TIMEOUT or --scenario-timeout.
+DEFAULT_SCENARIO_TIMEOUT = 180.0
+
+
+def positive_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("scenario timeout must be a number") from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("scenario timeout must be finite and > 0")
+    return seconds
+
+
+def execute_scenario(command: list[str], timeout: float) -> tuple[int, str, bool]:
+    """Bound a scenario *and its children*; retain stdout on timeout.
+
+    Each scenario has its own POSIX session so a stalled runner and its UUT
+    children can be terminated together without disturbing the suite launcher.
+    """
+    proc = subprocess.Popen(command, cwd=PROJECT_ROOT, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            start_new_session=True)
+    try:
+        output, _ = proc.communicate(timeout=timeout)
+        return proc.returncode, output, False
+    except subprocess.TimeoutExpired as exc:
+        # TimeoutExpired.stdout may contain bytes even with text=True. Save
+        # this partial output explicitly: a second communicate() after SIGTERM
+        # is not guaranteed to return it on every Python/platform version.
+        partial = exc.stdout or b""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", errors="replace")
+        # Terminate the entire UUT process group, not just its Python parent.
+        # communicate() after a timeout retains the output already received.
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            output, _ = proc.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                output, _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired as last:
+                # An independently reparented child can retain stdout open
+                # after the runner is killed. Keep any buffered diagnostics
+                # and advance to the next scenario instead of hanging here.
+                output = last.stdout or b""
+                if proc.stdout:
+                    proc.stdout.close()
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=2)
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        if partial and not output.startswith(partial):
+            output = partial + output
+        return 124, output, True
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scenario-timeout", type=positive_seconds,
+                        default=os.environ.get("EIGRP_UUT_SCENARIO_TIMEOUT", str(DEFAULT_SCENARIO_TIMEOUT)),
+                        help="wall-clock watchdog for each scenario (seconds, default: 180; "
+                             "env: EIGRP_UUT_SCENARIO_TIMEOUT)")
+    args = parser.parse_args(argv)
+    try:
+        timeout = positive_seconds(str(args.scenario_timeout))
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
     try:
         scenarios = discover()
     except Exception as exc:
@@ -93,21 +175,28 @@ def main() -> int:
         command = [sys.executable, str(RUNNER), str(topology), str(scenario), "--verbose", "--report"]
         display_command = [sys.executable, display_arg(RUNNER), display_arg(topology), display_arg(scenario), "--verbose", "--report"]
         print(f"[{index}/{len(scenarios)}] {rel_scenario} -> {log_path.relative_to(PROJECT_ROOT)}", flush=True)
-        result = subprocess.run(command, cwd=PROJECT_ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            returncode, output, timed_out = execute_scenario(command, timeout)
+        except OSError as exc:
+            returncode, output, timed_out = 1, f"scenario launcher failed: {exc}\n", False
         with log_path.open("w", encoding="utf-8") as log:
             log.write(f"test case: {name}\n")
             log.write(f"scenario: {rel_scenario}\n")
             log.write(f"command: {shlex.join(display_command)}\n")
             rerun = ["./tools/python", display_arg(RUNNER), display_arg(topology), display_arg(scenario), "--verbose", "--report"]
             log.write(f"rerun: {shlex.join(rerun)}\n")
-            log.write(f"exit status: {result.returncode}\n")
+            log.write(f"exit status: {returncode}\n")
+            if timed_out:
+                log.write(f"TIMEOUT: scenario exceeded {timeout:g}s; "
+                          "terminated UUT process group\n")
             log.write("\n===== runner/debug output =====\n")
-            log.write(result.stdout)
-            if result.stdout and not result.stdout.endswith("\n"):
+            log.write(output or "")
+            if output and not output.endswith("\n"):
                 log.write("\n")
-        if result.returncode:
+        if returncode:
             failures.append((name, log_path))
-            print(f"  FAIL: see {log_path.relative_to(PROJECT_ROOT)}", file=sys.stderr)
+            print(f"  FAIL{' (TIMEOUT)' if timed_out else ''}: see "
+                  f"{log_path.relative_to(PROJECT_ROOT)}", file=sys.stderr)
         else:
             print("  PASS", flush=True)
 

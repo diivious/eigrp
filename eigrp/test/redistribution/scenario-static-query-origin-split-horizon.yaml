@@ -27,6 +27,6 @@ steps:
   - validate-packet: {opcode: reply, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r1, event: delivered, since: source-withdrawal, min: 1, timeout: 3}
   # RFC 7868 section 3.5 (step 3): a downstream router must not send
   # the QUERY back on the successor interface while split horizon is on.
-  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r1, event: delivered, since: source-withdrawal, min: 0, max: 0, timeout: 1}
-  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, event: delivered, since: source-withdrawal, min: 0, max: 0, timeout: 1}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r1, event: any, since: source-withdrawal, min: 0, max: 0, timeout: 1}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, event: any, since: source-withdrawal, min: 0, max: 0, timeout: 1}
   - stop: all

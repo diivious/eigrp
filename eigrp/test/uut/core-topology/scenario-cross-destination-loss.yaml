@@ -20,8 +20,8 @@ steps:
         - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, present: false}
         - route: {uut: r4, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
         - route: {uut: r4, prefix: 10.4.0.0/24, table: rib, present: false}
-  - validate-packet: {opcode: query, prefix: 10.4.0.0/24, since: cross-n1-down, min: 1, timeout: 2}
-  - validate-packet: {opcode: reply, prefix: 10.4.0.0/24, since: cross-n1-down, min: 1, timeout: 2}
+  - validate-packet: {opcode: query, prefix: 10.4.0.0/24, since: cross-n1-down, min: 1, timeout: 2, event: delivered}
+  - validate-packet: {opcode: reply, prefix: 10.4.0.0/24, since: cross-n1-down, min: 1, timeout: 2, event: delivered}
   - link-up: {uut: r4, interface: lan4}
   - validate-convergence:
       timeout: 7

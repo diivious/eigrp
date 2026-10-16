@@ -20,6 +20,7 @@ steps:
   - start: r5
   - start: r1
   - validate-convergence:
+      stable_for: 0.2
       timeout: 8
       expect:
         # Route convergence may precede the remote INIT handshake.
@@ -54,6 +55,7 @@ steps:
   - link-down: {uut: r2, interface: eth21}
 
   - validate-convergence:
+      stable_for: 0.2
       timeout: 8
       expect:
         - route: {uut: r1, prefix: 10.104.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
@@ -71,13 +73,14 @@ steps:
         - route: {uut: r1, prefix: 10.105.0.0/24, table: topology, active: false, successors: 1, fd: 7864320}
         - route: {uut: r1, prefix: 10.105.0.0/24, table: rib, next_hop: 10.15.0.5, metric: 12451840, distance: 90}
 
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.104.0.0/24, since: r1-r2-shared-failure, min: 0, max: 0, timeout: 2}
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.103.0.0/24, since: r1-r2-shared-failure, min: 0, max: 0, timeout: 2}
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.105.0.0/24, since: r1-r2-shared-failure, min: 0, max: 0, timeout: 2}
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.102.0.0/24, since: r1-r2-shared-failure, min: 1, timeout: 2}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.104.0.0/24, since: r1-r2-shared-failure, min: 0, max: 0, timeout: 2, event: any}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.103.0.0/24, since: r1-r2-shared-failure, min: 0, max: 0, timeout: 2, event: any}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.105.0.0/24, since: r1-r2-shared-failure, min: 0, max: 0, timeout: 2, event: any}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.102.0.0/24, since: r1-r2-shared-failure, min: 1, timeout: 2, event: delivered}
 
   # Recheck state after all negative QUERY observation windows complete.
   - validate-convergence:
+      stable_for: 0.2
       timeout: 2
       expect:
         - route: {uut: r1, prefix: 10.104.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
@@ -90,6 +93,7 @@ steps:
   - link-up: {uut: r1, interface: eth12}
   - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 8}
   - validate-convergence:
+      stable_for: 0.2
       timeout: 8
       expect:
         - route: {uut: r1, prefix: 10.104.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}

@@ -24,8 +24,8 @@ steps:
   - link-down: {uut: r4, interface: lan4}
   - validate-route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: true, timeout: 4}
   - validate-route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: true, timeout: 4}
-  - validate-packet: {source_uut: r3, destination_uut: r2, opcode: sia-query, prefix: 10.4.0.0/24, since: sia-positive, min: 1, timeout: 5}
-  - validate-packet: {source_uut: r2, destination_uut: r3, opcode: sia-reply, prefix: 10.4.0.0/24, since: sia-positive, min: 1, timeout: 2}
+  - validate-packet: {source_uut: r3, destination_uut: r2, opcode: sia-query, prefix: 10.4.0.0/24, since: sia-positive, min: 1, timeout: 5, event: delivered}
+  - validate-packet: {source_uut: r2, destination_uut: r3, opcode: sia-reply, prefix: 10.4.0.0/24, since: sia-positive, min: 1, timeout: 2, event: delivered}
   - validate-fault: {name: hold-root-reply, hits: 1, timeout: 1}
   - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, timeout: 1}
   - fault-remove: hold-root-reply

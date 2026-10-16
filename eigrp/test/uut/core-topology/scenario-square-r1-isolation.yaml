@@ -21,7 +21,7 @@ steps:
       expect:
         - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
         - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 9830400}
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: square-isolate-r1-r2-down, min: 0, max: 0, timeout: 2}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: square-isolate-r1-r2-down, min: 0, max: 0, timeout: 2, event: any}
   # Remove the last R1 core edge while the first remains down. R1 must withdraw N1.
   - packet-mark: square-isolate-r1-r3-down
   - link-down: {uut: r1, interface: eth13}

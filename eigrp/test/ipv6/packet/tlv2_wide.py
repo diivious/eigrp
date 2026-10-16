@@ -23,6 +23,7 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
             #include <arpa/inet.h>
             #include <assert.h>
             #include <stdbool.h>
+            #include <stdio.h>
             #include <stdarg.h>
             #include <stdint.h>
             #include <string.h>
@@ -223,6 +224,11 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
                 assert(memcmp(stream->data + 38, &route.nexthop.ip.v6, 16) == 0);
                 assert(stream->data[expected_length - (1 + prefix_octets)] == prefix_length);
 
+                printf("VECTOR|%s|%u|", external ? "external" : "internal", prefix_length);
+                for (size_t n = 0; n < stream->endp; n++)
+                    printf("%02x", stream->data[n]);
+                printf("\n");
+
                 decoded = codec->decoder(eigrp, nbr, stream, (uint16_t)stream->endp);
                 assert(decoded != NULL);
                 assert(decoded->type == (external ? EIGRP_TLV_IPv6_EXT : EIGRP_TLV_IPv6_INT));
@@ -404,6 +410,20 @@ def test_ipv6_wide_tlv2_codec_round_trip_and_rejection(tmp_path):
         stderr=subprocess.PIPE,
     )
     assert result.returncode == 0, result.stderr
+
+    # Decode wire TLVs emitted by the real C codec, not fabricated Python layouts.
+    import ipaddress
+    sys.path.insert(0,str(ROOT / "unix" / "test"))
+    try:
+        from eigrp_wire import _route_prefixes
+        vectors=[row.split("|",3) for row in result.stdout.splitlines() if row.startswith("VECTOR|")]
+        assert len(vectors)==20
+        for _, kind, length, hex_bytes in vectors:
+            expected=str(ipaddress.ip_network(
+                f"2001:db8:1234:5678:9abc:def0:1234:5678/{int(length)}",strict=False))
+            assert _route_prefixes(bytes(20)+bytes.fromhex(hex_bytes),6)==[expected],(kind,length)
+    finally:
+        sys.path.remove(str(ROOT / "unix" / "test"))
 
 
 

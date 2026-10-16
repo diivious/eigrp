@@ -24,9 +24,9 @@ steps:
         - route: {uut: r1, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
         - route: {uut: r2, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
         - route: {uut: r3, prefix: 172.30.50.0/24, table: topology, active: false, successors: 0}
-  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r3, since: source-withdrawal, min: 1, timeout: 5}
-  - validate-packet: {opcode: reply, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, since: source-withdrawal, min: 1, timeout: 5}
-  - validate-packet: {opcode: update, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, since: source-withdrawal, min: 1, timeout: 5}
+  - validate-packet: {opcode: query, prefix: 172.30.50.0/24, source_uut: r2, destination_uut: r3, since: source-withdrawal, min: 1, timeout: 5, event: delivered}
+  - validate-packet: {opcode: reply, prefix: 172.30.50.0/24, source_uut: r3, destination_uut: r2, since: source-withdrawal, min: 1, timeout: 5, event: delivered}
+  - validate-packet: {opcode: update, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, since: source-withdrawal, min: 1, timeout: 5, event: delivered}
   - packet-mark: source-restore
   - source-route-add: {uut: r1, prefix: 172.30.50.0/24, metric: 10}
   - validate-convergence:
@@ -34,5 +34,5 @@ steps:
       expect:
         - route: {uut: r2, prefix: 172.30.50.0/24, table: rib}
         - route: {uut: r3, prefix: 172.30.50.0/24, table: rib}
-  - validate-packet: {opcode: update, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, since: source-restore, min: 1, timeout: 5}
+  - validate-packet: {opcode: update, prefix: 172.30.50.0/24, source_uut: r1, destination_uut: r2, since: source-restore, min: 1, timeout: 5, event: delivered}
   - stop: all
