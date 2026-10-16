@@ -14,10 +14,10 @@ steps:
   - validate-convergence:
       timeout: 7
       expect:
-        - route: {uut: r1, prefix: 'fe80:3::1/128', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
-        - route: {uut: r3, prefix: 'fe80:1::1/128', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
-        - route: {uut: r1, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 1, fd: 8519680}
-        - route: {uut: r3, prefix: 'fe80:1::1/128', table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: topology, active: false, successors: 1, fd: 8519680}
   - packet-mark: failure
   - link-down: {uut: r2, interface: eth23}
   - link-down: {uut: r3, interface: eth32}
@@ -28,12 +28,12 @@ steps:
   - validate-convergence:
       timeout: 5
       expect:
-        - route: {uut: r1, prefix: 'fe80:3::1/128', table: rib, present: false}
-        - route: {uut: r2, prefix: 'fe80:3::1/128', table: rib, present: false}
-        - route: {uut: r3, prefix: 'fe80:1::1/128', table: rib, present: false}
-        - route: {uut: r1, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 0}
-        - route: {uut: r2, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 0}
-        - route: {uut: r3, prefix: 'fe80:1::1/128', table: topology, active: false, successors: 0}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, present: false}
+        - route: {uut: r2, prefix: '2001:db8:3::/64', table: rib, present: false}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: rib, present: false}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, active: false, successors: 0}
+        - route: {uut: r2, prefix: '2001:db8:3::/64', table: topology, active: false, successors: 0}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: topology, active: false, successors: 0}
   - packet-mark: recovery
   - link-up: {uut: r2, interface: eth23}
   - link-up: {uut: r3, interface: eth32}
@@ -43,7 +43,7 @@ steps:
   - validate-convergence:
       timeout: 7
       expect:
-        - route: {uut: r1, prefix: 'fe80:3::1/128', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
-        - route: {uut: r3, prefix: 'fe80:1::1/128', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
-        - route: {uut: r1, prefix: 'fe80:3::1/128', table: topology, active: false, successors: 1, fd: 8519680}
-        - route: {uut: r3, prefix: 'fe80:1::1/128', table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: rib, next_hop: 'fe80::2', metric: 8519680, distance: 90}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, active: false, successors: 1, fd: 8519680}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: topology, active: false, successors: 1, fd: 8519680}

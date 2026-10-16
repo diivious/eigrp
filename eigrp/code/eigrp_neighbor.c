@@ -37,6 +37,28 @@
 #define EIGRP_NEIGHBOR_SRTT_ALPHA_SHIFT 3U /* alpha = 1/8 */
 #define EIGRP_NEIGHBOR_RTTVAR_BETA_SHIFT 2U /* beta = 1/4 */
 
+/* Count all allocated interface peers, including DOWN and PENDING.  The
+ * self-neighbor is private to the process and uses no admission slot. */
+bool eigrp_nbr_admit_locked(const eigrp_intf_t *ei)
+{
+	eigrp_intf_t *iface;
+	eigrp_list_item_t *node;
+	size_t total = 0;
+
+	if (!ei || !ei->eigrp || !ei->nbrs || !ei->eigrp->eiflist
+	    || ei->nbrs->count >= EIGRP_NEIGHBOR_MAX_PER_INTERFACE)
+		return false;
+
+	for (EIGRP_LIST_ITERATE_RO(ei->eigrp->eiflist, node, iface)) {
+		if (!iface || !iface->nbrs)
+			continue;
+		if (iface->nbrs->count >= EIGRP_NEIGHBOR_MAX_PER_INSTANCE - total)
+			return false;
+		total += iface->nbrs->count;
+	}
+	return true;
+}
+
 static uint32_t eigrp_nbr_rto_calculate(uint32_t srtt_msec)
 {
 	uint64_t rto = (uint64_t)srtt_msec * EIGRP_TRANSPORT_RTO_SRTT_MULTIPLIER;
@@ -739,27 +761,48 @@ eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *ei, eigrp_addr_t *src)
 {
 	eigrp_nbr_t *nbr;
 
-	/* Allcate new neighbor. */
-	nbr = calloc(1, sizeof(eigrp_nbr_t));
+	if (!src || (src->afi != AF_INET && src->afi != AF_INET6)
+	    || (ei && (!ei->eigrp || !ei->nbrs)))
+		return NULL;
 
+	/* Reject full interfaces/processes before neighbor and RTP allocations. */
+	if (ei) {
+		bool admitted;
+
+		pthread_mutex_lock(&ei->eigrp->peer_lock);
+		admitted = eigrp_nbr_admit_locked(ei);
+		pthread_mutex_unlock(&ei->eigrp->peer_lock);
+		if (!admitted)
+			return NULL;
+	}
+
+	nbr = calloc(1, sizeof(*nbr));
 	if (!nbr)
 		return NULL;
 
-	/* Relate neighbor to the interface. */
 	nbr->ei = ei;
-
-	/* Set default values. */
 	eigrp_nbr_init(nbr, src);
 	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+	if (!nbr->retrans_queue) {
+		/* An unallocated RTP queue makes this neighbor unusable. */
+		free(nbr);
+		return NULL;
+	}
 
-	/* Publish only after the neighbor is fully initialized.  The process
-	 * receive thread may walk this list to refresh ingress liveness. */
+	/* Publish atomically, with a second check in case another creator
+	 * consumed the last slot after the initial admission check. */
 	if (ei) {
 		pthread_mutex_lock(&ei->eigrp->peer_lock);
+		if (!eigrp_nbr_admit_locked(ei)
+		    || !eigrp_list_add(ei->nbrs, nbr)) {
+			pthread_mutex_unlock(&ei->eigrp->peer_lock);
+			eigrp_packet_queue_free(nbr->retrans_queue);
+			free(nbr);
+			return NULL;
+		}
 		if (++ei->eigrp->next_neighbor_generation == 0)
 			++ei->eigrp->next_neighbor_generation;
 		nbr->generation = ei->eigrp->next_neighbor_generation;
-		eigrp_list_add(ei->nbrs, nbr);
 		nbr->published = true;
 		pthread_mutex_unlock(&ei->eigrp->peer_lock);
 	}
@@ -874,6 +917,9 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 		pthread_mutex_unlock(&nbr->ei->eigrp->peer_lock);
 	}
 
+	/* A paced packet can still point at nbr after its RTP queue was cleared. */
+	if (nbr->ei)
+		eigrp_packet_neighbor_output_clear(nbr);
 	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	if (nbr->ei)
 		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
@@ -1003,12 +1049,12 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 		nbr->v_holddown = EIGRP_HOLD_INTERVAL_DEFAULT;
 		eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
 
-		/* out with the old */
+		/* Allocate only on creation.  Reuse the queue across DOWN
+		 * resets, so a memory allocation failure cannot break RTP. */
 		if (nbr->retrans_queue)
-			eigrp_packet_queue_free(nbr->retrans_queue);
-
-		/* in with the new */
-		nbr->retrans_queue = eigrp_packet_queue_create();
+			eigrp_packet_queue_clear(nbr->retrans_queue);
+		else
+			nbr->retrans_queue = eigrp_packet_queue_create();
 
 		nbr->crypt_seqnum = 0;
 	}

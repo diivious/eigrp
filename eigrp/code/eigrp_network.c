@@ -252,6 +252,35 @@ void eigrp_network_runtime_delete_all(eigrp_instance_t *eigrp)
 	eigrp->networks = NULL;
 }
 
+/* IPv6 neighbors use link-local addresses. A configured passive global
+ * interface may advertise a connected prefix without forming adjacencies. */
+static bool eigrp_network_ipv6_passive_connected(
+    eigrp_instance_t *eigrp, const eigrp_intf_runtime_state_t *state)
+{
+    eigrp_af_config_t *af;
+    eigrp_intf_config_t *config;
+    struct in6_addr address;
+
+    if (!eigrp || !state || !state->interface_name
+        || eigrp->af_vectors.afi != EIGRP_AFI_IPV6
+        || state->address.address.afi != EIGRP_AFI_IPV6)
+        return false;
+    memcpy(&address, state->address.address.bytes, sizeof(address));
+    if (IN6_IS_ADDR_LINKLOCAL(&address) || IN6_IS_ADDR_MULTICAST(&address)
+        || IN6_IS_ADDR_UNSPECIFIED(&address) || IN6_IS_ADDR_LOOPBACK(&address))
+        return false;
+    af = eigrp_af_config_runtime_read(eigrp);
+    config = af ? eigrp_intf_config_read(af, state->interface_name) : NULL;
+    return config && config->passive_configured && config->passive;
+}
+
+static bool eigrp_network_interface_enabled(
+    eigrp_instance_t *eigrp, const eigrp_intf_runtime_state_t *state)
+{
+    return eigrp_network_runtime_matches(eigrp, &state->address)
+           || eigrp_network_ipv6_passive_connected(eigrp, state);
+}
+
 static void eigrp_network_intf_walk_update(
 	const eigrp_intf_runtime_state_t *state, void *arg)
 {
@@ -259,7 +288,7 @@ static void eigrp_network_intf_walk_update(
 
 	if (!eigrp || !state || state->secondary
 	    || eigrp->router_id.s_addr == INADDR_ANY
-	    || !eigrp_network_runtime_matches(eigrp, &state->address))
+	    || !eigrp_network_interface_enabled(eigrp, state))
 		return;
 	(void)eigrp_intf_runtime_update(EIGRP_SET, eigrp, state, NULL);
 }
@@ -283,7 +312,7 @@ void eigrp_network_intf_update(
 	if (eigrp->router_id.s_addr == INADDR_ANY)
 		eigrp_router_id_update(eigrp);
 	if (eigrp->router_id.s_addr == INADDR_ANY
-	    || !eigrp_network_runtime_matches(eigrp, &state->address))
+	    || !eigrp_network_interface_enabled(eigrp, state))
 		return;
 	(void)eigrp_intf_runtime_update(EIGRP_SET, eigrp, state, NULL);
 }

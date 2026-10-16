@@ -60,6 +60,7 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 
 #define EIGRP_PACKET_ADDR_TEXT_SIZE 64U
 #define EIGRP_AF_PACKET_INPUT_QUEUE_MAX 1024U
+#define EIGRP_AF_PACKET_DISCOVERY_QUEUE_MAX 256U
 
 /* Validate receive metadata against the bytes actually present in the stream.
  * Metadata is supplied by the host adapter and must never enlarge the portable
@@ -342,6 +343,51 @@ static void eigrp_packet_retransmit_limit_exceeded(eigrp_nbr_t *nbr)
 	eigrp_nbr_delete(nbr);
 }
 
+/* Paced output retains neighbor pointers until send.  Never allow a
+ * deleted peer or already-ACKed retry to remain in an interface output
+ * queue; they may wait there for many milliseconds on constrained links. */
+static void eigrp_packet_neighbor_output_drop(eigrp_nbr_t *nbr,
+                                              uint32_t sequence, bool retries_only)
+{
+	eigrp_packet_queue_t *queue;
+	eigrp_packet_t *packet, *next;
+	eigrp_intf_t *ei;
+
+	if (!nbr || !(ei = nbr->ei) || !(queue = ei->obuf))
+		return;
+	for (packet = queue->tail; packet; packet = next) {
+		next = packet->previous;
+		if (packet->nbr != nbr || (retries_only &&
+		    (!packet->retransmission || packet->sequence_number != sequence)))
+			continue;
+		if (packet->previous)
+			packet->previous->next = packet->next;
+		else
+			queue->head = packet->next;
+		if (packet->next)
+			packet->next->previous = packet->previous;
+		else
+			queue->tail = packet->previous;
+		queue->count--;
+		eigrp_packet_free(packet);
+	}
+	if (!queue->count && ei->on_write_q) {
+		eigrp_list_delete_data(ei->eigrp->oi_write_q, ei);
+		ei->on_write_q = 0;
+	}
+}
+
+void eigrp_packet_neighbor_output_clear(eigrp_nbr_t *nbr)
+{
+	eigrp_packet_neighbor_output_drop(nbr, 0, false);
+}
+
+static void eigrp_packet_neighbor_retry_cancel(eigrp_nbr_t *nbr,
+                                                uint32_t sequence)
+{
+	eigrp_packet_neighbor_output_drop(nbr, sequence, true);
+}
+
 /*
  * New testing block of code for handling Acks
  */
@@ -368,6 +414,9 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 			(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_RTP_ACK,
 				&peer_addr, ack, nbr->retrans_queue->count, 0, 0);
 		}
+		/* A pacing-delayed retry must not go out after its ACK. */
+		if (packet->retry_queued)
+			eigrp_packet_neighbor_retry_cancel(nbr, ack);
 		packet = eigrp_packet_dequeue(nbr->retrans_queue);
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
 				   "unlinked ACKed seq %u from reliable queue (depth %lu)",
@@ -419,13 +468,14 @@ static void eigrp_packet_reliable_neighbor_send_update(eigrp_nbr_t *nbr,
 	eigrp_packet_retransmit_timer_start(nbr);
 }
 
-static void eigrp_packet_reliable_send_update(eigrp_intf_t *ei,
-				      eigrp_packet_t *packet)
+static void eigrp_packet_reliable_first_send_update(eigrp_intf_t *ei,
+                                      eigrp_packet_t *packet)
 {
 	eigrp_nbr_t *nbr;
 	eigrp_list_item_t *node;
 	uint64_t now_msec;
 
+	/* Karn's rule: retransmits never start a new first-transmission RTT. */
 	if (!ei || !packet || packet->sequence_number == 0 || packet->retransmission)
 		return;
 
@@ -443,6 +493,27 @@ static void eigrp_packet_reliable_send_update(eigrp_intf_t *ei,
 						 now_msec);
 }
 
+static void eigrp_packet_reliable_send_update(eigrp_intf_t *ei,
+                                      eigrp_packet_t *packet)
+{
+	eigrp_packet_t *head;
+
+	if (!ei || !packet || packet->sequence_number == 0)
+		return;
+	if (!packet->retransmission) {
+		eigrp_packet_reliable_first_send_update(ei, packet);
+		return;
+	}
+	if (!packet->nbr || !packet->nbr->retrans_queue)
+		return;
+	head = eigrp_packet_queue_next(packet->nbr->retrans_queue);
+	if (!head || head->sequence_number != packet->sequence_number)
+		return;
+	head->retry_queued = false;
+	head->retrans_counter++; /* counted only after actual wire send */
+	eigrp_packet_retransmit_timer_start(packet->nbr);
+}
+
 static void eigrp_packet_reliable_send_failure_update(eigrp_intf_t *ei,
 					      eigrp_packet_t *packet)
 {
@@ -450,8 +521,19 @@ static void eigrp_packet_reliable_send_failure_update(eigrp_intf_t *ei,
 	eigrp_packet_t *queued;
 	eigrp_list_item_t *node;
 
-	if (!ei || !packet || packet->sequence_number == 0 || packet->retransmission)
+	if (!ei || !packet || packet->sequence_number == 0)
 		return;
+
+	if (packet->retransmission) {
+		if (packet->nbr && packet->nbr->retrans_queue) {
+			queued = eigrp_packet_queue_next(packet->nbr->retrans_queue);
+			if (queued && queued->sequence_number == packet->sequence_number) {
+				queued->retry_queued = false;
+				eigrp_packet_retransmit_timer_start(packet->nbr);
+			}
+		}
+		return;
+	}
 
 	if (packet->nbr) {
 		queued = eigrp_packet_queue_next(packet->nbr->retrans_queue);
@@ -465,6 +547,83 @@ static void eigrp_packet_reliable_send_failure_update(eigrp_intf_t *ei,
 		if (queued && queued->sequence_number == packet->sequence_number)
 			eigrp_packet_retransmit_timer_start(nbr);
 	}
+}
+
+/* RFC 7868 section 5.2.1: configured interface bandwidth is in kbps.
+ * The millisecond rate, bandwidth_kbps * percent, and packet charge,
+ * packet_bytes * 800, share the same exact fixed-point unit.  No floating
+ * point or premature integer rounding is involved (including 1-kbps links).
+ *
+ * Limit accumulated idle credit to a single millisecond of bandwidth, or
+ * one complete packet on a slow link.  Long idle periods cannot accumulate
+ * enough credit to transmit an unbounded burst when redistribution starts.
+ * The AF clock is millisecond resolution, so fast interfaces send a bounded
+ * sub-millisecond batch, then yield until the next clock tick. */
+static uint64_t eigrp_packet_pacing_rate(const eigrp_intf_t *ei)
+{
+	uint32_t bandwidth = ei->params.bandwidth;
+	uint32_t percent = ei->bandwidth_percent;
+
+	/* A missing metric bandwidth is not permission to disable pacing. */
+	if (!bandwidth)
+		bandwidth = ei->curr_bandwidth ? ei->curr_bandwidth
+					       : EIGRP_BANDWIDTH_DEFAULT;
+	if (!percent)
+		percent = 50;
+	return (uint64_t)bandwidth * percent;
+}
+
+uint32_t eigrp_packet_pacing_delay_msec(eigrp_intf_t *ei,
+	uint16_t packet_length, uint64_t now_msec)
+{
+	uint64_t rate, charge, capacity, elapsed, needed;
+
+	if (!ei || !packet_length)
+		return 0;
+	rate = eigrp_packet_pacing_rate(ei);
+	charge = (uint64_t)packet_length * 800U;
+	capacity = rate > charge ? rate : charge;
+
+	if (!ei->pacing_initialized || ei->pacing_rate != rate
+	    || now_msec < ei->pacing_last_msec) {
+		ei->pacing_initialized = true;
+		ei->pacing_last_msec = now_msec;
+		ei->pacing_rate = rate;
+		ei->pacing_credit = capacity;
+	} else {
+		elapsed = now_msec - ei->pacing_last_msec;
+		ei->pacing_last_msec = now_msec;
+		/* Saturated refill avoids multiplication overflow on long idle. */
+		if (elapsed >= (capacity + rate - 1U) / rate)
+			ei->pacing_credit = capacity;
+		else {
+			uint64_t credit = ei->pacing_credit + elapsed * rate;
+			ei->pacing_credit = credit < capacity ? credit : capacity;
+		}
+		if (ei->pacing_credit > capacity)
+			ei->pacing_credit = capacity;
+	}
+	if (ei->pacing_credit >= charge)
+		return 0;
+	needed = charge - ei->pacing_credit;
+	/* rate is always nonzero (configuration minimum is 1 kbps/1%). */
+	elapsed = (needed + rate - 1U) / rate;
+	return (uint32_t)(elapsed > UINT32_MAX ? UINT32_MAX : elapsed);
+}
+
+void eigrp_packet_pacing_charge(eigrp_intf_t *ei, uint16_t packet_length)
+{
+	uint64_t charge = (uint64_t)packet_length * 800U;
+
+	if (!ei || !ei->pacing_initialized)
+		return;
+	ei->pacing_credit = ei->pacing_credit >= charge
+				    ? ei->pacing_credit - charge : 0;
+}
+
+static void eigrp_packet_pacing_wake(void *arg)
+{
+	eigrp_packet_write_schedule(arg);
 }
 
 void eigrp_packet_write_schedule(eigrp_instance_t *eigrp)
@@ -499,21 +658,56 @@ void eigrp_packet_write(void *arg)
 	int ret;
 	eigrp_list_item_t *node;
 
-	node = eigrp_list_first(eigrp->oi_write_q);
-	if (!node)
-		return;
-	ei = eigrp_list_item_data(node);
-	if (!ei)
-		return;
+	/* Skip paced interfaces instead of head-of-line blocking every interface
+	 * in this address family.  Every output, including ACKs and retransmits,
+	 * shares its interface's byte budget. */
+	{
+		eigrp_list_item_t *candidate;
+		eigrp_intf_t *earliest_ei = NULL;
+		uint32_t earliest = UINT32_MAX;
+		uint64_t now = eigrp_sys_monotime_msec();
 
-	/* Get one packet from queue. */
-	packet = eigrp_packet_queue_next(ei->obuf);
-	if (!packet) {
-		eigrp_log(EIGRP_LOG_ERROR,
-			 "%s: Interface %s no packet on queue?", __func__,
-			 ei->name);
-		goto out;
+		node = NULL;
+		for (candidate = eigrp_list_first(eigrp->oi_write_q); candidate;
+		     candidate = candidate->next) {
+			eigrp_intf_t *pending_ei = eigrp_list_item_data(candidate);
+			eigrp_packet_t *pending;
+			uint32_t wait;
+
+			if (!pending_ei || !pending_ei->obuf)
+				continue;
+			pending = eigrp_packet_queue_next(pending_ei->obuf);
+			if (!pending)
+				continue;
+			wait = eigrp_packet_pacing_delay_msec(pending_ei,
+						pending->length, now);
+			if (!wait) {
+				node = candidate;
+				break;
+			}
+			if (wait < earliest) {
+				earliest = wait;
+				earliest_ei = pending_ei;
+			}
+		}
+		if (!node) {
+			if (earliest != UINT32_MAX) {
+				/* Only count new pacing sleeps, not incoming output
+				 * events that rediscover the same pending timer. */
+				if (!eigrp->t_pacing && earliest_ei) {
+					earliest_ei->pacing_defer_count++;
+					earliest_ei->pacing_defer_msec += earliest;
+				}
+				eigrp_timer_add(eigrp, &eigrp->t_pacing,
+					eigrp_packet_pacing_wake, eigrp, earliest);
+			}
+			return;
+		}
+		if (eigrp->t_pacing)
+			eigrp_timer_cancel(eigrp, &eigrp->t_pacing);
 	}
+	ei = eigrp_list_item_data(node);
+	packet = eigrp_packet_queue_next(ei->obuf);
 	if (packet->length < EIGRP_HEADER_LEN) {
 		eigrp_log(EIGRP_LOG_ERROR,  "%s: Packet just has a header?",
 			 __func__);
@@ -538,6 +732,7 @@ void eigrp_packet_write(void *arg)
 
 	eigrp_debug_packet_send(ei, packet, ret);
 	if (ret >= 0) {
+		ei->pacing_tx_bytes += packet->length;
 		eigrp_packet_send_stats_update(ei, packet, eigrph);
 		if (eigrp_packet_eventlog_opcode(eigrph->opcode)) {
 			eigrp_prefix_t peer_addr;
@@ -571,6 +766,10 @@ void eigrp_packet_write(void *arg)
 			eigrp_intf_name_string(ei), ret);
 	}
 
+	/* Account for the attempted wire send.  Charging errors too prevents
+	 * a persistent host send failure from spinning on a full output queue. */
+	eigrp_packet_pacing_charge(ei, packet->length);
+
 	/* Now delete packet from queue. */
 	eigrp_packet_delete(ei);
 
@@ -580,7 +779,20 @@ out:
 		eigrp_list_remove(eigrp->oi_write_q, node);
 	}
 
-	/* If packets still remain in queue, call write event. */
+	/* Round-robin among interfaces that have pending output.  A hot fast
+	 * interface must not monopolize the AF writer while another is ready. */
+	if (ei->on_write_q && node != eigrp->oi_write_q->tail) {
+		if (node->prev)
+			node->prev->next = node->next;
+		else
+			eigrp->oi_write_q->head = node->next;
+		if (node->next)
+			node->next->prev = node->prev;
+		node->prev = eigrp->oi_write_q->tail;
+		node->next = NULL;
+		eigrp->oi_write_q->tail->next = node;
+		eigrp->oi_write_q->tail = node;
+	}
 	if (!eigrp_list_isempty(eigrp->oi_write_q))
 		eigrp_packet_write_schedule(eigrp);
 }
@@ -852,6 +1064,8 @@ static eigrp_packet_input_t *eigrp_packet_input_dequeue_locked(eigrp_instance_t 
 	eigrp->packet_head = input->next;
 	if (eigrp->packet_count)
 		eigrp->packet_count--;
+	if (input->ingress_discovery && eigrp->packet_discovery_count)
+		eigrp->packet_discovery_count--;
 	if (!eigrp->packet_head)
 		eigrp->packet_tail = NULL;
 	input->next = NULL;
@@ -1438,7 +1652,9 @@ bool eigrp_packet_input_enqueue(eigrp_instance_t *eigrp,
 		return false;
 	pthread_mutex_lock(&eigrp->work_lock);
 	if (eigrp->shutdown || !eigrp->thread_running
-	    || eigrp->packet_count >= EIGRP_AF_PACKET_INPUT_QUEUE_MAX) {
+	    || eigrp->packet_count >= EIGRP_AF_PACKET_INPUT_QUEUE_MAX
+	    || (input->ingress_discovery
+		&& eigrp->packet_discovery_count >= EIGRP_AF_PACKET_DISCOVERY_QUEUE_MAX)) {
 		if (!eigrp->shutdown && eigrp->thread_running)
 			eigrp->packet_drop_count++;
 		pthread_mutex_unlock(&eigrp->work_lock);
@@ -1451,6 +1667,8 @@ bool eigrp_packet_input_enqueue(eigrp_instance_t *eigrp,
 		eigrp->packet_head = input;
 	eigrp->packet_tail = input;
 	eigrp->packet_count++;
+	if (input->ingress_discovery)
+		eigrp->packet_discovery_count++;
 	pthread_cond_signal(&eigrp->work_cond);
 	pthread_mutex_unlock(&eigrp->work_lock);
 	return true;
@@ -1468,6 +1686,7 @@ void eigrp_packet_input_queue_clear(eigrp_instance_t *eigrp)
 	eigrp->packet_head = NULL;
 	eigrp->packet_tail = NULL;
 	eigrp->packet_count = 0;
+	eigrp->packet_discovery_count = 0;
 	pthread_mutex_unlock(&eigrp->work_lock);
 
 	while (input) {
@@ -1576,7 +1795,22 @@ void eigrp_packet_output_enqueue(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 	if (!eigrp || !ei || !packet)
 		return;
 
-	eigrp_packet_enqueue(ei->obuf, packet);
+	/* HELLOs (including ACKs and CR sequence Hellos) must make progress
+	 * even behind a long reliable UPDATE stream.  HELLO carries no RTP
+	 * sequence, so its priority does not reorder reliable packets. */
+	if (packet->s && packet->length >= EIGRP_HEADER_LEN
+	    && ((struct eigrp_header *)eigrp_stream_data(packet->s))->opcode
+		== EIGRP_OPC_HELLO) {
+		packet->next = NULL;
+		packet->previous = ei->obuf->tail;
+		if (ei->obuf->tail)
+			ei->obuf->tail->next = packet;
+		else
+			ei->obuf->head = packet;
+		ei->obuf->tail = packet;
+		ei->obuf->count++;
+	} else
+		eigrp_packet_enqueue(ei->obuf, packet);
 
 	if (ei->on_write_q == 0) {
 		eigrp_list_add(eigrp->oi_write_q, ei);
@@ -2095,12 +2329,16 @@ bool eigrp_packet_ingress_authenticate(eigrp_instance_t *instance,
 	/* Only discovery Hellos may arrive without an existing peer. */
 	if (!nbr && (header->opcode != EIGRP_OPC_HELLO || ntohl(header->ack)))
 		goto done;
+	/* Reject excess sources before spending work authenticating them. */
+	if (!nbr && !eigrp_nbr_admit_locked(ei))
+		goto done;
 	if (eigrp_packet_auth_digest_validate(ei, nbr, &input->source,
 					    header, length) < 0)
 		goto done;
 
 	input->ingress_authenticated = true;
 	input->ingress_neighbor_generation = nbr ? nbr->generation : 0;
+	input->ingress_discovery = !nbr || nbr->state != EIGRP_NEIGHBOR_UP;
 	if (nbr)
 		eigrp_nbr_holddown_update(nbr);
 	accepted = true;
@@ -2187,7 +2425,7 @@ void eigrp_packet_unack_retrans(void *arg)
 	eigrp_packet_t *duplicate;
 
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
-	if (!packet)
+	if (!packet || packet->retry_queued)
 		return;
 
 	/* Give the peer all 16 retries.  Tear it down only after retry 16
@@ -2220,16 +2458,16 @@ void eigrp_packet_unack_retrans(void *arg)
 			&peer_addr, packet->sequence_number, packet->retrans_counter + 1, 0, 0);
 	}
 	duplicate = eigrp_packet_dup(packet, nbr);
+	if (!duplicate)
+		return;
 	duplicate->retransmission = true;
 	if (eigrp_packet_destination_is_multicast(packet))
 		duplicate->multicast_exception = true;
 	eigrp_addr_cpy(&duplicate->dst, &nbr->src);
+	packet->retry_queued = true;
 	eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, duplicate);
-
-	packet->retrans_counter++;
-	eigrp_timer_add(nbr->ei->eigrp, &packet->t_retrans_timer,
-				 eigrp_packet_unack_retrans, nbr,
-				 eigrp_nbr_rto(nbr));
+	/* Pacing wait is not a transmitted attempt.  The successful wire send
+	 * starts the next RTO and increments the retry counter. */
 }
 
 /* Get packet from tail of queue. */

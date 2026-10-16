@@ -197,9 +197,12 @@ class Runner:
             if "active_time" in r: lines.append(f"active-time {int(r['active_time'])}")
             for name,i in r.get("interfaces",{}).items():
                 for p in (i.get("ipv4",[]) if isinstance(i.get("ipv4",[]),list) else [i["ipv4"]]): lines.append(f"network {ipaddress.ip_interface(p).network}")
-            for n in r.get("attached_networks",[]):
+            for idx,n in enumerate(r.get("attached_networks",[]),1):
                 p=ipaddress.ip_interface(n["prefix"])
-                if p.version==4: lines.append(f"network {p.network}")
+                if p.version==4:
+                    lines.append(f"network {p.network}")
+                else:
+                    lines.append(f"passive {n.get('interface', f'attached{idx}')}")
             for n in r.get("attached_networks",[]):
                 if "delay" in n: lines.append(f"delay {n.get('interface')} {int(n['delay'])}")
             for name,i in r.get("interfaces",{}).items():

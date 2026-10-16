@@ -150,6 +150,9 @@ static eigrp_result_t eigrp_intf_state_emit(
 		state.split_horizon = ei->split_horizon;
 		state.next_hop_self = ei->next_hop_self;
 		state.bandwidth_percent = ei->bandwidth_percent;
+		state.pacing_tx_bytes = ei->pacing_tx_bytes;
+		state.pacing_defer_count = ei->pacing_defer_count;
+		state.pacing_defer_msec = ei->pacing_defer_msec;
 		state.hello_timer_running = ei->t_hello != NULL;
 		state.hello_timer_remaining =
 			eigrp_timer_remaining_seconds(ei->eigrp, ei->t_hello);
@@ -1483,6 +1486,21 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 	metric.hop_count = 0;
 	metric.flags = 0;
 	metric.tag = 0;
+
+	/* IPv6 link-local addresses identify neighbors and the outgoing link;
+	 * they are never transit destinations.  Keep Hellos/multicast active
+	 * without creating an internal route for fe80::/10 (RFC 4291 2.5.6).
+	 */
+	if (ei->address.address.afi == EIGRP_AFI_IPV6) {
+		struct in6_addr source;
+
+		memcpy(&source, ei->address.address.bytes, sizeof(source));
+		if (IN6_IS_ADDR_LINKLOCAL(&source)) {
+			eigrp_intf_eventlog_state(ei,
+				EIGRP_EVENTLOG_INTERFACE_STATE_UP, ei->curr_mtu);
+			return 1;
+		}
+	}
 
 	/*Add connected route to topology table*/
 	route = eigrp_topology_route_create(ei);
