@@ -174,14 +174,7 @@ static void eigrp_packetizer_builder_flush(eigrp_packetizer_builder_t *builder)
 	}
 
 	length = (uint16_t)eigrp_stream_get_endp(packet->s);
-	if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-	    && eigrp_auth_material_available(builder->ei))
-		eigrp_make_md5_digest(builder->ei, packet->s, EIGRP_AUTH_UPDATE_FLAG);
-	else if (builder->ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
-		 && eigrp_auth_material_available(builder->ei))
-		eigrp_make_sha256_digest(builder->ei, packet->s, EIGRP_AUTH_UPDATE_FLAG);
-
-	eigrp_packet_checksum(builder->ei, packet->s, length);
+	/* Preserve an unsigned RTP template until the paced wire send. */
 	packet->length = length;
 
 	if (builder->nbr) {

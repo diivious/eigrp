@@ -120,10 +120,9 @@ static void eigrp_process_packet_demux(eigrp_packet_input_t *input)
 	instance = eigrp_process_packet_target_lookup_locked(
 		ntohs(header->vrid), input->afi, ntohs(header->ASNumber),
 		input->meta.ingress_vrf_id);
-	if (instance && !instance->shutdown)
-		(void)eigrp_nbr_ingress_holddown_refresh(instance, input->ifindex,
-			&input->source);
-	if (!instance || !eigrp_packet_input_enqueue(instance, input)) {
+	if (!instance || instance->shutdown
+	    || !eigrp_packet_ingress_authenticate(instance, input)
+	    || !eigrp_packet_input_enqueue(instance, input)) {
 		pthread_mutex_unlock(&eigrp_process.hierarchy_lock);
 		eigrp_process_packet_input_free(input);
 		return;

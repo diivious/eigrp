@@ -65,7 +65,6 @@
 /*Cisco routers use only first 44 bytes of basic hello for their MD5
  * calculations*/
 #define EIGRP_MD5_BASIC_COMPUTE 44
-#define EIGRP_MD5_UPDATE_INIT_COMPUTE 40
 
 #define EIGRP_AUTH_BASIC_HELLO_FLAG 0x01
 #define EIGRP_AUTH_TID_HELLO_FLAG 0x02

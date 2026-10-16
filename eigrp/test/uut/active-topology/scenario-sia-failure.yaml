@@ -6,7 +6,14 @@ steps:
   - validate-convergence:
       timeout: 10
       expect:
+        # The learned route can precede completion of an upstream RTP INIT.
+        # Inject a SIA fault only after the complete chain is established.
+        - neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12}
+        - neighbor: {uut: r2, neighbor: 10.12.0.1, interface: eth21}
+        - neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23}
         - neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.12.0.2}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, next_hop: 10.23.0.3}
         - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, next_hop: 10.34.0.4}
   - fault-add: {name: drop-root-reply, action: drop, source_uut: r1, destination_uut: r2, opcode: reply, prefix: 10.4.0.0/24}
   - fault-add: {name: drop-target-sia-reply, action: drop, source_uut: r2, destination_uut: r3, opcode: sia-reply, prefix: 10.4.0.0/24}

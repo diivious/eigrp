@@ -22,6 +22,16 @@ steps:
   - validate-convergence:
       timeout: 8
       expect:
+        # Route convergence may precede the remote INIT handshake.
+        # All potential DUAL QUERY participants must be fully established.
+        - neighbor: {uut: r1, neighbor: 10.15.0.5, interface: eth15}
+        - neighbor: {uut: r5, neighbor: 10.15.0.1, interface: eth51}
+        - neighbor: {uut: r2, neighbor: 10.25.0.5, interface: eth25}
+        - neighbor: {uut: r5, neighbor: 10.25.0.2, interface: eth52}
+        - neighbor: {uut: r3, neighbor: 10.35.0.5, interface: eth35}
+        - neighbor: {uut: r5, neighbor: 10.35.0.3, interface: eth53}
+        - neighbor: {uut: r4, neighbor: 10.45.0.5, interface: eth45}
+        - neighbor: {uut: r5, neighbor: 10.45.0.4, interface: eth54}
         - route: {uut: r1, prefix: 10.104.0.0/24, table: topology, active: false, successors: 1, fd: 8519680}
         - route: {uut: r1, prefix: 10.104.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
         - route: {uut: r1, prefix: 10.104.0.0/24, table: path, next_hop: 10.12.0.2, successor: true, distance: 8519680, rd: 7864320}

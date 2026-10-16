@@ -526,7 +526,15 @@ void eigrp_packet_write(void *arg)
 	seqno = ntohl(eigrph->sequence);
 	ack = ntohl(eigrph->ack);
 
-	ret = eigrp->af_vectors.packet_send(eigrp, ei, packet);
+	/* Authoritative transmit envelope: pacing order, including retransmissions,
+	 * determines cryptographic sequence order, never packet build order. */
+	if (!eigrp_auth_transmit_finalize(ei, packet->s, packet->length)) {
+		eigrp_log(EIGRP_LOG_WARNING,
+			  "interface %s: packet authentication could not be finalized",
+			  eigrp_intf_name_string(ei));
+		ret = -1;
+	} else
+		ret = eigrp->af_vectors.packet_send(eigrp, ei, packet);
 
 	eigrp_debug_packet_send(ei, packet, ret);
 	if (ret >= 0) {
@@ -704,10 +712,24 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	 * update neighbor state.
 	 */
 	nbr = eigrp_nbr_lookup(ei, eigrph, &src);
+	if (!input->ingress_authenticated
+	    || (input->ingress_neighbor_generation != 0
+	        && (!nbr || nbr->generation != input->ingress_neighbor_generation)))
+		return;
 	if (opcode == EIGRP_OPC_HELLO) {
-		if (eigrp_packet_auth_digest_validate(ei, nbr, &src, eigrph, length) < 0)
-			return;
+		/* Several discovery Hellos can be queued before a new neighbor is
+		 * published. Reconcile those sequences exactly once after creation. */
+		if (nbr && input->ingress_neighbor_generation == 0) {
+			bool fresh;
 
+			pthread_mutex_lock(&eigrp->peer_lock);
+			fresh = nbr->published
+				&& eigrp_auth_discovery_sequence_accept(nbr, eigrph);
+			pthread_mutex_unlock(&eigrp->peer_lock);
+			if (!fresh)
+				return;
+		}
+		/* Ingress authenticated and consumed the crypto sequence already. */
 		eigrp_packet_receive_stats_update(ei, eigrph);
 		if (ntohl(eigrph->ack)) {
 			/* An EIGRP ACK is a Hello opcode with sequence zero and a
@@ -732,9 +754,8 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 		return;
 	}
 
-	if (eigrp_packet_auth_digest_validate(ei, nbr, &src, eigrph, length) < 0)
-		return;
-
+	/* The authenticated ingress result is authoritative for cryptographic
+	 * sequence and digest; remaining RTP and route checks are AF-owned. */
 	if (!meta.destination_multicast && nbr->cr_mode
 	    && nbr->cr_sequence == ntohl(eigrph->sequence)) {
 		/* A CR multicast that was missed or intentionally ignored is
@@ -772,6 +793,21 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	}
 	if (ntohl(eigrph->ack))
 		eigrp_packet_ack(eigrp, eigrph, nbr);
+
+	/* RFC 7868 section 5.3.6: a PENDING neighbor is not eligible for
+	 * DUAL's QUERY/REPLY exchange.  In particular, never acknowledge a
+	 * QUERY while PENDING: the packetizer cannot send its REPLY until UP,
+	 * and acknowledging here would irretrievably consume the request.
+	 * Leave RTP free to retransmit it when the INIT handshake finishes.
+	 * Process a piggybacked ACK above because it may itself complete INIT. */
+	if (nbr->state != EIGRP_NEIGHBOR_UP
+	    && (opcode == EIGRP_OPC_QUERY || opcode == EIGRP_OPC_REPLY
+		|| opcode == EIGRP_OPC_SIAQUERY || opcode == EIGRP_OPC_SIAREPLY)) {
+		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_ACK, eigrp, ei, nbr,
+			"defer %s from pending neighbor until INIT completes",
+			eigrp_message_lookup(eigrp_packet_type_str, opcode, NULL));
+		return;
+	}
 
 	switch (opcode) {
 	case EIGRP_OPC_PROBE:
@@ -1584,17 +1620,8 @@ bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *eigrp,
 	if (ready && busy) {
 		header = (struct eigrp_header *)eigrp_stream_data(packet->s);
 		header->flags = htonl(ntohl(header->flags) | EIGRP_CR_FLAG);
-		header->checksum = 0;
-		if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-		    && eigrp_auth_material_available(ei))
-			eigrp_make_md5_digest(ei, packet->s,
-					      EIGRP_AUTH_UPDATE_FLAG);
-		else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
-			 && eigrp_auth_material_available(ei))
-			eigrp_make_sha256_digest(ei, packet->s,
-					 EIGRP_AUTH_UPDATE_FLAG);
-		header->checksum = 0;
-		eigrp_packet_checksum(ei, packet->s, packet->length);
+		/* CR flag is part of the canonical RTP template.  Authentication
+		 * and checksum are generated later at transmit dequeue. */
 
 		/* This Hello must be queued before the reliable multicast.  At this
 		 * point only the pre-existing busy queues are visible to the Sequence
@@ -1984,7 +2011,12 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 	}
 
 	auth_stream = eigrp_stream_create(length);
-	eigrp_stream_put(auth_stream, eigrph, length);
+	if (!auth_stream)
+		return -1;
+	if (eigrp_stream_put(auth_stream, eigrph, length) != length) {
+		eigrp_stream_free(auth_stream);
+		return -1;
+	}
 
 	if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
 		ret = eigrp_check_sha256_digest(
@@ -2009,6 +2041,72 @@ static int eigrp_packet_auth_digest_validate(eigrp_intf_t *ei,
 	}
 
 	return 0;
+}
+
+/* Admit packets before the AF queue can be delayed by topology processing.
+ * The process thread owns authentication and liveness; the AF owns RTP/DUAL.
+ * A packet that was authenticated here MUST NOT consume the same sequence
+ * a second time in the AF.  peer_lock protects neighbor lifetime and the
+ * ingress crypto watermark through teardown. */
+bool eigrp_packet_ingress_authenticate(eigrp_instance_t *instance,
+				       eigrp_packet_input_t *input)
+{
+	struct eigrp_header *header;
+	eigrp_intf_t *ei;
+	eigrp_nbr_t *nbr;
+	size_t offset;
+	uint16_t length;
+	bool accepted = false;
+
+	if (!instance || !input || !input->stream
+	    || !eigrp_packet_input_bounds_validate(input->stream->endp,
+		input->meta.network_header_length, input->meta.eigrp_length,
+		&offset, &length))
+		return false;
+
+	pthread_mutex_lock(&instance->peer_lock);
+	ei = eigrp_intf_lookup_by_ifindex(instance, input->ifindex);
+	if (!ei || eigrp_intf_is_passive(ei))
+		goto done;
+	header = (struct eigrp_header *)(input->stream->data + offset);
+	if (eigrp_packet_header_validate(ei, &input->source, header, length) < 0)
+		goto done;
+
+	switch (header->opcode) {
+	case EIGRP_OPC_HELLO:
+	case EIGRP_OPC_UPDATE:
+	case EIGRP_OPC_QUERY:
+	case EIGRP_OPC_REPLY:
+	case EIGRP_OPC_SIAQUERY:
+	case EIGRP_OPC_SIAREPLY:
+		break;
+	default:
+		goto done;
+	}
+	if (header->opcode == EIGRP_OPC_HELLO && !ntohl(header->ack)
+	    && (!eigrp_hello_tlvs_validate(ei,
+			(const uint8_t *)header->tlv, length - EIGRP_HEADER_LEN)
+		|| !eigrp_nbr_static_source_allowed(ei, &input->source)))
+		goto done;
+
+	nbr = eigrp_nbr_lookup(ei, header, &input->source);
+	if (nbr && !nbr->published)
+		nbr = NULL;
+	/* Only discovery Hellos may arrive without an existing peer. */
+	if (!nbr && (header->opcode != EIGRP_OPC_HELLO || ntohl(header->ack)))
+		goto done;
+	if (eigrp_packet_auth_digest_validate(ei, nbr, &input->source,
+					    header, length) < 0)
+		goto done;
+
+	input->ingress_authenticated = true;
+	input->ingress_neighbor_generation = nbr ? nbr->generation : 0;
+	if (nbr)
+		eigrp_nbr_holddown_update(nbr);
+	accepted = true;
+done:
+	pthread_mutex_unlock(&instance->peer_lock);
+	return accepted;
 }
 
 /* EIGRP Header verification. */

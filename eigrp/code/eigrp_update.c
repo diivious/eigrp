@@ -141,6 +141,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 	uint32_t flags;
+	bool peer_init_previously_seen;
 	uint8_t same;
 	uint8_t graceful_restart;
 	uint8_t graceful_restart_final;
@@ -148,6 +149,22 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 
 	flags = ntohl(eigrph->flags);
+
+	/* RFC 7868 section 5.3.4: an INIT UPDATE can be retransmitted
+	 * after other RTP packets have been received (for example when its ACK
+	 * was lost).  Comparing INIT only to recv_sequence_number is incorrect:
+	 * that field tracks the most recently processed packet, not the INIT
+	 * for this adjacency.  An already accepted INIT must be ACKed, not
+	 * interpreted as a fresh peer restart or delivered to DUAL again. */
+	if (flags == EIGRP_INIT_FLAG
+	    && ntohl(eigrph->sequence) != 0
+	    && nbr->peer_init_sequence_number == ntohl(eigrph->sequence)) {
+		eigrp_hello_send_ack_sequence(nbr, ntohl(eigrph->sequence));
+		return;
+	}
+	peer_init_previously_seen = nbr->peer_init_sequence_number != 0;
+	if (flags == EIGRP_INIT_FLAG && !peer_init_previously_seen)
+		nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
 
 	same = 0;
 	graceful_restart = 0;
@@ -229,12 +246,16 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		    && (nbr->init_sequence_number == 0))
 			eigrp_update_send_init(eigrp, nbr);
 
-		if (nbr->state == EIGRP_NEIGHBOR_UP) {
+		/* Our own INIT can be ACKed before the peer's first INIT reaches
+		 * the AF.  That first INIT is not evidence of a peer restart. */
+		if (nbr->state == EIGRP_NEIGHBOR_UP && peer_init_previously_seen) {
 			eigrp_debug_nsf_event(eigrp, nbr, flags, "peer restarted");
-		eigrp_update_nsf_eventlog(eigrp, nbr, 4, flags, ntohl(eigrph->sequence));
+			eigrp_update_nsf_eventlog(eigrp, nbr, 4, flags,
+				ntohl(eigrph->sequence));
 			eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
 				EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
+			nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
 			if (eigrp->log_neighbor_changes)
 				eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: peer restarted",
@@ -433,8 +454,7 @@ static void eigrp_update_neighbor_packet_queue(eigrp_nbr_t *nbr,
 {
 	eigrp_intf_t *ei;
 	eigrp_instance_t *eigrp;
-	struct eigrp_header *header;
-	uint8_t auth_flags;
+
 	uint16_t length;
 	bool queue_was_empty;
 
@@ -443,19 +463,8 @@ static void eigrp_update_neighbor_packet_queue(eigrp_nbr_t *nbr,
 
 	ei = nbr->ei;
 	eigrp = ei->eigrp;
-	header = (struct eigrp_header *)eigrp_stream_data(packet->s);
-	auth_flags = (ntohl(header->flags) & EIGRP_INIT_FLAG)
-			     ? EIGRP_AUTH_UPDATE_INIT_FLAG
-			     : EIGRP_AUTH_UPDATE_FLAG;
 	length = (uint16_t)eigrp_stream_get_endp(packet->s);
-	if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5
-	    && eigrp_auth_material_available(ei))
-		eigrp_make_md5_digest(ei, packet->s, auth_flags);
-	else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256
-		 && eigrp_auth_material_available(ei))
-		eigrp_make_sha256_digest(ei, packet->s, auth_flags);
-
-	eigrp_packet_checksum(ei, packet->s, length);
+	/* Hold the unsigned INIT/UPDATE image for paced output. */
 	packet->length = length;
 	queue_was_empty = nbr->retrans_queue->count == 0;
 	eigrp_packet_enqueue(nbr->retrans_queue, packet);

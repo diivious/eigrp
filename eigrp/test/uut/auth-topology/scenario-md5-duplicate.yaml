@@ -1,0 +1,20 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-md5-mixed-lan.yaml
+name: MD5 duplicate authenticated Hellos do not disrupt adjacency
+steps:
+  # The virtual wire duplicates the *same* signed Hello, with the same
+  # cryptographic sequence, while the real sender continues normal traffic.
+  - fault-add: {name: md5-hello-replay, action: duplicate, source_uut: r2, destination_uut: r1, source_interface: lan0, destination_interface: lan0, opcode: hello, copies: 4, count: 8}
+  - start: all
+  - validate-fault: {name: md5-hello-replay, hits: 1, timeout: 9}
+  - validate-packet: {source_uut: r2, destination_uut: r1, opcode: hello, event: duplicated, min: 1, timeout: 9}
+  - validate-convergence:
+      timeout: 12
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.41.0.2, state: up}
+        - neighbor: {uut: r2, neighbor: 10.41.0.1, state: up}
+        - route: {uut: r1, prefix: 10.22.0.0/24, table: rib, next_hop: 10.41.0.2}
+        - route: {uut: r2, prefix: 10.21.0.0/24, table: rib, next_hop: 10.41.0.1}
+        - neighbor: {uut: r1, neighbor: 10.41.0.3, state: down}
+        - neighbor: {uut: r2, neighbor: 10.41.0.3, state: down}
+  - validate-neighbor: {uut: r1, neighbor: 10.41.0.2, state: up, observe: 3}

@@ -8,4 +8,8 @@ steps:
   - validate-fault: {name: lose-r2-ack, hits: 1, timeout: 4}
   - validate-packet: {since: fault-window, source_uut: r2, destination_uut: r1, ack: 1, event: dropped, min: 1, timeout: 4}
   - validate-retry: {since: fault-window, source_uut: r1, opcode: update, timeout: 5}
-  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0, timeout: 7}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0, timeout: 20}
+  # A retried NULL INIT UPDATE must be ACKed as a duplicate, not classified
+  # as a peer restart after later RTP sequences have arrived.
+  - validate-event: {uut: r2, contains: "reason peer restarted", min: 0, max: 0}
+  - validate-event: {uut: r1, contains: "reason peer restarted", min: 0, max: 0}

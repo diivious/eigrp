@@ -34,6 +34,13 @@
  * These externs need to cleaned up
  */
 bool eigrp_auth_material_available(const eigrp_intf_t *ei);
+/* AF-side reconciliation for discovery Hellos authenticated before creation.
+ * Caller holds the instance peer_lock. */
+bool eigrp_auth_discovery_sequence_accept(eigrp_nbr_t *nbr,
+                                          const struct eigrp_header *header);
+/* Sign and checksum the packet at paced interface transmit dequeue. */
+bool eigrp_auth_transmit_finalize(eigrp_intf_t *ei, eigrp_stream_t *stream,
+                                  uint16_t packet_length);
 
 extern int eigrp_make_md5_digest(eigrp_intf_t *, eigrp_stream_t *, uint8_t);
 extern int eigrp_check_md5_digest(eigrp_stream_t *,

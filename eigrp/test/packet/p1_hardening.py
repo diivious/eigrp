@@ -53,10 +53,13 @@ int main(void)
         return 2;
     if (eigrp_auth_sequence_newer(htonl(6), htonl(7)))
         return 3;
-    if (!eigrp_auth_sequence_newer(htonl(0), htonl(0xffffffffU)))
+    /* Zero is the uninitialized receive sentinel; transmit wraps to 1. */
+    if (!eigrp_auth_sequence_newer(htonl(1), htonl(UINT32_MAX)))
         return 4;
-    if (eigrp_auth_sequence_newer(htonl(0xffffffffU), htonl(0)))
+    if (!eigrp_auth_sequence_newer(htonl(UINT32_MAX), htonl(0)))
         return 5;
+    if (eigrp_auth_sequence_newer(htonl(0), htonl(UINT32_MAX)))
+        return 6;
     return 0;
 }
 '''

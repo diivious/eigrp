@@ -38,7 +38,18 @@ def validate_topology(t):
         if "active_time" in r and not 1 <= int(r["active_time"]) <= 65535: raise SpecError(f"router {rn}: active_time must be 1..65535 seconds")
         if not isinstance(r.get("interfaces",{}),dict): raise SpecError(f"router {rn}.interfaces must be a mapping")
         for name,i in r.get("interfaces",{}).items():
-            check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","delay","up","summaries"},f"{rn}.{name}")
+            check_keys(i,{"segment","ipv4","ipv6","mtu","bandwidth","delay","up","summaries","authentication"},f"{rn}.{name}")
+            auth=i.get("authentication")
+            if auth is not None:
+                if not isinstance(auth,dict): raise SpecError(f"{rn}.{name}.authentication must be a mapping")
+                check_keys(auth,{"mode","keychain","key"},f"{rn}.{name}.authentication")
+                if auth.get("mode")!="md5": raise SpecError(f"{rn}.{name}: only MD5 UUT authentication is supported")
+                for field in ("keychain","key"):
+                    value=auth.get(field)
+                    if not isinstance(value,str) or not value or any(c.isspace() for c in value):
+                        raise SpecError(f"{rn}.{name}.authentication.{field} must be a non-empty string without whitespace")
+                if len(auth["keychain"])>=64 or len(auth["key"])>32:
+                    raise SpecError(f"{rn}.{name}: UUT authentication keychain/key too long")
             summaries=i.get("summaries",[])
             if not isinstance(summaries,list): raise SpecError(f"{rn}.{name}.summaries must be a list")
             for summary in summaries: ipaddress.ip_network(summary,strict=False)
@@ -194,6 +205,10 @@ class Runner:
             for name,i in r.get("interfaces",{}).items():
                 if "delay" in i: lines.append(f"delay {name} {int(i['delay'])}")
                 for summary in i.get("summaries",[]): lines.append(f"summary {name} {ipaddress.ip_network(summary,strict=False)}")
+            for name,i in r.get("interfaces",{}).items():
+                auth=i.get("authentication")
+                if auth:
+                    lines.append(f"auth-md5 {name} {auth['keychain']} {auth['key']}")
             for sm in r.get("summary_metrics",[]):
                 lines.append(f"summary-metric {ipaddress.ip_network(sm['prefix'],strict=False)} {int(sm['bandwidth'])} {int(sm['delay'])} {int(sm.get('reliability',255))} {int(sm.get('load',1))} {int(sm.get('mtu',1500))}")
             path=self.work/f"{rn}.conf"; path.write_text("\n".join(lines)+"\n"); self.nodes[rn]=Node(rn,path,str(self.work/"wire.sock"))
@@ -225,7 +240,7 @@ class Runner:
         return "\n".join(out)
     @staticmethod
     def _packet_line(packet):
-        keys=("time","event","source_uut","source_interface","destination_uut","destination_interface","segment","afi","opcode","length","multicast","sequence","ack","cr","copy","fault","action","fault_hit","fault_remaining")
+        keys=("time","event","source_uut","source_interface","destination_uut","destination_interface","segment","afi","opcode","length","multicast","sequence","auth_sequence","ack","cr","copy","fault","action","fault_hit","fault_remaining")
         fields=[]
         for key in keys:
             if key in packet: fields.append(f"{key}={packet[key]}")
@@ -239,6 +254,10 @@ class Runner:
             return not matches
         if not matches:
             return False
+        # A discovered neighbor can remain PENDING while RTP INIT is in
+        # progress.  'up' means adjacency established, not merely present.
+        if state == "up" and any(n["state"].lower() != "up" for n in matches):
+            return False
         return all(k not in e or n.get(k)==e[k] for n in matches for k in ("reliable_q","rto","srtt_valid","srtt","retransmissions"))
     def route_ok(self,e):
         st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["paths"] if table=="path" else st["topology"]
@@ -251,7 +270,7 @@ class Runner:
         return bool(matches)
     def packet_ok(self,e):
         rows=list(self.broker.journal); mark=e.get("since"); rows=rows[self.packet_marks.get(mark,0):] if mark else rows
-        fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","ack":"ack","cr":"cr","event":"event"}
+        fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","auth_sequence":"auth_sequence","ack":"ack","cr":"cr","event":"event"}
         matches=[p for p in rows if all(k not in e or ((str(e[k]).lower() in [str(x).lower() for x in p.get("prefixes",[])]) if k=="prefix" else p.get(v)==e[k]) for k,v in fields.items())]
         count=len(matches)
         if count<int(e.get("min",1)) or ("max" in e and count>int(e["max"])): return False
@@ -301,6 +320,13 @@ class Runner:
                 time.sleep(.05)
             if okfn(e): return
             raise AssertionError(f"validate-{kind} failed at end of observation window: expected {e}")
+        if kind=="neighbor" and e.get("state", "up").lower() not in ("up", "present") and e.get("observe"):
+            deadline=time.monotonic()+float(e["observe"])
+            while time.monotonic()<deadline:
+                if not okfn(e):
+                    raise AssertionError(f"validate-neighbor failed during observation: expected {e}")
+                time.sleep(.1)
+            return
         while time.monotonic()<deadline:
             if okfn(e): return
             time.sleep(.1)

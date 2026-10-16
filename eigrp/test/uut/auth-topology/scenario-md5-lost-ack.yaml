@@ -1,0 +1,23 @@
+schema: eigrp-uut-test/v1
+topology: ipv4-md5-mixed-lan.yaml
+name: MD5 retransmission with lost ACK and unauthenticated neighbor
+steps:
+  # Drop the first two ACKs for R1's reliable INIT UPDATE to force a resend.
+  - fault-add: {name: md5-ack-loss, action: drop, source_uut: r2, destination_uut: r1, source_interface: lan0, destination_interface: lan0, segment: shared-lan, afi: 4, multicast: false, ack: 1, count: 2}
+  - packet-mark: md5-retry-window
+  - start: all
+  - validate-fault: {name: md5-ack-loss, hits: 1, timeout: 8}
+  - validate-packet: {since: md5-retry-window, source_uut: r2, destination_uut: r1, ack: 1, event: dropped, min: 1, timeout: 8}
+  - validate-retry: {since: md5-retry-window, source_uut: r1, opcode: update, timeout: 12}
+  # Same RTP packet, but each wire transmission must use a fresh MD5
+  # cryptographic sequence. This detects the old byte-for-byte resend bug.
+  - validate-packet: {since: md5-retry-window, source_uut: r1, destination_uut: r2, opcode: update, sequence: 1, group_by: auth_sequence, min_groups: 2, timeout: 12}
+  - validate-convergence:
+      timeout: 12
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.41.0.2, interface: lan0, state: up, reliable_q: 0}
+        - neighbor: {uut: r2, neighbor: 10.41.0.1, interface: lan0, state: up}
+        - route: {uut: r1, prefix: 10.22.0.0/24, table: rib, next_hop: 10.41.0.2}
+        - route: {uut: r2, prefix: 10.21.0.0/24, table: rib, next_hop: 10.41.0.1}
+        - neighbor: {uut: r1, neighbor: 10.41.0.3, state: down}
+        - neighbor: {uut: r2, neighbor: 10.41.0.3, state: down}

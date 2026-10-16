@@ -5,6 +5,8 @@
  *   Donnie Savage
  */
 #include <arpa/inet.h>
+#include <limits.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include "eigrp.h"
@@ -16,7 +18,8 @@
 #include "eigrp_auth.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
-static unsigned char zeropad[16] = {0};
+#include "eigrp_checksum.h"
+static const unsigned char zeropad[16] = {0};
 
 
 static bool eigrp_auth_sequence_newer(uint32_t received_wire, uint32_t stored_wire)
@@ -25,10 +28,44 @@ static bool eigrp_auth_sequence_newer(uint32_t received_wire, uint32_t stored_wi
 	uint32_t stored = ntohl(stored_wire);
 	uint32_t delta = received - stored;
 
-	/* Serial-number arithmetic: equal is a replay; values within the
-	 * forward half of the 32-bit sequence space are newer.  This also
-	 * permits the natural UINT32_MAX -> 0 wrap. */
+	/* Zero is not transmitted.  A new neighbor has no prior sequence:
+	 * accept any nonzero starting value, including values above INT32_MAX.
+	 * Once initialized, use half-range serial-number arithmetic to reject
+	 * duplicate and stale packets while permitting 32-bit wraparound. */
+	if (received == 0)
+		return false;
+	if (stored == 0)
+		return true;
 	return delta != 0 && delta < 0x80000000U;
+}
+
+/* Each actual interface transmission receives a fresh cryptographic sequence.
+ * RTP retransmissions preserve their RTP sequence, not their auth sequence.
+ * Packet construction places a placeholder TLV; paced dequeue signs it. */
+static uint32_t eigrp_auth_sequence_next(eigrp_intf_t *ei)
+{
+	if (++ei->crypt_seqnum == 0)
+		++ei->crypt_seqnum;
+	return htonl(ei->crypt_seqnum);
+}
+
+/* Complete admission for Hellos that entered ingress before the AF created
+ * the neighbor. Caller holds peer_lock. This is not a second authentication
+ * path: the packet was signed and admitted by the receiver already. */
+bool eigrp_auth_discovery_sequence_accept(eigrp_nbr_t *nbr,
+                                          const struct eigrp_header *header)
+{
+    const struct TLV_MD5_Authentication_Type *auth;
+
+    if (!nbr || !header)
+        return false;
+    if (nbr->ei->params.auth_type == EIGRP_AUTH_TYPE_NONE)
+        return true;
+    auth = (const struct TLV_MD5_Authentication_Type *)header->tlv;
+    if (!eigrp_auth_sequence_newer(auth->key_sequence, nbr->crypt_seqnum))
+        return false;
+    nbr->crypt_seqnum = auth->key_sequence;
+    return true;
 }
 
 bool eigrp_auth_material_available(const eigrp_intf_t *ei)
@@ -81,160 +118,139 @@ static bool eigrp_auth_sha256_source(eigrp_intf_t *ei, eigrp_nbr_t *nbr,
 	return inet_ntop(af, address, text, text_size) != NULL;
 }
 
-int eigrp_make_md5_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
-			  uint8_t flags)
+/*
+ * MD5 input: EIGRP header and authentication TLV fields
+ * through the reserved bytes, followed by the configured key (zero-padded
+ * to 16 octets when shorter). UPDATEs, including INIT UPDATEs, then cover
+ * every TLV after the authentication TLV. The digest field itself is omitted.
+ * Basic HELLOs retain the existing 44-byte Cisco compatibility profile.
+ *
+ * Use the same computation for transmit and receive so the authenticated
+ * byte ranges cannot diverge. Validate length before any MD5 update.
+ */
+_Static_assert(EIGRP_MD5_BASIC_COMPUTE
+	       == EIGRP_HEADER_LEN + offsetof(struct TLV_MD5_Authentication_Type, digest),
+	       "MD5 prefix must end at the digest field");
+_Static_assert(sizeof(struct TLV_MD5_Authentication_Type)
+	       == EIGRP_AUTH_MD5_TLV_SIZE, "MD5 TLV size mismatch");
+
+static bool eigrp_auth_md5_compute(const uint8_t *packet, size_t packet_len,
+                                   const char *key, uint8_t flags,
+                                   unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN])
 {
-	char key_string[PLAINTEXT_LENGTH + 1] = {0};
-	uint32_t key_id = 0;
-
-	unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN];
+	const size_t tlv_end = EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE;
+	size_t key_len;
 	eigrp_md5_ctx_t ctx;
-	uint8_t *ibuf;
-	size_t backup_get, backup_end;
-	struct TLV_MD5_Authentication_Type *auth_TLV;
 
-	ibuf = s->data;
-	backup_end = s->endp;
-	backup_get = s->getp;
+	if (!packet || !key || !digest || packet_len < tlv_end
+		|| packet_len > UINT_MAX
+		|| !(flags & (EIGRP_AUTH_BASIC_HELLO_FLAG
+		            | EIGRP_AUTH_UPDATE_INIT_FLAG | EIGRP_AUTH_UPDATE_FLAG)))
+		return false;
 
-	auth_TLV = eigrp_auth_tlv_md5_create();
-
-	eigrp_stream_set_getp(s, EIGRP_HEADER_LEN);
-	eigrp_stream_get(auth_TLV, s, EIGRP_AUTH_MD5_TLV_SIZE);
-	eigrp_stream_set_getp(s, backup_get);
-
-	if (!eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
-		eigrp_auth_tlv_md5_delete(auth_TLV);
-		return EIGRP_AUTH_TYPE_NONE;
-	}
-
+	key_len = strlen(key);
 	memset(&ctx, 0, sizeof(ctx));
 	eigrp_md5_init(&ctx);
+	eigrp_md5_update(&ctx, packet, EIGRP_MD5_BASIC_COMPUTE);
+	eigrp_md5_update(&ctx, key, (unsigned int)key_len);
+	if (key_len < sizeof(zeropad))
+		eigrp_md5_update(&ctx, zeropad,
+		                 (unsigned int)(sizeof(zeropad) - key_len));
 
-	/* Generate a digest. Each situation needs different handling */
-	if (flags & EIGRP_AUTH_BASIC_HELLO_FLAG) {
-		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		eigrp_md5_update(&ctx, key_string, strlen(key_string));
-		if (strlen(key_string) < 16)
-			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
-	} else if (flags & EIGRP_AUTH_UPDATE_INIT_FLAG) {
-		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_UPDATE_INIT_COMPUTE);
-	} else if (flags & EIGRP_AUTH_UPDATE_FLAG) {
-		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		eigrp_md5_update(&ctx, key_string, strlen(key_string));
-		if (strlen(key_string) < 16)
-			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
-		if (backup_end > (EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE)) {
-			eigrp_md5_update(&ctx,
-				  ibuf
-					  + (EIGRP_HEADER_LEN
-					     + EIGRP_AUTH_MD5_TLV_SIZE),
-				  backup_end - 20
-					  - (EIGRP_HEADER_LEN
-					     + EIGRP_AUTH_MD5_TLV_SIZE));
-		}
-	}
+	if (!(flags & EIGRP_AUTH_BASIC_HELLO_FLAG) && packet_len > tlv_end)
+		eigrp_md5_update(&ctx, packet + tlv_end,
+		                 (unsigned int)(packet_len - tlv_end));
 
 	eigrp_md5_final(digest, &ctx);
+	return true;
+}
 
-	/* Append md5 digest to the end of the stream. */
-	memcpy(auth_TLV->digest, digest, EIGRP_AUTH_TYPE_MD5_LEN);
+int eigrp_make_md5_digest(eigrp_intf_t *ei, eigrp_stream_t *s,
+                          uint8_t flags)
+{
+	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN];
+	struct TLV_MD5_Authentication_Type *auth_tlv;
+	uint32_t key_id = 0;
+	bool valid;
 
-	eigrp_stream_set_endp(s, EIGRP_HEADER_LEN);
-	eigrp_stream_put(s, auth_TLV, EIGRP_AUTH_MD5_TLV_SIZE);
-	eigrp_stream_set_endp(s, backup_end);
+	if (!ei || !s || !s->data
+		|| s->endp < EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE
+		|| s->endp > s->size)
+		return 0;
 
-	eigrp_auth_tlv_md5_delete(auth_TLV);
+	if (!eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string)))
+		return 0;
+
+	valid = eigrp_auth_md5_compute(s->data, s->endp, key_string, flags, digest);
+	memset(key_string, 0, sizeof(key_string));
+	if (!valid)
+		return 0;
+
+	auth_tlv = (struct TLV_MD5_Authentication_Type *)(s->data
+	                                                  + EIGRP_HEADER_LEN);
+	memcpy(auth_tlv->digest, digest, sizeof(digest));
 	return EIGRP_AUTH_TYPE_MD5_LEN;
 }
 
 int eigrp_check_md5_digest(eigrp_stream_t *s,
-			   struct TLV_MD5_Authentication_Type *authTLV,
-			   eigrp_nbr_t *nbr, uint8_t flags)
+                           struct TLV_MD5_Authentication_Type *authTLV,
+                           eigrp_nbr_t *nbr, uint8_t flags)
 {
-	eigrp_md5_ctx_t ctx;
 	unsigned char digest[EIGRP_AUTH_TYPE_MD5_LEN];
-	unsigned char orig[EIGRP_AUTH_TYPE_MD5_LEN];
+	unsigned char original[EIGRP_AUTH_TYPE_MD5_LEN];
 	char key_string[PLAINTEXT_LENGTH + 1] = {0};
+	struct eigrp_header *header;
 	uint32_t key_id = 0;
-	uint8_t *ibuf;
-	size_t backup_end;
-	struct TLV_MD5_Authentication_Type *auth_TLV;
-	struct eigrp_header *eigrph;
 	uint16_t saved_checksum;
+	bool valid;
+
+	if (!s || !s->data || !authTLV || !nbr || !nbr->ei
+		|| s->endp < EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE
+		|| s->endp > s->size
+		|| (uint8_t *)authTLV != s->data + EIGRP_HEADER_LEN)
+		return 0;
+
+	if (ntohs(authTLV->type) != EIGRP_TLV_AUTH
+		|| ntohs(authTLV->length) != EIGRP_AUTH_MD5_TLV_SIZE
+		|| ntohs(authTLV->auth_type) != EIGRP_AUTH_TYPE_MD5
+		|| ntohs(authTLV->auth_length) != EIGRP_AUTH_TYPE_MD5_LEN)
+		return 0;
 
 	if (!eigrp_auth_sequence_newer(authTLV->key_sequence, nbr->crypt_seqnum)) {
 		eigrp_log(EIGRP_LOG_WARNING,
-			"interface %s: eigrp_check_md5 bad sequence %d (expect %d)",
-			eigrp_intf_name_string(nbr->ei), ntohl(authTLV->key_sequence),
-			ntohl(nbr->crypt_seqnum));
+		          "interface %s: eigrp_check_md5 bad sequence %u (expect %u)",
+		          eigrp_intf_name_string(nbr->ei), ntohl(authTLV->key_sequence),
+		          ntohl(nbr->crypt_seqnum));
 		return 0;
 	}
-
-	eigrph = (struct eigrp_header *)s->data;
-	saved_checksum = eigrph->checksum;
-	eigrph->checksum = 0;
-
-	auth_TLV = (struct TLV_MD5_Authentication_Type *)(s->data
-							  + EIGRP_HEADER_LEN);
-	memcpy(orig, auth_TLV->digest, EIGRP_AUTH_TYPE_MD5_LEN);
-	memset(digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
-	memset(auth_TLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
-
-	ibuf = s->data;
-	backup_end = s->endp;
 
 	if (!eigrp_auth_key_get(nbr->ei, &key_id, key_string, sizeof(key_string))) {
 		eigrp_log(EIGRP_LOG_WARNING,
-			"Interface %s: Expected key value not found in config",
-			nbr->ei->name);
-		memcpy(auth_TLV->digest, orig, EIGRP_AUTH_TYPE_MD5_LEN);
-		eigrph->checksum = saved_checksum;
+		          "Interface %s: Expected key value not found in config",
+		          nbr->ei->name);
 		return 0;
 	}
 
-	memset(&ctx, 0, sizeof(ctx));
-	eigrp_md5_init(&ctx);
+	header = (struct eigrp_header *)s->data;
+	saved_checksum = header->checksum;
+	header->checksum = 0;
+	memcpy(original, authTLV->digest, sizeof(original));
+	memset(authTLV->digest, 0, sizeof(original));
 
-	/* Generate a digest. Each situation needs different handling */
-	if (flags & EIGRP_AUTH_BASIC_HELLO_FLAG) {
-		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		eigrp_md5_update(&ctx, key_string, strlen(key_string));
-		if (strlen(key_string) < 16)
-			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
-	} else if (flags & EIGRP_AUTH_UPDATE_INIT_FLAG) {
-		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_UPDATE_INIT_COMPUTE);
-	} else if (flags & EIGRP_AUTH_UPDATE_FLAG) {
-		eigrp_md5_update(&ctx, ibuf, EIGRP_MD5_BASIC_COMPUTE);
-		eigrp_md5_update(&ctx, key_string, strlen(key_string));
-		if (strlen(key_string) < 16)
-			eigrp_md5_update(&ctx, zeropad, 16 - strlen(key_string));
-		if (backup_end > (EIGRP_HEADER_LEN + EIGRP_AUTH_MD5_TLV_SIZE)) {
-			eigrp_md5_update(&ctx,
-				  ibuf
-					  + (EIGRP_HEADER_LEN
-					     + EIGRP_AUTH_MD5_TLV_SIZE),
-				  backup_end - 20
-					  - (EIGRP_HEADER_LEN
-					     + EIGRP_AUTH_MD5_TLV_SIZE));
-		}
-	}
+	valid = eigrp_auth_md5_compute(s->data, s->endp, key_string, flags, digest);
+	memcpy(authTLV->digest, original, sizeof(original));
+	header->checksum = saved_checksum;
+	memset(key_string, 0, sizeof(key_string));
 
-	eigrp_md5_final(digest, &ctx);
-
-	/* compare the two */
-	memcpy(auth_TLV->digest, orig, EIGRP_AUTH_TYPE_MD5_LEN);
-	eigrph->checksum = saved_checksum;
-
-	if (memcmp(orig, digest, EIGRP_AUTH_TYPE_MD5_LEN) != 0) {
-		eigrp_log(EIGRP_LOG_WARNING, "interface %s: eigrp_check_md5 checksum mismatch",
-			  eigrp_intf_name_string(nbr->ei));
+	if (!valid || memcmp(original, digest, sizeof(original)) != 0) {
+		eigrp_log(EIGRP_LOG_WARNING,
+		          "interface %s: eigrp_check_md5 checksum mismatch",
+		          eigrp_intf_name_string(nbr->ei));
 		return 0;
 	}
 
-	/* save neighbor's crypt_seqnum */
 	nbr->crypt_seqnum = authTLV->key_sequence;
-
 	return 1;
 }
 
@@ -354,17 +370,21 @@ uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *s, eigrp_intf_t *ei)
 	uint32_t key_id = 0;
 	struct TLV_MD5_Authentication_Type *authTLV;
 
+	if (!s || !ei)
+		return 0;
 	authTLV = eigrp_auth_tlv_md5_create();
+	if (!authTLV)
+		return 0;
 
 	authTLV->type = htons(EIGRP_TLV_AUTH);
 	authTLV->length = htons(EIGRP_AUTH_MD5_TLV_SIZE);
 	authTLV->auth_type = htons(EIGRP_AUTH_TYPE_MD5);
 	authTLV->auth_length = htons(EIGRP_AUTH_TYPE_MD5_LEN);
-	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
 	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = htonl(key_id);
+		authTLV->key_sequence = 0;
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_MD5_Authentication_Type));
@@ -384,17 +404,21 @@ uint16_t eigrp_auth_tlv_sha256_encode(eigrp_stream_t *s,
 	uint32_t key_id = 0;
 	struct TLV_SHA256_Authentication_Type *authTLV;
 
+	if (!s || !ei)
+		return 0;
 	authTLV = eigrp_auth_tlv_sha256_create();
+	if (!authTLV)
+		return 0;
 
 	authTLV->type = htons(EIGRP_TLV_AUTH);
 	authTLV->length = htons(EIGRP_AUTH_SHA256_TLV_SIZE);
 	authTLV->auth_type = htons(EIGRP_AUTH_TYPE_SHA256);
 	authTLV->auth_length = htons(EIGRP_AUTH_TYPE_SHA256_LEN);
-	authTLV->key_sequence = 0;
 	memset(authTLV->Nullpad, 0, sizeof(authTLV->Nullpad));
 
 	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = 0;
+		authTLV->key_sequence = 0;
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_SHA256_Authentication_Type));
@@ -708,4 +732,66 @@ static eigrp_result_t eigrp_auth_message_process(eigrp_instance_t *eigrp,
 			message->context, message->keychain);
 	}
 	return EIGRP_RESULT_INVALID_ARGUMENT;
+}
+
+/* Called only when the paced interface output queue actually sends the packet.
+ * Queued canonical RTP packets are unsigned templates.  A retransmission is a
+ * copy of that template, with its own cryptographic sequence and digest. */
+bool eigrp_auth_transmit_finalize(eigrp_intf_t *ei, eigrp_stream_t *stream,
+                                  uint16_t packet_length)
+{
+    struct eigrp_header *header;
+    struct TLV_MD5_Authentication_Type *auth;
+    char key[PLAINTEXT_LENGTH + 1] = {0};
+    uint32_t key_id = 0;
+    size_t auth_size;
+    uint8_t flags;
+    bool success;
+
+    if (!ei || !stream || !stream->data || packet_length < EIGRP_HEADER_LEN
+        || stream->endp != packet_length || stream->size < packet_length)
+        return false;
+    header = (struct eigrp_header *)stream->data;
+    if (ei->params.auth_type == EIGRP_AUTH_TYPE_NONE) {
+        header->checksum = 0;
+        header->checksum = htons(eigrp_checksum(header, packet_length));
+        return true;
+    }
+    if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)
+        auth_size = EIGRP_AUTH_MD5_TLV_SIZE;
+    else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
+        auth_size = EIGRP_AUTH_SHA256_TLV_SIZE;
+    else
+        return false;
+    if (packet_length < EIGRP_HEADER_LEN + auth_size
+        || !eigrp_auth_key_get(ei, &key_id, key, sizeof(key)))
+        return false;
+    memset(key, 0, sizeof(key));
+    auth = (struct TLV_MD5_Authentication_Type *)(stream->data + EIGRP_HEADER_LEN);
+    if (ntohs(auth->type) != EIGRP_TLV_AUTH
+        || ntohs(auth->length) != auth_size
+        || ntohs(auth->auth_type) != ei->params.auth_type)
+        return false;
+
+    auth->key_sequence = eigrp_auth_sequence_next(ei);
+    header->checksum = 0;
+    flags = header->opcode == EIGRP_OPC_HELLO
+        ? EIGRP_AUTH_BASIC_HELLO_FLAG
+        : (header->opcode == EIGRP_OPC_UPDATE
+           && (ntohl(header->flags) & EIGRP_INIT_FLAG))
+            ? EIGRP_AUTH_UPDATE_INIT_FLAG : EIGRP_AUTH_UPDATE_FLAG;
+    if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5) {
+        memset(auth->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
+        success = eigrp_make_md5_digest(ei, stream, flags) == EIGRP_AUTH_TYPE_MD5_LEN;
+    } else {
+        struct TLV_SHA256_Authentication_Type *sha =
+            (struct TLV_SHA256_Authentication_Type *)auth;
+        memset(sha->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
+        success = eigrp_make_sha256_digest(ei, stream, flags)
+                  == EIGRP_AUTH_TYPE_SHA256_LEN;
+    }
+    if (!success)
+        return false;
+    header->checksum = htons(eigrp_checksum(header, packet_length));
+    return true;
 }

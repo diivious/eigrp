@@ -665,228 +665,24 @@ VRF.
 
 ## 16. Policy and authentication host services
 
-The standalone Unix adapter implements the runtime, interface, virtual-wire, and
-RIB services used by the portable qualification environment. It does not provide
-a native Unix ACL/prefix-list/route-map database or key-chain implementation for
-the `eigrp_sys_*policy*` and `eigrp_sys_auth_key_lookup()` contracts.
-
-Tests that need those host services may provide test-local neutral or fixture
-implementations. Those helpers are host-test behavior, not portable protocol
-implementation and not a new public API.
-
-Therefore:
-
-- policy matching and key storage must not be added to DUAL/topology/packet
-  modules;
-- any native Unix policy/key objects belong under `unix/`;
-- the public boundary remains the policy and authentication-key contracts
-  defined in `specs/public-api.md`;
-- an unavailable Unix host capability remains explicit rather than being
-  simulated in portable core code.
-
-## 17. Management and observation
-
-Unix operational front ends should use two separate observation layers:
-
-```text
-OpenEIGRP protocol state
-    -> eigrp_mgnt.h public readers/iterators
-
-Unix host model state
-    -> eigrp_unix_interface_* walkers
-    -> eigrp_unix_rib_* walkers
-    -> eigrp_unix_segment_* walkers
-```
-
-Examples of protocol state that must come from `eigrp_mgnt.h` rather than
-private structures include:
-
-- protocol status/capabilities;
-- interface EIGRP runtime state;
-- neighbors;
-- topology prefixes and paths;
-- traffic counters;
-- event log.
-
-The Unix RIB walkers may show what the host shim installed or originated, but
-they are not substitutes for the portable topology-management API.
-
-## 18. Data ownership rules
-
-### 18.1 Host model objects
-
-These are Unix-owned and private:
-
-- `eigrp_unix_interface_t`;
-- `eigrp_unix_segment_t`;
-- Unix RIB entry nodes;
-- wire bindings;
-- POSIX fds;
-- pthread objects;
-- Unix runtime events/work items.
-
-Portable code must never retain or dereference them.
-
-### 18.2 Public normalized values
-
-Values passed into the core through `eigrp_sys_intf_*()` or
-`eigrp_rib_redist_*()` must use the public copy/value structures defined by the
-portable API.
-
-If the core needs data after the call returns, the core owns the required copy.
-The Unix adapter must not assume a pointer into its host model remains valid
-inside portable code.
-
-### 18.3 Core opaque identities
-
-The Unix shim may retain documented opaque portable identities such as an
-`eigrp_instance_t *` only for their valid lifetime. It must not cast them to a
-private core structure or read fields directly.
-
-## 19. Error handling
-
-The Unix adapter maps host failures to public `eigrp_result_t` values where the
-public API returns a structured result.
-
-Typical mapping:
-
-```text
-bad argument                         -> EIGRP_RESULT_INVALID_ARGUMENT
-missing Unix object                  -> EIGRP_RESULT_NOT_FOUND
-duplicate/conflicting host object    -> EIGRP_RESULT_CONFLICT
-unsupported non-default VRF          -> EIGRP_RESULT_UNSUPPORTED
-allocation/runtime host failure      -> EIGRP_RESULT_INTERNAL_FAILURE
-```
-
-Packet-I/O APIs retain their documented integer/bool contracts.
-
-The Unix adapter must not convert an actual unimplemented public capability into
-fake success solely to satisfy a test.
-
-## 20. Required call-flow invariants
-
-The following invariants are architectural requirements.
-
-### 20.1 Host-to-core
-
-```text
-Unix host object/event
-    -> normalize into public EIGRP-owned value
-    -> call the exact owning public API
-    -> portable core owns EIGRP semantics
-```
-
-No Unix-native object crosses that line.
-
-### 20.2 Core-to-host
-
-```text
-portable core request
-    -> public sys/RIB API
-    -> Unix adapter translates to runtime/RIB/wire operation
-    -> Unix-private implementation details remain private
-```
-
-### 20.3 Packets
-
-```text
-core message/RTP/packetizer
-    -> public packet-send API
-    -> Unix wire envelope
-    -> broker
-    -> destination Unix wire client
-    -> public packet-receive API
-    -> core packet/RTP/message processing
-```
-
-The envelope is transport metadata only; it must not alter EIGRP message bytes.
-
-### 20.4 Interface/RIB causality
-
-An operational interface/address change may produce both:
-
-1. normalized interface lifecycle notification; and
-2. connected source-route lifecycle notification.
-
-Those are distinct public API flows and must remain distinct.
-
-## 21. What must remain out of portable core
-
-Do not move any of the following into `eigrp/code/` merely because the Unix UUT
-needs them:
-
-- `poll(2)`;
-- pthread runtime-loop mechanics;
-- wake pipes;
-- Unix-domain sockets;
-- broker registration/envelopes;
-- logical segment objects;
-- standalone config-file parsing;
-- in-memory test RIB storage;
-- Unix host-interface inventory;
-- Unix test/UUT command protocol;
-- kernel/network namespace setup if added later.
-
-Portable code calls EIGRP-owned abstractions; Unix implements them.
-
-## 22. Tests that enforce this integration
-
-Unix-specific tests live under `unix/test/` and should validate the adapter
-without requiring FRR, BIRD, root privileges, or kernel routing changes.
-
-Current test areas include:
-
-```text
-unix/test/runtime.py
-    events, timers, readiness, work queues, lifecycle
-
-unix/test/interface.py
-    interface/address host model and notifications
-
-unix/test/rib.py
-    learned-route and source-route behavior
-
-unix/test/config.py
-    standalone parser -> semantic API
-
-unix/test/packet.py
-    virtual packet I/O
-
-unix/test/boundary.py
-    portable/Unix boundary checks
-
-unix/test/faults.py
-    Unix/UUT failure scenarios
-```
-
-Portable protocol correctness remains under `eigrp/test/`. A test of Unix
-adapter mechanics belongs under `unix/test/`; a DUAL/RTP/topology behavior test
-does not.
-
-## 23. Relationship to other specifications
-
-Read these documents together:
-
-```text
-specs/public-api.md
-    complete public core/shim function and data-structure contract
-
-specs/platform-integration.md
-    host-neutral integration architecture
-
-unix/specs/integration.md
-    concrete Unix implementation of that architecture
-
-frr/specs/integration.md
-    concrete FRR implementation of the same public boundary
-
-eigrp/specs/*
-    portable protocol-internal design; no Unix mechanics
-```
-
-If this document conflicts with a public C declaration, the public header is the
-source-level authority and the documentation must be corrected.
-
-If Unix integration code requires a new cross-platform service, first define an
-EIGRP-owned host-neutral public contract. Do not expose a POSIX/Unix type through
-a portable header.
+The standalone Unix shim owns the policy callbacks in
+`unix/code/eigrp_unix_policy.c` and the keychain lookup in
+`unix/code/eigrp_unix_keychain.c`. The UUT executable does not define
+`eigrp_sys_*` policy or authentication-key callbacks.
+
+The Unix keychain provider is a small in-memory store. No key or test password
+is built in: Unix configuration or test orchestration must explicitly register
+keys through the Unix-owned `eigrp_unix_keychain_add()` interface. Missing
+keys return false from `eigrp_sys_auth_key_lookup()`. A future Unix-native
+configuration backend can use the same private provisioning API without
+changing the portable authentication contract.
+
+**Unix policy execution is not complete.** The policy adapter preserves the
+existing neutral evaluation results for now (ordinary filters and route maps
+permit; summary leak maps deny), but does not provide Unix ACL/prefix-list/
+route-map databases. Do not treat this as a production policy engine. It must
+be completed before using configured policy with standalone Unix routing.
+
+The public EIGRP system boundary remains the host-service contracts in
+`eigrp/code/eigrp_sys.h`. Unix-specific configuration objects, keychain
+storage, and policy objects must never leak into portable EIGRP code.
