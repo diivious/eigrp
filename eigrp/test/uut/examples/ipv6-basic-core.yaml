@@ -9,7 +9,7 @@ routers:
     interfaces:
       eth12: {segment: r1-r2, ipv6: 'fe80::1/128'}
     attached_networks:
-      - {prefix: 'fe80:1::1/128', interface: lan1}
+      - {prefix: '2001:db8:1::/64', interface: lan1}
   r2:
     asn: 4453
     router_id: 10.255.0.2
@@ -22,4 +22,4 @@ routers:
     interfaces:
       eth32: {segment: r2-r3, ipv6: 'fe80::3/128'}
     attached_networks:
-      - {prefix: 'fe80:3::1/128', interface: lan3}
+      - {prefix: '2001:db8:3::/64', interface: lan3}

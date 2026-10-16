@@ -49,14 +49,7 @@ core-topology: build ## Run the four-router square and cross-connected core redu
 mesh-topology: build ## Run the six-router full-mesh DUAL/query-storm qualification scenarios.
 	$(MAKE) -C eigrp/test/uut mesh-topology
 
-test: ## Run all test groups and return failure if any group fails.
-	@status=0; \
-	$(MAKE) portable-test || status=$$?; \
-	$(MAKE) uut || status=$$?; \
-	$(MAKE) ipv4-basic-core || status=$$?; \
-	$(MAKE) ipv6-basic-core || status=$$?; \
-	$(MAKE) rtp-core || status=$$?; \
-	exit $$status
+test: uut ## Run the complete portable UUT gate once (pytest + all YAML scenarios).
 
 # Optional FRR-owned compile/link smoke test; not part of the portable gate.
 frr-smoke: ## Run the optional FRR compile/link smoke test.

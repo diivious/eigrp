@@ -41,7 +41,7 @@ def test_packet_journal_decodes_ipv4_external_route_prefixes():
 
     prefix = bytes([24, 172, 30, 50])
     mp = struct.pack("!HH", 0x0603, 4 + 8 + 24 + 16 + len(prefix))
-    mp += bytes(8) + bytes(24) + bytes(16) + prefix
+    mp += struct.pack("!HHI", 1, 0, 0) + bytes(24) + bytes(16) + prefix
     classic = struct.pack("!HH", 0x0103, 4 + 4 + 20 + 16 + len(prefix))
     classic += bytes(4) + bytes(20) + bytes(16) + prefix
     assert _route_prefixes(bytes(20) + mp, 4) == ["172.30.50.0/24"]

@@ -7,6 +7,6 @@ steps:
  - fault-add: {name: isolate-r1-r2, action: drop, source_uut: r1, destination_uut: r2}
  - fault-add: {name: lose-query-r3, action: drop, source_uut: r2, destination_uut: r3, multicast: true, opcode: query, count: 1}
  - packet-mark: m
- - validate-packet: {since: m, source_uut: r2, opcode: query, multicast: true, event: sent, min: 1, timeout: 20}
+ - validate-packet: {since: m, source_uut: r2, opcode: query, multicast: true, event: delivered, min: 1, timeout: 20}
  - validate-fault: {name: lose-query-r3, hits: 1, remaining: 0, timeout: 5}
  - validate-retransmission: {since: m, source_uut: r2, destination_uut: r3, opcode: query, timeout: 5}

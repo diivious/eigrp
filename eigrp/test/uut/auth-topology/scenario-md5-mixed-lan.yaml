@@ -4,7 +4,7 @@ name: MD5 two authenticated routers and one unauthenticated router
 steps:
   - start: all
   # Prove the unprotected router is actually transmitting Hellos on the LAN.
-  - validate-packet: {uut: r3, interface: lan0, opcode: hello, min: 1, timeout: 8}
+  - validate-packet: {uut: r3, interface: lan0, opcode: hello, min: 1, timeout: 8, event: sent}
   - validate-packet: {source_uut: r3, destination_uut: r1, event: delivered, opcode: hello, min: 1, timeout: 8}
   - validate-packet: {source_uut: r3, destination_uut: r2, event: delivered, opcode: hello, min: 1, timeout: 8}
   - validate-neighbor: {uut: r1, neighbor: 10.41.0.2, interface: lan0, timeout: 10}
@@ -23,7 +23,7 @@ steps:
   - validate-neighbor: {uut: r3, neighbor: 10.41.0.1, state: down, observe: 3}
   - validate-neighbor: {uut: r3, neighbor: 10.41.0.2, state: down, observe: 3}
   # R3 keeps sending unauthenticated Hellos during the rejection checks.
-  - validate-packet: {uut: r3, interface: lan0, opcode: hello, since: established, min: 1, timeout: 8}
+  - validate-packet: {uut: r3, interface: lan0, opcode: hello, since: established, min: 1, timeout: 8, event: sent}
   - validate-convergence:
       timeout: 3
       expect:

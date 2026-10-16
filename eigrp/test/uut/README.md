@@ -60,6 +60,83 @@ supports `table: path` with `next_hop`, `interface`, `successor`,
 next hop while other paths for the prefix remain. `count` requires an exact number of
 matching rows and is used to reject unexpected extra paths/successors.
 
+Packet assertions must specify `event` explicitly: `sent` proves the router
+emitted the packet, `delivered` proves the broker passed it to a recipient,
+`dropped` proves a test fault blocked the delivery, and `any` is permitted only
+for zero-packet checks (`min: 0, max: 0`). In particular, a dropped packet
+cannot satisfy a positive `event: delivered` assertion. For QUERY suppression,
+`event: any` includes attempts that faults subsequently drop, unlike checking
+only delivered packets. Scenario field names and packet phase marks are
+validated strictly; a misspelled field, undefined mark, or empty convergence
+list is a failing test rather than a weakened assertion.
+
+The read-only virtual-wire decoder can filter the destination prefix for IPv4
+and IPv6 classic and MP route TLVs. Its IPv6 extractor is verified against
+actual portable C encoder outputs, including malformed-packet negative vectors.
+The IPv6 three-router gate uses routable documentation prefixes as passive
+connected destinations; link-local addresses are only used for adjacencies and
+interface-scoped next hops. The gate validates IPv6 prefix-specific UPDATE,
+QUERY, and REPLY delivery, route withdrawal and recovery, Passive DUAL
+successors, and rejection of learned link-local destinations. IPv6 global
+connected origins require an explicitly configured passive interface;
+this cannot create neighbor relationships using global source addresses.
+
+## Medium-severity qualification guards
+
+`validate-convergence` can specify `stable_for` (seconds) to require **every**
+neighbor and route expectation to remain true continuously over the specified
+observation interval. Any failed poll resets the interval. This is different
+from a one-time successful snapshot and is applied to the basic IPv4, diamond,
+mesh, and two-router recovery gates. `timeout` includes the stable interval.
+
+`checkpoint: <phase-name>` captures each running UUT's raw `STATE` and `EVENTS`
+responses and the incremental broker packet journal **at that phase**. In `--report` mode, every existing `packet-mark` also creates an automatic
+phase checkpoint, even for scenarios that do not declare explicit checkpoints.
+Reports include all phase checkpoints before final diagnostics, preserving earlier
+evidence even when a subsequent full (500-entry) event ring wraps. Checkpoints
+never resize the production ring and do not replace positive route, neighbor,
+and packet assertions. Use checkpoints after convergence and at failure/recovery
+boundaries in tests with many DUAL transitions.
+
+The two-router framework smoke now has real qualification assertions: each
+router must learn the other's remote connected prefix, both destinations must
+be withdrawn when both transit interfaces go down, and both routes, Passive
+DUAL state, Up adjacencies, and empty neighbor RTP queues must recover for a
+bounded stable interval. It is still a basic smoke, not a DUAL multipath gate.
+
+The portable Python suite includes tests in several distinct categories:
+**source guards** inspect C structure and API boundaries; **codec-vector-C**
+tests compile and execute production C codec functions; **RTP-C** runs the
+production neighbor timing code with a deterministic fake monotonic clock;
+**UUT-multiprocess** tests exchange actual EIGRP packets between isolated
+routers through the virtual wire. FRR/BIRD host integration is **not** covered
+by `make uut` and must be tested in their respective platform trees. IPv4
+TLV1/TLV2 tests now include C encoder/decoder round trips, malformed/truncated
+input rejections, and wire-decoder cross-validation in addition to the
+previous independently written Python layout fixtures.
+
+The runner automatically fails on unexpected virtual-wire `send-error` events
+reported by the broker, even if every explicit YAML route and neighbor check
+passes. At a scenario's **terminal** `stop`, the runner closes the virtual-wire
+broker and checks its journal **before** stopping the router processes. This
+prevents orderly sequential teardown from creating an artificial socket-write
+failure against an already stopped UUT. Genuine send errors generated while
+the broker was live, including any discovered while it closes, still fail.
+The same broker-before-routers ordering applies to implicit cleanup after a
+test failure. Nonterminal stop/restart steps leave the broker running. A regression injects such an event into the journal and requires a
+failed result. Colliding attached/transit interface names also fail during
+YAML schema validation, before routers are started.
+
+Diagnostic triage: `Packet transmit failure` for an unattached synthetic
+interface's multicast HELLO is a known fixture limitation, **not** a blanket
+allowance for transmit failures on connected test links. Tests must check
+unexpected adjacency-reset reasons (for example, peer restart or retry-limit)
+and any send-error events seen on live broker segments. Deliberately injected
+packet drops/rejections must be tied to the named scenario fault and counted
+rather than accepted as arbitrary packet-loss warnings. The phase checkpoints
+expose these records for inspection; checkpointing alone does not constitute
+a global unexpected-event failure policy.
+
 `validate-packet` supports `min` and `max`. It also supports `group_by` plus
 `max_per_group` (and `min_groups` / `max_groups`) for bounded fanout checks such as
 "at most one QUERY per source/destination pair." Any upper-bound assertion observes
@@ -155,7 +232,7 @@ including SRTT/RTO sampling, lost reliable-packet retransmission, lost ACK/retry
 handling, and reliable-multicast peer retry behavior. The same unprivileged Unix
 wire/UUT framework is used; no host networking setup or platform VM is required.
 
-Root `make test` runs this gate after the IPv4 and IPv6 Basic Core Gates.
+Root `make test` runs this RTP gate as part of the discovered UUT scenarios, without rerunning separate basic-core or RTP targets.
 
 ## Current authority-code observation
 
@@ -205,3 +282,23 @@ through the portable `eigrp_timer_active_time_update()` configuration API.
 Fault rules may also match `prefix`, limiting a packet action to route-bearing
 packets that carry that decoded destination.  These are test-side controls only;
 they do not alter protocol state or synthesize EIGRP behavior.
+
+## Pre-commit test runner reliability
+
+`make uut` runs portable pytest and each discovered YAML UUT scenario once.
+`make test` invokes the same gate (it does not repeat pytest or rerun the
+IPv4/IPv6/RTP scenarios). Individual scenario targets remain available.
+
+`eigrp/test/uut/run_all.py` enforces a **per-scenario wall-clock watchdog**
+(default: 180 seconds). A stalled scenario is terminated with its UUT process
+group, recorded as `TIMEOUT` with exit status 124, and its captured runner
+output is written to `eigrp/test/uut/logs/<scenario>.log`. Subsequent scenarios
+still run; the suite exits nonzero if any scenario failed or timed out. The
+watchdog is a safety net, not permission to relax YAML convergence timeouts.
+
+Override the timeout in seconds with `EIGRP_UUT_SCENARIO_TIMEOUT=240 make uut`
+or invoke `./tools/python eigrp/test/uut/run_all.py --scenario-timeout 240`.
+Values must be finite and strictly positive. A router's command output is
+consumed by a dedicated reader thread; both the initial response and every
+subsequent line must arrive before the command's single deadline. Incomplete
+`STATE`/`EVENTS` snapshots now fail with a timeout rather than hanging forever.

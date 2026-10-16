@@ -11,7 +11,7 @@ steps:
   - validate-retry: {since: md5-retry-window, source_uut: r1, opcode: update, timeout: 12}
   # Same RTP packet, but each wire transmission must use a fresh MD5
   # cryptographic sequence. This detects the old byte-for-byte resend bug.
-  - validate-packet: {since: md5-retry-window, source_uut: r1, destination_uut: r2, opcode: update, sequence: 1, group_by: auth_sequence, min_groups: 2, timeout: 12}
+  - validate-packet: {since: md5-retry-window, source_uut: r1, destination_uut: r2, opcode: update, sequence: 1, group_by: auth_sequence, min_groups: 2, timeout: 12, event: delivered}
   - validate-convergence:
       timeout: 12
       expect:

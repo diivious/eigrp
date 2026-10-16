@@ -1484,6 +1484,21 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 	metric.flags = 0;
 	metric.tag = 0;
 
+	/* IPv6 link-local addresses identify neighbors and the outgoing link;
+	 * they are never transit destinations.  Keep Hellos/multicast active
+	 * without creating an internal route for fe80::/10 (RFC 4291 2.5.6).
+	 */
+	if (ei->address.address.afi == EIGRP_AFI_IPV6) {
+		struct in6_addr source;
+
+		memcpy(&source, ei->address.address.bytes, sizeof(source));
+		if (IN6_IS_ADDR_LINKLOCAL(&source)) {
+			eigrp_intf_eventlog_state(ei,
+				EIGRP_EVENTLOG_INTERFACE_STATE_UP, ei->curr_mtu);
+			return 1;
+		}
+	}
+
 	/*Add connected route to topology table*/
 	route = eigrp_topology_route_create(ei);
 	route->type = eigrp->af_vectors.classic_internal_tlv_type;

@@ -1,17 +1,55 @@
+# Framework smoke plus real route-exchange and recovery qualification.
 schema: eigrp-uut-test/v1
 topology: two-router.yaml
 name: two-router-framework-smoke
 steps:
   - start: all
-  - validate-packet: {uut: r1, interface: eth0, opcode: hello, min: 1, timeout: 7}
-  - validate-route: {uut: r1, prefix: 10.1.0.0/24, table: rib}
-  - validate-route: {uut: r2, prefix: 10.2.0.0/24, table: topology}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 8}
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, interface: eth0, state: up, timeout: 8}
   - validate-convergence:
-      timeout: 3
+      timeout: 8
+      stable_for: 0.3
       expect:
-        - route: {uut: r1, prefix: 10.1.0.0/24}
-        - route: {uut: r2, prefix: 10.2.0.0/24}
-  - link-down: {uut: r2, interface: eth0}
-  - wait: 0.2
-  - link-up: {uut: r2, interface: eth0}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: rib, next_hop: 10.0.0.2}
+        - route: {uut: r2, prefix: 10.1.0.0/24, table: rib, next_hop: 10.0.0.1}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.1.0.0/24, table: topology, active: false, successors: 1}
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, reliable_q: 0}
+  - checkpoint: steady-before-flap
+  - packet-mark: link-failure
+  - links-down:
+      - {uut: r1, interface: eth0}
+      - {uut: r2, interface: eth0}
+  - validate-convergence:
+      timeout: 7
+      stable_for: 0.3
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: down}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: down}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.1.0.0/24, table: rib, present: false}
+  - checkpoint: withdrawn
+  - packet-mark: link-recovery
+  - links-up:
+      - {uut: r1, interface: eth0}
+      - {uut: r2, interface: eth0}
+  - validate-convergence:
+      timeout: 12
+      stable_for: 0.4
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, reliable_q: 0}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: rib, next_hop: 10.0.0.2}
+        - route: {uut: r2, prefix: 10.1.0.0/24, table: rib, next_hop: 10.0.0.1}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.1.0.0/24, table: topology, active: false, successors: 1}
+  # Any peer-restart or RTP exhaustion across this controlled flap is a defect.
+  - validate-event: {uut: r1, contains: 'reason peer restarted', min: 0, max: 0}
+  - validate-event: {uut: r2, contains: 'reason peer restarted', min: 0, max: 0}
+  - validate-event: {uut: r1, contains: 'RTP retry limit exceeded', min: 0, max: 0}
+  - validate-event: {uut: r2, contains: 'RTP retry limit exceeded', min: 0, max: 0}
+  - validate-packet: {since: link-recovery, source_uut: r1, source_interface: eth0, event: send-error, min: 0, max: 0, timeout: 0.3}
+  - validate-packet: {since: link-recovery, source_uut: r2, source_interface: eth0, event: send-error, min: 0, max: 0, timeout: 0.3}
+  - checkpoint: steady-after-recovery
   - stop: all

@@ -20,9 +20,17 @@ steps:
   - packet-mark: sia-failure
   - link-down: {uut: r4, interface: lan4}
   - validate-route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: true, timeout: 4}
-  - validate-packet: {source_uut: r3, destination_uut: r2, opcode: sia-query, prefix: 10.4.0.0/24, since: sia-failure, min: 1, timeout: 5}
+  - validate-packet: {source_uut: r3, destination_uut: r2, opcode: sia-query, prefix: 10.4.0.0/24, since: sia-failure, min: 1, timeout: 5, event: delivered}
   - validate-fault: {name: drop-target-sia-reply, hits: 1, timeout: 2}
-  - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, present: false, timeout: 5}
+  # A dropped SIA-REPLY alone must not remove an otherwise healthy adjacency.
+  - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, state: up, timeout: 1}
+  # The SIA active timer must expire before the stuck neighbor is discarded.
+  - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, state: down, timeout: 5}
+  - validate-event: {uut: r3, contains: 'SIA active timer expired: 10.4.0.0/24 ifindex 4 queries 1'}
+  - validate-event:
+      uut: r3
+      contains: 'Peer 10.23.0.2/32: UP -> DOWN ifindex 4 reason stuck in active'
+      after: 'SIA active timer expired: 10.4.0.0/24 ifindex 4 queries 1'
   - validate-convergence:
       timeout: 8
       expect:

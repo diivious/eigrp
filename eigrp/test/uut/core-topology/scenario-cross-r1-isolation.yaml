@@ -22,7 +22,7 @@ steps:
       expect:
         - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
         - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.14.0.4, metric: 9830400}
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: cross-isolate-r1-r2-down, min: 0, max: 0, timeout: 2}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: cross-isolate-r1-r2-down, min: 0, max: 0, timeout: 2, event: any}
   - packet-mark: cross-isolate-r1-r4-down
   - link-down: {uut: r1, interface: eth14}
   - link-down: {uut: r4, interface: eth41}
@@ -31,7 +31,7 @@ steps:
       expect:
         - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 1, fd: 9175040}
         - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, next_hop: 10.13.0.3, metric: 10485760}
-  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: cross-isolate-r1-r4-down, min: 0, max: 0, timeout: 2}
+  - validate-packet: {uut: r1, opcode: query, prefix: 10.4.0.0/24, since: cross-isolate-r1-r4-down, min: 0, max: 0, timeout: 2, event: any}
   # Last R1 edge down: no stale successor/RIB state may survive.
   - packet-mark: cross-isolate-r1-r3-down
   - link-down: {uut: r1, interface: eth13}

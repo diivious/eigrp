@@ -3,15 +3,16 @@ topology: ipv4-basic-core.yaml
 name: IPv4 Three-Router Basic Core Gate
 steps:
   - start: all
-  - validate-packet: {uut: r1, interface: eth12, opcode: hello, min: 1, timeout: 7}
-  - validate-packet: {uut: r2, interface: eth23, opcode: hello, min: 1, timeout: 7}
+  - validate-packet: {uut: r1, interface: eth12, opcode: hello, min: 1, timeout: 7, event: sent}
+  - validate-packet: {uut: r2, interface: eth23, opcode: hello, min: 1, timeout: 7, event: sent}
   - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
   - validate-neighbor: {uut: r2, neighbor: 10.12.0.1, interface: eth21, timeout: 7}
   - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
   - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, timeout: 7}
-  - validate-packet: {uut: r2, opcode: update, min: 1, timeout: 7}
-  - validate-packet: {uut: r1, opcode: ack, min: 1, timeout: 7}
+  - validate-packet: {uut: r2, opcode: update, min: 1, timeout: 7, event: sent}
+  - validate-packet: {uut: r1, opcode: ack, min: 1, timeout: 7, event: sent}
   - validate-convergence:
+      stable_for: 0.2
       timeout: 7
       expect:
         - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
@@ -23,9 +24,10 @@ steps:
   - link-down: {uut: r3, interface: eth32}
   - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, state: down, timeout: 3}
   - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, state: down, timeout: 3}
-  - validate-packet: {uut: r2, interface: eth21, opcode: query, since: failure, min: 1, timeout: 3}
-  - validate-packet: {uut: r1, interface: eth12, opcode: reply, since: failure, min: 1, timeout: 3}
+  - validate-packet: {uut: r2, interface: eth21, opcode: query, since: failure, min: 1, timeout: 3, event: delivered}
+  - validate-packet: {uut: r1, interface: eth12, opcode: reply, since: failure, min: 1, timeout: 3, event: delivered}
   - validate-convergence:
+      stable_for: 0.2
       timeout: 5
       expect:
         - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, present: false}
@@ -39,8 +41,9 @@ steps:
   - link-up: {uut: r3, interface: eth32}
   - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
   - validate-neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32, timeout: 7}
-  - validate-packet: {uut: r2, interface: eth23, opcode: update, since: recovery, min: 1, timeout: 7}
+  - validate-packet: {uut: r2, interface: eth23, opcode: update, since: recovery, min: 1, timeout: 7, event: sent}
   - validate-convergence:
+      stable_for: 0.2
       timeout: 7
       expect:
         - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.12.0.2, metric: 8519680, distance: 90}
