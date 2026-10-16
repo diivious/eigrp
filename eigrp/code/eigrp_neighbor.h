@@ -58,6 +58,7 @@ typedef struct eigrp_neighbor {
 	eigrp_intf_t *ei;
 	bool published; /* Protected by eigrp_instance::peer_lock. */
 	uint64_t generation; /* Prevent queued packets crossing neighbor lifetimes. */
+	uint64_t multicast_epoch; /* Changes on every UP transition. */
 
 	/* EIGRP neighbor Information */
 	uint8_t state; /* neigbor status. */
@@ -88,6 +89,21 @@ typedef struct eigrp_neighbor {
 					 chunks */
 
 	eigrp_packet_queue_t *retrans_queue;
+
+	/* Initial table synchronization is a per-peer, ACK-driven producer.
+	 * Topology table nodes are append-only until instance shutdown; the
+	 * cursor is the last fully processed node, never a route descriptor. */
+	bool sync_active;
+	eigrp_table_node_t *sync_cursor;
+	eigrp_packet_t *sync_packet; /* partially encoded, not yet enqueued */
+	uint32_t sync_route_count;
+	eigrp_prefix_t *sync_summary_seen;
+	size_t sync_summary_count;
+	size_t sync_summary_capacity;
+	eigrp_timer_event_t *t_sync;
+	uint64_t sync_backpressure_count;
+	uint64_t sync_resume_count;
+
 
 	/* Reliable multicast conditional-receive state. */
 	bool cr_mode;

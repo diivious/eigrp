@@ -382,6 +382,19 @@ void eigrp_packet_neighbor_output_clear(eigrp_nbr_t *nbr)
 	eigrp_packet_neighbor_output_drop(nbr, 0, false);
 }
 
+/* Interface DOWN invalidates the entire outbound wire queue, including
+ * control Hellos/ACKs and CR SEQUENCE Hellos from the old adjacency lifetime.
+ * Drop queued packets only after any deliberate goodbye has been transmitted. */
+void eigrp_packet_interface_output_clear(eigrp_intf_t *ei)
+{
+	if (!ei)
+		return;
+	if (ei->on_write_q && ei->eigrp && ei->eigrp->oi_write_q)
+		eigrp_list_delete_data(ei->eigrp->oi_write_q, ei);
+	ei->on_write_q = 0;
+	eigrp_packet_queue_clear(ei->obuf);
+}
+
 static void eigrp_packet_neighbor_retry_cancel(eigrp_nbr_t *nbr,
                                                 uint32_t sequence)
 {
@@ -422,6 +435,8 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 				   "unlinked ACKed seq %u from reliable queue (depth %lu)",
 				   ack, nbr->retrans_queue->count);
 		eigrp_packet_free(packet);
+		if (nbr->ei)
+			eigrp_packet_multicast_resume(nbr->ei);
 
 		if ((nbr->state == EIGRP_NEIGHBOR_PENDING)
 		    && ack == nbr->init_sequence_number) {
@@ -438,8 +453,12 @@ static void eigrp_packet_ack(eigrp_instance_t *eigrp, struct eigrp_header *eigrp
 			nbr->init_sequence_number = 0;
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
 			eigrp_update_send_EOT(nbr);
-		} else
+		} else {
+			/* Preserve normal RTP head advancement before replenishing
+			 * this peer's bounded initial synchronization queue. */
 			eigrp_packet_send_reliably(eigrp, nbr);
+			eigrp_update_sync_continue(nbr);
+		}
 	} else {
 		eigrp_prefix_t peer_addr;
 
@@ -648,73 +667,16 @@ void eigrp_packet_write_ready(void *arg)
 	pthread_mutex_unlock(&eigrp->work_lock);
 }
 
-void eigrp_packet_write(void *arg)
+static bool eigrp_packet_multicast_admit(eigrp_intf_t *ei);
+
+/* Both normal paced output and the exceptional final goodbye use the
+ * same late authentication, host send, statistics and budget accounting. */
+static void eigrp_packet_wire_send(eigrp_intf_t *ei, eigrp_packet_t *packet)
 {
-	eigrp_instance_t *eigrp = arg;
+	eigrp_instance_t *eigrp = ei->eigrp;
 	struct eigrp_header *eigrph;
-	eigrp_intf_t *ei;
-	eigrp_packet_t *packet;
 	uint32_t seqno, ack;
 	int ret;
-	eigrp_list_item_t *node;
-
-	/* Skip paced interfaces instead of head-of-line blocking every interface
-	 * in this address family.  Every output, including ACKs and retransmits,
-	 * shares its interface's byte budget. */
-	{
-		eigrp_list_item_t *candidate;
-		eigrp_intf_t *earliest_ei = NULL;
-		uint32_t earliest = UINT32_MAX;
-		uint64_t now = eigrp_sys_monotime_msec();
-
-		node = NULL;
-		for (candidate = eigrp_list_first(eigrp->oi_write_q); candidate;
-		     candidate = candidate->next) {
-			eigrp_intf_t *pending_ei = eigrp_list_item_data(candidate);
-			eigrp_packet_t *pending;
-			uint32_t wait;
-
-			if (!pending_ei || !pending_ei->obuf)
-				continue;
-			pending = eigrp_packet_queue_next(pending_ei->obuf);
-			if (!pending)
-				continue;
-			wait = eigrp_packet_pacing_delay_msec(pending_ei,
-						pending->length, now);
-			if (!wait) {
-				node = candidate;
-				break;
-			}
-			if (wait < earliest) {
-				earliest = wait;
-				earliest_ei = pending_ei;
-			}
-		}
-		if (!node) {
-			if (earliest != UINT32_MAX) {
-				/* Only count new pacing sleeps, not incoming output
-				 * events that rediscover the same pending timer. */
-				if (!eigrp->t_pacing && earliest_ei) {
-					earliest_ei->pacing_defer_count++;
-					earliest_ei->pacing_defer_msec += earliest;
-				}
-				eigrp_timer_add(eigrp, &eigrp->t_pacing,
-					eigrp_packet_pacing_wake, eigrp, earliest);
-			}
-			return;
-		}
-		if (eigrp->t_pacing)
-			eigrp_timer_cancel(eigrp, &eigrp->t_pacing);
-	}
-	ei = eigrp_list_item_data(node);
-	packet = eigrp_packet_queue_next(ei->obuf);
-	if (packet->length < EIGRP_HEADER_LEN) {
-		eigrp_log(EIGRP_LOG_ERROR,  "%s: Packet just has a header?",
-			 __func__);
-		eigrp_debug_header_dump((const eigrp_header_t *)packet->s->data);
-		eigrp_packet_delete(ei);
-		goto out;
-	}
 
 	eigrph = (struct eigrp_header *)eigrp_stream_data(packet->s);
 	seqno = ntohl(eigrph->sequence);
@@ -769,12 +731,116 @@ void eigrp_packet_write(void *arg)
 	/* Account for the attempted wire send.  Charging errors too prevents
 	 * a persistent host send failure from spinning on a full output queue. */
 	eigrp_packet_pacing_charge(ei, packet->length);
+}
+
+/* Final multicast goodbye must reach the wire while the interface is still
+ * operative.  It cannot wait for the AF write-ready event: the caller is
+ * about to tear down this interface and invalidate its output queue.
+ * Ownership of packet is transferred to this action in every case. */
+void eigrp_packet_goodbye_send(eigrp_intf_t *ei, eigrp_packet_t *packet)
+{
+	const struct eigrp_header *header;
+
+	if (!packet)
+		return;
+	if (ei && ei->eigrp && packet->s
+	    && packet->length >= EIGRP_HEADER_LEN) {
+		header = (const struct eigrp_header *)eigrp_stream_data(packet->s);
+		if (header->opcode == EIGRP_OPC_HELLO
+		    && ntohl(header->sequence) == 0)
+			eigrp_packet_wire_send(ei, packet);
+	}
+	eigrp_packet_free(packet);
+}
+
+void eigrp_packet_write(void *arg)
+{
+	eigrp_instance_t *eigrp = arg;
+	eigrp_intf_t *ei;
+	eigrp_packet_t *packet;
+	eigrp_list_item_t *node;
+
+	/* Skip paced interfaces instead of head-of-line blocking every interface
+	 * in this address family.  Every output, including ACKs and retransmits,
+	 * shares its interface's byte budget. */
+	{
+		eigrp_list_item_t *candidate;
+		eigrp_intf_t *earliest_ei = NULL;
+		uint32_t earliest = UINT32_MAX;
+		uint64_t now = eigrp_sys_monotime_msec();
+
+		node = NULL;
+		for (candidate = eigrp_list_first(eigrp->oi_write_q); candidate;
+		     candidate = candidate->next) {
+			eigrp_intf_t *pending_ei = eigrp_list_item_data(candidate);
+			eigrp_packet_t *pending;
+			uint32_t wait;
+
+			if (!pending_ei || !pending_ei->obuf)
+				continue;
+			pending = eigrp_packet_queue_next(pending_ei->obuf);
+			if (!pending && pending_ei->multicast_pending.count
+			    && !pending_ei->multicast_backoff
+			    && !pending_ei->multicast_waiting
+			    && !pending_ei->t_multicast_retry) {
+				(void)eigrp_packet_multicast_admit(pending_ei);
+				pending = eigrp_packet_queue_next(pending_ei->obuf);
+			}
+			if (!pending)
+				continue;
+			/* Hellos, including RTP ACKs, must make progress regardless
+			 * of a depleted data pacing budget.  Their bytes still consume
+			 * credit below so reliable traffic gives the budget back. */
+			if (pending->s && pending->length >= EIGRP_HEADER_LEN
+			    && ((const struct eigrp_header *)
+				eigrp_stream_data(pending->s))->opcode == EIGRP_OPC_HELLO)
+				wait = 0;
+			else
+				wait = eigrp_packet_pacing_delay_msec(pending_ei,
+							pending->length, now);
+			if (!wait) {
+				node = candidate;
+				break;
+			}
+			if (wait < earliest) {
+				earliest = wait;
+				earliest_ei = pending_ei;
+			}
+		}
+		if (!node) {
+			if (earliest != UINT32_MAX) {
+				/* Only count new pacing sleeps, not incoming output
+				 * events that rediscover the same pending timer. */
+				if (!eigrp->t_pacing && earliest_ei) {
+					earliest_ei->pacing_defer_count++;
+					earliest_ei->pacing_defer_msec += earliest;
+				}
+				eigrp_timer_add(eigrp, &eigrp->t_pacing,
+					eigrp_packet_pacing_wake, eigrp, earliest);
+			}
+			return;
+		}
+		if (eigrp->t_pacing)
+			eigrp_timer_cancel(eigrp, &eigrp->t_pacing);
+	}
+	ei = eigrp_list_item_data(node);
+	packet = eigrp_packet_queue_next(ei->obuf);
+	if (packet->length < EIGRP_HEADER_LEN) {
+		eigrp_log(EIGRP_LOG_ERROR,  "%s: Packet just has a header?",
+			 __func__);
+		eigrp_debug_header_dump((const eigrp_header_t *)packet->s->data);
+		eigrp_packet_delete(ei);
+		goto out;
+	}
+
+	eigrp_packet_wire_send(ei, packet);
 
 	/* Now delete packet from queue. */
 	eigrp_packet_delete(ei);
 
 out:
-	if (eigrp_packet_queue_next(ei->obuf) == NULL) {
+	if (eigrp_packet_queue_next(ei->obuf) == NULL
+	    && !ei->multicast_pending.count) {
 		ei->on_write_q = 0;
 		eigrp_list_remove(eigrp->oi_write_q, node);
 	}
@@ -793,8 +859,20 @@ out:
 		eigrp->oi_write_q->tail->next = node;
 		eigrp->oi_write_q->tail = node;
 	}
-	if (!eigrp_list_isempty(eigrp->oi_write_q))
-		eigrp_packet_write_schedule(eigrp);
+	/* A blocked multicast does not self-reschedule.  An ACK or neighbor
+	 * teardown will wake it; Hellos still schedule themselves independently. */
+	for (eigrp_list_item_t *item = eigrp_list_first(eigrp->oi_write_q);
+	     item; item = item->next) {
+		eigrp_intf_t *candidate = eigrp_list_item_data(item);
+		if (candidate && ((candidate->obuf && candidate->obuf->count)
+		    || (candidate->multicast_pending.count
+			&& !candidate->multicast_backoff
+			&& !candidate->multicast_waiting
+			&& !candidate->t_multicast_retry))) {
+			eigrp_packet_write_schedule(eigrp);
+			break;
+		}
+	}
 }
 
 /* Starting point of packet process function. */
@@ -1782,7 +1860,13 @@ eigrp_packet_t *eigrp_packet_create(size_t size, eigrp_nbr_t *nbr)
 	eigrp_packet_t *new;
 
 	new = calloc(1, sizeof(eigrp_packet_t));
+	if (!new)
+		return NULL;
 	new->s = eigrp_stream_create(size);
+	if (!new->s) {
+		free(new);
+		return NULL;
+	}
 	new->retrans_counter = 0;
 	new->nbr = nbr;
 
@@ -1819,84 +1903,279 @@ void eigrp_packet_output_enqueue(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 	eigrp_packet_write_schedule(eigrp);
 }
 
+/* An epoch is assigned on every UP transition.  A multicast's epoch is
+ * captured before TRANSMIT owns the packet.  Peers joining afterward, and
+ * restarted peers whose old reliable state was invalidated, cannot inherit
+ * that old packet even if their address or neighbor object is reused. */
+bool eigrp_packet_multicast_peer_eligible(const eigrp_nbr_t *nbr,
+	uint64_t epoch)
+{
+	return nbr && nbr->state == EIGRP_NEIGHBOR_UP && nbr->retrans_queue
+		&& nbr->multicast_epoch != 0 && nbr->multicast_epoch <= epoch;
+}
+
+/* An RTP head with a later sequence is held behind deferred multicast.
+ * Only earlier packets make the recipient busy for CR and RTP admission. */
+unsigned int eigrp_packet_reliable_prior_count(const eigrp_nbr_t *nbr,
+	uint32_t sequence)
+{
+	const eigrp_packet_t *queued;
+	unsigned int count = 0;
+
+	if (!nbr || !nbr->retrans_queue)
+		return 0;
+	for (queued = nbr->retrans_queue->tail; queued;
+	     queued = queued->previous) {
+		if (!eigrp_packet_sequence_before(queued->sequence_number, sequence))
+			break;
+		count++;
+	}
+	return count;
+}
+
+/* Keep per-neighbor RTP in sequence order even when an older deferred
+ * multicast is admitted after later unicast packets were already queued. */
+static void eigrp_packet_reliable_ordered_enqueue(eigrp_packet_queue_t *queue,
+					 eigrp_packet_t *packet)
+{
+	eigrp_packet_t *at;
+
+	/* tail is the oldest packet, previous walks toward newer packets. */
+	for (at = queue->tail; at; at = at->previous) {
+		if (!eigrp_packet_sequence_before(at->sequence_number,
+							packet->sequence_number)) {
+			packet->previous = at;
+			packet->next = at->next;
+			if (at->next)
+				at->next->previous = packet;
+			else
+				queue->tail = packet;
+			at->next = packet;
+			queue->count++;
+			return;
+		}
+	}
+	eigrp_packet_enqueue(queue, packet);
+}
+
+/* New reliable unicast packets must not overtake an earlier multicast for
+ * this same adjacency.  Other peers and previously transmitted heads are
+ * unaffected.  Skip packets from earlier adjacency generations. */
+static bool eigrp_packet_unicast_behind_multicast(const eigrp_nbr_t *nbr,
+					uint32_t sequence)
+{
+	const eigrp_packet_t *pending;
+	const eigrp_intf_t *ei;
+
+	if (!nbr || !(ei = nbr->ei))
+		return false;
+	for (pending = ei->multicast_pending.tail; pending;
+	     pending = pending->previous) {
+		if (!eigrp_packet_sequence_before(pending->sequence_number,
+							sequence))
+			break;
+		/* A newly-UP neighbor is ineligible for older multicasts,
+		 * but may still need a later multicast before this unicast. */
+		if (eigrp_packet_multicast_peer_eligible(nbr,
+						pending->multicast_epoch))
+			return true;
+	}
+	return false;
+}
+
+/* Packetizer hands off an immutable wire image.  TRANSMIT owns it from
+ * this point forward, without eagerly multiplying it by all peers. */
 bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *eigrp,
 					      eigrp_intf_t *ei,
 					      eigrp_packet_t *packet)
 {
+	if (!eigrp || !ei || !packet
+	    || packet->sequence_number == 0)
+		return false;
+	packet->multicast_epoch = ei->multicast_epoch;
+	eigrp_packet_enqueue(&ei->multicast_pending, packet);
+	eigrp_packet_multicast_resume(ei);
+	return true;
+}
+
+/* An ACK or neighbor teardown wakes TRANSMIT, never DUAL or PACKETIZER.
+ * CR overflow / high watermark resumes only after all outstanding RTP
+ * work for the interface has drained, avoiding boundary oscillation. */
+void eigrp_packet_multicast_resume(eigrp_intf_t *ei)
+{
+	eigrp_packet_t *packet;
 	eigrp_nbr_t *nbr;
-	struct eigrp_header *header;
 	eigrp_list_item_t *node;
-	unsigned int receivers = 0;
-	unsigned int ready = 0;
-	unsigned int busy = 0;
+	bool any_outstanding = false;
+	bool any_ready = false;
+	bool any_receivers = false;
 
-	if (!eigrp || !ei || !packet || packet->sequence_number == 0)
-		return false;
-
+	if (!ei || !ei->eigrp || !ei->multicast_pending.count || ei->t_multicast_retry)
+		return;
+	packet = eigrp_packet_queue_next(&ei->multicast_pending);
+	if (!packet)
+		return;
 	for (EIGRP_LIST_ITERATE_RO(ei->nbrs, node, nbr)) {
-		if (nbr->state != EIGRP_NEIGHBOR_UP || !nbr->retrans_queue)
+		unsigned int prior;
+
+		if (!eigrp_packet_multicast_peer_eligible(nbr,
+						packet->multicast_epoch))
 			continue;
-		receivers++;
-		if (nbr->retrans_queue->count == 0)
-			ready++;
+		any_receivers = true;
+		prior = eigrp_packet_reliable_prior_count(nbr,
+						packet->sequence_number);
+		if (prior)
+			any_outstanding = true;
 		else
-			busy++;
+			any_ready = true;
 	}
+	if (ei->multicast_backoff) {
+		if (any_outstanding)
+			return;
+		ei->multicast_backoff = false;
+	}
+	/* With no eligible peers, TRANSMIT cancels only this stale packet,
+	 * leaving later multicasts for their own captured recipients. */
+	if (ei->multicast_waiting && any_receivers && !any_ready)
+		return;
+	ei->multicast_waiting = false;
+	if (!ei->on_write_q) {
+		eigrp_list_add(ei->eigrp->oi_write_q, ei);
+		ei->on_write_q = 1;
+	}
+	eigrp_packet_write_schedule(ei->eigrp);
+}
 
-	if (!receivers) {
-		eigrp_packet_free(packet);
+/* Allocation failures have no corresponding ACK to wake this producer. */
+static void eigrp_packet_multicast_retry(void *arg)
+{
+	eigrp_packet_multicast_resume(arg);
+}
+
+/* Limit RTP per-peer fanout without modifying CR or reliable retransmission.
+ * A single deferred multicast consumes one packet, not N peer copies. */
+#define EIGRP_MULTICAST_RELIABLE_MAX 4U
+
+static bool eigrp_packet_multicast_admit(eigrp_intf_t *ei)
+{
+	eigrp_instance_t *eigrp = ei->eigrp;
+	eigrp_packet_t *packet;
+	eigrp_packet_t **copies;
+	eigrp_nbr_t **receivers;
+	eigrp_list_item_t *node;
+	eigrp_nbr_t *nbr;
+	size_t count = 0, ready = 0, busy = 0, i = 0;
+	bool fits;
+
+	if (ei->multicast_backoff || ei->multicast_waiting
+	    || ei->t_multicast_retry)
 		return false;
-	}
+	packet = eigrp_packet_queue_next(&ei->multicast_pending);
+	if (!packet)
+		return false;
+	for (EIGRP_LIST_ITERATE_RO(ei->nbrs, node, nbr)) {
+		unsigned int prior;
 
-	/* When only some peers can accept the multicast, advertise the peers
-	 * that must ignore it and finalize CR in the packet image before any
-	 * neighbor queue receives a copy. */
-	if (ready && busy) {
-		header = (struct eigrp_header *)eigrp_stream_data(packet->s);
-		header->flags = htonl(ntohl(header->flags) | EIGRP_CR_FLAG);
-		/* CR flag is part of the canonical RTP template.  Authentication
-		 * and checksum are generated later at transmit dequeue. */
-
-		/* This Hello must be queued before the reliable multicast.  At this
-		 * point only the pre-existing busy queues are visible to the Sequence
-		 * TLV encoder. */
-		eigrp_hello_send_sequence(ei, packet->sequence_number);
-	}
-
-	if (eigrp_instance_afi(eigrp) == EIGRP_AFI_IPV6) {
-		packet->dst.afi = AF_INET6;
-		if (inet_pton(AF_INET6, "ff02::a", &packet->dst.ip.v6) != 1) {
-			eigrp_packet_free(packet);
+		if (!eigrp_packet_multicast_peer_eligible(nbr,
+						packet->multicast_epoch))
+			continue;
+		count++;
+		prior = eigrp_packet_reliable_prior_count(nbr,
+						packet->sequence_number);
+		if (prior)
+			busy++;
+		else
+			ready++;
+		if (prior >= EIGRP_MULTICAST_RELIABLE_MAX) {
+			ei->multicast_backoff = true;
+			ei->multicast_backoff_count++;
 			return false;
 		}
+	}
+	if (!count) {
+		/* Only this packet's recipients have disappeared.  A following
+		 * multicast may have been handed off for newer adjacencies. */
+		(void)eigrp_packet_dequeue(&ei->multicast_pending);
+		eigrp_packet_free(packet);
+		eigrp_packet_multicast_resume(ei);
+		return false;
+	}
+	if (!ready) {
+		/* No useful multicast receiver yet; wait for the next RTP ACK.
+		 * Do not enter full-drain hysteresis just because all are busy. */
+		ei->multicast_waiting = true;
+		return false;
+	}
+	fits = !busy || eigrp_hello_sequence_fits(ei,
+			packet->sequence_number, packet->multicast_epoch);
+	if (!fits) {
+		ei->multicast_backoff = true;
+		ei->multicast_backoff_count++;
+		return false;
+	}
+	/* Set the multicast destination before cloning.  RTP unicast retries
+	 * must retain the original multicast origin and exception accounting. */
+	if (eigrp_instance_afi(eigrp) == EIGRP_AFI_IPV6) {
+		packet->dst.afi = AF_INET6;
+		if (inet_pton(AF_INET6, "ff02::a", &packet->dst.ip.v6) != 1)
+			return false;
 	} else {
 		packet->dst.afi = AF_INET;
 		packet->dst.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
 	}
+	/* All allocations precede any RTP mutation: failure retains the packet
+	 * for retry without delivering a partial multicast to some peers. */
+	receivers = calloc(count, sizeof(*receivers));
+	copies = calloc(count, sizeof(*copies));
+	if (!receivers || !copies)
+		goto allocation_failed;
 	for (EIGRP_LIST_ITERATE_RO(ei->nbrs, node, nbr)) {
-		eigrp_packet_t *duplicate;
-
-		if (nbr->state != EIGRP_NEIGHBOR_UP || !nbr->retrans_queue)
+		if (!eigrp_packet_multicast_peer_eligible(nbr,
+						packet->multicast_epoch))
 			continue;
-
-		duplicate = eigrp_packet_dup(packet, nbr);
-		eigrp_packet_enqueue(nbr->retrans_queue, duplicate);
-		eigrp_debug_transmit_event(
-			EIGRP_DEBUG_TRANSMIT_LINK, eigrp, ei, nbr,
-			"linked multicast seq %u to reliable queue (depth %lu)",
-			packet->sequence_number, nbr->retrans_queue->count);
+		receivers[i] = nbr;
+		copies[i] = eigrp_packet_dup(packet, nbr);
+		if (!copies[i])
+			goto allocation_failed;
+		i++;
 	}
-
-	/* If every peer already had an outstanding reliable packet, there is no
-	 * useful multicast receiver.  Each queued copy will advance as an
-	 * ordinary reliable unicast when that neighbor ACKs its current head. */
-	if (!ready) {
-		eigrp_packet_free(packet);
-		return true;
+	if (busy && !eigrp_hello_send_sequence(ei, packet->sequence_number,
+					 packet->multicast_epoch))
+		goto allocation_failed;
+	if (busy) {
+		struct eigrp_header *header =
+			(struct eigrp_header *)eigrp_stream_data(packet->s);
+		header->flags = htonl(ntohl(header->flags) | EIGRP_CR_FLAG);
+		/* The clones must carry the same CR flag as the wire image. */
+		for (i = 0; i < count; i++) {
+			struct eigrp_header *copy_header =
+				(struct eigrp_header *)eigrp_stream_data(copies[i]->s);
+			copy_header->flags = header->flags;
+		}
 	}
-
+	for (i = 0; i < count; i++) {
+		eigrp_packet_reliable_ordered_enqueue(receivers[i]->retrans_queue,
+						      copies[i]);
+		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp,
+				ei, receivers[i], "admitted multicast seq %u (depth %lu)",
+				packet->sequence_number, receivers[i]->retrans_queue->count);
+	}
+	free(receivers);
+	free(copies);
+	(void)eigrp_packet_dequeue(&ei->multicast_pending);
 	eigrp_packet_output_enqueue(eigrp, ei, packet);
 	return true;
+
+allocation_failed:
+	for (size_t j = 0; j < i; j++)
+		eigrp_packet_free(copies[j]);
+	free(receivers);
+	free(copies);
+	/* Allocation failure has no ACK to wake us; retry after a delay.
+	 * The packet remains in multicast_pending throughout this interval. */
+	eigrp_timer_add(eigrp, &ei->t_multicast_retry,
+			eigrp_packet_multicast_retry, ei, 250);
+	return false;
 }
 
 void eigrp_packet_retransmit_timer_start(eigrp_nbr_t *nbr)
@@ -1924,18 +2203,43 @@ void eigrp_packet_retransmit_timer_start(eigrp_nbr_t *nbr)
 				 eigrp_packet_unack_retrans, nbr, rto_msec);
 }
 
+/* A local allocation failure is not evidence of congestion on the link.
+ * Retry promptly without incrementing RTP retransmission counters or RTO. */
+#define EIGRP_PACKET_ALLOCATION_RETRY_MSEC 250U
+
+static void eigrp_packet_allocation_retry(eigrp_nbr_t *nbr)
+{
+	eigrp_timer_add(nbr->ei->eigrp,
+			&nbr->retrans_queue->tail->t_retrans_timer,
+			eigrp_packet_unack_retrans, nbr,
+			EIGRP_PACKET_ALLOCATION_RETRY_MSEC);
+}
+
 void eigrp_packet_send_reliably(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
 {
 	eigrp_packet_t *packet;
 
+	if (!eigrp || !nbr || !nbr->retrans_queue)
+		return;
 	packet = eigrp_packet_queue_next(nbr->retrans_queue);
 
 	if (packet) {
 		eigrp_packet_t *duplicate;
+		/* Only the actual RTP head is eligible, and not while an
+		 * earlier multicast still owns this peer's delivery obligation. */
+		if (eigrp_packet_unicast_behind_multicast(nbr,
+						    packet->sequence_number))
+			return;
 		eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_LINK, eigrp, nbr->ei, nbr,
 				   "send reliable queue head seq %u (depth %lu)",
 				   packet->sequence_number, nbr->retrans_queue->count);
 		duplicate = eigrp_packet_dup(packet, nbr);
+		if (!duplicate) {
+			/* No wire send occurred.  Keep the RTP head, and make sure
+			 * allocation recovery cannot depend on a nonexistent ACK. */
+			eigrp_packet_allocation_retry(nbr);
+			return;
+		}
 		if (eigrp_packet_destination_is_multicast(packet))
 			duplicate->multicast_exception = true;
 		eigrp_addr_cpy(&duplicate->dst, &nbr->src);
@@ -2440,27 +2744,38 @@ void eigrp_packet_unack_retrans(void *arg)
 		return;
 	}
 
-	eigrp_nbr_rto_backoff(nbr);
-	if (IS_DEBUG_EIGRP(0, TIMERS)) {
-		char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
-
-		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP: retransmit timer expired nbr %s seq %u retry %u",
-			   eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src, address,
-						  sizeof(address)),
-			   packet->sequence_number, packet->retrans_counter + 1);
-	}
-	eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
-	{
-		eigrp_prefix_t peer_addr;
-
-		eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
-		(void)eigrp_eventlog_msg_add(nbr->ei->eigrp, EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT,
-			&peer_addr, packet->sequence_number, packet->retrans_counter + 1, 0, 0);
-	}
+	/* If the first-send image could not be allocated (or the host
+	 * rejected it), this is still a first transmission, not an RTP retry. */
 	duplicate = eigrp_packet_dup(packet, nbr);
-	if (!duplicate)
+	if (!duplicate) {
+		/* This timer was dequeued before callback.  Another retry must
+		 * always be armed; no peer ACK can recover an unsent packet. */
+		eigrp_packet_allocation_retry(nbr);
 		return;
-	duplicate->retransmission = true;
+	}
+	if (packet->sent_msec) {
+		eigrp_nbr_rto_backoff(nbr);
+		if (IS_DEBUG_EIGRP(0, TIMERS)) {
+			char address[EIGRP_PACKET_ADDR_TEXT_SIZE];
+
+			eigrp_log(EIGRP_LOG_DEBUG,
+				"EIGRP: retransmit timer expired nbr %s seq %u retry %u",
+				eigrp_packet_addr_text(nbr->ei->eigrp, &nbr->src,
+						address, sizeof(address)),
+				packet->sequence_number, packet->retrans_counter + 1);
+		}
+		eigrp_debug_packet_retry(nbr, packet, packet->retrans_counter + 1);
+		{
+			eigrp_prefix_t peer_addr;
+
+			eigrp_eventlog_addr_from_legacy(&peer_addr, &nbr->src);
+			(void)eigrp_eventlog_msg_add(nbr->ei->eigrp,
+				EIGRP_EVENTLOG_OPCODE_RTP_RETRANSMIT,
+				&peer_addr, packet->sequence_number,
+				packet->retrans_counter + 1, 0, 0);
+		}
+		duplicate->retransmission = true;
+	}
 	if (eigrp_packet_destination_is_multicast(packet))
 		duplicate->multicast_exception = true;
 	eigrp_addr_cpy(&duplicate->dst, &nbr->src);
@@ -2500,6 +2815,8 @@ eigrp_packet_t *eigrp_packet_dup(eigrp_packet_t *old,
 		return NULL;
 
 	new = eigrp_packet_create(old->length, nbr);
+	if (!new)
+		return NULL;
 	new->length = old->length;
 	new->retrans_counter = old->retrans_counter;
 	new->dst = old->dst;

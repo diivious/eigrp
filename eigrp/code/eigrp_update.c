@@ -494,7 +494,49 @@ void eigrp_update_send_init(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
 	eigrp_update_neighbor_packet_queue(nbr, packet);
 }
 
+/* A full topology may contain far more advertisements than can be held in
+ * one peer's reliable queue. Admit at most four completed RTP packets, plus
+ * one partial packet, before requiring ACK progress. Batch prefix traversal
+ * to avoid monopolizing the AF loop when filtering removes all TLVs. */
+#define EIGRP_UPDATE_SYNC_RELIABLE_MAX 4U
+#define EIGRP_UPDATE_SYNC_PREFIX_BATCH 128U
+#define EIGRP_UPDATE_SYNC_ALLOC_RETRY_MSEC 250U
+
+static void eigrp_update_sync_timer(void *arg)
+{
+	eigrp_update_sync_continue(arg);
+}
+
+void eigrp_update_sync_cancel(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_sync);
+	if (nbr->sync_packet)
+		eigrp_packet_free(nbr->sync_packet);
+	free(nbr->sync_summary_seen);
+	nbr->sync_packet = NULL;
+	nbr->sync_summary_seen = NULL;
+	nbr->sync_summary_count = 0;
+	nbr->sync_summary_capacity = 0;
+	nbr->sync_route_count = 0;
+	nbr->sync_cursor = NULL;
+	nbr->sync_active = false;
+}
+
 void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
+{
+	if (!nbr || !nbr->ei || !nbr->retrans_queue)
+		return;
+	eigrp_update_sync_cancel(nbr);
+	/* Allocation failure is recoverable, not an invitation to declare
+	 * synchronization complete or omit the final EOT. */
+	nbr->sync_active = true;
+	nbr->sync_packet = eigrp_update_neighbor_packet_create(nbr, 0);
+	eigrp_update_sync_continue(nbr);
+}
+
+void eigrp_update_sync_continue(eigrp_nbr_t *nbr)
 {
 	eigrp_packet_t *packet;
 	eigrp_route_descriptor_t *route;
@@ -504,24 +546,43 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 	eigrp_instance_t *eigrp;
 	eigrp_table_node_t *rn;
 	uint16_t packet_limit;
-	uint32_t route_count = 0;
-	eigrp_prefix_t *summary_seen = NULL;
-	size_t summary_seen_count = 0;
-	size_t summary_seen_capacity = 0;
+	uint32_t route_count;
+	eigrp_prefix_t *summary_seen;
+	size_t summary_seen_count;
+	size_t summary_seen_capacity;
+	size_t summary_before = 0;
+	uint32_t inspected = 0;
 
-	if (!nbr || !nbr->ei)
+	if (!nbr || !nbr->ei || !nbr->sync_active)
 		return;
 
 	ei = nbr->ei;
 	eigrp = ei->eigrp;
 	packet_limit = eigrp_packet_payload_limit(ei->curr_mtu);
-	packet = eigrp_update_neighbor_packet_create(nbr, 0);
-	if (!packet)
+	/* The existing packet and summary de-duplication set survive ACK stalls. */
+	packet = nbr->sync_packet;
+	route_count = nbr->sync_route_count;
+	summary_seen = nbr->sync_summary_seen;
+	summary_seen_count = nbr->sync_summary_count;
+	summary_seen_capacity = nbr->sync_summary_capacity;
+	if (nbr->retrans_queue->count >= EIGRP_UPDATE_SYNC_RELIABLE_MAX)
 		return;
+	if (!packet) {
+		packet = eigrp_update_neighbor_packet_create(nbr, 0);
+		if (!packet) {
+			eigrp_timer_add(eigrp, &nbr->t_sync,
+				eigrp_update_sync_timer, nbr, EIGRP_UPDATE_SYNC_ALLOC_RETRY_MSEC);
+			return;
+		}
+		nbr->sync_packet = packet;
+	}
+	nbr->sync_resume_count++;
 
-	for (rn = eigrp_table_first(eigrp->topology_table); rn; rn = eigrp_table_next(rn)) {
-		if (!rn->info)
-			continue;
+	for (rn = nbr->sync_cursor ? eigrp_table_next(nbr->sync_cursor)
+				     : eigrp_table_first(eigrp->topology_table);
+	     rn; rn = eigrp_table_next(rn)) {
+		summary_before = summary_seen_count;
+		if (rn->info) {
 
 		prefix = rn->info;
 		for (unsigned int q = 0; q < 2; q++) {
@@ -567,7 +628,7 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					size_t capacity = summary_seen_capacity ? summary_seen_capacity * 2 : 4;
 					eigrp_prefix_t *grown = realloc(summary_seen, capacity * sizeof(*grown));
 					if (!grown)
-						continue;
+						goto blocked_alloc;
 					summary_seen = grown;
 					summary_seen_capacity = capacity;
 				}
@@ -592,10 +653,12 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 				eigrp, ei, nbr, nbr->encoder, packet->s, &wire_route,
 				packet_limit);
 			if (encoded < 0 && route_count) {
+				eigrp_packet_t *next_packet =
+					eigrp_update_neighbor_packet_create(nbr, 0);
+				if (!next_packet)
+					goto blocked_alloc;
 				eigrp_update_neighbor_packet_queue(nbr, packet);
-				packet = eigrp_update_neighbor_packet_create(nbr, 0);
-				if (!packet)
-					return;
+				packet = next_packet;
 				route_count = 0;
 				wire_route = *selected_route;
 				if (!summarized)
@@ -634,12 +697,12 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 					eigrp, ei, nbr, nbr->encoder, packet->s, &leak_route,
 					packet_limit);
 				if (encoded < 0 && route_count) {
+					eigrp_packet_t *next_packet =
+						eigrp_update_neighbor_packet_create(nbr, 0);
+					if (!next_packet)
+						goto blocked_alloc;
 					eigrp_update_neighbor_packet_queue(nbr, packet);
-					packet = eigrp_update_neighbor_packet_create(nbr, 0);
-					if (!packet) {
-						free(summary_seen);
-						return;
-					}
+					packet = next_packet;
 					route_count = 0;
 					encoded = eigrp_packet_route_encode_append(
 						eigrp, ei, nbr, nbr->encoder, packet->s, &leak_route,
@@ -657,13 +720,55 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 			}
 			}
 		}
+		}
+		/* Never pause between the two advertisements of a summarized
+		 * destination (summary and leaked component). */
+		nbr->sync_cursor = rn;
+		inspected++;
+		if (nbr->retrans_queue->count >= EIGRP_UPDATE_SYNC_RELIABLE_MAX
+		    || inspected >= EIGRP_UPDATE_SYNC_PREFIX_BATCH) {
+			nbr->sync_packet = packet;
+			nbr->sync_route_count = route_count;
+			nbr->sync_summary_seen = summary_seen;
+			nbr->sync_summary_count = summary_seen_count;
+			nbr->sync_summary_capacity = summary_seen_capacity;
+			if (nbr->retrans_queue->count >= EIGRP_UPDATE_SYNC_RELIABLE_MAX)
+				nbr->sync_backpressure_count++;
+			else
+				/* Yield to input, DUAL, and TX without a time-based pause.
+				 * ACK progress is the only resume when RTP is full. */
+				eigrp_timer_add(eigrp, &nbr->t_sync,
+					eigrp_update_sync_timer, nbr, 0);
+			return;
+		}
 	}
 
+	/* An EOT is emitted only after every table node was inspected. */
 	free(summary_seen);
+	nbr->sync_summary_seen = NULL;
+	nbr->sync_summary_count = 0;
+	nbr->sync_summary_capacity = 0;
+	nbr->sync_packet = NULL;
+	nbr->sync_route_count = 0;
+	nbr->sync_cursor = NULL;
+	nbr->sync_active = false;
 	/* EOT belongs only on the final packet in the initial table walk. */
 	((struct eigrp_header *)eigrp_stream_data(packet->s))->flags =
 		htonl(EIGRP_EOT_FLAG);
 	eigrp_update_neighbor_packet_queue(nbr, packet);
+	return;
+
+blocked_alloc:
+	/* Keep the partially built packet, retry the interrupted destination
+	 * and retain the completed-prefix cursor.  A repeated UPDATE for this
+	 * destination is safe; silently omitting one is not. */
+	nbr->sync_packet = packet;
+	nbr->sync_route_count = route_count;
+	nbr->sync_summary_seen = summary_seen;
+	nbr->sync_summary_count = summary_before;
+	nbr->sync_summary_capacity = summary_seen_capacity;
+	eigrp_timer_add(eigrp, &nbr->t_sync, eigrp_update_sync_timer, nbr,
+		EIGRP_UPDATE_SYNC_ALLOC_RETRY_MSEC);
 }
 
 void eigrp_update_send_all(eigrp_instance_t *eigrp, eigrp_intf_t *exception)

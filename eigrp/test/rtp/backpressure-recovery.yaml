@@ -1,0 +1,12 @@
+schema: eigrp-uut-test/v1
+topology: three-router-shared.yaml
+name: rtp-backpressure-recovery
+steps:
+  - fault-add: {name: delayed-r3-ack, action: drop, source_uut: r3, destination_uut: r2, opcode: ack, count: 2}
+  - packet-mark: before-adjacency
+  - start: all
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, timeout: 10}
+  - validate-fault: {name: delayed-r3-ack, hits: 2, timeout: 10}
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.3, state: up, reliable_q: 0, timeout: 12}
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, reliable_q: 0, timeout: 12}
+  - validate-convergence: {timeout: 12, expect: [{route: {uut: r2, prefix: 10.1.0.0/24, table: rib}}, {route: {uut: r2, prefix: 10.3.0.0/24, table: rib}}]}

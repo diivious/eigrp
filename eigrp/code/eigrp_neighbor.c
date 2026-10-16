@@ -1001,6 +1001,11 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 
 	old_state = nbr->state;
 
+	/* Cancel a snapshot at the actual adjacency transition, not merely
+	 * during object destruction.  A peer restart reuses this object. */
+	if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP)
+		eigrp_update_sync_cancel(nbr);
+
 	if (old_state == EIGRP_NEIGHBOR_UP && state != EIGRP_NEIGHBOR_UP)
 		eigrp_intf_encoder_peer_remove(nbr->ei, nbr->tlv_version);
 
@@ -1020,6 +1025,11 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 				   "neighbor left UP state");
 
 	if (state == EIGRP_NEIGHBOR_UP && old_state != EIGRP_NEIGHBOR_UP) {
+		/* A new adjacency cannot inherit a multicast encoded before it was UP.
+		 * This also covers a restart that reuses its neighbor object. */
+		if (++nbr->ei->multicast_epoch == 0)
+			++nbr->ei->multicast_epoch;
+		nbr->multicast_epoch = nbr->ei->multicast_epoch;
 		eigrp_intf_encoder_peer_add(nbr->ei, nbr->tlv_version);
 		nbr->up_since_msec = eigrp_sys_monotime_msec();
 		nbr->retransmissions = 0;
@@ -1055,6 +1065,9 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 			eigrp_packet_queue_clear(nbr->retrans_queue);
 		else
 			nbr->retrans_queue = eigrp_packet_queue_create();
+		/* A down peer no longer consumes multicast reliable capacity. */
+		if (nbr->ei)
+			eigrp_packet_multicast_resume(nbr->ei);
 
 		nbr->crypt_seqnum = 0;
 	}

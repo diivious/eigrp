@@ -323,9 +323,16 @@ typedef struct eigrp_interface {
 	/* Events. */
 	eigrp_timer_event_t *t_hello;	     /* timer */
 	eigrp_timer_event_t *t_distribute; /* timer for distribute list */
+	eigrp_timer_event_t *t_multicast_retry; /* deferred TX allocation retry */
 
 	/* Packet send buffer. */
 	eigrp_packet_queue_t *obuf; /* Output queue */
+	/* Encoded reliable multicasts owned by TRANSMIT, pending RTP admission. */
+	eigrp_packet_queue_t multicast_pending;
+	uint64_t multicast_epoch; /* next UP-adjacency admission generation */
+	bool multicast_backoff;
+	bool multicast_waiting; /* all peers busy; next ACK may allow CR */
+	uint64_t multicast_backoff_count;
 	int on_write_q;
 	uint32_t crypt_seqnum; /* Cryptographic Sequence Number */
 
@@ -368,6 +375,7 @@ typedef struct eigrp_packet {
 	bool retransmission;
 	bool retry_queued; /* original reliable head has one pending paced retry */
 	bool multicast_exception;
+	uint64_t multicast_epoch; /* UP-adjacency cutoff captured at handoff */
 	uint64_t sent_msec; /* first successful wire send; RTT sampling only */
 
 	/* EIGRP packet length. */

@@ -141,7 +141,8 @@ static eigrp_result_t eigrp_intf_state_emit(
 		state.hello_interval = ei->params.v_hello;
 		state.hold_time = ei->params.v_wait;
 		state.peer_count = ei->nbrs ? ei->nbrs->count : 0;
-		state.output_queue_count = ei->obuf ? ei->obuf->count : 0;
+		state.output_queue_count = (ei->obuf ? ei->obuf->count : 0)
+			+ ei->multicast_pending.count;
 		state.reliable_queue_count = eigrp_intf_reliable_queue_count(ei);
 		state.reliability = ei->params.reliability;
 		state.load = ei->params.load;
@@ -1578,6 +1579,14 @@ int eigrp_intf_down(eigrp_intf_t *ei)
 
 	if (ei == NULL)
 		return 0;
+
+	/* An interface-down invalidates every outstanding wire image, including
+	 * control Hellos and CR state from the previous adjacency lifetime. */
+	eigrp_timer_cancel(ei->eigrp, &ei->t_multicast_retry);
+	eigrp_packet_queue_clear(&ei->multicast_pending);
+	eigrp_packet_interface_output_clear(ei);
+	ei->multicast_backoff = false;
+	ei->multicast_waiting = false;
 
 	/* Shutdown packet reception and sending */
 	if (ei->t_hello)
