@@ -42,6 +42,11 @@ static inline size_t eigrp_packet_payload_limit(size_t interface_mtu)
 /*Prototypes*/
 extern void eigrp_packet_read(void *arg);
 extern bool eigrp_process_packet_submit(eigrp_packet_input_t *input);
+/* Receiver admission before AF queue: validates and refreshes authenticated liveness. */
+bool eigrp_packet_ingress_authenticate(eigrp_instance_t *instance,
+                                       eigrp_packet_input_t *input);
+bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
+                               const uint8_t *payload, uint16_t length);
 extern bool eigrp_packet_input_enqueue(eigrp_instance_t *eigrp,
 				       eigrp_packet_input_t *input);
 extern void eigrp_packet_input_queue_clear(eigrp_instance_t *eigrp);
@@ -100,6 +105,7 @@ extern void eigrp_sw_version_init(void);
 extern void eigrp_hello_send(eigrp_intf_t *, uint8_t, eigrp_addr_t *);
 extern void eigrp_hello_send_unicast(eigrp_intf_t *, const eigrp_addr_t *);
 extern void eigrp_hello_send_ack(eigrp_nbr_t *);
+extern void eigrp_hello_send_ack_sequence(eigrp_nbr_t *, uint32_t sequence);
 extern void eigrp_hello_send_sequence(eigrp_intf_t *, uint32_t);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
 			 eigrp_addr_t *, eigrp_intf_t *,

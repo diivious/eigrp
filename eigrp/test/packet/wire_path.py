@@ -25,7 +25,7 @@ def test_packet_consumer_uses_stream_bound_validator_before_header_access():
 
 def test_hello_prevalidation_requires_parameter_before_neighbor_allocation():
     hello = (ROOT / "eigrp" / "code" / "eigrp_hello.c").read_text()
-    validator = hello[hello.index("static bool eigrp_hello_tlvs_validate"):hello.index("void eigrp_hello_receive")]
+    validator = hello[hello.index("bool eigrp_hello_tlvs_validate"):hello.index("void eigrp_hello_receive")]
     receive = hello[hello.index("void eigrp_hello_receive"):hello.index("static uint8_t eigrp_host_major")]
 
     assert "bool parameter_seen = false;" in validator

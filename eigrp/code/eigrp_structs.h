@@ -44,6 +44,9 @@ struct eigrp_packet_input {
 	eigrp_addr_t destination;
 	eigrp_packet_rx_meta_t meta;
 	eigrp_stream_t *stream;
+	/* Set only by process ingress after complete authentication and framing. */
+	bool ingress_authenticated;
+	uint64_t ingress_neighbor_generation;
 };
 
 typedef struct eigrp_extdata {
@@ -81,7 +84,8 @@ struct eigrp_instance {
 	/* Process packet thread -> AF packet handoff.  The AF owns the consumer
 	 * thread and packet queue for its entire published runtime lifetime. */
 	pthread_mutex_t work_lock;
-	pthread_mutex_t peer_lock; /* Protects interface/neighbor publication for ingress lookup. */
+	pthread_mutex_t peer_lock; /* Protects interface/neighbor publication and ingress auth. */
+	uint64_t next_neighbor_generation; /* Protected by peer_lock. */
 	pthread_cond_t work_cond;
 	pthread_t thread;
 	bool thread_running;

@@ -11,3 +11,4 @@ steps:
   - validate-retransmission: {since: fault-window, source_uut: r1, destination_uut: r2, opcode: update, timeout: 5}
   - validate-route: {uut: r2, prefix: 10.1.0.0/24, table: rib, timeout: 5}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, reliable_q: 0, srtt_valid: true, timeout: 5}
+  - validate-event: {uut: r2, contains: "reason peer restarted", min: 0, max: 0}

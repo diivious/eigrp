@@ -282,7 +282,7 @@ static uint16_t eigrp_peer_termination_encode(eigrp_intf_t *ei,
 	return length;
 }
 
-static bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
+bool eigrp_hello_tlvs_validate(eigrp_intf_t *ei,
                                       const uint8_t *cursor,
                                       uint16_t payload_length)
 {
@@ -428,8 +428,11 @@ void eigrp_hello_receive(eigrp_instance_t *eigrp, struct eigrp_header *eigrph,
 		const struct TLV_MD5_Authentication_Type *auth =
 			(const struct TLV_MD5_Authentication_Type *)eigrph->tlv;
 
-		/* MD5 and SHA-256 authentication TLVs share this field offset. */
+		/* MD5 and SHA-256 authentication TLVs share this field offset.
+		 * The receiver may already be authenticating more packets. */
+		pthread_mutex_lock(&eigrp->peer_lock);
 		nbr->crypt_seqnum = auth->key_sequence;
+		pthread_mutex_unlock(&eigrp->peer_lock);
 	}
 
 	tlv_header = (struct eigrp_tlv_hdr_type *)eigrph->tlv;
@@ -788,18 +791,8 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_intf_t *ei,
 		}
 		packet->dst = *destination;
 
-		if ((ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)
-		    && eigrp_auth_material_available(ei)) {
-			eigrp_make_md5_digest(ei, packet->s,
-					      EIGRP_AUTH_BASIC_HELLO_FLAG);
-		} else if ((ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
-			   && eigrp_auth_material_available(ei)) {
-			eigrp_make_sha256_digest(ei, packet->s,
-						 EIGRP_AUTH_BASIC_HELLO_FLAG);
-		}
-
-		// EIGRP Checksum
-		eigrp_packet_checksum(ei, packet->s, length);
+		/* Authentication and checksum are finalized at the paced interface
+		 * dequeue, not when this Hello is queued. */
 	}
 
 	return (packet);
@@ -818,13 +811,17 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_intf_t *ei,
  *  updated to the neighbor's sequence number to acknolodge any
  *  outstanding packets
  */
-void eigrp_hello_send_ack(eigrp_nbr_t *nbr)
+void eigrp_hello_send_ack_sequence(eigrp_nbr_t *nbr, uint32_t sequence)
 {
 	eigrp_packet_t *packet;
 
-	/* if packet succesfully created, add it to the interface queue */
+	if (!nbr || !nbr->ei)
+		return;
+
+	/* Explicit sequence is needed to ACK an old RTP duplicate without
+	 * rolling back the neighbor's current receive sequence. */
 	packet = eigrp_hello_encode(nbr->ei, &nbr->src,
-				nbr->recv_sequence_number, EIGRP_HELLO_NORMAL,
+				sequence, EIGRP_HELLO_NORMAL,
 				&nbr->src, 0);
 
 	if (packet) {
@@ -838,6 +835,12 @@ void eigrp_hello_send_ack(eigrp_nbr_t *nbr)
 		}
 		eigrp_packet_write_schedule(nbr->ei->eigrp);
 	}
+}
+
+void eigrp_hello_send_ack(eigrp_nbr_t *nbr)
+{
+	if (nbr)
+		eigrp_hello_send_ack_sequence(nbr, nbr->recv_sequence_number);
 }
 
 /**

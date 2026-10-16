@@ -240,7 +240,7 @@ class Runner:
         return "\n".join(out)
     @staticmethod
     def _packet_line(packet):
-        keys=("time","event","source_uut","source_interface","destination_uut","destination_interface","segment","afi","opcode","length","multicast","sequence","ack","cr","copy","fault","action","fault_hit","fault_remaining")
+        keys=("time","event","source_uut","source_interface","destination_uut","destination_interface","segment","afi","opcode","length","multicast","sequence","auth_sequence","ack","cr","copy","fault","action","fault_hit","fault_remaining")
         fields=[]
         for key in keys:
             if key in packet: fields.append(f"{key}={packet[key]}")
@@ -254,6 +254,10 @@ class Runner:
             return not matches
         if not matches:
             return False
+        # A discovered neighbor can remain PENDING while RTP INIT is in
+        # progress.  'up' means adjacency established, not merely present.
+        if state == "up" and any(n["state"].lower() != "up" for n in matches):
+            return False
         return all(k not in e or n.get(k)==e[k] for n in matches for k in ("reliable_q","rto","srtt_valid","srtt","retransmissions"))
     def route_ok(self,e):
         st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["paths"] if table=="path" else st["topology"]
@@ -266,7 +270,7 @@ class Runner:
         return bool(matches)
     def packet_ok(self,e):
         rows=list(self.broker.journal); mark=e.get("since"); rows=rows[self.packet_marks.get(mark,0):] if mark else rows
-        fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","ack":"ack","cr":"cr","event":"event"}
+        fields={"prefix":"prefix","uut":"source_uut","source_uut":"source_uut","destination_uut":"destination_uut","interface":"source_interface","source_interface":"source_interface","destination_interface":"destination_interface","segment":"segment","afi":"afi","opcode":"opcode","multicast":"multicast","sequence":"sequence","auth_sequence":"auth_sequence","ack":"ack","cr":"cr","event":"event"}
         matches=[p for p in rows if all(k not in e or ((str(e[k]).lower() in [str(x).lower() for x in p.get("prefixes",[])]) if k=="prefix" else p.get(v)==e[k]) for k,v in fields.items())]
         count=len(matches)
         if count<int(e.get("min",1)) or ("max" in e and count>int(e["max"])): return False

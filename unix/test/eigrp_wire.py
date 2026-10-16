@@ -61,9 +61,17 @@ def _packet_meta(payload, afi):
     flags=struct.unpack_from("!I",payload,4)[0] if len(payload)>=16 else 0
     sequence=struct.unpack_from("!I",payload,8)[0] if len(payload)>=16 else 0
     ack=struct.unpack_from("!I",payload,12)[0] if len(payload)>=16 else 0
+    # Both MD5 and SHA-256 authentication TLVs place the cryptographic
+    # sequence at byte 32 (first TLV at byte 20). Expose it only in the UUT
+    # wire journal; the broker does not influence authentication or EIGRP.
+    auth_sequence=None
+    if len(payload)>=36 and struct.unpack_from("!H",payload,20)[0]==2:
+        tlv_length=struct.unpack_from("!H",payload,22)[0]
+        if tlv_length>=16 and 20+tlv_length<=len(payload):
+            auth_sequence=struct.unpack_from("!I",payload,32)[0]
     return {"opcode":"ack" if opcode==5 and ack else OPCODES.get(opcode,str(opcode)),
-            "sequence":sequence,"ack":ack,"cr":bool(flags&CR_FLAG),
-            "prefixes":_route_prefixes(payload,afi)}
+            "sequence":sequence,"auth_sequence":auth_sequence,"ack":ack,
+            "cr":bool(flags&CR_FLAG),"prefixes":_route_prefixes(payload,afi)}
 
 class Broker(threading.Thread):
     """Shared-segment delivery broker. Faults affect delivery only, never EIGRP state."""
@@ -155,7 +163,7 @@ class Broker(threading.Thread):
                         if not mc and eaddr[:4 if afi==4 else 16]!=dst[:4 if afi==4 else 16]: continue
                         if mc and (id(ec),eif) in sent: continue
                         sent.add((id(ec),eif)); destinations.append(e)
-                    base={"time":time.monotonic(),"uut":owner,"source_uut":owner,"interface":ifname,"source_interface":ifname,"segment":seg,"afi":afi,"opcode":pm["opcode"],"length":len(payload),"multicast":mc,"sequence":pm["sequence"],"ack":pm["ack"],"cr":pm["cr"],"prefixes":pm["prefixes"]}
+                    base={"time":time.monotonic(),"uut":owner,"source_uut":owner,"interface":ifname,"source_interface":ifname,"segment":seg,"afi":afi,"opcode":pm["opcode"],"length":len(payload),"multicast":mc,"sequence":pm["sequence"],"auth_sequence":pm["auth_sequence"],"ack":pm["ack"],"cr":pm["cr"],"prefixes":pm["prefixes"]}
                     self.journal.append({**base,"destination_uut":None,"destination_interface":None,"event":"sent"})
                     for e in destinations:
                         meta={**base,"destination_uut":e[6],"destination_interface":e[4]}; actions=self._actions(meta)

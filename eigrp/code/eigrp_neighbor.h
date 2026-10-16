@@ -49,11 +49,13 @@ typedef struct eigrp_neighbor {
 	/* This neighbor's parent eigrp interface. */
 	eigrp_intf_t *ei;
 	bool published; /* Protected by eigrp_instance::peer_lock. */
+	uint64_t generation; /* Prevent queued packets crossing neighbor lifetimes. */
 
 	/* EIGRP neighbor Information */
 	uint8_t state; /* neigbor status. */
 
 	uint32_t recv_sequence_number; /* Last received sequence Number. */
+	uint32_t peer_init_sequence_number; /* Accepted peer INIT, for duplicate detection. */
 	uint32_t init_sequence_number;
 
 	/* If a packet is unacknowledged, retry it up to the transport limit. */
@@ -123,8 +125,6 @@ extern eigrp_nbr_t *eigrp_nbr_lookup_by_addr(eigrp_intf_t *,
 						  struct in_addr *);
 extern eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *,
 							  struct in_addr addr);
-extern bool eigrp_nbr_ingress_holddown_refresh(eigrp_instance_t *,
-	eigrp_ifindex_t, eigrp_addr_t *);
 
 extern int eigrp_nbr_split_horizon(eigrp_route_descriptor_t *,
 					 eigrp_intf_t *);

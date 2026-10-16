@@ -18,6 +18,7 @@
 #include "eigrp_auth.h"
 #include "eigrp_sys.h"
 #include "eigrp_rib.h"
+#include "eigrp_checksum.h"
 static const unsigned char zeropad[16] = {0};
 
 
@@ -38,15 +39,33 @@ static bool eigrp_auth_sequence_newer(uint32_t received_wire, uint32_t stored_wi
 	return delta != 0 && delta < 0x80000000U;
 }
 
-/* The interface owns a single transmit sequence shared by Hello, UPDATE,
- * QUERY and REPLY, regardless of authentication algorithm.  The TLV is
- * encoded only once for a packet; reliable retransmissions reuse the same
- * packet image and must not consume another cryptographic sequence. */
+/* Each actual interface transmission receives a fresh cryptographic sequence.
+ * RTP retransmissions preserve their RTP sequence, not their auth sequence.
+ * Packet construction places a placeholder TLV; paced dequeue signs it. */
 static uint32_t eigrp_auth_sequence_next(eigrp_intf_t *ei)
 {
 	if (++ei->crypt_seqnum == 0)
 		++ei->crypt_seqnum;
 	return htonl(ei->crypt_seqnum);
+}
+
+/* Complete admission for Hellos that entered ingress before the AF created
+ * the neighbor. Caller holds peer_lock. This is not a second authentication
+ * path: the packet was signed and admitted by the receiver already. */
+bool eigrp_auth_discovery_sequence_accept(eigrp_nbr_t *nbr,
+                                          const struct eigrp_header *header)
+{
+    const struct TLV_MD5_Authentication_Type *auth;
+
+    if (!nbr || !header)
+        return false;
+    if (nbr->ei->params.auth_type == EIGRP_AUTH_TYPE_NONE)
+        return true;
+    auth = (const struct TLV_MD5_Authentication_Type *)header->tlv;
+    if (!eigrp_auth_sequence_newer(auth->key_sequence, nbr->crypt_seqnum))
+        return false;
+    nbr->crypt_seqnum = auth->key_sequence;
+    return true;
 }
 
 bool eigrp_auth_material_available(const eigrp_intf_t *ei)
@@ -365,7 +384,7 @@ uint16_t eigrp_auth_tlv_md5_encode(eigrp_stream_t *s, eigrp_intf_t *ei)
 
 	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = htonl(key_id);
-		authTLV->key_sequence = eigrp_auth_sequence_next(ei);
+		authTLV->key_sequence = 0;
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_MD5_Authentication_Type));
@@ -399,7 +418,7 @@ uint16_t eigrp_auth_tlv_sha256_encode(eigrp_stream_t *s,
 
 	if (eigrp_auth_key_get(ei, &key_id, key_string, sizeof(key_string))) {
 		authTLV->key_id = 0;
-		authTLV->key_sequence = eigrp_auth_sequence_next(ei);
+		authTLV->key_sequence = 0;
 		memset(authTLV->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
 		eigrp_stream_put(s, authTLV,
 			   sizeof(struct TLV_SHA256_Authentication_Type));
@@ -713,4 +732,66 @@ static eigrp_result_t eigrp_auth_message_process(eigrp_instance_t *eigrp,
 			message->context, message->keychain);
 	}
 	return EIGRP_RESULT_INVALID_ARGUMENT;
+}
+
+/* Called only when the paced interface output queue actually sends the packet.
+ * Queued canonical RTP packets are unsigned templates.  A retransmission is a
+ * copy of that template, with its own cryptographic sequence and digest. */
+bool eigrp_auth_transmit_finalize(eigrp_intf_t *ei, eigrp_stream_t *stream,
+                                  uint16_t packet_length)
+{
+    struct eigrp_header *header;
+    struct TLV_MD5_Authentication_Type *auth;
+    char key[PLAINTEXT_LENGTH + 1] = {0};
+    uint32_t key_id = 0;
+    size_t auth_size;
+    uint8_t flags;
+    bool success;
+
+    if (!ei || !stream || !stream->data || packet_length < EIGRP_HEADER_LEN
+        || stream->endp != packet_length || stream->size < packet_length)
+        return false;
+    header = (struct eigrp_header *)stream->data;
+    if (ei->params.auth_type == EIGRP_AUTH_TYPE_NONE) {
+        header->checksum = 0;
+        header->checksum = htons(eigrp_checksum(header, packet_length));
+        return true;
+    }
+    if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)
+        auth_size = EIGRP_AUTH_MD5_TLV_SIZE;
+    else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
+        auth_size = EIGRP_AUTH_SHA256_TLV_SIZE;
+    else
+        return false;
+    if (packet_length < EIGRP_HEADER_LEN + auth_size
+        || !eigrp_auth_key_get(ei, &key_id, key, sizeof(key)))
+        return false;
+    memset(key, 0, sizeof(key));
+    auth = (struct TLV_MD5_Authentication_Type *)(stream->data + EIGRP_HEADER_LEN);
+    if (ntohs(auth->type) != EIGRP_TLV_AUTH
+        || ntohs(auth->length) != auth_size
+        || ntohs(auth->auth_type) != ei->params.auth_type)
+        return false;
+
+    auth->key_sequence = eigrp_auth_sequence_next(ei);
+    header->checksum = 0;
+    flags = header->opcode == EIGRP_OPC_HELLO
+        ? EIGRP_AUTH_BASIC_HELLO_FLAG
+        : (header->opcode == EIGRP_OPC_UPDATE
+           && (ntohl(header->flags) & EIGRP_INIT_FLAG))
+            ? EIGRP_AUTH_UPDATE_INIT_FLAG : EIGRP_AUTH_UPDATE_FLAG;
+    if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5) {
+        memset(auth->digest, 0, EIGRP_AUTH_TYPE_MD5_LEN);
+        success = eigrp_make_md5_digest(ei, stream, flags) == EIGRP_AUTH_TYPE_MD5_LEN;
+    } else {
+        struct TLV_SHA256_Authentication_Type *sha =
+            (struct TLV_SHA256_Authentication_Type *)auth;
+        memset(sha->digest, 0, EIGRP_AUTH_TYPE_SHA256_LEN);
+        success = eigrp_make_sha256_digest(ei, stream, flags)
+                  == EIGRP_AUTH_TYPE_SHA256_LEN;
+    }
+    if (!success)
+        return false;
+    header->checksum = htons(eigrp_checksum(header, packet_length));
+    return true;
 }

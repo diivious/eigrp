@@ -26,7 +26,7 @@ def test_md5_sha256_cryptographic_sequence_transmit_and_receive():
 bool eigrp_sys_auth_key_lookup(const char *name, uint32_t *id,
                                char *key, size_t capacity)
 {
-    static const char secret[] = "md5-sequence-secret";
+    static const char secret[] = "eigrprocks";
     if (strcmp(name, "sequence-test") != 0 || sizeof(secret) > capacity)
         return false;
     if (id)
@@ -34,27 +34,26 @@ bool eigrp_sys_auth_key_lookup(const char *name, uint32_t *id,
     memcpy(key, secret, sizeof(secret));
     return true;
 }
-
 void eigrp_log(eigrp_log_level_t level, const char *format, ...)
 {
-    (void)level;
-    (void)format;
+    (void)level; (void)format;
 }
-
 const char *eigrp_intf_name_string(eigrp_intf_t *ei)
 {
     return ei->name;
 }
-
-static eigrp_stream_t *packet_create(void)
+static eigrp_stream_t *packet_create(uint8_t opcode, uint32_t rtp_seq,
+                                    uint32_t flags)
 {
-    static const uint8_t header[EIGRP_HEADER_LEN] = {0};
-    eigrp_stream_t *packet = eigrp_stream_create(128);
-    if (!packet || eigrp_stream_put(packet, header, sizeof(header)) != sizeof(header))
+    eigrp_stream_t *s = eigrp_stream_create(128);
+    struct eigrp_header header = {0};
+    header.opcode = opcode;
+    header.sequence = htonl(rtp_seq);
+    header.flags = htonl(flags);
+    if (!s || eigrp_stream_put(s, &header, EIGRP_HEADER_LEN) != EIGRP_HEADER_LEN)
         return NULL;
-    return packet;
+    return s;
 }
-
 static void interface_init(eigrp_intf_t *ei, eigrp_nbr_t *nbr)
 {
     memset(ei, 0, sizeof(*ei));
@@ -68,119 +67,84 @@ static void interface_init(eigrp_intf_t *ei, eigrp_nbr_t *nbr)
     nbr->src.afi = AF_INET;
     inet_pton(AF_INET, "192.0.2.10", &nbr->src.ip.v4);
 }
-
-static int md5_packet(eigrp_intf_t *ei, eigrp_nbr_t *nbr,
-                      uint32_t sequence, uint8_t flags)
+static int test_wire_packet(eigrp_intf_t *ei, eigrp_nbr_t *nbr,
+                            uint32_t crypto_seq, uint32_t rtp_seq,
+                            uint8_t opcode, uint32_t flags)
 {
-    eigrp_stream_t *s = packet_create();
-    struct TLV_MD5_Authentication_Type *tlv;
-    uint32_t replay_state;
+    eigrp_stream_t *s = packet_create(opcode, rtp_seq, flags);
+    struct TLV_MD5_Authentication_Type *md5;
+    struct TLV_SHA256_Authentication_Type *sha;
+    bool is_md5 = ei->params.auth_type == EIGRP_AUTH_TYPE_MD5;
+    uint32_t previous = ei->crypt_seqnum;
+    int valid;
+
     if (!s)
         return 1;
-    if (eigrp_auth_tlv_md5_encode(s, ei) != EIGRP_AUTH_MD5_TLV_SIZE)
+    if (is_md5 ? eigrp_auth_tlv_md5_encode(s, ei) != EIGRP_AUTH_MD5_TLV_SIZE
+               : eigrp_auth_tlv_sha256_encode(s, ei) != EIGRP_AUTH_SHA256_TLV_SIZE)
         return 2;
-    tlv = (struct TLV_MD5_Authentication_Type *)(s->data + EIGRP_HEADER_LEN);
-    if (ntohl(tlv->key_sequence) != sequence || tlv->key_id != htonl(11)
-        || ei->crypt_seqnum != sequence)
-        return 3;
-    if (eigrp_make_md5_digest(ei, s, flags) != EIGRP_AUTH_TYPE_MD5_LEN)
+    md5 = (void *)(s->data + EIGRP_HEADER_LEN);
+    sha = (void *)md5;
+    if (md5->key_sequence != 0 || ei->crypt_seqnum != previous)
+        return 3; /* Packet construction cannot consume crypto sequences. */
+    if (!eigrp_auth_transmit_finalize(ei, s, (uint16_t)s->endp))
         return 4;
-    if (!eigrp_check_md5_digest(s, tlv, nbr, flags)
-        || ntohl(nbr->crypt_seqnum) != sequence)
+    if (ntohl(md5->key_sequence) != crypto_seq || ei->crypt_seqnum != crypto_seq)
         return 5;
-    replay_state = nbr->crypt_seqnum;
-    if (eigrp_check_md5_digest(s, tlv, nbr, flags)
-        || nbr->crypt_seqnum != replay_state)
+    if (ntohl(((struct eigrp_header *)s->data)->sequence) != rtp_seq
+        || eigrp_checksum(s->data, s->endp) != 0)
         return 6;
-    /* A retransmit or digest refresh must not advance the sequence. */
-    if (eigrp_make_md5_digest(ei, s, flags) != EIGRP_AUTH_TYPE_MD5_LEN
-        || ntohl(tlv->key_sequence) != sequence || ei->crypt_seqnum != sequence)
+    valid = is_md5 ? eigrp_check_md5_digest(s, md5, nbr,
+                            opcode == EIGRP_OPC_HELLO ? EIGRP_AUTH_BASIC_HELLO_FLAG
+                            : flags & EIGRP_INIT_FLAG ? EIGRP_AUTH_UPDATE_INIT_FLAG
+                            : EIGRP_AUTH_UPDATE_FLAG)
+                   : eigrp_check_sha256_digest(s, sha, nbr, EIGRP_AUTH_UPDATE_FLAG);
+    if (!valid || ntohl(nbr->crypt_seqnum) != crypto_seq)
         return 7;
+    if ((is_md5 ? eigrp_check_md5_digest(s, md5, nbr, EIGRP_AUTH_UPDATE_FLAG)
+                : eigrp_check_sha256_digest(s, sha, nbr, EIGRP_AUTH_UPDATE_FLAG)))
+        return 8; /* Received duplicates must be rejected. */
     eigrp_stream_free(s);
     return 0;
 }
-
-static int sha256_packet(eigrp_intf_t *ei, eigrp_nbr_t *nbr,
-                         uint32_t sequence)
-{
-    eigrp_stream_t *s = packet_create();
-    struct TLV_SHA256_Authentication_Type *tlv;
-    uint32_t replay_state;
-    if (!s)
-        return 1;
-    if (eigrp_auth_tlv_sha256_encode(s, ei) != EIGRP_AUTH_SHA256_TLV_SIZE)
-        return 2;
-    tlv = (struct TLV_SHA256_Authentication_Type *)(s->data + EIGRP_HEADER_LEN);
-    if (ntohl(tlv->key_sequence) != sequence || ei->crypt_seqnum != sequence)
-        return 3;
-    if (eigrp_make_sha256_digest(ei, s, EIGRP_AUTH_BASIC_HELLO_FLAG)
-        != EIGRP_AUTH_TYPE_SHA256_LEN)
-        return 4;
-    if (!eigrp_check_sha256_digest(s, tlv, nbr, EIGRP_AUTH_BASIC_HELLO_FLAG)
-        || ntohl(nbr->crypt_seqnum) != sequence)
-        return 5;
-    replay_state = nbr->crypt_seqnum;
-    if (eigrp_check_sha256_digest(s, tlv, nbr, EIGRP_AUTH_BASIC_HELLO_FLAG)
-        || nbr->crypt_seqnum != replay_state)
-        return 6;
-    /* Recomputing a digest must preserve the already encoded sequence. */
-    if (eigrp_make_sha256_digest(ei, s, EIGRP_AUTH_BASIC_HELLO_FLAG)
-        != EIGRP_AUTH_TYPE_SHA256_LEN
-        || ntohl(tlv->key_sequence) != sequence || ei->crypt_seqnum != sequence)
-        return 7;
-    eigrp_stream_free(s);
-    return 0;
-}
-
 int main(void)
 {
     eigrp_intf_t ei;
     eigrp_nbr_t nbr;
     eigrp_stream_t *s;
-    int result;
+    int r;
 
-    /* A time-derived starting sequence can have the high bit set. */
     interface_init(&ei, &nbr);
     ei.crypt_seqnum = 0xefffffffU;
-    result = md5_packet(&ei, &nbr, 0xf0000000U, EIGRP_AUTH_BASIC_HELLO_FLAG);
-    if (result)
-        return 10 + result;
-    result = md5_packet(&ei, &nbr, 0xf0000001U, EIGRP_AUTH_UPDATE_INIT_FLAG);
-    if (result)
-        return 20 + result;
+    r = test_wire_packet(&ei, &nbr, 0xf0000000U, 0, EIGRP_OPC_HELLO, 0);
+    if (r) return 10 + r;
+    r = test_wire_packet(&ei, &nbr, 0xf0000001U, 100, EIGRP_OPC_UPDATE, EIGRP_INIT_FLAG);
+    if (r) return 30 + r;
+    /* Same RTP sequence retransmitted, fresh authenticated transmission. */
+    r = test_wire_packet(&ei, &nbr, 0xf0000002U, 100, EIGRP_OPC_UPDATE, EIGRP_INIT_FLAG);
+    if (r) return 50 + r;
 
-    /* An interface counter is shared across both authentication methods. */
     ei.params.auth_type = EIGRP_AUTH_TYPE_SHA256;
     ei.params.auth_password = "sha256-sequence-secret";
-    result = sha256_packet(&ei, &nbr, 0xf0000002U);
-    if (result)
-        return 30 + result;
-    result = sha256_packet(&ei, &nbr, 0xf0000003U);
-    if (result)
-        return 40 + result;
+    r = test_wire_packet(&ei, &nbr, 0xf0000003U, 100, EIGRP_OPC_UPDATE, 0);
+    if (r) return 70 + r;
+    r = test_wire_packet(&ei, &nbr, 0xf0000004U, 100, EIGRP_OPC_UPDATE, 0);
+    if (r) return 90 + r;
 
-    /* A 32-bit counter wraps without transmitting reserved sequence zero. */
     interface_init(&ei, &nbr);
     ei.crypt_seqnum = UINT32_MAX - 1;
-    result = md5_packet(&ei, &nbr, UINT32_MAX, EIGRP_AUTH_BASIC_HELLO_FLAG);
-    if (result)
-        return 50 + result;
-    result = md5_packet(&ei, &nbr, 1U, EIGRP_AUTH_BASIC_HELLO_FLAG);
-    if (result)
-        return 60 + result;
-    if (eigrp_auth_sequence_newer(htonl(0), htonl(1))
-        || eigrp_auth_sequence_newer(htonl(UINT32_MAX), htonl(1))
-        || !eigrp_auth_sequence_newer(htonl(UINT32_MAX), 0))
-        return 70;
+    r = test_wire_packet(&ei, &nbr, UINT32_MAX, 0, EIGRP_OPC_HELLO, 0);
+    if (r) return 110 + r;
+    r = test_wire_packet(&ei, &nbr, 1, 0, EIGRP_OPC_HELLO, 0);
+    if (r) return 130 + r;
 
-    /* Missing keys cannot consume a transmit sequence. */
     interface_init(&ei, &nbr);
     ei.crypt_seqnum = 123;
     ei.params.auth_keychain = "missing-chain";
-    s = packet_create();
+    s = packet_create(EIGRP_OPC_HELLO, 0, 0);
     if (!s || eigrp_auth_tlv_md5_encode(s, &ei) != 0
         || ei.crypt_seqnum != 123)
-        return 71;
+        return 151;
     eigrp_stream_free(s);
     return 0;
 }
@@ -197,6 +161,7 @@ int main(void)
             f'-I{CODE}', str(source_path), str(CODE / 'eigrp_md5.c'),
             str(CODE / 'eigrp_sha256.c'), str(CODE / 'eigrp_memory.c'),
             str(CODE / 'eigrp_stream.c'),
+            str(CODE / 'eigrp_checksum.c'),
             linker_gc, '-pthread', '-o', str(binary_path),
         ], check=True, cwd=ROOT)
         subprocess.run([str(binary_path)], check=True, cwd=ROOT)

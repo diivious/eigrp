@@ -742,6 +742,9 @@ eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *ei, eigrp_addr_t *src)
 	/* Allcate new neighbor. */
 	nbr = calloc(1, sizeof(eigrp_nbr_t));
 
+	if (!nbr)
+		return NULL;
+
 	/* Relate neighbor to the interface. */
 	nbr->ei = ei;
 
@@ -753,6 +756,9 @@ eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *ei, eigrp_addr_t *src)
 	 * receive thread may walk this list to refresh ingress liveness. */
 	if (ei) {
 		pthread_mutex_lock(&ei->eigrp->peer_lock);
+		if (++ei->eigrp->next_neighbor_generation == 0)
+			++ei->eigrp->next_neighbor_generation;
+		nbr->generation = ei->eigrp->next_neighbor_generation;
 		eigrp_list_add(ei->nbrs, nbr);
 		nbr->published = true;
 		pthread_mutex_unlock(&ei->eigrp->peer_lock);
@@ -843,45 +849,6 @@ eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 	return NULL;
 }
 
-
-/*
- * Refresh peer liveness at ingress, before packetQ delay can affect the
- * hold-time decision.  peer_lock makes the interface/neighbor walk and the
- * neighbor lifetime stable while the receive thread resets the timer.
- *
- * This is intentionally the only neighbor-runtime mutation performed by the
- * process receive thread.  Neighbor FSM/RTP/DUAL processing remains AF-owned.
- */
-bool eigrp_nbr_ingress_holddown_refresh(eigrp_instance_t *eigrp,
-	eigrp_ifindex_t ifindex, eigrp_addr_t *source)
-{
-	eigrp_intf_t *ei;
-	eigrp_nbr_t *nbr;
-	eigrp_list_item_t *if_node;
-	eigrp_list_item_t *nbr_node;
-	bool refreshed = false;
-
-	if (!eigrp || !source)
-		return false;
-
-	pthread_mutex_lock(&eigrp->peer_lock);
-	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, if_node, ei)) {
-		if (!ei || ei->ifindex != ifindex || !ei->nbrs)
-			continue;
-		for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
-			if (!nbr || !nbr->published)
-				continue;
-			if (!eigrp_addr_match(source, &nbr->src))
-				continue;
-			eigrp_nbr_holddown_update(nbr);
-			refreshed = true;
-			break;
-		}
-		break;
-	}
-	pthread_mutex_unlock(&eigrp->peer_lock);
-	return refreshed;
-}
 
 /* Delete specified EIGRP neighbor from interface. */
 void eigrp_nbr_delete(eigrp_nbr_t *nbr)
@@ -1017,6 +984,7 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 	if (eigrp_nbr_state(nbr) == EIGRP_NEIGHBOR_DOWN) {
 		// reset all the seq/ack counters
 		nbr->recv_sequence_number = 0;
+		nbr->peer_init_sequence_number = 0;
 		nbr->init_sequence_number = 0;
 		nbr->retrans_counter = 0;
 		nbr->cr_mode = false;
