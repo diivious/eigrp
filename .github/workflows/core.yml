@@ -1,5 +1,10 @@
 # Copyright (C) 2026 Donnie V. Savage
 # EIGRP portable/core CI. The root Makefile owns test orchestration.
+#
+# Keep push and PR runs separate. Each run is gated in order:
+# fast compile/smoke -> CodeQL (Actions, C/C++, Python) -> full macOS/Linux UUT.
+# Switch CodeQL from GitHub-managed default setup to advanced setup before
+# enabling this workflow; otherwise the default CodeQL runs independently.
 
 name: EIGRP Core CI
 
@@ -8,14 +13,83 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Only a newer run of the SAME event/ref may cancel an earlier run. A branch
+# push must not cancel its corresponding PR-merge validation (or vice versa).
+# Never cancel an in-progress master or manual run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
+
 permissions:
   contents: read
 
 jobs:
+  fast:
+    name: Fast Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out EIGRP
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install fast-test dependencies
+        run: python3 -m pip install pytest PyYAML
+
+      - name: Build portable and Unix sources
+        run: make build
+
+      - name: Run pacing and topology-index smoke tests
+        run: python3 -m pytest -q eigrp/test/packet/pacing.py eigrp/test/scale/test_table_index.py
+
+  codeql:
+    name: CodeQL / Analyze (${{ matrix.language }})
+    needs: [fast]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      # A failed language analysis cancels the other analyses; full UUT never
+      # starts unless ALL three languages have completed successfully.
+      fail-fast: true
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: c-cpp
+            build-mode: manual
+          - language: python
+            build-mode: none
+    steps:
+      - name: Check out EIGRP
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Build C/C++ for CodeQL extraction
+        if: matrix.language == 'c-cpp'
+        run: make build
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
   core:
     name: ${{ matrix.os }} / make test
+    needs: [codeql]
     strategy:
-      fail-fast: false
+      # Stop the other platform when one platform fails.
+      fail-fast: true
       matrix:
         os:
           - ubuntu-latest
@@ -52,3 +126,22 @@ jobs:
             make-test.log
             eigrp/test/uut/logs/
           if-no-files-found: warn
+
+  pipeline:
+    name: Pipeline result
+    needs: [fast, codeql, core]
+    # A skipped dependent job must not look like a passing merge gate.
+    # Do not start another job in a deliberately canceled, superseded run.
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all stages to pass
+        env:
+          FAST_RESULT: ${{ needs.fast.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
+          CORE_RESULT: ${{ needs.core.result }}
+        shell: bash
+        run: |
+          printf 'Fast Gate: %s\nCodeQL: %s\nCore CI: %s\n' \
+            "$FAST_RESULT" "$CODEQL_RESULT" "$CORE_RESULT"
+          [[ "$FAST_RESULT" == success && "$CODEQL_RESULT" == success && "$CORE_RESULT" == success ]]
