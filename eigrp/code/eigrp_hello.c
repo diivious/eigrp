@@ -606,7 +606,38 @@ static uint16_t eigrp_tidlist_encode(eigrp_stream_t *s)
  * Part of conditional receive process
  *
  */
-static uint16_t eigrp_sequence_encode(eigrp_intf_t *ei, eigrp_stream_t *s)
+/* The complete CR SEQUENCE Hello must fit the interface packet budget.
+ * Excluding only a subset of busy peers is not a valid CR exchange. */
+bool eigrp_hello_sequence_fits(eigrp_intf_t *ei, uint32_t sequence,
+			       uint64_t epoch)
+{
+	eigrp_list_item_t *node;
+	eigrp_nbr_t *nbr;
+	size_t length;
+	size_t address_length;
+
+	if (!ei || !ei->eigrp || !ei->nbrs)
+		return false;
+	length = EIGRP_HEADER_LEN + EIGRP_TLV_PARAMETER_LEN
+		 + EIGRP_TLV_SW_VERSION_LEN + EIGRP_TLV_HDR_SIZE
+		 + EIGRP_NEXT_SEQUENCE_TLV_SIZE;
+	if (eigrp_auth_material_available(ei)) {
+		if (ei->params.auth_type == EIGRP_AUTH_TYPE_MD5)
+			length += EIGRP_AUTH_MD5_TLV_SIZE;
+		else if (ei->params.auth_type == EIGRP_AUTH_TYPE_SHA256)
+			length += EIGRP_AUTH_SHA256_TLV_SIZE;
+	}
+	address_length = (size_t)ei->eigrp->af_vectors.packet_address_bytes + 1U;
+	for (EIGRP_LIST_ITERATE_RO(ei->nbrs, node, nbr)) {
+		if (eigrp_packet_multicast_peer_eligible(nbr, epoch)
+		    && eigrp_packet_reliable_prior_count(nbr, sequence))
+			length += address_length;
+	}
+	return length <= eigrp_packet_payload_limit(ei->curr_mtu);
+}
+
+static uint16_t eigrp_sequence_encode(eigrp_intf_t *ei, eigrp_stream_t *s,
+				      uint32_t sequence, uint64_t epoch)
 {
 	uint16_t length = EIGRP_TLV_HDR_SIZE;
 	eigrp_list_item_t *node, *nnode;
@@ -624,8 +655,8 @@ static uint16_t eigrp_sequence_encode(eigrp_intf_t *ei, eigrp_stream_t *s)
 	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
 		uint8_t address_length = ei->eigrp->af_vectors.packet_address_bytes;
 
-		if (nbr->state != EIGRP_NEIGHBOR_UP || !nbr->retrans_queue
-		    || nbr->retrans_queue->count == 0)
+		if (!eigrp_packet_multicast_peer_eligible(nbr, epoch)
+		    || !eigrp_packet_reliable_prior_count(nbr, sequence))
 			continue;
 		eigrp_stream_putc(s, address_length);
 		length++;
@@ -736,7 +767,8 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_intf_t *ei,
 					  const eigrp_addr_t *destination,
 					  uint32_t ack, uint8_t flags,
 					  eigrp_addr_t *nbr_addr,
-					  uint32_t multicast_sequence)
+					  uint32_t multicast_sequence,
+					  uint64_t multicast_epoch)
 {
 	eigrp_packet_t *packet;
 	uint16_t length = EIGRP_HEADER_LEN;
@@ -770,7 +802,8 @@ static eigrp_packet_t *eigrp_hello_encode(eigrp_intf_t *ei,
 		length += eigrp_sw_version_encode(ei->eigrp, packet->s);
 
 		if (flags & EIGRP_HELLO_ADD_SEQUENCE) {
-			length += eigrp_sequence_encode(ei, packet->s);
+			length += eigrp_sequence_encode(ei, packet->s,
+							  multicast_sequence, multicast_epoch);
 			length += eigrp_next_sequence_encode(multicast_sequence,
 							     packet->s);
 		}
@@ -822,19 +855,11 @@ void eigrp_hello_send_ack_sequence(eigrp_nbr_t *nbr, uint32_t sequence)
 	 * rolling back the neighbor's current receive sequence. */
 	packet = eigrp_hello_encode(nbr->ei, &nbr->src,
 				sequence, EIGRP_HELLO_NORMAL,
-				&nbr->src, 0);
+				&nbr->src, 0, 0);
 
-	if (packet) {
-		/* Add packet to the top of the interface output queue*/
-		eigrp_packet_enqueue(nbr->ei->obuf, packet);
-
-		/* Hook event to write packet. */
-		if (nbr->ei->on_write_q == 0) {
-			eigrp_list_add(nbr->ei->eigrp->oi_write_q, nbr->ei);
-			nbr->ei->on_write_q = 1;
-		}
-		eigrp_packet_write_schedule(nbr->ei->eigrp);
-	}
+	if (packet)
+		/* ACKs release RTP backpressure and must not wait behind data. */
+		eigrp_packet_output_enqueue(nbr->ei->eigrp, nbr->ei, packet);
 }
 
 void eigrp_hello_send_ack(eigrp_nbr_t *nbr)
@@ -866,16 +891,10 @@ void eigrp_hello_send_unicast(eigrp_intf_t *ei, const eigrp_addr_t *dst)
 	    || (dst->afi != AF_INET && dst->afi != AF_INET6))
 		return;
 	packet = eigrp_hello_encode(ei, dst, 0,
-				    EIGRP_HELLO_NORMAL, NULL, 0);
+				    EIGRP_HELLO_NORMAL, NULL, 0, 0);
 	if (!packet)
 		return;
-	eigrp_packet_enqueue(ei->obuf, packet);
-	if (ei->on_write_q == 0) {
-		eigrp_list_add(ei->eigrp->oi_write_q, ei);
-		ei->on_write_q = 1;
-	}
-	if (ei->eigrp->t_write == NULL)
-		eigrp_packet_write_schedule(ei->eigrp);
+	eigrp_packet_output_enqueue(ei->eigrp, ei, packet);
 }
 
 void eigrp_hello_send(eigrp_intf_t *ei, uint8_t flags,
@@ -902,35 +921,30 @@ void eigrp_hello_send(eigrp_intf_t *ei, uint8_t flags,
 			destination.afi = AF_INET;
 			destination.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
 		}
-		packet = eigrp_hello_encode(ei, &destination, 0, flags, nbr_addr, 0);
+		packet = eigrp_hello_encode(ei, &destination, 0, flags, nbr_addr, 0, 0);
 	}
 
 	if (packet) {
-		// Add packet to the top of the interface output queue
-		eigrp_packet_enqueue(ei->obuf, packet);
-
-		/* Hook event to write packet. */
-		if (ei->on_write_q == 0) {
-			eigrp_list_add(ei->eigrp->oi_write_q, ei);
-			ei->on_write_q = 1;
-		}
-
-		if (ei->eigrp->t_write == NULL) {
-			if (flags & EIGRP_HELLO_GRACEFUL_SHUTDOWN) {
-				eigrp_packet_write(ei->eigrp);
-			} else {
-				eigrp_packet_write_schedule(ei->eigrp);
-			}
+		if (flags & EIGRP_HELLO_GRACEFUL_SHUTDOWN) {
+			/* The interface may be torn down immediately after this
+			 * call.  Send the goodbye before teardown; authentication
+			 * and accounting stay in the common wire-send path. */
+			eigrp_packet_goodbye_send(ei, packet);
+		} else {
+			/* Periodic Hellos and ACKs are never blocked by RTP
+			 * backpressure or reliable packet pacing. */
+			eigrp_packet_output_enqueue(ei->eigrp, ei, packet);
 		}
 	}
 }
 
-void eigrp_hello_send_sequence(eigrp_intf_t *ei, uint32_t sequence)
+bool eigrp_hello_send_sequence(eigrp_intf_t *ei, uint32_t sequence,
+			       uint64_t epoch)
 {
 	eigrp_packet_t *packet;
 
 	if (!ei || sequence == 0)
-		return;
+		return false;
 
 	{
 		eigrp_addr_t destination = {0};
@@ -938,16 +952,26 @@ void eigrp_hello_send_sequence(eigrp_intf_t *ei, uint32_t sequence)
 		if (eigrp_instance_afi(ei->eigrp) == EIGRP_AFI_IPV6) {
 			destination.afi = AF_INET6;
 			if (inet_pton(AF_INET6, "ff02::a", &destination.ip.v6) != 1)
-				return;
+				return false;
 		} else {
 			destination.afi = AF_INET;
 			destination.ip.v4.s_addr = htonl(EIGRP_MULTICAST_ADDRESS);
 		}
 		packet = eigrp_hello_encode(ei, &destination, 0,
-					    EIGRP_HELLO_ADD_SEQUENCE, NULL, sequence);
+					    EIGRP_HELLO_ADD_SEQUENCE, NULL, sequence, epoch);
 	}
 	if (!packet)
-		return;
+		return false;
 
-	eigrp_packet_output_enqueue(ei->eigrp, ei, packet);
+	/* The SEQUENCE Hello and its following reliable multicast form an
+	 * ordered CR exchange.  Do not let this Hello overtake an earlier
+	 * reliable multicast whose CR state is still pending on the wire.
+	 * It remains outside packetizer backpressure and bypasses pacing. */
+	eigrp_packet_enqueue(ei->obuf, packet);
+	if (!ei->on_write_q) {
+		eigrp_list_add(ei->eigrp->oi_write_q, ei);
+		ei->on_write_q = 1;
+	}
+	eigrp_packet_write_schedule(ei->eigrp);
+	return true;
 }

@@ -472,7 +472,8 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 {
 	eigrp_intf_t *ei;
 	eigrp_prefix_descriptor_t *prefix;
-	eigrp_list_item_t *inode, *pnode, *pnnode;
+	eigrp_list_item_t *inode, *pnode, *pnnode, *rnode;
+	eigrp_list_t *retire = eigrp_list_create();
 
 	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, inode, ei)) {
 		eigrp_packetizer_builder_t builder;
@@ -578,20 +579,38 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 	/* The work bead represents the complete current topology-change set.  Do
 	 * not clear actions until every eligible interface has inspected it. */
 	for (EIGRP_LIST_ITERATE(eigrp->topology_changes, pnode, pnnode, prefix)) {
-		if (!(prefix->req_action & action))
+		if (!(prefix->req_action & action)) {
+			/* DUAL may queue the same destination again while an earlier
+			 * QUERY bead is being completed. Drop any inactive duplicate
+			 * by its list node, never by prefix pointer: a pointer lookup
+			 * can unlink pnnode and invalidate this iterator. */
+			if (!prefix->req_action)
+				eigrp_list_remove(eigrp->topology_changes, pnode);
 			continue;
+		}
 		if (action == EIGRP_FSM_NEED_QUERY)
 			eigrp_fsm_query_sent(eigrp, prefix);
 		prefix->req_action &= ~action;
 		if (!prefix->req_action) {
-			eigrp_list_delete_data(eigrp->topology_changes, prefix);
-			/* Unreachable paths must remain topology-owned until their
-			 * withdrawal has been encoded for every interface. */
-			if (action == EIGRP_FSM_NEED_UPDATE
-			    && prefix->state == EIGRP_FSM_STATE_PASSIVE)
-				eigrp_update_topology_table_prefix(
-					eigrp, eigrp->topology_table, prefix);
+			/* Remove the exact current node; a duplicate may exist. */
+			eigrp_list_remove(eigrp->topology_changes, pnode);
+			/* Retirement unlinks other topology-change entries for this
+			 * destination.  Never do so while iterating that same list:
+			 * DUAL can append a duplicate when QUERY completes in-line. */
+			if (retire && action == EIGRP_FSM_NEED_UPDATE
+			    && prefix->state == EIGRP_FSM_STATE_PASSIVE
+			    && !prefix->retirement_queued
+			    && eigrp_list_add(retire, prefix))
+				prefix->retirement_queued = true;
 		}
+	}
+	if (retire) {
+		for (EIGRP_LIST_ITERATE_RO(retire, rnode, prefix)) {
+			prefix->retirement_queued = false;
+			eigrp_update_topology_table_prefix(
+				eigrp, eigrp->topology_table, prefix);
+		}
+		eigrp_list_delete(&retire);
 	}
 }
 

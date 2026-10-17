@@ -63,6 +63,7 @@ def withdrawal_binary(tmp_path_factory):
         "query-route",
         "query-peer-reply",
         "query-empty",
+        "retirement",
     ],
 )
 def test_redistributed_route_withdrawal_dual_fsm(withdrawal_binary, scenario):

@@ -19,10 +19,22 @@
 #include "eigrp/code/eigrp_redistribute.h"
 #include "eigrp/code/eigrp_rib.h"
 #include "eigrp/code/eigrp_topology.h"
+#include "eigrp/code/eigrp_table.h"
 
 static eigrp_af_config_t *test_runtime_af;
 static unsigned query_work;
 static unsigned update_work;
+static eigrp_prefix_descriptor_t *deferred_prefix;
+
+/* This FSM-only harness has no packetizer worker. Capture the retired
+ * descriptor to verify detachment occurs before deferred reclamation. */
+void eigrp_packetizer_prefix_defer_free(eigrp_instance_t *eigrp,
+                                       eigrp_prefix_descriptor_t *prefix)
+{
+    (void)eigrp;
+    assert(prefix && deferred_prefix == NULL);
+    deferred_prefix = prefix;
+}
 
 unsigned long term_debug_eigrp;
 unsigned long term_debug_eigrp_nei;
@@ -269,6 +281,7 @@ static void fixture_init(struct fixture *f)
     f->candidate.tag = 0x11223344;
     neighbor_count = 0;
     query_work = update_work = 0;
+    deferred_prefix = NULL;
     assert(eigrp_rib_redist_add(&f->runtime, &f->candidate)
            == EIGRP_RESULT_SUCCESS);
     assert(update_work == 1);
@@ -297,6 +310,10 @@ static void fixture_delete(struct fixture *f)
 {
     eigrp_topology_table_delete(&f->runtime, f->runtime.topology_table);
     eigrp_list_delete(&f->runtime.topology_changes);
+    if (deferred_prefix) {
+        eigrp_topology_prefix_free(deferred_prefix);
+        deferred_prefix = NULL;
+    }
 }
 
 static void test_no_neighbors(void)
@@ -433,6 +450,43 @@ static void test_query_after_route_descriptor_cleanup(void)
     fixture_delete(&f);
 }
 
+static void test_empty_destination_retirement(void)
+{
+    struct fixture f;
+    eigrp_prefix_descriptor_t *old;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    old = fixture_prefix(&f);
+    assert(eigrp_rib_redist_del(&f.runtime, &f.candidate)
+           == EIGRP_RESULT_SUCCESS);
+    assert(old->state == EIGRP_FSM_STATE_PASSIVE);
+    /* DUAL must retain the descriptor until the withdrawal is encoded. */
+    assert(old->req_action & EIGRP_FSM_NEED_UPDATE);
+    eigrp_update_topology_table_prefix(&f.runtime, f.runtime.topology_table, old);
+    assert(eigrp_topology_table_lookup(f.runtime.topology_table,
+                                      &f.candidate.prefix) == old);
+    assert(deferred_prefix == NULL);
+
+    /* Model packetizer successful handoff of the withdrawal. */
+    old->req_action = 0;
+    eigrp_list_delete_data(f.runtime.topology_changes, old);
+    eigrp_update_topology_table_prefix(&f.runtime, f.runtime.topology_table, old);
+    assert(eigrp_topology_table_lookup(f.runtime.topology_table,
+                                      &f.candidate.prefix) == NULL);
+    assert(f.runtime.topology_table->head == NULL);
+    assert(f.runtime.topology_table->tail == NULL);
+    assert(deferred_prefix == old);
+    assert(!old->internal_routes->count && !old->external_routes->count);
+
+    /* A newly learned route gets a fresh destination, not stale DUAL state. */
+    assert(eigrp_rib_redist_add(&f.runtime, &f.candidate)
+           == EIGRP_RESULT_SUCCESS);
+    assert(fixture_prefix(&f) != old);
+    assert(f.runtime.topology_table->head == f.runtime.topology_table->tail);
+    fixture_delete(&f);
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -444,6 +498,8 @@ int main(int argc, char **argv)
         test_query_waits_for_peer_reply();
     else if (strcmp(argv[1], "query-empty") == 0)
         test_query_after_route_descriptor_cleanup();
+    else if (strcmp(argv[1], "retirement") == 0)
+        test_empty_destination_retirement();
     else
         return 2;
     return 0;

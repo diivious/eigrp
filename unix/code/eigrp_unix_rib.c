@@ -8,6 +8,7 @@
  *
  * Copyright (C) 2026 Donnie V. Savage
  */
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -18,12 +19,16 @@ typedef struct eigrp_unix_rib_route_entry {
 	eigrp_rib_route_t route;
 	eigrp_rib_nexthop_t *nexthops;
 	struct eigrp_unix_rib_route_entry *next;
+	struct eigrp_unix_rib_route_entry *prev;
+	struct eigrp_unix_rib_route_entry *hash_next;
 } eigrp_unix_rib_route_entry_t;
 
 typedef struct eigrp_unix_rib_source_entry {
 	eigrp_rib_route_t route;
 	eigrp_rib_nexthop_t *nexthops;
 	struct eigrp_unix_rib_source_entry *next;
+	struct eigrp_unix_rib_source_entry *prev;
+	struct eigrp_unix_rib_source_entry *hash_next;
 } eigrp_unix_rib_source_entry_t;
 
 typedef struct eigrp_unix_rib_subscription {
@@ -35,6 +40,41 @@ typedef struct eigrp_unix_rib_subscription {
 static eigrp_unix_rib_route_entry_t *learned_routes;
 static eigrp_unix_rib_source_entry_t *source_routes;
 static eigrp_unix_rib_subscription_t *subscriptions;
+
+/* An in-memory Unix RIB must not turn every source notification or RIB
+ * installation into a full 100K-route scan. These indexes are host-only;
+ * neither EIGRP DUAL nor the portable southbound contract depends on them. */
+#define EIGRP_UNIX_RIB_BUCKETS 65536U
+static eigrp_unix_rib_route_entry_t *learned_buckets[EIGRP_UNIX_RIB_BUCKETS];
+static eigrp_unix_rib_source_entry_t *source_buckets[EIGRP_UNIX_RIB_BUCKETS];
+
+static size_t eigrp_unix_rib_prefix_hash(const eigrp_prefix_t *prefix)
+{
+    uint32_t hash = 2166136261U;
+    size_t len = prefix->address.afi == EIGRP_AFI_IPV4 ? 4 : 16;
+    size_t i;
+    hash = (hash ^ prefix->address.afi) * 16777619U;
+    hash = (hash ^ prefix->prefix_length) * 16777619U;
+    for (i = 0; i < len; i++)
+        hash = (hash ^ prefix->address.bytes[i]) * 16777619U;
+    return hash;
+}
+
+static size_t eigrp_unix_rib_learned_bucket(eigrp_instance_t *eigrp,
+                                            const eigrp_prefix_t *prefix)
+{
+    uintptr_t owner = (uintptr_t)eigrp;
+    return (eigrp_unix_rib_prefix_hash(prefix) ^ (owner >> 4))
+           % EIGRP_UNIX_RIB_BUCKETS;
+}
+
+static size_t eigrp_unix_rib_source_bucket(const eigrp_rib_route_t *route)
+{
+    uint32_t hash = (uint32_t)eigrp_unix_rib_prefix_hash(&route->prefix);
+    hash = (hash ^ route->redist.source.protocol) * 16777619U;
+    hash = (hash ^ route->redist.source.route_instance) * 16777619U;
+    return hash % EIGRP_UNIX_RIB_BUCKETS;
+}
 
 static bool eigrp_unix_rib_prefix_equal(const eigrp_prefix_t *left,
 	const eigrp_prefix_t *right)
@@ -69,6 +109,57 @@ static bool eigrp_unix_rib_source_key_equal(
 {
 	return eigrp_unix_rib_prefix_equal(&left->prefix, &right->prefix)
 	       && eigrp_unix_rib_source_equal(&left->redist.source, &right->redist.source);
+}
+
+static eigrp_unix_rib_route_entry_t *eigrp_unix_rib_learned_lookup(
+    eigrp_instance_t *eigrp, const eigrp_prefix_t *prefix)
+{
+    eigrp_unix_rib_route_entry_t *entry;
+    for (entry = learned_buckets[eigrp_unix_rib_learned_bucket(eigrp, prefix)];
+         entry; entry = entry->hash_next)
+        if (entry->eigrp == eigrp
+            && eigrp_unix_rib_prefix_equal(&entry->route.prefix, prefix))
+            return entry;
+    return NULL;
+}
+
+static eigrp_unix_rib_source_entry_t *eigrp_unix_rib_source_lookup(
+    const eigrp_rib_route_t *route)
+{
+    eigrp_unix_rib_source_entry_t *entry;
+    for (entry = source_buckets[eigrp_unix_rib_source_bucket(route)];
+         entry; entry = entry->hash_next)
+        if (eigrp_unix_rib_source_key_equal(&entry->route, route))
+            return entry;
+    return NULL;
+}
+
+static void eigrp_unix_rib_learned_unlink(eigrp_unix_rib_route_entry_t *entry)
+{
+    eigrp_unix_rib_route_entry_t **cursor;
+    size_t bucket = eigrp_unix_rib_learned_bucket(entry->eigrp, &entry->route.prefix);
+    for (cursor = &learned_buckets[bucket]; *cursor; cursor = &(*cursor)->hash_next)
+        if (*cursor == entry) {
+            *cursor = entry->hash_next;
+            break;
+        }
+    if (entry->prev) entry->prev->next = entry->next;
+    else learned_routes = entry->next;
+    if (entry->next) entry->next->prev = entry->prev;
+}
+
+static void eigrp_unix_rib_source_unlink(eigrp_unix_rib_source_entry_t *entry)
+{
+    eigrp_unix_rib_source_entry_t **cursor;
+    size_t bucket = eigrp_unix_rib_source_bucket(&entry->route);
+    for (cursor = &source_buckets[bucket]; *cursor; cursor = &(*cursor)->hash_next)
+        if (*cursor == entry) {
+            *cursor = entry->hash_next;
+            break;
+        }
+    if (entry->prev) entry->prev->next = entry->next;
+    else source_routes = entry->next;
+    if (entry->next) entry->next->prev = entry->prev;
 }
 
 static void eigrp_unix_rib_route_entry_free(
@@ -163,11 +254,11 @@ void eigrp_rib_finish(void)
 	eigrp_unix_rib_subscription_t *subscription;
 
 	while ((route = learned_routes) != NULL) {
-		learned_routes = route->next;
+		eigrp_unix_rib_learned_unlink(route);
 		eigrp_unix_rib_route_entry_free(route);
 	}
 	while ((source = source_routes) != NULL) {
-		source_routes = source->next;
+		eigrp_unix_rib_source_unlink(source);
 		eigrp_unix_rib_source_entry_free(source);
 	}
 	while ((subscription = subscriptions) != NULL) {
@@ -178,20 +269,17 @@ void eigrp_rib_finish(void)
 
 void eigrp_rib_instance_delete(eigrp_instance_t *eigrp)
 {
-	eigrp_unix_rib_route_entry_t **route_cursor;
-	eigrp_unix_rib_route_entry_t *route;
-	eigrp_unix_rib_subscription_t **sub_cursor;
-	eigrp_unix_rib_subscription_t *subscription;
+    eigrp_unix_rib_route_entry_t *route, *next;
+    eigrp_unix_rib_subscription_t **sub_cursor;
+    eigrp_unix_rib_subscription_t *subscription;
 
-	for (route_cursor = &learned_routes; *route_cursor;) {
-		if ((*route_cursor)->eigrp != eigrp) {
-			route_cursor = &(*route_cursor)->next;
-			continue;
-		}
-		route = *route_cursor;
-		*route_cursor = route->next;
-		eigrp_unix_rib_route_entry_free(route);
-	}
+    for (route = learned_routes; route; route = next) {
+        next = route->next;
+        if (route->eigrp != eigrp)
+            continue;
+        eigrp_unix_rib_learned_unlink(route);
+        eigrp_unix_rib_route_entry_free(route);
+    }
 	for (sub_cursor = &subscriptions; *sub_cursor;) {
 		if ((*sub_cursor)->eigrp != eigrp) {
 			sub_cursor = &(*sub_cursor)->next;
@@ -204,48 +292,44 @@ void eigrp_rib_instance_delete(eigrp_instance_t *eigrp)
 }
 
 eigrp_result_t eigrp_rib_route_add(eigrp_instance_t *eigrp,
-	const eigrp_rib_route_t *route)
+    const eigrp_rib_route_t *route)
 {
-	eigrp_unix_rib_route_entry_t *entry;
-
-	if (!eigrp || !route || !eigrp_unix_rib_prefix_valid(&route->prefix))
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	for (entry = learned_routes; entry; entry = entry->next)
-		if (entry->eigrp == eigrp
-		    && eigrp_unix_rib_prefix_equal(&entry->route.prefix,
-						 &route->prefix))
-			return eigrp_unix_rib_route_copy(entry, route);
-	entry = calloc(1, sizeof(*entry));
-	if (!entry)
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	entry->eigrp = eigrp;
-	if (eigrp_unix_rib_route_copy(entry, route) != EIGRP_RESULT_SUCCESS) {
-		free(entry);
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	}
-	entry->next = learned_routes;
-	learned_routes = entry;
-	return EIGRP_RESULT_SUCCESS;
+    eigrp_unix_rib_route_entry_t *entry;
+    size_t bucket;
+    if (!eigrp || !route || !eigrp_unix_rib_prefix_valid(&route->prefix))
+        return EIGRP_RESULT_INVALID_ARGUMENT;
+    entry = eigrp_unix_rib_learned_lookup(eigrp, &route->prefix);
+    if (entry)
+        return eigrp_unix_rib_route_copy(entry, route);
+    entry = calloc(1, sizeof(*entry));
+    if (!entry)
+        return EIGRP_RESULT_INTERNAL_FAILURE;
+    entry->eigrp = eigrp;
+    if (eigrp_unix_rib_route_copy(entry, route) != EIGRP_RESULT_SUCCESS) {
+        free(entry);
+        return EIGRP_RESULT_INTERNAL_FAILURE;
+    }
+    bucket = eigrp_unix_rib_learned_bucket(eigrp, &route->prefix);
+    entry->hash_next = learned_buckets[bucket];
+    learned_buckets[bucket] = entry;
+    entry->next = learned_routes;
+    if (learned_routes) learned_routes->prev = entry;
+    learned_routes = entry;
+    return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_rib_route_del(eigrp_instance_t *eigrp,
-	const eigrp_prefix_t *prefix)
+    const eigrp_prefix_t *prefix)
 {
-	eigrp_unix_rib_route_entry_t **cursor;
-	eigrp_unix_rib_route_entry_t *entry;
-
-	if (!eigrp || !eigrp_unix_rib_prefix_valid(prefix))
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	for (cursor = &learned_routes; *cursor; cursor = &(*cursor)->next) {
-		if ((*cursor)->eigrp != eigrp
-		    || !eigrp_unix_rib_prefix_equal(&(*cursor)->route.prefix, prefix))
-			continue;
-		entry = *cursor;
-		*cursor = entry->next;
-		eigrp_unix_rib_route_entry_free(entry);
-		return EIGRP_RESULT_SUCCESS;
-	}
-	return EIGRP_RESULT_NOT_FOUND;
+    eigrp_unix_rib_route_entry_t *entry;
+    if (!eigrp || !eigrp_unix_rib_prefix_valid(prefix))
+        return EIGRP_RESULT_INVALID_ARGUMENT;
+    entry = eigrp_unix_rib_learned_lookup(eigrp, prefix);
+    if (!entry)
+        return EIGRP_RESULT_NOT_FOUND;
+    eigrp_unix_rib_learned_unlink(entry);
+    eigrp_unix_rib_route_entry_free(entry);
+    return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_rib_redistribute_add(eigrp_instance_t *eigrp,
@@ -304,66 +388,52 @@ eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp,
 }
 
 eigrp_result_t eigrp_unix_rib_source_route_update(
-	const eigrp_rib_route_t *route)
+    const eigrp_rib_route_t *route)
 {
-	eigrp_unix_rib_source_entry_t *entry;
-
-	if (!route || !eigrp_unix_rib_prefix_valid(&route->prefix)
-	    || route->redist.source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED)
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	for (entry = source_routes; entry; entry = entry->next) {
-		if (!eigrp_unix_rib_source_key_equal(&entry->route, route))
-			continue;
-		if (eigrp_unix_rib_source_copy(entry, route) != EIGRP_RESULT_SUCCESS)
-			return EIGRP_RESULT_INTERNAL_FAILURE;
-		eigrp_unix_rib_source_notify(&entry->route, true);
-		return EIGRP_RESULT_SUCCESS;
-	}
-	entry = calloc(1, sizeof(*entry));
-	if (!entry)
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	if (eigrp_unix_rib_source_copy(entry, route) != EIGRP_RESULT_SUCCESS) {
-		free(entry);
-		return EIGRP_RESULT_INTERNAL_FAILURE;
-	}
-	entry->next = source_routes;
-	source_routes = entry;
-	eigrp_unix_rib_source_notify(&entry->route, true);
-	return EIGRP_RESULT_SUCCESS;
+    eigrp_unix_rib_source_entry_t *entry;
+    size_t bucket;
+    if (!route || !eigrp_unix_rib_prefix_valid(&route->prefix)
+        || route->redist.source.protocol == EIGRP_REDISTRIBUTE_PROTOCOL_UNSPECIFIED)
+        return EIGRP_RESULT_INVALID_ARGUMENT;
+    entry = eigrp_unix_rib_source_lookup(route);
+    if (entry) {
+        if (eigrp_unix_rib_source_copy(entry, route) != EIGRP_RESULT_SUCCESS)
+            return EIGRP_RESULT_INTERNAL_FAILURE;
+        eigrp_unix_rib_source_notify(&entry->route, true);
+        return EIGRP_RESULT_SUCCESS;
+    }
+    entry = calloc(1, sizeof(*entry));
+    if (!entry)
+        return EIGRP_RESULT_INTERNAL_FAILURE;
+    if (eigrp_unix_rib_source_copy(entry, route) != EIGRP_RESULT_SUCCESS) {
+        free(entry);
+        return EIGRP_RESULT_INTERNAL_FAILURE;
+    }
+    bucket = eigrp_unix_rib_source_bucket(route);
+    entry->hash_next = source_buckets[bucket];
+    source_buckets[bucket] = entry;
+    entry->next = source_routes;
+    if (source_routes) source_routes->prev = entry;
+    source_routes = entry;
+    eigrp_unix_rib_source_notify(&entry->route, true);
+    return EIGRP_RESULT_SUCCESS;
 }
 
 eigrp_result_t eigrp_unix_rib_source_route_remove(
-	const eigrp_rib_route_t *route)
+    const eigrp_rib_route_t *route)
 {
-	eigrp_unix_rib_source_entry_t **cursor;
-	eigrp_unix_rib_source_entry_t *entry;
-
-	if (!route || !eigrp_unix_rib_prefix_valid(&route->prefix))
-		return EIGRP_RESULT_INVALID_ARGUMENT;
-	for (cursor = &source_routes; *cursor; cursor = &(*cursor)->next) {
-		if (!eigrp_unix_rib_source_key_equal(&(*cursor)->route, route))
-			continue;
-		entry = *cursor;
-		*cursor = entry->next;
-		eigrp_unix_rib_source_notify(&entry->route, false);
-		{
-			eigrp_unix_rib_source_entry_t *replacement;
-
-			for (replacement = source_routes; replacement;
-			     replacement = replacement->next) {
-				if (eigrp_unix_rib_prefix_equal(
-					    &replacement->route.prefix, &entry->route.prefix)
-				    && eigrp_unix_rib_source_equal(
-					    &replacement->route.redist.source, &entry->route.redist.source)) {
-					eigrp_unix_rib_source_notify(&replacement->route, true);
-					break;
-				}
-			}
-		}
-		eigrp_unix_rib_source_entry_free(entry);
-		return EIGRP_RESULT_SUCCESS;
-	}
-	return EIGRP_RESULT_NOT_FOUND;
+    eigrp_unix_rib_source_entry_t *entry;
+    if (!route || !eigrp_unix_rib_prefix_valid(&route->prefix))
+        return EIGRP_RESULT_INVALID_ARGUMENT;
+    entry = eigrp_unix_rib_source_lookup(route);
+    if (!entry)
+        return EIGRP_RESULT_NOT_FOUND;
+    eigrp_unix_rib_source_unlink(entry);
+    eigrp_unix_rib_source_notify(&entry->route, false);
+    /* Source identity includes prefix, protocol and route_instance.  The
+     * keyed source store cannot contain another entry of this identity. */
+    eigrp_unix_rib_source_entry_free(entry);
+    return EIGRP_RESULT_SUCCESS;
 }
 
 void eigrp_unix_rib_route_walk(eigrp_unix_rib_route_walk_cb callback,

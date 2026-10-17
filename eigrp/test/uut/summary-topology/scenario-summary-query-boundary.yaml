@@ -19,7 +19,7 @@ steps:
       timeout: 7
       expect:
         - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
-        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, present: false}
         - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
   - validate-packet: {opcode: query, prefix: 10.30.1.0/24, source_uut: r2, destination_uut: r1, since: n1-down, min: 0, max: 0, timeout: 1, event: any}
   - packet-mark: n2-down
@@ -28,8 +28,8 @@ steps:
       timeout: 7
       expect:
         - route: {uut: r1, prefix: 10.30.0.0/16, table: rib, present: false}
-        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
-        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, present: false}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, present: false}
   - packet-mark: n1-up
   - link-up: {uut: r3, interface: n1}
   - validate-convergence:
@@ -37,7 +37,7 @@ steps:
       expect:
         - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
         - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 1}
-        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, present: false}
   - link-up: {uut: r3, interface: n2}
   - validate-convergence:
       timeout: 7
@@ -51,7 +51,7 @@ steps:
       timeout: 7
       expect:
         - route: {uut: r1, prefix: 10.30.0.0/16, table: rib}
-        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.30.1.0/24, table: topology, present: false}
         - route: {uut: r2, prefix: 10.30.2.0/24, table: topology, active: false, successors: 1}
   # R3 is R2's successor for this component and originated the QUERY.
   # RFC 7868 split horizon suppresses R2's reverse QUERY toward R3;

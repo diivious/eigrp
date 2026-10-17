@@ -140,6 +140,7 @@ struct eigrp_instance {
 	eigrp_event_t *t_write;
 	eigrp_event_t *t_read;
 	eigrp_timer_event_t *t_distribute; /* timer for distribute list */
+	eigrp_timer_event_t *t_pacing; /* earliest pending interface TX budget */
 
 	struct eigrp_network_runtime *networks; /* EIGRP runtime networks. */
 
@@ -307,6 +308,14 @@ typedef struct eigrp_interface {
 	bool split_horizon;
 	bool next_hop_self;
 	uint32_t bandwidth_percent;
+	/* Per-interface transmit bandwidth budget (packet bytes * 800 units). */
+	uint64_t pacing_last_msec;
+	uint64_t pacing_rate;
+	uint64_t pacing_credit;
+	bool pacing_initialized;
+	uint64_t pacing_tx_bytes; /* successful EIGRP wire payload bytes */
+	uint64_t pacing_defer_count; /* scheduler budget deferrals */
+	uint64_t pacing_defer_msec; /* requested delay, not wall-clock benchmark */
 
 	/* Neighbor information. */
 	eigrp_list_t *nbrs; /* EIGRP Neighbor List */
@@ -314,9 +323,16 @@ typedef struct eigrp_interface {
 	/* Events. */
 	eigrp_timer_event_t *t_hello;	     /* timer */
 	eigrp_timer_event_t *t_distribute; /* timer for distribute list */
+	eigrp_timer_event_t *t_multicast_retry; /* deferred TX allocation retry */
 
 	/* Packet send buffer. */
 	eigrp_packet_queue_t *obuf; /* Output queue */
+	/* Encoded reliable multicasts owned by TRANSMIT, pending RTP admission. */
+	eigrp_packet_queue_t multicast_pending;
+	uint64_t multicast_epoch; /* next UP-adjacency admission generation */
+	bool multicast_backoff;
+	bool multicast_waiting; /* all peers busy; next ACK may allow CR */
+	uint64_t multicast_backoff_count;
 	int on_write_q;
 	uint32_t crypt_seqnum; /* Cryptographic Sequence Number */
 
@@ -357,7 +373,9 @@ typedef struct eigrp_packet {
 	eigrp_nbr_t *nbr;
 	uint32_t sequence_number;
 	bool retransmission;
+	bool retry_queued; /* original reliable head has one pending paced retry */
 	bool multicast_exception;
+	uint64_t multicast_epoch; /* UP-adjacency cutoff captured at handoff */
 	uint64_t sent_msec; /* first successful wire send; RTT sampling only */
 
 	/* EIGRP packet length. */
@@ -507,6 +525,9 @@ typedef struct eigrp_reply_status {
 } eigrp_reply_status_t;
 
 typedef struct eigrp_prefix_descriptor {
+	/* Direct table ownership for O(1) detachment of retired destinations. */
+	eigrp_table_node_t *table_node;
+	bool retirement_queued; /* Once per packetizer work batch. */
 	eigrp_list_t *internal_routes, *external_routes, *rij;
 	eigrp_prefix_t destination;
 

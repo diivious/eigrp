@@ -39,6 +39,20 @@ static inline size_t eigrp_packet_payload_limit(size_t interface_mtu)
 	return interface_mtu - EIGRP_IPV4_HEADER_LEN;
 }
 
+/* RTP sequence numbers are monotonic modulo 2^32.  A live queue never
+ * spans half the space, so a half-space unsigned comparison preserves transmit order. */
+static inline bool eigrp_packet_sequence_before(uint32_t first, uint32_t second)
+{
+	return first != second
+		&& (uint32_t)(second - first) < UINT32_C(0x80000000);
+}
+
+/* CR membership is determined by packets preceding the pending multicast. */
+bool eigrp_packet_multicast_peer_eligible(const eigrp_nbr_t *nbr,
+	uint64_t epoch);
+unsigned int eigrp_packet_reliable_prior_count(const eigrp_nbr_t *nbr,
+	uint32_t sequence);
+
 /*Prototypes*/
 extern void eigrp_packet_read(void *arg);
 extern bool eigrp_process_packet_submit(eigrp_packet_input_t *input);
@@ -53,6 +67,10 @@ extern void eigrp_packet_input_queue_clear(eigrp_instance_t *eigrp);
 extern void eigrp_packet_write(void *arg);
 extern void eigrp_packet_write_ready(void *arg);
 extern void eigrp_packet_write_schedule(eigrp_instance_t *eigrp);
+/* Portable per-interface TX budget. Clock supplied by caller for deterministic tests. */
+uint32_t eigrp_packet_pacing_delay_msec(eigrp_intf_t *ei,
+	uint16_t packet_length, uint64_t now_msec);
+void eigrp_packet_pacing_charge(eigrp_intf_t *ei, uint16_t packet_length);
 
 extern eigrp_packet_t *eigrp_packet_create(size_t, eigrp_nbr_t *);
 extern eigrp_packet_t *eigrp_packet_dup(eigrp_packet_t *,
@@ -74,9 +92,17 @@ extern void eigrp_packet_queue_clear(eigrp_packet_queue_t *);
 
 extern void eigrp_packet_output_enqueue(eigrp_instance_t *, eigrp_intf_t *,
 				       eigrp_packet_t *);
+/* Teardown: purge packets that still reference this neighbor. */
+void eigrp_packet_neighbor_output_clear(eigrp_nbr_t *nbr);
+/* Interface teardown invalidates every queued wire image and scheduler entry. */
+void eigrp_packet_interface_output_clear(eigrp_intf_t *ei);
+/* Synchronous final control Hello, with normal authentication and accounting.
+ * Takes ownership of the packet before interface teardown. */
+void eigrp_packet_goodbye_send(eigrp_intf_t *ei, eigrp_packet_t *packet);
 extern bool eigrp_packet_multicast_reliable_enqueue(eigrp_instance_t *,
 						     eigrp_intf_t *,
 						     eigrp_packet_t *);
+void eigrp_packet_multicast_resume(eigrp_intf_t *ei);
 extern void eigrp_packet_retransmit_timer_start(eigrp_nbr_t *);
 extern void eigrp_packet_send_reliably(eigrp_instance_t *, eigrp_nbr_t *);
 
@@ -106,7 +132,8 @@ extern void eigrp_hello_send(eigrp_intf_t *, uint8_t, eigrp_addr_t *);
 extern void eigrp_hello_send_unicast(eigrp_intf_t *, const eigrp_addr_t *);
 extern void eigrp_hello_send_ack(eigrp_nbr_t *);
 extern void eigrp_hello_send_ack_sequence(eigrp_nbr_t *, uint32_t sequence);
-extern void eigrp_hello_send_sequence(eigrp_intf_t *, uint32_t);
+extern bool eigrp_hello_send_sequence(eigrp_intf_t *, uint32_t, uint64_t);
+extern bool eigrp_hello_sequence_fits(eigrp_intf_t *, uint32_t, uint64_t);
 extern void eigrp_hello_receive(eigrp_instance_t *, eigrp_header_t *,
 			 eigrp_addr_t *, eigrp_intf_t *,
 			 eigrp_stream_t *, int);
@@ -121,6 +148,10 @@ extern void eigrp_update_receive(eigrp_instance_t *, eigrp_nbr_t *,
 extern void eigrp_update_send_all(eigrp_instance_t *, eigrp_intf_t *);
 extern void eigrp_update_send_init(eigrp_instance_t *, eigrp_nbr_t *);
 extern void eigrp_update_send_EOT(eigrp_nbr_t *);
+/* Resumable initial UPDATE producer.  Cancel before neighbor teardown. */
+void eigrp_update_sync_continue(eigrp_nbr_t *nbr);
+void eigrp_update_sync_cancel(eigrp_nbr_t *nbr);
+
 extern void eigrp_update_send_GR_event(void *arg);
 extern void eigrp_update_send_GR(eigrp_nbr_t *, enum GR_type);
 extern void eigrp_update_intf_gr_send(eigrp_intf_t *, enum GR_type);

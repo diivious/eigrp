@@ -289,6 +289,9 @@ eigrp_instance_t *eigrp_instance_create(eigrp_virt_router_t *virt_router,
 	eigrp->log_neighbor_warnings = true;
 	eigrp->log_neighbor_warning_interval = 10;
 	eigrp->topology_changes = eigrp_list_create();
+	/* DUAL change beads have stable pointer identities and can number 100K.
+	 * Indexed membership avoids quadratic per-destination lookups. */
+	(void)eigrp_list_index_enable(eigrp->topology_changes);
 
 	/* Diagnostic/control state is valid before a packet data path exists. */
 	(void)eigrp_eventlog_init(eigrp, EIGRP_EVENTLOG_DEFAULT_SIZE);

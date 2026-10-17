@@ -41,9 +41,9 @@ steps:
         - route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, present: false}
         - route: {uut: r2, prefix: '2001:db8:3::/64', table: rib, present: false}
         - route: {uut: r3, prefix: '2001:db8:1::/64', table: rib, present: false}
-        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, active: false, successors: 0}
-        - route: {uut: r2, prefix: '2001:db8:3::/64', table: topology, active: false, successors: 0}
-        - route: {uut: r3, prefix: '2001:db8:1::/64', table: topology, active: false, successors: 0}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, present: false}
+        - route: {uut: r2, prefix: '2001:db8:3::/64', table: topology, present: false}
+        - route: {uut: r3, prefix: '2001:db8:1::/64', table: topology, present: false}
   - packet-mark: recovery
   - link-up: {uut: r2, interface: eth23}
   - link-up: {uut: r3, interface: eth32}
