@@ -37,6 +37,8 @@
 #include "eigrp_rib.h"
 static int eigrp_route_descriptor_cmp(eigrp_route_descriptor_t *,
 				      eigrp_route_descriptor_t *);
+static bool eigrp_topology_prefix_detach(eigrp_instance_t *,
+					  eigrp_prefix_descriptor_t *);
 
 static bool eigrp_topology_table_key(const eigrp_prefix_t *source,
                                      eigrp_prefix_t *destination)
@@ -514,6 +516,7 @@ void eigrp_prefix_descriptor_add(eigrp_table_t *topology,
 	}
 
 	rn->info = pe;
+	pe->table_node = rn;
 	if (IS_DEBUG_EIGRP_EVENT) {
 		eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
 				      &pe->destination);
@@ -563,8 +566,8 @@ void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 	    || !eigrp_topology_table_key(&pe->destination, &key))
 		return;
 
-	rn = eigrp_table_node_lookup(table, &key);
-	if (!rn)
+	rn = pe->table_node ? pe->table_node : eigrp_table_node_lookup(table, &key);
+	if (!rn || rn->info != pe)
 		return;
 
 	if (IS_DEBUG_EIGRP_EVENT) {
@@ -597,8 +600,8 @@ void eigrp_prefix_descriptor_delete(eigrp_instance_t *eigrp,
 	}
 
 	rn->info = NULL;
-	eigrp_table_node_release(rn); /* lookup reference */
-	eigrp_table_node_release(rn); /* initial creation reference */
+	pe->table_node = NULL;
+	eigrp_table_node_remove(table, rn);
 	free(pe);
 }
 
@@ -645,10 +648,11 @@ eigrp_table_t *eigrp_topology_table_create(void)
 void eigrp_topology_delete_all(eigrp_instance_t *eigrp,
 			       eigrp_table_t *topology)
 {
-	eigrp_table_node_t *rn;
+	eigrp_table_node_t *rn, *next;
 	eigrp_prefix_descriptor_t *pe;
 
-	for (rn = eigrp_table_first(topology); rn; rn = eigrp_table_next(rn)) {
+	for (rn = eigrp_table_first(topology); rn; rn = next) {
+		next = eigrp_table_next(rn);
 		pe = rn->info;
 
 		if (!pe)
@@ -704,23 +708,19 @@ static void eigrp_topology_redistributed_update_mark(
 /* Host redistribution ingress has no packet-receive tail to drain DUAL's
  * topology-change actions.  Use the same query/update packetizer entry points
  * as normal protocol processing after DUAL has consumed the change. */
-static void eigrp_topology_changes_send(eigrp_instance_t *eigrp)
+/* Host redistribution ingress has no packet-receive tail to drain DUAL's
+ * changes. The source event only needs to schedule its own new actions:
+ * earlier actions have already scheduled their packetizer beads. Scanning
+ * all pending changes once per injected route is quadratic at 100K. */
+static void eigrp_topology_changes_send(eigrp_instance_t *eigrp,
+                                        const eigrp_prefix_descriptor_t *changed)
 {
-	eigrp_prefix_descriptor_t *prefix;
-	eigrp_list_item_t *node;
-	bool query = false;
-	bool update = false;
-
-	if (!eigrp || !eigrp->topology_changes)
-		return;
-	for (EIGRP_LIST_ITERATE_RO(eigrp->topology_changes, node, prefix)) {
-		query |= (prefix->req_action & EIGRP_FSM_NEED_QUERY) != 0;
-		update |= (prefix->req_action & EIGRP_FSM_NEED_UPDATE) != 0;
-	}
-	if (query)
-		eigrp_query_send_all(eigrp);
-	if (update)
-		eigrp_update_send_all(eigrp, NULL);
+    if (!eigrp || !changed)
+        return;
+    if (changed->req_action & EIGRP_FSM_NEED_QUERY)
+        eigrp_query_send_all(eigrp);
+    if (changed->req_action & EIGRP_FSM_NEED_UPDATE)
+        eigrp_update_send_all(eigrp, NULL);
 }
 
 eigrp_result_t eigrp_topology_redistributed_route_update(
@@ -774,7 +774,7 @@ eigrp_result_t eigrp_topology_redistributed_route_update(
 		eigrp_prefix_descriptor_add(eigrp->topology_table, prefix);
 		eigrp_route_descriptor_add(eigrp, prefix, route);
 		eigrp_topology_redistributed_update_mark(eigrp, prefix);
-		eigrp_topology_changes_send(eigrp);
+		eigrp_topology_changes_send(eigrp, prefix);
 		return EIGRP_RESULT_SUCCESS;
 	}
 
@@ -829,7 +829,7 @@ eigrp_result_t eigrp_topology_redistributed_route_update(
 	if (metadata_changed)
 		eigrp_topology_redistributed_update_mark(eigrp, prefix);
 
-	eigrp_topology_changes_send(eigrp);
+	eigrp_topology_changes_send(eigrp, prefix);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -869,7 +869,7 @@ eigrp_result_t eigrp_topology_redistributed_route_remove(
 		eigrp_fsm_event(&msg);
 	}
 
-	eigrp_topology_changes_send(eigrp);
+	eigrp_topology_changes_send(eigrp, prefix);
 
 	/* Passive unreachable state remains topology-owned until packetizer has
 	 * advertised it.  Active state remains owned by DUAL until convergence. */
@@ -1499,9 +1499,19 @@ void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
 				eigrp_route_descriptor_delete(eigrp, prefix, route);
 		}
 	}
-	/* Keep the PASSIVE destination descriptor after its unreachable RDBs
-	 * have been retired. A later UPDATE can repopulate the same DUAL
-	 * destination without manufacturing stale route ownership. */
+	/* Once DUAL is PASSIVE and the packetizer has encoded every pending
+	 * withdrawal, a destination with no remaining paths has no topology
+	 * ownership.  Remove it from the live table; earlier packetizer work
+	 * may still refer to it, so defer destruction behind that work rather
+	 * than freeing it synchronously from the DUAL/packetizer callback. */
+	if (prefix->state == EIGRP_FSM_STATE_PASSIVE
+	    && !prefix->req_action
+	    && (!prefix->rij || !prefix->rij->count)
+	    && !prefix->query_origin
+	    && !prefix->internal_routes->count
+	    && !prefix->external_routes->count
+	    && eigrp_topology_prefix_detach(eigrp, prefix))
+		eigrp_packetizer_prefix_defer_free(eigrp, prefix);
 }
 
 static eigrp_list_t *eigrp_topology_connected_route_snapshot(
@@ -1572,11 +1582,15 @@ static bool eigrp_topology_prefix_detach(eigrp_instance_t *eigrp,
 
 	if (!eigrp_topology_table_key(&prefix->destination, &key))
 		return false;
-	rn = eigrp_table_node_lookup(eigrp->topology_table, &key);
-	if (!rn)
+	rn = prefix->table_node ? prefix->table_node
+		: eigrp_table_node_lookup(eigrp->topology_table, &key);
+	if (!rn || rn->info != prefix)
 		return false;
 
-	eigrp_list_delete_data(eigrp->topology_changes, prefix);
+	/* The same destination may have been queued more than once by DUAL
+	 * during an in-flight QUERY.  Detachment must remove every reference. */
+	while (eigrp_list_lookup(eigrp->topology_changes, prefix))
+		eigrp_list_delete_data(eigrp->topology_changes, prefix);
 	{
 		eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &prefix->destination);
 
@@ -1584,8 +1598,8 @@ static bool eigrp_topology_prefix_detach(eigrp_instance_t *eigrp,
 			&prefix->destination, rib_result, 0, 0, 0);
 	}
 	rn->info = NULL;
-	eigrp_table_node_release(rn); /* lookup reference */
-	eigrp_table_node_release(rn); /* initial creation reference */
+	prefix->table_node = NULL;
+	eigrp_table_node_remove(eigrp->topology_table, rn);
 	return true;
 }
 

@@ -7,10 +7,12 @@
 #define _EIGRP_LIST_H_
 
 #include <stddef.h>
+#include <stdbool.h>
 
 typedef struct eigrp_list_item {
 	struct eigrp_list_item *next;
 	struct eigrp_list_item *prev;
+	struct eigrp_list_item *hash_next;
 	void *data;
 } eigrp_list_item_t;
 
@@ -18,11 +20,14 @@ typedef struct eigrp_list {
 	eigrp_list_item_t *head;
 	eigrp_list_item_t *tail;
 	unsigned int count;
+	eigrp_list_item_t **buckets;
+	size_t bucket_count;
 	int (*cmp)(void *, void *);
 	void (*del)(void *);
 } eigrp_list_t;
 
 eigrp_list_t *eigrp_list_create(void);
+bool eigrp_list_index_enable(eigrp_list_t *list);
 void eigrp_list_delete(eigrp_list_t **list);
 eigrp_list_item_t *eigrp_list_add(eigrp_list_t *list, void *data);
 eigrp_list_item_t *eigrp_list_insert(eigrp_list_t *list, void *data);

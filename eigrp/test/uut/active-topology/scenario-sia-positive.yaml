@@ -34,9 +34,9 @@ steps:
       expect:
         - neighbor: {uut: r2, neighbor: 10.12.0.1, interface: eth21}
         - neighbor: {uut: r3, neighbor: 10.23.0.2, interface: eth32}
-        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
-        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
-        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r1, prefix: 10.4.0.0/24, table: topology, present: false}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, present: false}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, present: false}
         - route: {uut: r1, prefix: 10.4.0.0/24, table: rib, present: false}
         - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, present: false}
         - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, present: false}

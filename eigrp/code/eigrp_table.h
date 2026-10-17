@@ -10,12 +10,18 @@
 
 typedef struct eigrp_table_node {
 	struct eigrp_table_node *next;
+	struct eigrp_table_node *previous;
+	struct eigrp_table_node *hash_next;
 	eigrp_prefix_t prefix;
 	void *info;
 } eigrp_table_node_t;
 
 typedef struct eigrp_table {
 	eigrp_table_node_t *head;
+	eigrp_table_node_t *tail;
+	eigrp_table_node_t **buckets;
+	size_t bucket_count;
+	size_t size;
 } eigrp_table_t;
 
 eigrp_table_t *eigrp_table_create(void);
@@ -24,6 +30,7 @@ eigrp_table_node_t *eigrp_table_node_lookup_or_create(eigrp_table_t *table,
 					 const eigrp_prefix_t *prefix);
 eigrp_table_node_t *eigrp_table_node_lookup(eigrp_table_t *table,
 					    const eigrp_prefix_t *prefix);
+void eigrp_table_node_remove(eigrp_table_t *table, eigrp_table_node_t *node);
 eigrp_table_node_t *eigrp_table_node_match(eigrp_table_t *table,
 					   const eigrp_prefix_t *prefix);
 static inline eigrp_table_node_t *eigrp_table_first(eigrp_table_t *table)

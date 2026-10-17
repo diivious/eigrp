@@ -74,44 +74,32 @@ steps:
         uut: r1
         prefix: 10.12.0.0/24
         table: topology
-        active: false
-        successors: 0
-        fd: 4294967295
+        present: false
     - route:
         uut: r2
         prefix: 10.12.0.0/24
         table: topology
-        active: false
-        successors: 0
-        fd: 4294967295
+        present: false
     - route:
         uut: r3
         prefix: 10.12.0.0/24
         table: topology
-        active: false
-        successors: 0
-        fd: 4294967295
+        present: false
     - route:
         uut: r4
         prefix: 10.12.0.0/24
         table: topology
-        active: false
-        successors: 0
-        fd: 4294967295
+        present: false
     - route:
         uut: r5
         prefix: 10.12.0.0/24
         table: topology
-        active: false
-        successors: 0
-        fd: 4294967295
+        present: false
     - route:
         uut: r6
         prefix: 10.12.0.0/24
         table: topology
-        active: false
-        successors: 0
-        fd: 4294967295
+        present: false
 # A single link loss can legitimately produce three QUERY deliveries to the
 # same directed neighbor: an earlier successor-origin diffusion, followed by a
 # local-origin computation whose QUERY-origin changes while ACTIVE. RFC 7868

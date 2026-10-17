@@ -525,6 +525,9 @@ typedef struct eigrp_reply_status {
 } eigrp_reply_status_t;
 
 typedef struct eigrp_prefix_descriptor {
+	/* Direct table ownership for O(1) detachment of retired destinations. */
+	eigrp_table_node_t *table_node;
+	bool retirement_queued; /* Once per packetizer work batch. */
 	eigrp_list_t *internal_routes, *external_routes, *rij;
 	eigrp_prefix_t destination;
 

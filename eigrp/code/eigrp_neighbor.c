@@ -1522,6 +1522,11 @@ bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 		return true;
 	eigrp_nbr_runtime_address(neighbor, &address);
 	limit = eigrp_nbr_prefix_limit(af, &address);
+	/* An unconfigured maximum-prefix policy has no admission limit.
+	 * Counting every neighbor path here would scan the entire topology
+	 * for each received UPDATE: quadratic work at 100K destinations. */
+	if (!limit)
+		return true;
 	count = eigrp_nbr_prefix_count(runtime, neighbor);
 	if (eigrp_prefix_limit_threshold_crossed(limit, count)
 	    && eigrp_nbr_warning_should_emit(runtime, neighbor,

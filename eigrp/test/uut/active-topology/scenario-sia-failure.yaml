@@ -34,7 +34,7 @@ steps:
   - validate-convergence:
       timeout: 8
       expect:
-        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r3, prefix: 10.4.0.0/24, table: topology, present: false}
         - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, present: false}
-        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, active: false, successors: 0, fd: 4294967295}
+        - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, present: false}
         - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, present: false}
