@@ -478,8 +478,15 @@ static void eigrp_packetizer_changes_send(eigrp_instance_t *eigrp,
 	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, inode, ei)) {
 		eigrp_packetizer_builder_t builder;
 
-		if (work->exception == ei
-		    || !eigrp_packetizer_intf_up_neighbors(ei))
+		/* UPDATE work drains the instance-wide topology_changes list, not
+		 * only the changes from the ingress interface that queued this bead.
+		 * A different ingress can add changes before this work is processed:
+		 * excluding the original ingress then clears those changes without
+		 * advertising them on that interface.  Send UPDATEs on every live
+		 * interface; eigrp_packetizer_poison_reverse() applies split horizon
+		 * to the selected successor on the originating interface. */
+		if (!eigrp_packetizer_intf_up_neighbors(ei)
+		    || (work->opcode != EIGRP_OPC_UPDATE && work->exception == ei))
 			continue;
 
 		eigrp_prefix_t *summary_seen = NULL;

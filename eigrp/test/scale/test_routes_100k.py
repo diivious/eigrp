@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: ISC
 """Fast generator checks. Heavy scenarios run explicitly via scale/Makefile."""
 import importlib.util
+import collections
+import queue
+import threading
 from pathlib import Path
 import socket
 import struct
@@ -60,3 +63,57 @@ def test_cr_sequence_exclusions():
     exclusion = struct.pack("!HHB", 3, 9, 4) + peer
     hello = scale.packet(5, tlvs=scale.PARAMETER + exclusion)
     assert scale.SyntheticLink._excluded(hello) == {"10.0.0.7"}
+
+
+def test_odd_length_update_checksum_preserves_tlv_boundary():
+    tlv = scale.route_tlv(1, False)  # 29 bytes, odd TLV and packet length
+    pkt = scale.packet(1, seq=37, tlvs=tlv)
+    assert len(pkt) == scale.EIGRP_HDR.size + len(tlv)
+    assert scale.checksum(pkt) == 0
+    payload = bytearray(pkt)
+    assert scale.checksum(payload) == 0
+    assert bytes(payload) == pkt  # checksum verification cannot alter bytes
+
+
+def test_synthetic_rtp_sender_retransmits_same_sequence():
+    # Exercise the RTP discipline without a UUT or a real-time wait.
+    link = scale.SyntheticLink.__new__(scale.SyntheticLink)
+    sent = []
+    link.retransmitted_updates = 0
+    link.transmit = lambda raw, peer: sent.append((raw, peer))
+    link.wait_ack = lambda peer, seq, deadline: len(sent) == 2
+    link.send_reliable_update(b"same-wire-packet", "10.0.0.2", 101,
+                              scale.time.monotonic() + 30)
+    assert sent == [(b"same-wire-packet", "10.0.0.2")] * 2
+    assert link.retransmitted_updates == 1
+
+
+def test_synthetic_ack_pacing_is_opt_in(monkeypatch):
+    link = scale.SyntheticLink.__new__(scale.SyntheticLink)
+    link.stop_event = threading.Event()
+    link.ack_jobs = queue.Queue()
+    link.cv = threading.Condition()
+    link.held_peers = set()
+    link.held_acks = collections.deque()
+    link.withheld_count = 0
+    link.error = None
+    link.sent_acks = 0
+    link.ack_spacing_seconds = 0.001
+    sends = []
+    delays = []
+
+    def send(raw, peer):
+        sends.append((raw, peer))
+        link.stop_event.set()
+
+    link.transmit = send
+    monkeypatch.setattr(scale.time, "sleep", delays.append)
+    link.ack_jobs.put(("10.0.0.2", 47))
+    link._send_acks()
+
+    assert len(sends) == 1
+    assert sends[0][1] == "10.0.0.2"
+    assert struct.unpack_from("!I", sends[0][0], 12)[0] == 47
+    assert scale.checksum(sends[0][0]) == 0
+    assert link.sent_acks == 1
+    assert delays == [0.001]

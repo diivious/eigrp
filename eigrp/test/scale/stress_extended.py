@@ -329,17 +329,27 @@ def mcast():
             baseline_updates = wire.route_wire_count
             baseline_multicast = wire.multicast_route_updates
             baseline_cr = wire.cr_hellos
+            # The test-side socket represents thousands of independent peers.
+            # Send ACK Hellos with realistic inter-peer pacing rather than
+            # blasting a single TCP stream into R1's bounded AF input queue.
+            wire.ack_spacing_seconds = 0.001
             wire.hold_peer_acks(slow)
             source_routes_add(node, 0, 1)
 
             first_ack_deadline = min(deadline, time.monotonic() + 20)
-            while time.monotonic() < first_ack_deadline and wire.withheld_count == 0:
+            held_unique = 0
+            while time.monotonic() < first_ack_deadline:
+                with wire.cv:
+                    held_unique = len({peer for peer, _ in wire.held_acks})
+                if held_unique == MCAST_SLOW:
+                    break
                 check_live({"r1": node}, wire=wire)
                 time.sleep(.05)
-            if wire.withheld_count == 0:
+            if held_unique != MCAST_SLOW:
                 raise AssertionError(
                     "R1 did not multicast the first redistributed route to "
-                    f"held peers (updates={wire.route_wire_count - baseline_updates}, "
+                    f"held peers ({held_unique}/{MCAST_SLOW} ACKs held, "
+                    f"updates={wire.route_wire_count - baseline_updates}, "
                     f"UP={len(node.state_counts()[1])})")
 
             # Now each slow peer has an outstanding reliable packet. Further
@@ -384,15 +394,28 @@ def mcast():
                 raise AssertionError("no held ACKs released to RTP")
             # R1 must drain reliable RTP queues without dropping advertisements
             # or losing any of the existing adjacencies.
+            next_report = time.monotonic() + 30
             while time.monotonic() < deadline:
                 counts, up, queues = node.state_counts(120)
                 if counts["TOPO"] >= expected_topology and len(up) == MCAST_PEERS \
                         and all(not oq and not rq for _, oq, rq in queues):
                     break
                 check_live({"r1": node}, wire=wire)
+                if time.monotonic() >= next_report:
+                    print(f"  mcast recovery: UP={len(up)}/{MCAST_PEERS} "
+                          f"queues={queues} "
+                          f"multicasts={wire.multicast_route_updates - baseline_multicast} "
+                          f"pending_acks={wire.ack_jobs.qsize()}", flush=True)
+                    next_report = time.monotonic() + 30
                 time.sleep(1)
             else:
-                raise AssertionError("ACK-driven multicast recovery failed to drain")
+                raise AssertionError(
+                    "ACK-driven multicast recovery failed to drain: "
+                    f"topology={counts['TOPO']}/{expected_topology}, "
+                    f"up={len(up)}/{MCAST_PEERS}, queues={queues}, "
+                    f"multicasts={wire.multicast_route_updates - baseline_multicast}, "
+                    f"pending_synthetic_acks={wire.ack_jobs.qsize()}, "
+                    f"sent_synthetic_acks={wire.sent_acks}")
             if wire.max_frame_size > 1500:
                 raise AssertionError("oversize packet after CR drain")
             if wire.multicast_route_updates <= first_multicast:

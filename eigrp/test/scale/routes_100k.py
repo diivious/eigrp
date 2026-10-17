@@ -40,7 +40,10 @@ assert 1 <= BATCH_SIZE <= 24
 
 def checksum(data: bytes) -> int:
     if len(data) & 1:
-        data += b"\0"
+        # The checksum padding is not part of the packet. In particular,
+        # packet() supplies a bytearray: += would append to that wire image
+        # and leave a trailing byte outside the last TLV's declared length.
+        data = bytes(data) + b"\0"
     value = sum(struct.unpack(f"!{len(data)//2}H", data))
     while value >> 16:
         value = (value & 0xffff) + (value >> 16)
@@ -181,6 +184,8 @@ class SyntheticLink:
         self.received_wire = 0
         self.received_acks = 0
         self.sent_acks = 0
+        self.ack_spacing_seconds = 0.0
+        self.retransmitted_updates = 0
         self.seq_exclusions = set()
         self.hello_packets: dict[str, bytes] = {}
         self.held_peers: set[str] = set()
@@ -284,6 +289,8 @@ class SyntheticLink:
                         continue
                 self.transmit(packet(5, ack=seq), peer)
                 self.sent_acks += 1
+                if self.ack_spacing_seconds:
+                    time.sleep(self.ack_spacing_seconds)
             except Exception as exc:
                 if not self.stop_event.is_set():
                     self.error = exc
@@ -348,7 +355,10 @@ class SyntheticLink:
                         self.cr_hellos += 1
                 if ack and recipient in self.peers:
                     with self.cv:
-                        self.acks[recipient] = ack
+                        # Test sequences are monotonically increasing and
+                        # never wrap. An old duplicate ACK must not overwrite
+                        # an ACK for this peer's newer outstanding UPDATE.
+                        self.acks[recipient] = max(self.acks.get(recipient, 0), ack)
                         self.received_acks += 1
                         self.cv.notify_all()
                 if seq:
@@ -369,15 +379,36 @@ class SyntheticLink:
                 with self.cv:
                     self.cv.notify_all()
 
-    def wait_ack(self, peer: str, seq: int, deadline: float):
+    def wait_ack(self, peer: str, seq: int, deadline: float) -> bool:
         with self.cv:
-            while self.acks.get(peer) != seq:
+            while self.acks.get(peer, 0) < seq:
                 if self.error:
                     raise RuntimeError(f"synthetic wire error: {self.error}") from self.error
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise AssertionError(f"{peer}: UPDATE seq={seq} unacknowledged")
+                    return False
                 self.cv.wait(min(0.5, remaining))
+            return True
+
+    def send_reliable_update(self, raw: bytes, peer: str, seq: int,
+                             deadline: float):
+        # A real EIGRP RTP sender retransmits an unacknowledged UPDATE with
+        # the original sequence number. The synthetic neighbor must do the
+        # same: the AF has bounded input queues and transient packet loss is
+        # legitimate under a 2,048-neighbor stress workload. Never advance
+        # this peer's route stream until its current UPDATE is ACKed.
+        rto = 2.0
+        attempts = 0
+        while attempts <= 16 and time.monotonic() < deadline:
+            self.transmit(raw, peer)
+            if attempts:
+                self.retransmitted_updates += 1
+            attempts += 1
+            if self.wait_ack(peer, seq, min(deadline, time.monotonic() + rto)):
+                return
+            rto = min(rto * 2, 16.0)
+        raise AssertionError(f"{peer}: UPDATE seq={seq} unacknowledged "
+                             f"after {attempts} RTP transmissions")
 
     def close(self):
         self.stop_event.set()
@@ -452,8 +483,9 @@ def inject(wire: SyntheticLink, peers: list[str], *, route_count: int,
                                          (pattern in ("mixed", "peer-mix") and (start+j) % 2 == 1))
                                for j in range(n))
             seq = seqs[peer]
-            wire.transmit(packet(1, seq=seq, tlvs=payload), peer)
-            wire.wait_ack(peer, seq, min(deadline, time.monotonic() + 120))
+            wire.send_reliable_update(packet(1, seq=seq, tlvs=payload),
+                                      peer, seq,
+                                      min(deadline, time.monotonic() + 120))
             seqs[peer] += 1
             total_sent += n
         if index % (BATCH_SIZE * 32) == 0:
@@ -536,7 +568,8 @@ def scenario(number: int):
             pattern = "internal" if number == 1 else "external" if number == 2 else "peer-mix" if number == 5 else "mixed"
             delivered = inject(wire, peers, route_count=needed, pattern=pattern, deadline=deadline)
             print(f"  received UPDATE acknowledgments={wire.received_acks} "
-                  f"wire frames={wire.received_wire} response ACKs={wire.sent_acks}", flush=True)
+                  f"wire frames={wire.received_wire} response ACKs={wire.sent_acks} "
+                  f"UPDATE retransmissions={wire.retransmitted_updates}", flush=True)
             # An advertised route may take time to propagate through the R1/R2/R3
             # network. Count topology records via streaming, not state buffering.
             expected_peers = ({"r1": PEERS} if number == 5 else
