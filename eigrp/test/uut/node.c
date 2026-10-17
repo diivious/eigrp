@@ -41,12 +41,57 @@ static eigrp_result_t topo_route_cb(const eigrp_topology_route_state_t *s,void *
 static void source_cb(const eigrp_rib_route_t *r,void *arg){char p[160];(void)arg;prefix_text(&r->prefix,p,sizeof(p));printf("SRC|prefix=%s|protocol=%u|metric=%llu\n",p,(unsigned)r->redist.source.protocol,(unsigned long long)r->metric);}
 static void rib_cb(eigrp_instance_t *e,const eigrp_rib_route_t *r,void *arg){char p[160],nh[INET6_ADDRSTRLEN]="-";(void)arg;if(e!=runtime)return;prefix_text(&r->prefix,p,sizeof(p));if(r->nexthop_count&&r->nexthops[0].gateway_present)addr_text(&r->nexthops[0].gateway,nh,sizeof(nh));printf("RIB|prefix=%s|next_hop=%s|metric=%llu|admin_distance=%u\n",p,nh,(unsigned long long)r->metric,r->install.admin_dist);}
 static void traffic(void){eigrp_instance_context_t c={0};eigrp_statistics_traffic_state_t s={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c);if(r==EIGRP_RESULT_SUCCESS)r=eigrp_statistics_traffic_state_read(&c,&s);if(r==EIGRP_RESULT_SUCCESS)printf("TRAFFIC|sent_valid=0x%x|received_valid=0x%x|sent_ack=%llu|sent_hello=%llu|sent_query=%llu|sent_reply=%llu|sent_update=%llu|sent_sia_query=%llu|sent_sia_reply=%llu|received_ack=%llu|received_hello=%llu|received_query=%llu|received_reply=%llu|received_update=%llu|received_sia_query=%llu|received_sia_reply=%llu\n",s.sent_valid,s.received_valid,(unsigned long long)s.sent_ack,(unsigned long long)s.sent_hello,(unsigned long long)s.sent_query,(unsigned long long)s.sent_reply,(unsigned long long)s.sent_update,(unsigned long long)s.sent_sia_query,(unsigned long long)s.sent_sia_reply,(unsigned long long)s.received_ack,(unsigned long long)s.received_hello,(unsigned long long)s.received_query,(unsigned long long)s.received_reply,(unsigned long long)s.received_update,(unsigned long long)s.received_sia_query,(unsigned long long)s.received_sia_reply);else if(r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=traffic|result=%d\n",(int)r);}
-static void state(void){eigrp_instance_context_t c={0};if(eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|instance=%s|asn=%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);(void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);traffic();puts("END");fflush(stdout);}
+static void state_emit(void){eigrp_instance_context_t c={0};if(eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|instance=%s|asn=%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);(void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);traffic();puts("END");fflush(stdout);}
 
 static eigrp_result_t tech_cb(const eigrp_status_protocol_state_t *s,void *arg){char rid[INET_ADDRSTRLEN]="-";struct in_addr a;(void)arg;if(s->router_id_configured){a.s_addr=htonl(s->router_id);inet_ntop(AF_INET,&a,rid,sizeof(rid));}printf("PROTOCOL|instance=%s|afi=%s|vrf=%s|asn=%u|shutdown=%u|router_id=%s|runtime_present=%u\n",s->instance_name?s->instance_name:"-",s->afi==EIGRP_AFI_IPV6?"ipv6":"ipv4",s->vrf_name?s->vrf_name:"-",s->asn,s->shutdown?1:0,rid,s->runtime_present?1:0);return EIGRP_RESULT_SUCCESS;}
-static void tech(void){eigrp_status_capability_state_t c={0};eigrp_result_t r=eigrp_status_capability_state_read(&c);if(r==EIGRP_RESULT_SUCCESS)printf("CAPABILITY|release=%s|tlv1=%u|tlv2=%u|wide_metrics=%u|ipv4=%u|ipv6=%u|bfd=%u|snmp=%u\n",c.release?c.release:"-",c.tlv1?1:0,c.tlv2?1:0,c.wide_metrics?1:0,c.ipv4?1:0,c.ipv6?1:0,c.bfd?1:0,c.snmp?1:0);r=eigrp_status_tech_support_iterate(tech_cb,NULL);if(r!=EIGRP_RESULT_SUCCESS&&r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=tech-support|result=%d\n",(int)r);state();}
+static void tech_emit(void){eigrp_status_capability_state_t c={0};eigrp_result_t r=eigrp_status_capability_state_read(&c);if(r==EIGRP_RESULT_SUCCESS)printf("CAPABILITY|release=%s|tlv1=%u|tlv2=%u|wide_metrics=%u|ipv4=%u|ipv6=%u|bfd=%u|snmp=%u\n",c.release?c.release:"-",c.tlv1?1:0,c.tlv2?1:0,c.wide_metrics?1:0,c.ipv4?1:0,c.ipv6?1:0,c.bfd?1:0,c.snmp?1:0);r=eigrp_status_tech_support_iterate(tech_cb,NULL);if(r!=EIGRP_RESULT_SUCCESS&&r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=tech-support|result=%d\n",(int)r);state_emit();}
 static eigrp_result_t event_cb(uint32_t n,const eigrp_eventlog_msg_t *e,const char *format,void *arg){char b[512];eigrp_result_t r;(void)format;(void)arg;r=eigrp_eventlog_msg_format(e,b,sizeof(b));if(r==EIGRP_RESULT_SUCCESS)printf("%u  %s\n",n,b);else printf("EVENT|number=%u|format_error=%d|opcode=%u|arg1=%lu|arg2=%lu|arg3=%lu|arg4=%lu\n",n,(int)r,e->opcode,(unsigned long)e->arg1,(unsigned long)e->arg2,(unsigned long)e->arg3,(unsigned long)e->arg4);return EIGRP_RESULT_SUCCESS;}
-static void events(void){eigrp_instance_context_t c={0};eigrp_eventlog_state_t st={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c);if(r==EIGRP_RESULT_SUCCESS)r=eigrp_eventlog_state_read(&c,&st);if(r==EIGRP_RESULT_SUCCESS){printf("EVENTLOG|capacity=%u|count=%u\n",st.capacity,st.count);r=eigrp_eventlog_msg_iterate(&c,event_cb,NULL);}if(r!=EIGRP_RESULT_SUCCESS&&r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=events|result=%d\n",(int)r);puts("END");fflush(stdout);}
+static void events_emit(void){eigrp_instance_context_t c={0};eigrp_eventlog_state_t st={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c);if(r==EIGRP_RESULT_SUCCESS)r=eigrp_eventlog_state_read(&c,&st);if(r==EIGRP_RESULT_SUCCESS){printf("EVENTLOG|capacity=%u|count=%u\n",st.capacity,st.count);r=eigrp_eventlog_msg_iterate(&c,event_cb,NULL);}if(r!=EIGRP_RESULT_SUCCESS&&r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=events|result=%d\n",(int)r);puts("END");fflush(stdout);}
+
+
+/* Operational snapshots must run on the AF worker: topology descriptors and
+ * their table nodes are retired by that worker while DUAL is converging.
+ * Traversing the live table from the UUT command thread races that retirement
+ * and can dereference a freed node, especially under concurrent queries.
+ * Keep the same output protocol; the caller blocks until END has been flushed.
+ */
+static eigrp_result_t uut_state_worker(eigrp_instance_t *eigrp, void *arg)
+{
+    (void)eigrp;
+    (void)arg;
+    state_emit();
+    return EIGRP_RESULT_SUCCESS;
+}
+
+static eigrp_result_t uut_tech_worker(eigrp_instance_t *eigrp, void *arg)
+{
+    (void)eigrp;
+    (void)arg;
+    tech_emit();
+    return EIGRP_RESULT_SUCCESS;
+}
+
+static eigrp_result_t uut_events_worker(eigrp_instance_t *eigrp, void *arg)
+{
+    (void)eigrp;
+    (void)arg;
+    events_emit();
+    return EIGRP_RESULT_SUCCESS;
+}
+
+static void uut_snapshot(eigrp_message_handler_t handler)
+{
+    if (runtime && eigrp_instance_message_call(runtime, handler, NULL)
+                   == EIGRP_RESULT_SUCCESS)
+        return;
+    /* Match the UUT command framing even when the AF is unavailable. */
+    puts("END");
+    fflush(stdout);
+}
+
+static void state(void) { uut_snapshot(uut_state_worker); }
+static void tech(void) { uut_snapshot(uut_tech_worker); }
+static void events(void) { uut_snapshot(uut_events_worker); }
 
 /* Exercise the real host-RIB and redistribution targets, not an FSM shim. */
 static eigrp_result_t uut_source_route_change(const char *prefix_name,
