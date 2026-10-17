@@ -40,14 +40,11 @@ openwrt/
 ├── README.md
 ├── TASKS.md
 ├── specs/
-├── code/                     (future shim source)
+├── code/                     (future native runtime shim)
 ├── feed/
 │   └── openeigrp/
-│       ├── Makefile
-│       └── files/
-│           ├── openeigrp.init
-│           ├── openeigrp.config
-│           └── ...
+│       └── Makefile           (OW-02 portable static-core package)
+│       # procd/UCI files added when their runtime targets exist
 └── patch/                    (future, only if unavoidable)
 ```
 
@@ -79,7 +76,13 @@ Then:
 
 ## 5. Package boundaries
 
-The package should install only OpenEIGRP-owned payloads, for example:
+The OW-02 package **actually builds and installs `libeigrp-core.a`**,
+using OpenWrt's selected `TARGET_CC` and `TARGET_AR`. Its developer staging
+exports `eigrp.h`, `eigrp_cli.h`, `eigrp_mgnt.h`, `eigrp_rib.h`, and
+`eigrp_sys.h`. It does not install an executable daemon.
+
+When the real OpenWrt shim and daemon are implemented, the package can expand
+to include:
 
 - executable daemon binary;
 - init/procd service definition;
@@ -93,16 +96,19 @@ OpenWrt-wide internals as part of normal install.
 ## 6. Build flow
 
 ```text
-tools/openwrt.sh --install         (future)
-    -> verify buildroot
-    -> register or stage feed/package only
+tools/openwrt.sh --install
+    -> verify checkout
+    -> register local OpenEIGRP feed and package symlink
 
 tools/openwrt.sh --config
-    -> select target + openeigrp package via OpenWrt menuconfig
-    -> OpenWrt defconfig and prereq
+    -> select/preserve OpenWrt target and CONFIG_PACKAGE_openeigrp=y
+    -> run defconfig and prerequisite checks
 
-make package/openeigrp/compile V=s
-    -> OpenWrt toolchain builds target package
+tools/openwrt.sh --build [--jobs N]
+    -> OpenWrt tools/install (host utilities)
+    -> OpenWrt toolchain/install (selected architecture)
+    -> OpenWrt package/openeigrp/compile (portable core)
+    -> build the openeigrp package containing libeigrp-core.a
 ```
 
 ## 7. Versioning and source selection
@@ -138,11 +144,13 @@ Rules:
 ## 9. Service payload concept
 
 ```text
-openeigrp package install
-    -> /usr/sbin/openeigrpd           daemon
-    -> /etc/init.d/openeigrp          procd service script
-    -> /etc/config/openeigrp          default retained config
-    -> optional ubus/helper payloads
+OW-02 package install
+    -> /usr/lib/libeigrp-core.a       static core archive
+
+OW-04 through OW-09 (not shipped yet)
+    -> /usr/sbin/openeigrpd          daemon
+    -> /etc/init.d/openeigrp         procd service script
+    -> /etc/config/openeigrp         retained UCI config
 ```
 
 The exact binary and file names remain to be finalized, but the ownership model

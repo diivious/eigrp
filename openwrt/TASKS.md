@@ -4,7 +4,7 @@ Copyright (C) 2026 Donnie V. Savage
 
 Baseline: `diivious/eigrp@master` and `diivious/openwrt@main` (GitHub).
 Reviewed revisions (2026-10-17):
-- EIGRP `951d7549beb447b8f9c42b4f253638b392729491`
+- EIGRP `c872f7fc471334f8ac057fc67550fd655a98999e`
 - OpenWrt `cd2c55e43b4e648c6e74101284ebff70fb050403`
 All changes are delivered for local review; the repositories are not modified
 remotely by this work. Preserve the five EIGRP-owned public API boundaries.
@@ -43,11 +43,16 @@ Files: `tools/openwrt.sh`, `openwrt/dev-env.sh`, `openwrt/README.md`,
   OpenWrt checkout. Do not reset/pull/overwrite any existing checkout.
 - Validate existing repo origin and buildroot markers before feed operations.
 - Warn/fail before clone on a case-insensitive macOS filesystem.
-- Initialize feeds idempotently unless explicitly skipped.
+- Update feed source indexes without blanket-installing optional packages.
+- Detect fatal Kconfig diagnostics even if an OpenWrt make wrapper returns zero.
+- Support explicit `--config --minimal-feeds` recovery for optional-feed cycles
+  without deleting downloaded feed sources or touching unrelated source files.
 - Preserve `make build` / `make test` as the native macOS/Unix protocol gate.
 - Provide `--verify` as a read-only check of the host and checkout state.
 - Provide `--config` as the only target-selection/configuration entry point,
-  running `menuconfig` (or a selected ARMv8 preset), `defconfig`, and `prereq`.
+  preserving existing targets, inferring a generic default from the host when
+  unconfigured, or allowing `--target`/`--menuconfig` overrides; then run
+  `defconfig` and `prereq`.
 - Test shell grammar, help, argument handling, safe existing checkout use,
   and configuration command invocation.
 
@@ -58,22 +63,30 @@ acceptance gate, not something claimed by CI smoke.
 
 ### OW-02: feed and package layout
 
-- Add `openwrt/feed/openeigrp/Makefile`, package install data and a linkable
-  executable source plan under `openwrt/code/`. Decide explicit build version,
-  license metadata, runtime dependency set and package conflicts.
-- Support OpenWrt `src-link` from `feeds.conf`, without editing the EIGRP core.
-- Make future `tools/openwrt.sh --install` stage or register **only** the
-  OpenEIGRP package/feed. It must not invoke `--patch` implicitly.
-- Verify `scripts/feeds install -p openeigrp openeigrp`, package visibility in
-  menuconfig, and correct dependency resolution.
+- Implemented `openwrt/feed/openeigrp/Makefile` as a real first-stage
+  portable-core static library package. The real OpenWrt daemon is deferred
+  until runtime adapters exist; no fake executable is packaged.
+- `Build/Prepare` stages local `eigrp/code` sources and `Build/Compile` uses
+  `TARGET_CC`/`TARGET_AR`; `Build/InstallDev` stages public header contracts.
+- Implemented `--install`: safely register only the OpenEIGRP `src-link`,
+  update its feed index and install its package symlink; reject conflicts.
+- Implemented `--config` selection of `CONFIG_PACKAGE_openeigrp=y` after
+  installation, without making the installer change `.config`.
+- Unit/smoke coverage exercises package recipe, duplicate registration and
+  unsafe conflict handling. A full OpenWrt ARM64 compilation is the required
+  live acceptance gate on Aurora.
 
-### OW-03: compile and patch ownership
+### OW-03: build orchestration and patch ownership
 
-- Add `--build` and `--patch` only when there are real targets for them.
+- `--build` now invokes `tools/install`, `toolchain/install`, then
+  `package/openeigrp/compile`, with fail-fast stage handling and `--jobs N`
+  (two jobs by default). The driver checks required staged host binaries after
+  tools compilation and never changes configuration, feed membership, or Git.
+- `--patch` remains unimplemented until real managed patches are required.
 - `--patch` is limited to tracked `openwrt/patch/` and must use clean, exact
   `git apply --check` / reverse-check idempotence. Reject conflicts, no fuzz.
-- Compile on Debian with a pinned OpenWrt target using `make
-  package/openeigrp/compile V=s`; record buildroot and EIGRP revisions.
+- Cross-build on Debian against the previously configured OpenWrt target;
+  log OpenWrt/EIGRP revisions and preserve compiler errors for diagnosis.
 - On macOS, source `openwrt/dev-env.sh`, attempt the same build, and record
   platform-specific deficiencies separately. Do not suppress build failures.
 

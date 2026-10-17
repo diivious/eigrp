@@ -463,7 +463,6 @@ case "$action" in
 		patch_frr
 		;;
 	configure)
-		stage_eigrp
 		configure_frr
 		;;
 	build)

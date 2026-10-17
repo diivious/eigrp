@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Donnie V. Savage
-# OpenWrt setup/config/verification smoke checks. No firmware builds until the shim
-# has a real package target and its QEMU/UUT gate.
-name: OpenWrt Development Setup CI
+# OpenWrt host/first-stage package recipe checks. Cross-build and QEMU/UUT
+# gates are added when the native daemon has real runtime targets.
+name: OpenWrt Package CI
 
 on:
   push:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   setup-smoke:
-    name: ${{ matrix.os }} / OpenWrt setup/config smoke
+    name: ${{ matrix.os }} / OpenWrt feed/package smoke
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -33,3 +33,6 @@ jobs:
       - name: Check setup syntax and safety
         shell: bash
         run: bash openwrt/test/setup-smoke.sh
+      - name: Check package staging and archive build recipe
+        shell: bash
+        run: bash openwrt/test/recipe-smoke.sh
