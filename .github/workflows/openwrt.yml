@@ -34,5 +34,17 @@ jobs:
         shell: bash
         run: bash openwrt/test/setup-smoke.sh
       - name: Check package staging and archive build recipe
+        if: runner.os == 'Linux'
         shell: bash
         run: bash openwrt/test/recipe-smoke.sh
+      - name: Compile and run OpenWrt runtime unit tests
+        shell: bash
+        run: bash openwrt/test/runtime-smoke.sh
+      - name: Compile and run Linux interface netlink UUT
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash openwrt/test/interface-smoke.sh
+      - name: Compile and run Linux protocol-88 socket UUT
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash openwrt/test/packet-smoke.sh

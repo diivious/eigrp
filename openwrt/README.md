@@ -12,7 +12,7 @@ OpenWrt is the operating system, packaging, and service-management environment.
 It is **not** another EIGRP implementation. DUAL, RTP, topology, packet
 semantics, metric handling, and neighbor behavior remain in `../eigrp/code/`.
 
-**Status: OW-03 build orchestration plus a buildable portable-core OpenWrt package.**
+**Status: OW-06 Linux IPv4/IPv6 protocol 88 transport compiled into native OpenWrt static archives.**
 
 - `../tools/openwrt.sh --setup` prepares a Debian/Ubuntu or macOS developer
   host and an OpenWrt buildroot checkout.
@@ -22,10 +22,21 @@ semantics, metric handling, and neighbor behavior remain in `../eigrp/code/`.
 - `../tools/openwrt.sh --install` registers the local OpenEIGRP feed without
   installing unrelated packages or modifying OpenWrt-wide source files.
 - `--config` selects `CONFIG_PACKAGE_openeigrp=y` when the package is registered.
-- The package builds and installs the **real portable static core archive**
-  (`libeigrp-core.a`) and stages the five public host-interface headers.
-- **Not yet implemented:** an executable OpenWrt daemon, live packet transport,
-  kernel route integration, UCI/procd/ubus runtime, or live UUT.
+- The package builds the portable core (`libeigrp-core.a`) and the native
+  OpenWrt scheduler (`libeigrp-owrt-runtime.a`) using the selected target
+  compiler. Public host-interface headers and the private runtime binding
+  headers are staged for later adapters.
+- `openwrt/code/eigrp_owrt_runtime.c` implements timers, event callbacks,
+  FD readiness, work queues, monotonic/wall-clock services, and shutdown.
+- `openwrt/code/eigrp_owrt_interface.c` and
+  `eigrp_owrt_interface_state.c` implement Linux rtnetlink link/address
+  inventory, event subscriptions, IPv4/IPv6 interface walks, and normalized
+  EIGRP-owned interface lifecycle notifications (default VRF).
+- `openwrt/code/eigrp_owrt_packet.c` provides raw IPv4/IPv6 protocol 88
+  send/receive, source/interface packet info, multicast group membership,
+  and packet framing metadata for portable EIGRP.
+- **Not yet implemented:** an executable OpenWrt daemon, kernel route
+  integration, UCI/procd/ubus runtime, or two-node protocol adjacency UUT.
 
 See [TASKS.md](TASKS.md) for the staged implementation plan.
 
@@ -95,6 +106,14 @@ The OpenWrt shim is documented by the following files:
 - [specs/configuration.md](specs/configuration.md)  
   UCI configuration model, reload/writeback, procd lifecycle, ubus/CLI
   management surface, and semantic mapping to `eigrp_cli.h`.
+- [specs/runtime.md](specs/runtime.md)  
+  Implemented OW-04 event scheduler, lock ordering, FD binding and lifecycle.
+- [specs/interfaces.md](specs/interfaces.md)  
+  OW-05 Linux rtnetlink snapshots, event-driven reconciliation, notification
+  paths, and daemon startup/shutdown sequence diagrams.
+- [specs/packets.md](specs/packets.md)  
+  OW-06 protocol 88 raw sockets, IPv4/IPv6 metadata, transmit/receive flow,
+  multicast groups and acceptance boundaries.
 - [specs/packaging.md](specs/packaging.md)  
   Feed layout, package/build model, install payload, and how the shim should be
   brought into an OpenWrt checkout.
@@ -246,19 +265,27 @@ sources using the selected OpenWrt target compiler.
 ```text
 OpenEIGRP checkout                          OpenWrt checkout
 ------------------                          -----------------
-eigrp/code/*.c, *.h ----+                     feeds.conf
-                        |                         |
-openwrt/feed/openeigrp/Makefile <-- src-link ----+
-                        |
-                        +--> OpenWrt Build/Prepare
-                                   |
-                                   v
-                              target toolchain
-                                   |
-                                   v
-                        libeigrp-core.a / openeigrp package
+eigrp/code/*.c, *.h --------------------+       feeds.conf
+openwrt/code/eigrp_owrt_runtime.c ------+           |
+                                        |           |
+openwrt/feed/openeigrp/Makefile <-------+--src-link-+
+                   |
+                   v
+          OpenWrt Build/Prepare
+                   |
+                   v
+              target toolchain
+                   |
+          +--------+----------------+
+          |                         |
+          v                         v
+   libeigrp-core.a       libeigrp-owrt-runtime.a
+          |                         |
+          +-----------+-------------+
+                      v
+                openeigrp package
 
-       [No runtime daemon yet: OW-04 through OW-09]
+      [No runtime daemon yet: OW-06 through OW-09]
 ```
 
 Run on Aurora, from `~/projects/eigrp`:
@@ -305,7 +332,7 @@ OpenWrt .config (created by --config)
   package/openeigrp/compile
           |
           v
-  OpenEIGRP target static library / package
+  OpenEIGRP target core and runtime archives / package
 ```
 
 Each stage runs as the normal developer account using `make -jN ... V=s`.
@@ -326,14 +353,33 @@ OpenWrt's exact package artifact paths depend on its target, packaging format
 and build profile. No actual cross-build was run as part of preparing this ZIP;
 Aurora is the first real OpenWrt ARM64 acceptance environment.
 
-This first package is intentionally a **static development artifact**, not an
-operational router daemon. It installs `/usr/lib/libeigrp-core.a` in the
-package and stages the public headers under
+This package is intentionally a **static development artifact**, not an
+operational router daemon. It installs `/usr/lib/libeigrp-core.a` and
+`/usr/lib/libeigrp-owrt-runtime.a`, and stages the public headers and the
+OpenWrt-private runtime binding header under
 `staging_dir/target-*/usr/include/openeigrp/`. This is meaningful because
 OpenWrt must compile the existing protocol engine for the selected target,
 without any substituted or host-architecture objects.
 
-When you edit the portable core after a successful initial build, use
+The runtime and interface adapter are tested independently of an OpenWrt buildroot:
+
+```sh
+bash openwrt/test/runtime-smoke.sh
+bash openwrt/test/interface-smoke.sh  # Linux only, no root required
+bash openwrt/test/recipe-smoke.sh
+```
+
+The Linux interface adapter opens its own route-netlink sockets and
+subscribes to link/address notifications. It must start after `eigrp_init()`
+and stop before `eigrp_terminate()`; the daemon integration will own this
+lifecycle in a later task. See [specs/interfaces.md](specs/interfaces.md).
+
+The scheduler callbacks run in one host thread. The private
+`eigrp_owrt_runtime_enter/leave` functions serialize host-side changes; the
+future socket adapter binds descriptors using `eigrp_owrt_runtime_fd_set/clear`.
+See [specs/runtime.md](specs/runtime.md) for the locking and teardown rules.
+
+When you edit the portable core or runtime after a successful initial build, use
 `make package/openeigrp/clean` before recompiling to force restaging of local
 source changes. Automatic incremental source tracking for edited local files is not yet
 implemented by the OW-02 recipe. `--build` respects OpenWrt stamps.

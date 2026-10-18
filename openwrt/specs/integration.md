@@ -58,33 +58,33 @@ The shim is a **translation boundary**, not another protocol engine.
 Expected OpenWrt source families:
 
 ```text
-openwrt/code/eigrp_openwrt_sys.c
+openwrt/code/eigrp_owrt_runtime.c
     runtime initialization, timers, event scheduling, fd readiness,
     work queues, monotonic time, shutdown serialization
 
-openwrt/code/eigrp_openwrt_interface.c
+openwrt/code/eigrp_owrt_interface.c
     link and address inventory, netifd/netlink observations,
     normalized interface notifications into the core
 
-openwrt/code/eigrp_openwrt_packet.c
+openwrt/code/eigrp_owrt_packet.c
     IPv4/IPv6 raw socket lifecycle, multicast membership,
     packet send/receive and receive metadata normalization
 
-openwrt/code/eigrp_openwrt_rib.c
+openwrt/code/eigrp_owrt_rib.c
     Linux kernel route installation/removal, redistribution ingress,
     reconnect/replay
 
-openwrt/code/eigrp_openwrt_config.c
+openwrt/code/eigrp_owrt_config.c
     UCI/config parsing and semantic calls into eigrp_cli.h
 
-openwrt/code/eigrp_openwrt_policy.c
-openwrt/code/eigrp_openwrt_keychain.c
+openwrt/code/eigrp_owrt_policy.c
+openwrt/code/eigrp_owrt_keychain.c
     host-side policy and authentication material lookup
 
-openwrt/code/eigrp_openwrt_mgmt.c
+openwrt/code/eigrp_owrt_mgmt.c
     show/telemetry/ubus presentation using eigrp_mgnt.h snapshots
 
-openwrt/code/eigrp_openwrt_service.c
+openwrt/code/eigrp_owrt_service.c
     procd lifecycle bridge and daemon control helpers
 ```
 

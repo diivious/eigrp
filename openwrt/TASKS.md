@@ -14,6 +14,9 @@ Do not implement EIGRP Stub behavior.
 ## Supporting design specs
 
 - `openwrt/specs/integration.md`: runtime boundaries and call flows
+- `openwrt/specs/runtime.md`: OW-04 scheduler, locks, cancellation, shutdown
+- `openwrt/specs/interfaces.md`: OW-05 rtnetlink interface/address lifecycle
+- `openwrt/specs/packets.md`: OW-06 IPv4/IPv6 raw socket transport
 - `openwrt/specs/configuration.md`: UCI, reload, writeback and management
 - `openwrt/specs/packaging.md`: feed, package and patch ownership
 
@@ -90,28 +93,65 @@ acceptance gate, not something claimed by CI smoke.
 - On macOS, source `openwrt/dev-env.sh`, attempt the same build, and record
   platform-specific deficiencies separately. Do not suppress build failures.
 
-### OW-04: core/host runtime
+### OW-04: core/host runtime (implemented, pending target cross-build)
 
-- Implement OpenWrt-owned `eigrp_sys.h` host operations: scheduling, timers,
-  FD readiness, work queues, monotonic time, socket lifecycle and shutdown.
-- Retain OpenWrt-private objects under `openwrt/code/`, following
-  `specs/public-api.md`. Avoid importing host-native objects into portable APIs.
-- Verify initialization, ordering/cancellation, restart, and no pending
-  callbacks after shutdown. Use core API smoke before packet integration.
+- Add the native `openwrt/code/eigrp_owrt_runtime.c` implementation of the
+  `eigrp_sys.h` scheduler/time/work-queue surface. The portable public function
+  names remain `eigrp_sys_*`; shim-private functions are `eigrp_owrt_*`.
+- Implement immediate and timed callbacks, one-shot FD readiness, work queue
+  success/requeue/blocked semantics, cancellation, wall-clock and monotonic
+  time, and idempotent init/finish with restart.
+- Use a private host lock for scheduler state and a recursive protocol lock for
+  callback/control-plane serialization. Lock order: protocol -> scheduler.
+- Bind real packet descriptors later via `eigrp_owrt_runtime_fd_set/clear`.
+  Changing an instance binding cancels that instance's previous readiness
+  callbacks, not those belonging to other instances sharing an FD.
+- Extend the package to target-build both core and runtime archives.
+- Add `runtime-smoke.sh` / `runtime-harness.c` as native Linux/macOS tests,
+  plus package staging/build recipe checks and CI execution.
+- OW-06 will supply the actual packet descriptor producer. OW-04 does not ship
+  sockets or a daemon entry point.
 
-### OW-05: interfaces
+**Acceptance:** Native test harness passes event, timer, cancel, FD binding,
+work-queue, shutdown and restart tests. OpenWrt ARM64 package cross-build must
+be confirmed on Aurora before declaring the target build gate passed.
 
-- Add link/address snapshot discovery and notifications via netlink/netifd
-  adapters, including IPv4/IPv6, ifindex, MTU, bandwidth and multicast state.
-- Test start-up discovery, interface up/down, address add/remove and flaps.
+### OW-05: interfaces (implemented; target cross-build pending)
 
-### OW-06: packet path
+- Implement real route-netlink `RTM_GETLINK`/`RTM_GETADDR` snapshots and
+  multicast link/IPv4/IPv6 address notifications. No root privileges or
+  device-specific netifd API are required for read-only inventory.
+- Decode ifindex, name, carrier, multicast support, MTU, speed with documented
+  fallback, address and primary/secondary flag into EIGRP-owned host values.
+- Diff snapshots to emit `eigrp_sys_intf_update/down/remove/addr_update` at
+  the actual change observation point, avoiding duplicate emissions.
+- Provide `eigrp_sys_interface_walk()` filtered by instance address family.
+- Add explicit `eigrp_owrt_interface_start/refresh/stop` lifecycle; watcher
+  startup and callback teardown must precede core shutdown.
+- Extend package archive and native unit/CI smoke to compile and test Linux
+  netlink integration with deterministic synthetic link/address transitions.
+- Document default-VRF-only scope and defer privileged live topology flaps to
+  the later QEMU/device UUT stage.
 
-- Implement raw IPv4 and IPv6 IP protocol 88 socket transmit/receive,
-  appropriate multicast memberships, interface and VRF metadata, and checksum
-  and length validation per portable envelope contract.
-- Exercise neighbor establishment/teardown, reliable updates, malformed
-  packets, and interface/multicast membership transitions.
+**Acceptance:** Linux interface synthetic/dump UUT, runtime UUT and recipe
+smoke pass. ARM64 OpenWrt cross-build and privileged live interface-flap tests
+remain to be verified on Aurora/OpenWrt UUT.
+
+### OW-06: packet path (implemented; ARM64 and adjacency gates outstanding)
+
+- `eigrp_owrt_packet.c` now supplies per-instance Linux raw IPv4/IPv6
+  protocol 88 sockets, bounded receive framing, normalized address/ifindex
+  metadata, per-message packet info and multicast join/leave.
+- The socket registry binds/clears OW-04 FD readiness and uses duplicated
+  descriptors for safe overlap between I/O and host-side socket teardown.
+- Packet framing is validated by the host; EIGRP checksum/authentication,
+  RTP, TLVs and Hello neighbor FSM remain exclusively portable core work.
+- Native Linux UUT covers IPv4/IPv6 parser boundaries and optionally real raw
+  loopback send/receive with CAP_NET_RAW. Package recipe + CI updated.
+- Default VRF only. IPv6 scoped multicast requires the interface ifindex.
+- Cross-build on Aurora, real interface membership changes and **two-node
+  Hello/neighbor establishment** are outstanding live integration gates;
+  the latter requires the daemon/configuration services from OW-08/09.
 
 ### OW-07: kernel RIB
 

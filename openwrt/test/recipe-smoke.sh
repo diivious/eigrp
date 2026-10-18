@@ -7,6 +7,10 @@
 # that an OpenWrt cross-toolchain or actual OpenEIGRP runtime was built.
 set -euo pipefail
 
+if [[ "$(uname -s)" != Linux ]]; then
+    printf '%s\n' 'SKIP: OW-06 package recipe compiles Linux-specific netlink and protocol-88 code'
+    exit 0
+fi
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 recipe="$root/openwrt/feed/openeigrp/Makefile"
 command -v make >/dev/null
@@ -15,8 +19,16 @@ command -v ar >/dev/null
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/openeigrp-recipe.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/eigrp/openwrt/feed/openeigrp" "$tmp/eigrp/eigrp/code" \
-    "$tmp/openwrt/include" "$tmp/out" "$tmp/dev"
+mkdir -p "$tmp/eigrp/openwrt/feed/openeigrp" "$tmp/eigrp/openwrt/code" \
+    "$tmp/eigrp/eigrp/code" "$tmp/openwrt/include" "$tmp/out" "$tmp/dev"
+cp "$root/openwrt/code/Makefile" "$root/openwrt/code/eigrp_owrt_runtime.c" \
+    "$root/openwrt/code/eigrp_owrt_runtime.h" \
+    "$root/openwrt/code/eigrp_owrt_interface.c" \
+    "$root/openwrt/code/eigrp_owrt_interface.h" \
+    "$root/openwrt/code/eigrp_owrt_interface_state.c" \
+    "$root/openwrt/code/eigrp_owrt_packet.c" \
+    "$root/openwrt/code/eigrp_owrt_packet.h" \
+    "$tmp/eigrp/openwrt/code/"
 cp "$recipe" "$tmp/eigrp/openwrt/feed/openeigrp/Makefile"
 cat > "$tmp/openwrt/rules.mk" <<'MK'
 BUILD_DIR:=$(TOPDIR)/build
@@ -38,7 +50,7 @@ cat > "$tmp/eigrp/eigrp/code/core.c" <<'C'
 int eigrp_core_compiled_for_target(void) { return 7868; }
 C
 for name in eigrp.h eigrp_cli.h eigrp_mgnt.h eigrp_rib.h eigrp_sys.h; do
-    printf '#pragma once\n' > "$tmp/eigrp/eigrp/code/$name"
+    cp "$root/eigrp/code/$name" "$tmp/eigrp/eigrp/code/$name"
 done
 cat > "$tmp/eigrp/eigrp/code/Makefile" <<'MK'
 libeigrp-core.a: core.o
@@ -61,9 +73,14 @@ make -s -f "$tmp/test.mk" smoke \
     TEST_RECIPE="$tmp/eigrp/openwrt/feed/openeigrp/Makefile" \
     TEST_DEV="$tmp/dev" TEST_OUT="$tmp/out"
 test -s "$tmp/out/usr/lib/libeigrp-core.a"
+test -s "$tmp/out/usr/lib/libeigrp-owrt-runtime.a"
+test -s "$tmp/dev/usr/lib/libeigrp-owrt-runtime.a"
 test -s "$tmp/dev/usr/lib/libeigrp-core.a"
 test -f "$tmp/dev/usr/include/openeigrp/eigrp_sys.h"
+test -f "$tmp/dev/usr/include/openeigrp/eigrp_owrt_runtime.h"
+test -f "$tmp/dev/usr/include/openeigrp/eigrp_owrt_interface.h"
+test -f "$tmp/dev/usr/include/openeigrp/eigrp_owrt_packet.h"
 if command -v nm >/dev/null 2>&1; then
     nm "$tmp/out/usr/lib/libeigrp-core.a" | grep -q 'eigrp_core_compiled_for_target'
 fi
-printf '%s\n' 'OpenWrt core-package recipe staging/build/install smoke: PASS'
+printf '%s\n' 'OpenWrt core/runtime/packet recipe staging/build/install smoke: PASS'

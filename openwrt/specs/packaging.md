@@ -40,10 +40,10 @@ openwrt/
 ├── README.md
 ├── TASKS.md
 ├── specs/
-├── code/                     (future native runtime shim)
+├── code/                     (OW-04 native runtime library)
 ├── feed/
 │   └── openeigrp/
-│       └── Makefile           (OW-02 portable static-core package)
+│       └── Makefile           (OW-04 core + scheduler archive package)
 │       # procd/UCI files added when their runtime targets exist
 └── patch/                    (future, only if unavoidable)
 ```
@@ -76,10 +76,11 @@ Then:
 
 ## 5. Package boundaries
 
-The OW-02 package **actually builds and installs `libeigrp-core.a`**,
-using OpenWrt's selected `TARGET_CC` and `TARGET_AR`. Its developer staging
-exports `eigrp.h`, `eigrp_cli.h`, `eigrp_mgnt.h`, `eigrp_rib.h`, and
-`eigrp_sys.h`. It does not install an executable daemon.
+The OW-04 package builds and installs the archives `libeigrp-core.a` and
+`libeigrp-owrt-runtime.a` using OpenWrt's selected `TARGET_CC` and `TARGET_AR`.
+Developer staging exports `eigrp.h`, `eigrp_cli.h`, `eigrp_mgnt.h`,
+`eigrp_rib.h`, `eigrp_sys.h`, and the OpenWrt-private
+`eigrp_owrt_runtime.h`. This phase does not install an executable daemon.
 
 When the real OpenWrt shim and daemon are implemented, the package can expand
 to include:
@@ -107,8 +108,8 @@ tools/openwrt.sh --config
 tools/openwrt.sh --build [--jobs N]
     -> OpenWrt tools/install (host utilities)
     -> OpenWrt toolchain/install (selected architecture)
-    -> OpenWrt package/openeigrp/compile (portable core)
-    -> build the openeigrp package containing libeigrp-core.a
+    -> OpenWrt package/openeigrp/compile (portable core + runtime)
+    -> build the package containing both static archives
 ```
 
 ## 7. Versioning and source selection
@@ -144,10 +145,11 @@ Rules:
 ## 9. Service payload concept
 
 ```text
-OW-02 package install
-    -> /usr/lib/libeigrp-core.a       static core archive
+OW-04 package install
+    -> /usr/lib/libeigrp-core.a          portable core archive
+    -> /usr/lib/libeigrp-owrt-runtime.a  OpenWrt host scheduler archive
 
-OW-04 through OW-09 (not shipped yet)
+OW-05 through OW-09 (not shipped yet)
     -> /usr/sbin/openeigrpd          daemon
     -> /etc/init.d/openeigrp         procd service script
     -> /etc/config/openeigrp         retained UCI config
