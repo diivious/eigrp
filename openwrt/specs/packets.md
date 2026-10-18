@@ -104,10 +104,10 @@ namespace/VRF semantics are explicitly implemented.
 
 ## Validation and remaining gates
 
-- `bash openwrt/test/packet-smoke.sh` tests IPv4/IPv6 framing, malformed/truncated
+- `bash openwrt/test/packet-uut.sh` tests IPv4/IPv6 framing, malformed/truncated
   metadata and (when `CAP_NET_RAW` is granted) real protocol 88 loopback I/O.
   Unprivileged runs test framing and explicitly skip socket creation.
-- `bash openwrt/test/recipe-smoke.sh` stages and compiles the actual OW-06
+- `bash openwrt/test/recipe-test.sh` stages and compiles the actual OW-06
   object using target-like make flags.
 - `./tools/openwrt.sh --build` cross-compiles the archive against the selected
   OpenWrt target on Aurora.

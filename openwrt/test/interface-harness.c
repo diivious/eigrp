@@ -152,6 +152,6 @@ int main(void)
 	eigrp_owrt_interface_stop();
 	assert(eigrp_owrt_interface_start());
 	eigrp_owrt_interface_stop();
-	puts("OpenWrt Linux interface netlink, diff and lifecycle smoke: PASS");
+	puts("OpenWrt Linux interface netlink, diff and lifecycle test: PASS");
 	return 0;
 }

@@ -10,10 +10,23 @@ CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -pthread
 # Linux rtnetlink integration is compiled only for the OpenWrt target (or a
 # native Linux UUT). Runtime alone remains host-neutral for macOS testing.
 OWRT_LINUX ?= $(if $(filter Linux,$(shell uname -s)),1,0)
-OBJS := eigrp_owrt_runtime.o eigrp_owrt_interface_state.o
-ifeq ($(OWRT_LINUX),1)
-OBJS += eigrp_owrt_interface.o eigrp_owrt_packet.o
+OBJS := eigrp_owrt_runtime.o eigrp_owrt_interface_state.o eigrp_owrt_config.o eigrp_owrt_policy.o
+OWRT_UCI ?= 0
+ifeq ($(OWRT_UCI),1)
+OBJS += eigrp_owrt_uci.o
 endif
+ifeq ($(OWRT_LINUX),1)
+OBJS += eigrp_owrt_interface.o eigrp_owrt_packet.o eigrp_owrt_rib.o eigrp_owrt_rib_netlink.o
+endif
+
+eigrp_owrt_config.o: eigrp_owrt_config.c eigrp_owrt_config.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+eigrp_owrt_policy.o: eigrp_owrt_policy.c eigrp_owrt_config.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+eigrp_owrt_uci.o: eigrp_owrt_uci.c eigrp_owrt_config.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 .PHONY: all clean
 all: libeigrp-owrt-runtime.a
@@ -31,6 +44,12 @@ eigrp_owrt_interface.o: eigrp_owrt_interface.c eigrp_owrt_interface.h eigrp_owrt
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 eigrp_owrt_packet.o: eigrp_owrt_packet.c eigrp_owrt_packet.h eigrp_owrt_runtime.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+eigrp_owrt_rib.o: eigrp_owrt_rib.c eigrp_owrt_rib.h eigrp_owrt_runtime.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+
+eigrp_owrt_rib_netlink.o: eigrp_owrt_rib_netlink.c eigrp_owrt_rib.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 clean:

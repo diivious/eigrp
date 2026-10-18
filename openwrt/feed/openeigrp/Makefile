@@ -2,9 +2,8 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# OW-06: Build portable EIGRP and native OpenWrt runtime, interface and
-# protocol-88 socket adapters. These are real target libraries. A runnable
-# daemon still requires kernel RIB, configuration and service lifecycle.
+# OW-08: OpenWrt runtime, kernel adapters and libuci configuration/host policy.
+# A runnable daemon and procd management remain OW-09 work.
 #
 # Resolve the *recipe* location, not OpenWrt's symlinked package directory.
 # Our source tree remains owned by the OpenEIGRP checkout.
@@ -16,10 +15,11 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openeigrp
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=4
+PKG_RELEASE:=6
 PKG_LICENSE:=GPL-2.0-or-later BSD-2-Clause
 PKG_MAINTAINER:=Donnie V. Savage
 PKG_BUILD_PARALLEL:=1
+OPENEIGRP_UCI_BUILD ?= 1
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 # Autorebuild a locally linked feed when portable or runtime sources change.
 PKG_FILE_DEPENDS:=$(OPENEIGRP_CORE_SOURCE) $(OPENEIGRP_RUNTIME_SOURCE)
@@ -30,15 +30,17 @@ define Package/openeigrp
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Routing and Redirection
-  TITLE:=OpenEIGRP portable core and native OpenWrt host/packet libraries
+  TITLE:=OpenEIGRP portable core and native OpenWrt host libraries
   URL:=https://github.com/diivious/eigrp
+  DEPENDS:=+libuci
 endef
 
 define Package/openeigrp/description
  Target-built static archives for the portable OpenEIGRP RFC 7868 engine
  and its native OpenWrt host support (events, timers, FD readiness, work
  queues, Linux netlink interface/address inventory, IPv4/IPv6 protocol 88
- sockets, packet I/O and multicast memberships).
+ sockets, packet I/O, multicast memberships and kernel RIB integration).
+ UCI semantic configuration, policy and key lookup are included.
  This package does not yet provide a deployable daemon.
 endef
 
@@ -64,6 +66,13 @@ define Build/Prepare
 		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_interface_state.c \
 		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_packet.c \
 		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_packet.h \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_rib.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_rib.h \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_rib_netlink.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_config.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_config.h \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_policy.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_uci.c \
 		$(PKG_BUILD_DIR)/openwrt-runtime/
 endef
 
@@ -84,7 +93,7 @@ define Build/Compile
 		CC="$(TARGET_CC)" AR="$(TARGET_AR)" \
 		CFLAGS="$(TARGET_CFLAGS) -std=c11 -D_POSIX_C_SOURCE=200809L -pthread" \
 		CPPFLAGS="$(TARGET_CPPFLAGS) -I. -I$(PKG_BUILD_DIR)" \
-		EIGRP_CORE_INCLUDE="$(PKG_BUILD_DIR)" OWRT_LINUX=1 \
+		EIGRP_CORE_INCLUDE="$(PKG_BUILD_DIR)" OWRT_LINUX=1 OWRT_UCI=$(OPENEIGRP_UCI_BUILD) \
 		libeigrp-owrt-runtime.a
 	@test -s $(PKG_BUILD_DIR)/openwrt-runtime/libeigrp-owrt-runtime.a
 endef
@@ -101,12 +110,19 @@ define Build/InstallDev
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/openwrt-runtime/eigrp_owrt_runtime.h \
 		$(PKG_BUILD_DIR)/openwrt-runtime/eigrp_owrt_interface.h \
 		$(PKG_BUILD_DIR)/openwrt-runtime/eigrp_owrt_packet.h \
+		$(PKG_BUILD_DIR)/openwrt-runtime/eigrp_owrt_rib.h \
+		$(PKG_BUILD_DIR)/openwrt-runtime/eigrp_owrt_config.h \
 		$(1)/usr/include/openeigrp/
 endef
 
-# Install real target archives; no runnable daemon is claimed at OW-06.
+define Package/openeigrp/conffiles
+/etc/config/openeigrp
+endef
+
+# Install real target archives; OW-09 will add a runnable daemon.
 define Package/openeigrp/install
-	$(INSTALL_DIR) $(1)/usr/lib
+	$(INSTALL_DIR) $(1)/usr/lib $(1)/etc/config
+	$(INSTALL_CONF) $(OPENEIGRP_RECIPE_DIR)/files/openeigrp.config $(1)/etc/config/openeigrp
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/libeigrp-core.a $(1)/usr/lib/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/openwrt-runtime/libeigrp-owrt-runtime.a $(1)/usr/lib/
 endef

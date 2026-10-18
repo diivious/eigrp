@@ -3,7 +3,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# OpenWrt development driver: setup, install, config, verify, and build.
+# OpenWrt development driver: setup, install, config, clean, build and tests.
 
 set -euo pipefail
 
@@ -24,7 +24,7 @@ build_jobs_specified=0
 
 usage() {
 	cat <<USAGE
-usage: $(basename "$0") --setup|--install|--config|--build|--verify [options]
+usage: $(basename "$0") --setup|--install|--config|--build|--clean|--test|--uut|--kernel|--verify [options]
 
 actions:
   --setup               Install host dependencies, clone OpenWrt if needed,
@@ -33,6 +33,12 @@ actions:
   --verify              Check host, checkout, feeds and target state; change nothing.
   --config              Select/preserve target and OpenEIGRP package; run defconfig/prereq.
   --build               Build OpenWrt host tools, target toolchain, then OpenEIGRP.
+  --clean               Clean only the OpenEIGRP package build outputs.
+  --test                Run host-neutral component, configuration and recipe tests.
+  --uut                 Run all nonprivileged tests, including Linux interface,
+                        packet and kernel RIB unit-under-test scenarios.
+  --kernel              Run the isolated privileged kernel RIB test (sudo is
+                        used only for the disposable network namespace).
 
 options:
   --devel-root PATH     Parent directory of the OpenWrt checkout.
@@ -46,6 +52,7 @@ options:
   --menuconfig          With --config, launch interactive OpenWrt menuconfig
                         instead of automatic target selection.
   --jobs N              With --build, parallel make jobs (default: 2).
+                        Direct test scripts remain available in openwrt/test/.
   --minimal-feeds       With --config, remove installed feed package links
                         before configuring (feed source checkouts stay intact).
                         Explicit recovery for broken optional-feed Kconfig.
@@ -55,6 +62,7 @@ The source baseline is https://github.com/diivious/openwrt (branch main).
 Existing checkouts are never reset, pulled or recloned. OpenWrt builds must
 run as an unprivileged user, on a case-sensitive filesystem without spaces.
 
+The driver orchestrates the same independent scripts under openwrt/test/.
 On macOS, the OpenWrt buildroot is experimental. Use a case-sensitive APFS
 volume for OpenWrt sources; native portable EIGRP builds/tests run normally.
 Run --install and --config after --setup, then --build. Existing target
@@ -80,7 +88,7 @@ set_action() {
 
 while (($#)); do
 	case "$1" in
-		--setup|--verify|--config|--install|--build) set_action "${1#--}"; shift ;;
+		--setup|--verify|--config|--install|--build|--clean|--test|--uut|--kernel) set_action "${1#--}"; shift ;;
 		--devel-root)
 			(($# >= 2)) || fail "--devel-root needs a path"
 			devel_root="$(absolute_path "$2")"; shift 2 ;;
@@ -101,7 +109,7 @@ while (($#)); do
 			(($# >= 2)) || fail "--target needs a value"
 			selected_target="$2"; shift 2 ;;
 		--help) usage; exit 0 ;;
-		--patch|--uut|--check)
+		--patch|--check)
 			fail "$1 is not implemented; see openwrt/TASKS.md" ;;
 		*) fail "unknown option: $1" ;;
 	esac
@@ -530,6 +538,73 @@ build_openwrt() {
 	log 'OpenEIGRP OpenWrt base package build complete.'
 	log 'Package output (if produced): OpenWrt bin/packages/<target-arch>/*/openeigrp*'
 }
+
+# Test scripts remain independent. Driver is the single discoverable entry
+# point; there is exactly one implementation of each test under openwrt/test/.
+run_openwrt_test() {
+	local filename="$1"
+	local path="$eigrp_root/openwrt/test/$filename"
+	[[ -f "$path" ]] || fail "test missing: $path"
+	log "test: starting $filename"
+	if bash "$path"; then
+		log "test: PASS $filename"
+	else
+		fail "test FAILED: $filename"
+	fi
+}
+
+run_openwrt_tests() {
+	local filename
+	local -a components=(setup-test.sh runtime-test.sh config-test.sh)
+	if [[ "$host" == Linux ]]; then
+		components+=(recipe-test.sh)
+	fi
+	for filename in "${components[@]}"; do
+		run_openwrt_test "$filename"
+	done
+	if [[ "$action" == uut ]]; then
+		if [[ "$host" == Linux ]]; then
+			for filename in interface-uut.sh packet-uut.sh rib-uut.sh; do
+				run_openwrt_test "$filename"
+			done
+		else
+			log 'uut: Linux-specific interface, packet and RIB scenarios skipped on macOS'
+		fi
+	fi
+	log "$action: PASS (all applicable tests)"
+}
+
+clean_openwrt() {
+	verify_checkout || fail 'OpenWrt checkout is missing or invalid'
+	verify_package_feed || fail 'OpenEIGRP package not installed; run --install'
+	log 'clean: removing only OpenEIGRP package outputs (OpenWrt toolchain preserved)'
+	(cd "$openwrt_root" && make package/openeigrp/clean V=s) || fail 'OpenEIGRP package clean failed'
+	log 'clean: PASS'
+}
+
+run_openwrt_kernel() {
+	[[ "$host" == Linux ]] || fail '--kernel requires Linux'
+	command -v ip >/dev/null 2>&1 || fail '--kernel requires iproute2 (ip)'
+	command -v sudo >/dev/null 2>&1 || fail '--kernel requires sudo for isolated namespace'
+	log 'kernel: isolated RIB UUT in disposable Linux network namespace'
+	sudo bash "$eigrp_root/openwrt/test/rib-uut.sh" --kernel || fail 'isolated kernel RIB UUT failed'
+	log 'kernel: PASS'
+}
+
+if [[ "$action" == test || "$action" == uut ]]; then
+	run_openwrt_tests
+	exit 0
+fi
+
+if [[ "$action" == kernel ]]; then
+	run_openwrt_kernel
+	exit 0
+fi
+
+if [[ "$action" == clean ]]; then
+	clean_openwrt
+	exit 0
+fi
 
 if [[ "$action" == verify ]]; then
 	status=0

@@ -12,7 +12,7 @@ OpenWrt is the operating system, packaging, and service-management environment.
 It is **not** another EIGRP implementation. DUAL, RTP, topology, packet
 semantics, metric handling, and neighbor behavior remain in `../eigrp/code/`.
 
-**Status: OW-06 Linux IPv4/IPv6 protocol 88 transport compiled into native OpenWrt static archives.**
+**Status: OW-08 UCI configuration and basic host policy/keychain integration implemented. The OpenWrt-native host adapters compile as target archives; the OW-09 daemon and service lifecycle are not yet available.**
 
 - `../tools/openwrt.sh --setup` prepares a Debian/Ubuntu or macOS developer
   host and an OpenWrt buildroot checkout.
@@ -35,10 +35,20 @@ semantics, metric handling, and neighbor behavior remain in `../eigrp/code/`.
 - `openwrt/code/eigrp_owrt_packet.c` provides raw IPv4/IPv6 protocol 88
   send/receive, source/interface packet info, multicast group membership,
   and packet framing metadata for portable EIGRP.
-- **Not yet implemented:** an executable OpenWrt daemon, kernel route
-  integration, UCI/procd/ubus runtime, or two-node protocol adjacency UUT.
+- `eigrp_owrt_rib.c` and `eigrp_owrt_rib_netlink.c` implement kernel route
+  installation/withdrawal/replay and source route observation via Linux
+  rtnetlink, within the default VRF and main routing table.
+- `eigrp_owrt_config.c`, `eigrp_owrt_uci.c` and `eigrp_owrt_policy.c`
+  normalize UCI data, validate and apply retained named configuration through
+  `eigrp_cli.h`, and provide prefix-policy/keychain services. The package
+  now installs `/etc/config/openeigrp` as a retained configuration file.
+- `tools/openwrt.sh --clean`, `--test`, `--uut` and `--kernel` orchestrate
+  package cleanup, independent component tests and isolated kernel UUTs.
+- **Not yet implemented:** an executable OpenWrt daemon, procd/ubus service
+  lifecycle, live configuration reload notifications, or two-node adjacency UUT.
 
-See [TASKS.md](TASKS.md) for the staged implementation plan.
+See [TASKS.md](TASKS.md), [specs/configuration.md](specs/configuration.md) and
+[specs/rib.md](specs/rib.md) for staged implementation and host boundaries.
 
 ## Authoritative source repositories
 
@@ -104,8 +114,8 @@ The OpenWrt shim is documented by the following files:
   Overall runtime architecture, boundaries, startup/shutdown, interface,
   packet, and RIB call flows.
 - [specs/configuration.md](specs/configuration.md)  
-  UCI configuration model, reload/writeback, procd lifecycle, ubus/CLI
-  management surface, and semantic mapping to `eigrp_cli.h`.
+  Implemented UCI schema, retained config replay, best-effort reload rollback,
+  native writeback, semantic results, host policy and keychain lookup.
 - [specs/runtime.md](specs/runtime.md)  
   Implemented OW-04 event scheduler, lock ordering, FD binding and lifecycle.
 - [specs/interfaces.md](specs/interfaces.md)  
@@ -364,9 +374,9 @@ without any substituted or host-architecture objects.
 The runtime and interface adapter are tested independently of an OpenWrt buildroot:
 
 ```sh
-bash openwrt/test/runtime-smoke.sh
-bash openwrt/test/interface-smoke.sh  # Linux only, no root required
-bash openwrt/test/recipe-smoke.sh
+bash openwrt/test/runtime-test.sh
+bash openwrt/test/interface-uut.sh  # Linux only, no root required
+bash openwrt/test/recipe-test.sh
 ```
 
 The Linux interface adapter opens its own route-netlink sockets and
@@ -376,13 +386,20 @@ lifecycle in a later task. See [specs/interfaces.md](specs/interfaces.md).
 
 The scheduler callbacks run in one host thread. The private
 `eigrp_owrt_runtime_enter/leave` functions serialize host-side changes; the
-future socket adapter binds descriptors using `eigrp_owrt_runtime_fd_set/clear`.
+OW-06 packet adapter binds descriptors using `eigrp_owrt_runtime_fd_set/clear`.
 See [specs/runtime.md](specs/runtime.md) for the locking and teardown rules.
 
-When you edit the portable core or runtime after a successful initial build, use
-`make package/openeigrp/clean` before recompiling to force restaging of local
-source changes. Automatic incremental source tracking for edited local files is not yet
-implemented by the OW-02 recipe. `--build` respects OpenWrt stamps.
+When a portable or shim source edit needs a fresh stage, use:
+
+```sh
+./tools/openwrt.sh --clean
+./tools/openwrt.sh --build
+```
+
+`--clean` removes only the OpenEIGRP package build outputs, not the OpenWrt
+host tools or target cross-toolchain. `--build` respects OpenWrt stamps and
+source dependencies. Developers can also run the individual package make
+commands directly from the OpenWrt checkout.
 
 If OpenWrt-wide patches are ever required, keep them under `openwrt/patch/`,
 apply them only with an explicit future `--patch`, and reject any patch that
@@ -415,7 +432,7 @@ and then plain `--config` to restore the OpenEIGRP selection.
 **Note:** `--verify` reports the target recorded in `.config`; it cannot
 establish that package dependency parsing succeeded. For that use `--config`.
 
-## Planned driver actions
+## Central OpenWrt driver actions
 
 | Action | Status | Intended semantics |
 |---|---|---|
@@ -425,7 +442,10 @@ establish that package dependency parsing succeeded. For that use `--config`.
 | `--install` | Implemented | Register the single local OpenEIGRP feed/package, idempotently |
 | `--patch` | Future | Idempotent, explicit, managed OpenWrt-wide patches only |
 | `--build` | Implemented | Host tools → toolchain → OpenEIGRP package, `--jobs N` (default 2) |
-| `--uut` | Future | Execute native/VM/OpenWrt acceptance gates against a built image |
+| `--clean` | Implemented | Only the OpenEIGRP package build outputs; preserves toolchain |
+| `--test` | Implemented | Setup, runtime, config and recipe component tests |
+| `--uut` | Implemented | All nonprivileged component tests plus interface, packet and RIB UUTs on Linux |
+| `--kernel` | Implemented | Explicit isolated kernel route test via sudo and disposable network namespace |
 
 ## Test levels
 
@@ -436,7 +456,46 @@ establish that package dependency parsing succeeded. For that use `--config`.
 3. **OpenWrt QEMU/device**: procd start/stop, UCI reload/writeback, raw IPv4
    and IPv6 EIGRP adjacencies, route install/withdrawal, redistribution,
    interface churn, daemon restart, and teardown.
-4. **CI**: macOS/Linux setup-script smoke first, then Linux OpenWrt build and
+4. **CI**: macOS/Linux setup-script test first, then Linux OpenWrt build and
    QEMU UUT once the real package/runtime is implemented.
 
 See [TASKS.md](TASKS.md) for the staged acceptance criteria.
+
+## Development, test naming and OW-08 validation
+
+The standard development workflow has one entry point:
+
+```sh
+./tools/openwrt.sh --clean   # only when restaging is needed
+./tools/openwrt.sh --build
+./tools/openwrt.sh --test    # component tests without root
+./tools/openwrt.sh --uut     # all applicable nonprivileged tests
+./tools/openwrt.sh --kernel  # explicit sudo; isolated network namespace
+```
+
+**No test logic is duplicated in the driver.** It orchestrates the same
+independent scripts developers and CI may run directly. `--uut` includes
+`--test`; do not normally run both on every change unless isolating a failure.
+
+OpenWrt-native tests are named by their purpose:
+
+```sh
+bash openwrt/test/setup-test.sh
+bash openwrt/test/recipe-test.sh
+bash openwrt/test/runtime-test.sh
+bash openwrt/test/config-test.sh
+bash openwrt/test/interface-uut.sh    # Linux
+bash openwrt/test/packet-uut.sh       # Linux, optional raw-socket test
+bash openwrt/test/rib-uut.sh          # Linux read-only netlink + synthetic routes
+sudo bash openwrt/test/rib-uut.sh --kernel # disposable namespace
+```
+
+`*-test.sh` covers component and build checks; `*-uut.sh` exercises real
+host/protocol interfaces. On macOS, Linux-specific tests are clearly skipped.
+The previous `*-smoke.sh` filenames were retired in OW-07 without aliases.
+
+OW-08 configuration is an adapter library, not a running daemon. The sample
+`/etc/config/openeigrp` file is installed but no procd service is started.
+Use standard UCI commands (`uci set`, `uci delete`, `uci commit openeigrp`)
+for writeback, and see [specs/configuration.md](specs/configuration.md) for
+supported sections, reset semantics and deferred OW-09 reload behavior.

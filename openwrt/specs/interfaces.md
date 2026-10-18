@@ -151,9 +151,9 @@ Do not call `eigrp_owrt_interface_stop()` from a watcher callback.
 ## Validation
 
 ```sh
-bash openwrt/test/interface-smoke.sh    # Linux only, no root needed
-bash openwrt/test/runtime-smoke.sh
-bash openwrt/test/recipe-smoke.sh
+bash openwrt/test/interface-uut.sh    # Linux only, no root needed
+bash openwrt/test/runtime-test.sh
+bash openwrt/test/recipe-test.sh
 ./tools/openwrt.sh --build              # OpenWrt target cross-build
 ```
 

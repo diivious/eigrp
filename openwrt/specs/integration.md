@@ -259,3 +259,39 @@ to private portable structures.
 ```
 
 This sequence matches the staged task list in `../TASKS.md`.
+
+### OW-07 kernel RIB boundary
+
+Linux route ownership and notifications live in `eigrp_owrt_rib.c`. The
+portable `eigrp_rib.h` exchange uses normalized EIGRP prefixes, next hops,
+route sources and result codes. Linux rtnetlink headers and route messages
+remain exclusively in the OpenWrt shim. See [rib.md](rib.md) for flows and
+limitations. A service-process lifecycle comes in OW-09.
+
+## OW-08: retained configuration boundary
+
+```text
+OpenWrt /etc/config/openeigrp
+              |
+              v
+         libuci reader
+              |
+              v
+  eigrp_owrt_config_validate()
+              |
+              v
+  eigrp_owrt_config_replace()
+              |
+      +-------+-------+
+      v               v
+ eigrp_cli.h      eigrp_owrt_policy.c
+ (real targets)    (EIGRP-owned service callbacks)
+      |               |
+      +-------+-------+
+              v
+       Portable OpenEIGRP
+```
+
+Only the normalized EIGRP public values cross into the core. The OW-09 daemon
+will own invocation order and synchronize reloads with operational callbacks;
+there is no service activated by the OW-08 archive-only package.

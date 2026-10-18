@@ -1,84 +1,65 @@
-# OpenEIGRP OpenWrt configuration and management specification
+# OpenEIGRP OpenWrt configuration, retention, reload and host policy (OW-08)
 
 Copyright (C) 2026 Donnie V. Savage
 
-## 1. Scope
+## 1. Boundaries
 
-This document describes the planned OpenWrt configuration, retained state,
-reload, and management model for the OpenEIGRP shim.
-
-The guiding rule is simple: OpenWrt owns configuration presentation and service
-lifecycle; portable OpenEIGRP owns the semantic targets.
-
-## 2. Configuration architecture
-
-```text
-+---------------------------------------------------------------+
-| UCI files                                                     |
-|   /etc/config/openeigrp                                       |
-+---------------------------+-----------------------------------+
-                            |
-                            v
-+---------------------------------------------------------------+
-| OpenWrt config adapter                                         |
-|                                                               |
-|  parse UCI   validate host syntax   normalize values          |
-|  retain cfg  writeback/no-forms     map result codes          |
-+---------------------------+-----------------------------------+
-                            |
-                            v
-+---------------------------------------------------------------+
-| eigrp_cli.h semantic targets                                  |
-+---------------------------+-----------------------------------+
-                            |
-                            v
-+---------------------------------------------------------------+
-| Portable OpenEIGRP runtime                                    |
-+---------------------------------------------------------------+
-```
-
-## 3. Intended host-facing pieces
-
-The OpenWrt shim is expected to use:
-
-- **UCI** for retained configuration;
-- **procd** for service start/stop/reload lifecycle;
-- **ubus** and/or a lightweight CLI for operational queries;
-- public `eigrp_mgnt.h` snapshots for operational state presentation.
-
-## 4. Configuration ownership rules
-
-### 4.1 The OpenWrt layer owns
-
-- UCI section layout and option names;
-- config-file read and writeback mechanics;
-- service reload triggers;
-- host-side validation of UCI syntax shape;
-- mapping `eigrp_result_t` to host-visible outcomes.
-
-### 4.2 The portable core owns
-
-- whether a semantic EIGRP operation is valid;
-- how a setting changes runtime behavior;
-- protocol defaults and reset semantics;
-- feature support vs `EIGRP_RESULT_NOT_IMPLEMENTED`.
-
-## 5. Configuration flow
+OpenWrt owns UCI syntax, configuration storage, keychain lookup and prefix
+policy. The portable core owns EIGRP semantic configuration and neighbor/
+DUAL decisions. All OpenWrt-specific symbols are `eigrp_owrt_*` except the
+required `eigrp_sys_*` host contract implementations. The portable core never
+sees `uci_context`, `uci_package`, `uci_section`, `uci_option`, or OpenWrt
+package objects.
 
 ```text
-uci commit / service reload / ubus mutation
-    -> config adapter parses UCI state
-    -> normalize addresses, ASNs, timers, names, booleans
-    -> call the real eigrp_cli.h target for each setting
-    -> collect structured results
-    -> retain config even when runtime behavior is incomplete
+/etc/config/openeigrp   ──────►  libuci
+                                  │
+                       eigrp_owrt_uci_load()
+                                  │
+                       eigrp_owrt_config_validate()
+                          all sections, first
+                                  │
+                       eigrp_owrt_config_replace()
+                                  │
+                 ┌────────────────┴────────────────┐
+                 ▼                                 ▼
+         portable eigrp_cli.h             eigrp_owrt_policy.c
+         owning semantic targets          prefix rules + keychain
+                 │                                 │
+         portable EIGRP state          eigrp_sys_* public hooks
 ```
 
-## 6. Proposed logical model
+The loader and normalized configuration model are implemented **now**.
+Procd startup, UCI change notifications, runtime daemon control and ubus
+management are **OW-09**. OW-08 does not pretend that a daemon is installed.
 
-The exact UCI schema will be refined during implementation, but the logical
-shape should align with named-mode EIGRP rather than with host-specific object
-leakage.
+## 2. UCI sections
+
+- `config process 'NAME'`: `option name` (optional; defaults to section id),
+  `shutdown` (optional Boolean). Parent identifiers are **case-sensitive**.
+- `config address_family`: `process`, `afi` (`ipv4` or `ipv6`), `asn` (1..65535),
+  `vrf` (`default` only), optional `shutdown`, `router_id`, `distance_internal`,
+  `distance_external`, `variance`, `maximum_paths`, `active_time`.
+- `config network`: `process`, `afi`, `asn`, optional `vrf`, and IPv4 `prefix`
+  (`10.0.0.0/8`). IPv6 `network` statements are not part of this API.
+- `config interface`: `process`, `afi`, `asn`, optional `vrf`, `ifname`,
+  optional `hello_interval`, `hold_time`, `passive`, `split_horizon`,
+  `next_hop_self`, `shutdown`, `bandwidth`, `delay`, `bandwidth_percent`,
+  `keychain`, `auth_mode` (`none`, `md5`, `hmac-sha256`) and `hmac_password`.
+  Use kernel interface names such as `br-lan`, not netifd logical names
+  such as `lan`. A `default` interface template is supported by the portable interface API.
+- `config keychain`: `name`, `key_id`, `secret`. The currently selected
+  keychain model uses one active key per section; protect this UCI file.
+- `config prefix_rule`: `name`, `prefix`, `action` (`permit` or `deny`).
+  Rules of a given name are evaluated in UCI section order; a known list with
+  no matching rule denies. Prefix rules apply to IPv4 and IPv6 CIDRs.
+
+Unknown section types/options, unsupported VRFs and malformed values are
+rejected. The loader never silently discards fields or treats an incomplete
+feature as configured runtime behavior. Every rejected operation carries an
+`eigrp_result_t` and a section-specific diagnostic.
+
+### Example: named IPv4 + retained IPv6, multiple AS, case-sensitive parents
 
 ```text
 config process 'savage'
@@ -88,8 +69,7 @@ config address_family
     option process 'savage'
     option afi 'ipv4'
     option asn '4453'
-    option shutdown '0'
-    option router_id '10.0.0.1'
+    option router_id '10.1.2.3'
 
 config network
     option process 'savage'
@@ -101,116 +81,119 @@ config interface
     option process 'savage'
     option afi 'ipv4'
     option asn '4453'
-    option ifname 'lan'
+    option ifname 'br-lan'
     option hello_interval '5'
     option hold_time '15'
+
+config address_family
+    option process 'savage'
+    option afi 'ipv6'
+    option asn '4453'
+
+config address_family
+    option process 'savage'
+    option afi 'ipv4'
+    option asn '4454'
+
+config process 'SAVAGE'
+    option name 'SAVAGE'
+
+config address_family
+    option process 'SAVAGE'
+    option afi 'ipv4'
+    option asn '4453'
 ```
 
-This is an architectural sketch, not a frozen final schema.
+This follows the project's development order: named IPv4 AS 4453, IPv6
+AS 4453, multiple AS under the same parent, then distinct named parents.
 
-## 7. Named-mode ordering expectations
-
-The intended configuration sequence follows the existing project development
-order:
+## 3. Apply/reload and reset semantics
 
 ```text
-1. router eigrp savage / IPv4 AF AS 4453
-2. IPv6 AF AS 4453
-3. multiple AS under one named parent
-4. distinct case-sensitive named parents
+UCI read ──► normalize ──► validate all ──► remove previous named owners
+                                │                     │
+                                └─────────► create named parents
+                                             ▼
+                                      create address families
+                                             ▼
+                                      apply network settings
+                                             ▼
+                                      apply interface settings
+                                             ▼
+                                      bind new host policies
 ```
 
-The OpenWrt config layer should preserve that same semantic ordering when it
-replays retained UCI configuration at startup or reload time.
+`eigrp_owrt_uci_reload(directory, &active, &diagnostic)` parses and validates
+new configuration **before** mutating portable state. During replacement it
+calls the owning `eigrp_cli.h` functions; parents are created before AFs and
+AFs before child configuration regardless of UCI section order. On a
+semantic error, it reports the original result, removes partially created
+candidate parents and attempts to replay the former snapshot. This is
+**best-effort rollback**, not atomic kernel/network reconfiguration.
 
-## 8. Reload and writeback behavior
+`eigrp_owrt_config_replace` retains an owned snapshot. The OW-09 daemon must
+serialize reload and policy consumers to avoid use-after-free, start the
+portable core before calling reload and call `eigrp_owrt_config_policy_bind(NULL)`
+before disposing of the last snapshot.
 
-### 8.1 Reload
+UCI writeback uses its native commit semantics. Standard commands remain
+available (`uci set`, `uci delete`, `uci commit openeigrp`).
+`eigrp_owrt_uci_option_write` additionally validates the **prospective**
+configuration before committing an option set/reset. In UCI, the documented
+`no`/reset operation is deleting that option: the core's defaults are restored
+when the retained configuration is replayed. Deleting an entire named process
+or AF section deletes its owning configuration during reload.
+
+OW-09 will connect `uci commit`, procd reload and semantic replay in a running
+service. There is no installed daemon or reload hook at this stage.
+
+## 4. Host policy and keychains
 
 ```text
-UCI change
-    -> procd reload_service()
-    -> config adapter diffs or replays retained config
-    -> call semantic add/update/reset/remove functions
-    -> preserve service continuity where possible
+portable EIGRP API
+  ├─ eigrp_sys_filter_evaluate() ───► configured prefix_rule list
+  │                                     first matching CIDR, default deny
+  ├─ eigrp_sys_auth_key_lookup() ───► configured keychain name / id / secret
+  ├─ eigrp_sys_summary_leak_map_evaluate() ► named prefix_rule list
+  └─ route-map / access-list APIs ──► EIGRP_RESULT_NOT_IMPLEMENTED
 ```
 
-### 8.2 Writeback
+Prefix-list evaluation uses containment semantics and respects address family.
+Unsupported access-lists and arbitrary route-map evaluation **do not permit
+traffic by default** and return structured `NOT_IMPLEMENTED`. Unknown prefix
+list names return `NOT_FOUND`. The keychain lookup copies a single active key
+into caller-owned storage; no UCI object escapes the adapter.
 
-```text
-host-side config mutation
-    -> semantic call succeeds
-    -> config adapter updates retained UCI state
-    -> commit/write as policy requires
+HMAC passwords are retained as protected UCI configuration. Do not place
+secrets in world-readable scripts, logs, command examples or environment
+variables. The packaged sample config has no active credentials. Runtime
+HMAC capability remains governed by the portable core.
+
+## 5. Build and tests
+
+Native host-neutral tests:
+
+```sh
+./tools/openwrt.sh --test
+bash openwrt/test/config-test.sh
 ```
 
-A failed semantic operation must not be silently written as if it succeeded.
+Combined nonprivileged UUTs:
 
-## 9. Result handling
-
-The OpenWrt config layer must preserve distinctions such as:
-
-- success;
-- invalid input;
-- not found;
-- already exists;
-- unsupported runtime behavior;
-- `EIGRP_RESULT_NOT_IMPLEMENTED`.
-
-This is important because configuration retention may still be required even
-when runtime support is incomplete.
-
-## 10. Management and operational visibility
-
-```text
-show / status / telemetry request
-    -> ubus method or CLI frontend
-    -> eigrp_mgnt.h snapshot readers/iterators
-    -> present neighbors, interfaces, topology, routes, traffic, event log
+```sh
+./tools/openwrt.sh --uut
 ```
 
-### Management presentation layers
+For actual kernel route mutation the user must request an isolated test:
 
-```text
-+-------------------------+
-| ubus methods / CLI      |
-+------------+------------+
-             |
-             v
-+-------------------------+
-| OpenWrt mgmt adapter    |
-|   JSON/text formatting  |
-+------------+------------+
-             |
-             v
-+-------------------------+
-| eigrp_mgnt.h snapshots  |
-+-------------------------+
+```sh
+./tools/openwrt.sh --kernel
 ```
 
-The management adapter must not walk private portable structures directly.
-
-## 11. procd lifecycle
-
-```text
-boot/start
-    -> procd launches daemon
-    -> daemon loads retained UCI config
-    -> applies semantic configuration
-
-reload
-    -> procd signals reload
-    -> daemon re-reads UCI and applies deltas/replay
-
-stop
-    -> daemon shuts down cleanly
-    -> callbacks and sockets are canceled
-```
-
-## 12. Acceptance checkpoints
-
-- retained configuration survives restart;
-- reload applies mutations without stale runtime state;
-- documented reset/no forms restore defaults;
-- IPv6 config remains writable even before all runtime pieces exist;
-- operational views use public management APIs only.
+Cross-compilation of the real `libuci` target is verified by OpenWrt's package
+build on Aurora. Native recipe tests set `OPENEIGRP_UCI_BUILD=0` because Debian
+and macOS development hosts do not necessarily have libuci headers; they
+still compile `eigrp_owrt_config.c` and `eigrp_owrt_policy.c` and confirm
+source staging. The OW-09 live service gate will additionally verify
+persistence across restart, reload of a running adjacency and error handling
+for unsupported policy objects.

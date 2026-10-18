@@ -17,6 +17,7 @@ Do not implement EIGRP Stub behavior.
 - `openwrt/specs/runtime.md`: OW-04 scheduler, locks, cancellation, shutdown
 - `openwrt/specs/interfaces.md`: OW-05 rtnetlink interface/address lifecycle
 - `openwrt/specs/packets.md`: OW-06 IPv4/IPv6 raw socket transport
+- `openwrt/specs/rib.md`: OW-07 kernel routes, source subscriptions and replay
 - `openwrt/specs/configuration.md`: UCI, reload, writeback and management
 - `openwrt/specs/packaging.md`: feed, package and patch ownership
 
@@ -24,7 +25,7 @@ Do not implement EIGRP Stub behavior.
 
 | ID | Deliverable | Acceptance gate |
 |---|---|---|
-| OW-01 | Debian/macOS host setup and target configuration | Idempotent setup, `--verify`, `--config`, CI smoke |
+| OW-01 | Debian/macOS host setup and target configuration | Idempotent setup, `--verify`, `--config`, CI test |
 | OW-02 | OpenWrt package/feed skeleton and staged install | Real OpenWrt package identified by menuconfig; repeatable source staging |
 | OW-03 | OpenWrt build driver and target selection | Target build via toolchain; no silent patching; deterministic artifacts |
 | OW-04 | Host runtime, event loop, process lifecycle | Portable system API link test, timers and teardown with no callback leaks |
@@ -33,12 +34,12 @@ Do not implement EIGRP Stub behavior.
 | OW-07 | Linux kernel RIB, redistribution and reconnect | Routes installed, withdrawn and replayed without leaked host types |
 | OW-08 | Configuration + policy/keychain integration | UCI retention/reload/no forms and structured semantic results |
 | OW-09 | procd/ubus management and operational visibility | Lifecycle, observability, logs and restart on live nodes |
-| OW-10 | UUT and GitHub Actions acceptance | Linux cross-build; QEMU/device adjacency/route tests; Mac smoke |
+| OW-10 | UUT and GitHub Actions acceptance | Linux cross-build; QEMU/device adjacency/route tests; Mac test |
 
 ### OW-01: host setup (first deliverable)
 
 Files: `tools/openwrt.sh`, `openwrt/dev-env.sh`, `openwrt/README.md`,
-`openwrt/test/setup-smoke.sh`, `.github/workflows/openwrt.yml`.
+`openwrt/test/setup-test.sh`, `.github/workflows/openwrt.yml`.
 
 - Install Debian/Ubuntu prerequisites with apt or macOS prerequisites with
   Homebrew; allow a no-install path for already provisioned hosts.
@@ -59,10 +60,10 @@ Files: `tools/openwrt.sh`, `openwrt/dev-env.sh`, `openwrt/README.md`,
 - Test shell grammar, help, argument handling, safe existing checkout use,
   and configuration command invocation.
 
-**Exit criterion:** Shell smoke passes on Ubuntu/macOS Actions; host setup can
+**Exit criterion:** Shell test passes on Ubuntu/macOS Actions; host setup can
 be run by a developer, and leaves source and installed packages untouched when
 `--verify` is selected. A live run of the package-install path is a developer
-acceptance gate, not something claimed by CI smoke.
+acceptance gate, not something claimed by CI test.
 
 ### OW-02: feed and package layout
 
@@ -75,7 +76,7 @@ acceptance gate, not something claimed by CI smoke.
   update its feed index and install its package symlink; reject conflicts.
 - Implemented `--config` selection of `CONFIG_PACKAGE_openeigrp=y` after
   installation, without making the installer change `.config`.
-- Unit/smoke coverage exercises package recipe, duplicate registration and
+- Unit/test coverage exercises package recipe, duplicate registration and
   unsafe conflict handling. A full OpenWrt ARM64 compilation is the required
   live acceptance gate on Aurora.
 
@@ -93,7 +94,7 @@ acceptance gate, not something claimed by CI smoke.
 - On macOS, source `openwrt/dev-env.sh`, attempt the same build, and record
   platform-specific deficiencies separately. Do not suppress build failures.
 
-### OW-04: core/host runtime (implemented, pending target cross-build)
+### OW-04: core/host runtime (implemented; Aurora ARM64 build passed)
 
 - Add the native `openwrt/code/eigrp_owrt_runtime.c` implementation of the
   `eigrp_sys.h` scheduler/time/work-queue surface. The portable public function
@@ -107,7 +108,7 @@ acceptance gate, not something claimed by CI smoke.
   Changing an instance binding cancels that instance's previous readiness
   callbacks, not those belonging to other instances sharing an FD.
 - Extend the package to target-build both core and runtime archives.
-- Add `runtime-smoke.sh` / `runtime-harness.c` as native Linux/macOS tests,
+- Add `runtime-test.sh` / `runtime-harness.c` as native Linux/macOS tests,
   plus package staging/build recipe checks and CI execution.
 - OW-06 will supply the actual packet descriptor producer. OW-04 does not ship
   sockets or a daemon entry point.
@@ -116,7 +117,7 @@ acceptance gate, not something claimed by CI smoke.
 work-queue, shutdown and restart tests. OpenWrt ARM64 package cross-build must
 be confirmed on Aurora before declaring the target build gate passed.
 
-### OW-05: interfaces (implemented; target cross-build pending)
+### OW-05: interfaces (implemented; Aurora ARM64 build passed)
 
 - Implement real route-netlink `RTM_GETLINK`/`RTM_GETADDR` snapshots and
   multicast link/IPv4/IPv6 address notifications. No root privileges or
@@ -128,16 +129,16 @@ be confirmed on Aurora before declaring the target build gate passed.
 - Provide `eigrp_sys_interface_walk()` filtered by instance address family.
 - Add explicit `eigrp_owrt_interface_start/refresh/stop` lifecycle; watcher
   startup and callback teardown must precede core shutdown.
-- Extend package archive and native unit/CI smoke to compile and test Linux
+- Extend package archive and native unit/CI test to compile and test Linux
   netlink integration with deterministic synthetic link/address transitions.
 - Document default-VRF-only scope and defer privileged live topology flaps to
   the later QEMU/device UUT stage.
 
 **Acceptance:** Linux interface synthetic/dump UUT, runtime UUT and recipe
-smoke pass. ARM64 OpenWrt cross-build and privileged live interface-flap tests
+test pass. ARM64 OpenWrt cross-build and privileged live interface-flap tests
 remain to be verified on Aurora/OpenWrt UUT.
 
-### OW-06: packet path (implemented; ARM64 and adjacency gates outstanding)
+### OW-06: packet path (implemented; Aurora ARM64 build passed; adjacency gate outstanding)
 
 - `eigrp_owrt_packet.c` now supplies per-instance Linux raw IPv4/IPv6
   protocol 88 sockets, bounded receive framing, normalized address/ifindex
@@ -153,22 +154,60 @@ remain to be verified on Aurora/OpenWrt UUT.
   Hello/neighbor establishment** are outstanding live integration gates;
   the latter requires the daemon/configuration services from OW-08/09.
 
-### OW-07: kernel RIB
+### OW-07: kernel RIB (implemented; target/device gates outstanding)
 
-- Use the public `eigrp_rib.h` route API to translate selected routes to/from
-  Linux routes. Support add/delete/replace, multipath as applicable, source
-  route subscriptions, and reconnect/replay.
-- Keep route-selection and redistribution protocol decisions in `eigrp/code/`.
+- Add `eigrp_owrt_rib.c`, `eigrp_owrt_rib_netlink.c`, and the private
+  `eigrp_owrt_rib.h`. No changes to the portable `eigrp_rib.h` contract.
+- Use Linux route-netlink acknowledgments for kernel add/replace/del,
+  protect first installs with exclusive creation, record installed prefixes
+  per instance, support IPv4/IPv6 next hops and Linux multipath weights.
+- Maintain protocol/route-instance keyed subscriptions to imported Linux main
+  table routes (connected, static, RIP, OSPF, ISIS, BGP). Observe changes by
+  full dump reconciliation; never reimport OpenEIGRP's RTPROT_EIGRP routes.
+- Re-evaluate portable selected successors after an externally deleted kernel
+  EIGRP route. Invalidate the cached installed flag so an unchanged selected
+  route really causes an exclusive kernel reinstall.
+- Constrain OW-07 to the default VRF, main table and route-instance 0;
+  unsupported source variants return structured EIGRP results.
+- Add Linux `rib-uut.sh` with read-only real netlink, deterministic simulated
+  route changes and an optional isolated CAP_NET_ADMIN namespace test.
+- Rename existing shell tests to `*-test.sh`/`*-uut.sh` by semantics and
+  update CI, documentation and test references. No legacy alias scripts.
+- Preserve EIGRP-authoritative route selection and redistribution decisions.
 
-### OW-08: configuration
+**Acceptance:** Local native RIB tests, runtime, interface, packet and recipe
+checks pass. Aurora ARM64 cross-build, optional isolated kernel write test,
+and an actual OpenWrt router route exchange are separate outstanding gates.
 
-- Implement OpenWrt-native UCI configuration mapping to semantic `eigrp_cli.h`
-  targets, reliable writeback, reload, and documented `no`/reset operations.
-- Follow named IPv4 AS 4453, IPv6 AS 4453, multiple AS, case-sensitive parent
-  ordering. Retain IPv6 config even where runtime is incomplete.
-- Implement policy/key lookup across the public boundary, without exposing UCI
-  objects to portable functions. Missing features must return real structured
-  EIGRP results, never fake success.
+### OW-08: configuration and centralized tests (implemented; target/device gates remain)
+
+- Add `eigrp_owrt_config.c/.h`, `eigrp_owrt_uci.c`, and
+  `eigrp_owrt_policy.c`. Load real `libuci` configuration into normalized
+  host-owned sections and validate before applying any semantic operation.
+- Support case-sensitive named parents, IPv4/IPv6 AF, multiple AS, IPv4
+  networks, interface timers/options, authentication settings and keychains.
+  The portable core remains the semantic authority. IPv6 retained configuration
+  is not discarded because runtime behavior is incomplete.
+- Support native UCI writeback and deletion/reset operations with prospective
+  schema validation; provide a retained snapshot and best-effort semantic
+  replacement/reload rollback. OW-09 will attach these calls to procd.
+- Implement named prefix-list rule evaluation and keychain lookup behind
+  EIGRP public host policy functions. Return structured `NOT_IMPLEMENTED` for
+  unsupported access-list/route-map capabilities rather than fake permit.
+- Package protected `/etc/config/openeigrp`, stage real UCI source, and depend
+  on `libuci`. No dummy executable or premature procd service.
+- Implement `tools/openwrt.sh --clean`, `--test`, `--uut`, `--kernel` as the
+  project-wide OpenWrt task orchestration pattern. Keep every underlying
+  `openwrt/test/*-test.sh` and `*-uut.sh` directly runnable for debugging/CI.
+  Future OW-* work adds tests to this central sequence instead of introducing
+  orphan manual commands.
+- Local Linux tests cover syntax, isolated driver build safety, config
+  semantics, retained identity/case sensitivity, key policy, interface, packet
+  and RIB UUTs. The actual ARM64 `libuci` cross-build and live procd reload
+  require Aurora/device acceptance; root namespace writes are optional.
+
+**Acceptance:** Host component/UUT tests pass. Cross-target UCI build and
+service-runtime behavior are separately tracked and not claimed in CI.
 
 ### OW-09: daemon and management
 

@@ -150,8 +150,8 @@ callbacks.
 ## Validation
 
 ```sh
-bash openwrt/test/runtime-smoke.sh
-bash openwrt/test/recipe-smoke.sh
+bash openwrt/test/runtime-test.sh
+bash openwrt/test/recipe-test.sh
 ```
 
 The tests validate native compilation, events, timers, cancellation, FD

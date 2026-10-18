@@ -188,3 +188,25 @@ OpenEIGRP feed/package
                  |
                  +--> future openeigrp-owrt image pipeline
 ```
+
+### OW-07 RIB archive additions
+
+The same target-built host archive now contains
+`eigrp_owrt_rib.o` and `eigrp_owrt_rib_netlink.o`, and the recipe stages
+`eigrp_owrt_rib.h`. The package is still a pair of static development
+archives, not a deployable daemon. Kernel FIB writes are only attempted by a
+future running daemon. The recipe stays in the local `src-link` feed.
+
+## OW-08: UCI configuration payload
+
+The real OpenWrt target package depends on `libuci` and compiles
+`eigrp_owrt_uci.c` with the target's staged `uci.h`. It also compiles
+`eigrp_owrt_config.c` and `eigrp_owrt_policy.c` and installs a protected,
+retained `/etc/config/openeigrp` template as a conffile. A package update
+must preserve the device's edited UCI configuration.
+
+The native `recipe-test.sh` intentionally compiles host-neutral configuration
+and policy objects without libuci because Linux developer machines and macOS
+runners need not supply OpenWrt development headers. That is not evidence of
+an OpenWrt-target libuci compilation. `tools/openwrt.sh --build` performs the
+real cross-build. The executable daemon and procd hook are still OW-09.
