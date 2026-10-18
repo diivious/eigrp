@@ -187,7 +187,11 @@ for spec in "$r1:10.56.41.11/16" "$r1:10.53.41.11/24" \
             "$r2:10.56.41.12/16" "$r2:10.47.45.12/24"; do
     node="${spec%%:*}"
     address="${spec#*:}"
-    docker exec "$node" ip -o -4 addr show | grep -Fq "inet $address " ||
+    # Do not pipe Docker output into grep -q under pipefail: an early match
+    # can close the pipe and make docker exec fail with SIGPIPE (false negative).
+    interface_addresses="$(docker exec "$node" ip -o -4 addr show)" ||
+        fail "$node: unable to inspect IPv4 interface addresses"
+    grep -Fq "inet $address " <<< "$interface_addresses" ||
         fail "$node: expected IPv4 interface $address not installed"
 done
 

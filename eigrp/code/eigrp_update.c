@@ -337,6 +337,15 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					eigrp_topology_route_free(received_route);
 
 			} else {
+				/* An unreachable UPDATE withdraws a previously advertised
+				 * destination.  When it is already absent, there is nothing to
+				 * withdraw.  Do not recreate a topology descriptor from infinity:
+				 * re-advertising that descriptor can reflect withdrawals between
+				 * neighbors indefinitely after convergence. */
+				if (eigrp_metric_calculate(eigrp, route->metric) == EIGRP_MAX_METRIC) {
+					eigrp_topology_route_free(route);
+					continue;
+				}
 				/* Enforce neighbor and topology limits only for a genuinely new
 				 * accepted destination/path. Duplicate UPDATEs do not consume
 				 * another prefix slot. */

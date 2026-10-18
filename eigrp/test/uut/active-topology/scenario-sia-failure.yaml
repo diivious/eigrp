@@ -38,3 +38,7 @@ steps:
         - route: {uut: r3, prefix: 10.4.0.0/24, table: rib, present: false}
         - route: {uut: r2, prefix: 10.4.0.0/24, table: topology, present: false}
         - route: {uut: r2, prefix: 10.4.0.0/24, table: rib, present: false}
+  # A withdrawal for an already-absent destination must not bounce back and
+  # forth between neighbors as a new unreachable topology advertisement.
+  - validate-packet: {source_uut: r3, destination_uut: r4, opcode: update, prefix: 10.4.0.0/24, since: sia-failure, min: 0, max: 20, event: delivered}
+  - validate-packet: {source_uut: r4, destination_uut: r3, opcode: update, prefix: 10.4.0.0/24, since: sia-failure, min: 0, max: 20, event: delivered}

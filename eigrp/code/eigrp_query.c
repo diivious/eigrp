@@ -23,6 +23,7 @@
 #include "eigrp_prefix.h"
 #include "eigrp_summary.h"
 #include "eigrp_eventlog.h"
+#include "eigrp_metric.h"
 
 
 static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
@@ -59,6 +60,83 @@ static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
 	eigrp_reply_send_route(eigrp, nbr, prefix, reply_route,
 			      EIGRP_PACKETIZER_WORK_F_OWN_PREFIX |
 			      EIGRP_PACKETIZER_WORK_F_OWN_ROUTE);
+}
+
+/* RFC 7868 4.3: remember the advertised metric of an unknown destination
+ * only when a QUERY carries a finite metric.  The QUERY itself is not a
+ * reachable-route UPDATE: do not immediately elect a successor, install in
+ * the RIB, advertise an UPDATE, or start a diffusing computation here.  The
+ * neighbor's vector is retained so a later UPDATE can use the same path.
+ */
+static bool eigrp_query_unknown_route_record(eigrp_instance_t *eigrp,
+				 eigrp_nbr_t *nbr, eigrp_route_descriptor_t *route,
+				 eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_route_descriptor_t *previous;
+	eigrp_list_t *routes;
+	bool new_prefix = prefix == NULL;
+
+	if (!eigrp || !nbr || !route || !nbr->ei || !eigrp->topology_table
+	    || route->metric.delay == EIGRP_MAX_METRIC
+	    || route->metric.delay == EIGRP_METRIC_MAX)
+		return false;
+	if (!eigrp_nbr_prefix_admit(eigrp, nbr, &route->dest)
+	    || !eigrp_topology_prefix_admit(eigrp, &route->dest))
+		return false;
+
+	if (new_prefix) {
+		prefix = eigrp_topology_prefix_create();
+		if (!prefix)
+			return false;
+		prefix->destination = route->dest;
+		eigrp_prefix_normalize(&prefix->destination);
+		prefix->serno = eigrp->serno;
+		prefix->state = EIGRP_FSM_STATE_PASSIVE;
+		prefix->nt = (route->type == eigrp->af_vectors.classic_external_tlv_type
+			      || route->type == EIGRP_TLV_MP_EXT)
+				     ? EIGRP_TOPOLOGY_TYPE_REMOTE_EXTERNAL
+				     : EIGRP_TOPOLOGY_TYPE_REMOTE;
+		/* No successor is known.  Keep the locally advertised distance
+		 * infinite until a subsequent DUAL event establishes a route. */
+		prefix->reported_metric.delay = EIGRP_MAX_METRIC;
+	}
+
+	previous = eigrp_prefix_descriptor_lookup(prefix, nbr);
+	if (previous) {
+		eigrp_fsm_action_message_t msg = {0};
+
+		previous->type = route->type;
+		previous->nexthop = route->nexthop;
+		previous->extdata = route->extdata;
+		msg.eigrp = eigrp;
+		msg.prefix = prefix;
+		msg.adv_router = nbr;
+		msg.route = previous;
+		msg.metrics = route->metric;
+		msg.data_type = (route->type == eigrp->af_vectors.classic_external_tlv_type
+				 || route->type == EIGRP_TLV_MP_EXT) ? EIGRP_EXT : EIGRP_INT;
+		(void)eigrp_topology_update_distance(&msg);
+		return false; /* The caller still owns the decoded QUERY TLV. */
+	}
+
+	route->adv_router = nbr;
+	route->prefix = prefix;
+	route->reported_metric = route->metric;
+	route->reported_distance = eigrp_metric_calculate(eigrp, route->reported_metric);
+	route->distance = eigrp_metric_total_calculate(eigrp, route);
+	routes = eigrp_topology_route_queue(prefix,
+			(route->type == eigrp->af_vectors.classic_external_tlv_type
+			 || route->type == EIGRP_TLV_MP_EXT) ? 1 : 0);
+	if (!eigrp_list_insert(routes, route)) {
+		if (new_prefix)
+			eigrp_topology_prefix_free(prefix);
+		return false;
+	}
+	/* Route storage is intentionally separate from route_descriptor_add(),
+	 * which can install the first path into the host RIB. */
+	if (new_prefix)
+		eigrp_prefix_descriptor_add(eigrp->topology_table, prefix);
+	return true;
 }
 
 void eigrp_query_send_route(eigrp_instance_t *eigrp,
@@ -153,15 +231,25 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			&route->dest, route->distance,
 			prefix ? prefix->distance : EIGRP_MAX_METRIC,
 			ei ? ei->ifindex : 0, 0);
-		if (!prefix) {
-			char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
+		/* A QUERY-retained path is not yet a successor.  Repeated QUERYs
+		 * must not promote it into a forwarding route merely because its
+		 * destination now has a topology entry. */
+		if (!prefix || (prefix->state == EIGRP_FSM_STATE_PASSIVE
+				&& prefix->distance == EIGRP_MAX_METRIC
+				&& prefix->fdistance == EIGRP_MAX_METRIC
+				&& prefix->reported_metric.delay == EIGRP_MAX_METRIC)) {
+			if (!prefix) {
+				char prefix_buf[EIGRP_PREFIX_STRLEN] = "invalid";
 
-			eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
-					      &route->dest);
-			eigrp_log(EIGRP_LOG_DEBUG, "EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
-				   eigrp_print_addr(&nbr->src), prefix_buf);
+				eigrp_prefix_snprintf(prefix_buf, sizeof(prefix_buf),
+						      &route->dest);
+				eigrp_log(EIGRP_LOG_DEBUG,
+					  "EIGRP QUERY: Neighbor(%s) sent unknown prefix %s",
+					  eigrp_print_addr(&nbr->src), prefix_buf);
+			}
 			eigrp_query_unknown_reply_send(eigrp, nbr, route);
-			eigrp_topology_route_free(route);
+			if (!eigrp_query_unknown_route_record(eigrp, nbr, route, prefix))
+				eigrp_topology_route_free(route);
 			continue;
 		}
 		eigrp_route_descriptor_t *received_route = route;
