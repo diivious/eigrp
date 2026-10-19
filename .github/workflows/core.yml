@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Donnie V. Savage
 # EIGRP portable/core CI. The root Makefile owns test orchestration.
 #
-# Run branch regressions until there is an open PR targeting master; then let
-# the PR validate the proposed merge, without duplicating the branch tests.
+# Validate every commit to master. For feature branches with open master PRs,
+# the PR validates the proposed merge instead of duplicating branch tests.
 # Gate: fast compile/smoke -> CodeQL -> full macOS/Linux UUT.
 # Use CodeQL advanced setup rather than default setup to avoid duplicate scans.
 
@@ -10,7 +10,8 @@ name: EIGRP Core CI
 
 on:
   push:
-    branches-ignore: [master]
+    # Validate every branch, including master. Release tags use Docker CI.
+    branches: ['**']
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -38,7 +39,7 @@ jobs:
         with:
           script: |
             let run = true;
-            if (context.eventName === 'push') {
+            if (context.eventName === 'push' && context.ref !== 'refs/heads/master') {
               const branch = context.ref.slice('refs/heads/'.length);
               const prs = await github.paginate(github.rest.pulls.list, {
                 owner: context.repo.owner,
