@@ -1,0 +1,36 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: rtp-peer-restart-reused-init-sequence
+steps:
+  - packet-mark: first-adjacency
+  - start: all
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up}
+        - route: {uut: r1, prefix: 10.2.0.0/24}
+        - route: {uut: r2, prefix: 10.1.0.0/24}
+  # Sequence 2 is the reliable non-INIT synchronization UPDATE/EOT.
+  # It closes the first INIT retransmission window on the surviving peer.
+  - validate-packet: {since: first-adjacency, source_uut: r2, destination_uut: r1, opcode: update, sequence: 2, event: delivered, min: 1, timeout: 10}
+  # Hide graceful-shutdown traffic so r1 retains the UP neighbor object.
+  # Otherwise this exercises ordinary neighbor deletion, not peer restart.
+  - fault-add: {name: suppress-goodbye, action: drop, source_uut: r2, destination_uut: r1}
+  - stop: r2
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, timeout: 2}
+  - fault-remove: suppress-goodbye
+  - packet-mark: restarted-peer
+  - start: r2
+  # A new daemon begins its RTP sequence space at 1 again.
+  - validate-packet: {since: restarted-peer, source_uut: r2, destination_uut: r1, opcode: update, sequence: 1, event: delivered, min: 1, timeout: 10}
+  # The restarted peer must obtain the survivor's full INIT/EOT table.
+  - validate-convergence:
+      timeout: 20
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up}
+        - route: {uut: r1, prefix: 10.2.0.0/24}
+        - route: {uut: r2, prefix: 10.1.0.0/24}
+  - validate-event: {uut: r1, contains: "reason peer restarted", min: 1, timeout: 5}
+  - validate-packet: {since: restarted-peer, source_uut: r1, destination_uut: r2, opcode: update, event: delivered, min: 1, timeout: 5}

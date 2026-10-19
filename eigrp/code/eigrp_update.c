@@ -40,6 +40,10 @@
 #include "eigrp_eventlog.h"
 
 
+/* Preserves existing NSF event reasons 1-4; 5 is a non-disruptive INIT
+ * replay reconciliation, not a confirmed peer reboot. */
+#define EIGRP_UPDATE_NSF_INIT_REPLAY_RESYNC 5U
+
 static void eigrp_update_nsf_eventlog(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	uint32_t reason, uint32_t flags, uint32_t sequence)
 {
@@ -142,6 +146,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	eigrp_route_descriptor_t *route;
 	uint32_t flags;
 	bool peer_init_previously_seen;
+	bool peer_init_resync_complete = false;
 	uint8_t same;
 	uint8_t graceful_restart;
 	uint8_t graceful_restart_final;
@@ -158,13 +163,42 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	 * interpreted as a fresh peer restart or delivered to DUAL again. */
 	if (flags == EIGRP_INIT_FLAG
 	    && ntohl(eigrph->sequence) != 0
+	    && nbr->peer_init_retransmit_eligible
 	    && nbr->peer_init_sequence_number == ntohl(eigrph->sequence)) {
+		/* A retried INIT and a reboot that reuses its sequence are
+		 * indistinguishable until the peer advances to its EOT.  Never
+		 * force a DOWN transition here: a lost INIT ACK would repeatedly
+		 * tear down an otherwise healthy adjacency (RFC 7868 RTP).
+		 * Record a single reconciliation window instead. */
+		if (nbr->state == EIGRP_NEIGHBOR_UP
+		    && !nbr->peer_init_resync_pending) {
+			nbr->peer_init_resync_prefixes =
+				eigrp_nbr_prefixes_lookup(eigrp, nbr);
+			/* Prefix reconciliation must remain O(n) at scale, not
+			 * O(n^2) for 100K-route peers. */
+			if (nbr->peer_init_resync_prefixes)
+				(void)eigrp_list_index_enable(nbr->peer_init_resync_prefixes);
+			nbr->peer_init_resync_pending = true;
+		}
 		eigrp_hello_send_ack_sequence(nbr, ntohl(eigrph->sequence));
 		return;
 	}
 	peer_init_previously_seen = nbr->peer_init_sequence_number != 0;
-	if (flags == EIGRP_INIT_FLAG && !peer_init_previously_seen)
+	if (flags == EIGRP_INIT_FLAG && !peer_init_previously_seen) {
 		nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
+		nbr->peer_init_retransmit_eligible =
+			ntohl(eigrph->sequence) != 0;
+	} else if (flags == EIGRP_EOT_FLAG && peer_init_previously_seen
+		   && eigrp_packet_sequence_before(
+			   nbr->peer_init_sequence_number, ntohl(eigrph->sequence))) {
+		/* An UPDATE is not proof that the peer received our INIT ACK:
+		 * another adjacency can drive multicast UPDATEs while this peer's
+		 * INIT is still being retransmitted.  Only its later EOT proves it
+		 * advanced past the INIT handshake.  RTP sequence ordering also
+		 * excludes an EOT queued before this neighbor's initial INIT. */
+		nbr->peer_init_retransmit_eligible = false;
+		peer_init_resync_complete = nbr->peer_init_resync_pending;
+	}
 
 	same = 0;
 	graceful_restart = 0;
@@ -256,12 +290,17 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
+			nbr->peer_init_retransmit_eligible =
+				ntohl(eigrph->sequence) != 0;
 			nbr->recv_sequence_number = ntohl(eigrph->sequence);
 			if (eigrp->log_neighbor_changes)
 				eigrp_log(EIGRP_LOG_INFO, "Neighbor %s (%s) is down: peer restarted",
 					  eigrp_print_addr(&nbr->src),
 					  nbr->ei->name);
 			eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_PENDING);
+			/* DOWN canceled the hold timer.  Ingress refreshed it before
+			 * the restart transition, so rearm it for this new PENDING peer. */
+			eigrp_nbr_holddown_update(nbr);
 			eigrp_update_send_init(eigrp, nbr);
 		}
 	}
@@ -288,6 +327,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				 * list if in GR */
 				if (graceful_restart)
 					remove_received_prefix_gr(nbr_prefixes, prefix);
+				if (nbr->peer_init_resync_pending && nbr->peer_init_resync_prefixes)
+					eigrp_list_delete_data(nbr->peer_init_resync_prefixes, prefix);
 
 				struct eigrp_fsm_action_message msg;
 				eigrp_route_descriptor_t *received_route = route;
@@ -410,6 +451,23 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	 * if this is final GR packet */
 	if (graceful_restart_final) {
 		eigrp_update_receive_GR_ask(eigrp, nbr, nbr_prefixes);
+	}
+
+	if (peer_init_resync_complete) {
+		/* EOT completes the ambiguous INIT epoch.  Withdraw routes not
+		 * readvertised by the peer, then refresh our own topology for a
+		 * possible rebooted peer.  For a mere lost-ACK retry this is a
+		 * bounded extra synchronization, not an adjacency flap. */
+		if (nbr->peer_init_resync_prefixes) {
+			eigrp_update_receive_GR_ask(eigrp, nbr,
+				nbr->peer_init_resync_prefixes);
+			eigrp_list_delete(&nbr->peer_init_resync_prefixes);
+		}
+		nbr->peer_init_resync_pending = false;
+		eigrp_update_nsf_eventlog(eigrp, nbr,
+			EIGRP_UPDATE_NSF_INIT_REPLAY_RESYNC, flags,
+			ntohl(eigrph->sequence));
+		eigrp_update_send_EOT(nbr);
 	}
 
 	/* Every reliable UPDATE, including the adjacency INIT UPDATE, must be

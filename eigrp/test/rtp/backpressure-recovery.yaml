@@ -10,3 +10,7 @@ steps:
   - validate-neighbor: {uut: r2, neighbor: 10.0.0.3, state: up, reliable_q: 0, timeout: 12}
   - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, reliable_q: 0, timeout: 12}
   - validate-convergence: {timeout: 12, expect: [{route: {uut: r2, prefix: 10.1.0.0/24, table: rib}}, {route: {uut: r2, prefix: 10.3.0.0/24, table: rib}}]}
+  # Delayed ACKs may retransmit the original INIT after unrelated multicast
+  # UPDATEs have arrived. They must not cause either peer to restart.
+  - validate-event: {uut: r2, contains: "reason peer restarted", min: 0, max: 0}
+  - validate-event: {uut: r3, contains: "reason peer restarted", min: 0, max: 0}

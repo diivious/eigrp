@@ -1,0 +1,34 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: rtp-peer-restart-hold-expiry
+steps:
+  - packet-mark: first-adjacency
+  - start: all
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up}
+        - route: {uut: r1, prefix: 10.2.0.0/24}
+  - validate-packet: {since: first-adjacency, source_uut: r2, destination_uut: r1, opcode: update, sequence: 2, event: delivered, min: 1, timeout: 10}
+  - fault-add: {name: suppress-goodbye, action: drop, source_uut: r2, destination_uut: r1}
+  - stop: r2
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, timeout: 2}
+  # Delay just the new INIT. While it is held by the broker, install a
+  # one-way blackhole. The delayed frame bypasses later fault matching,
+  # ensuring that the restart INIT is the final packet admitted at r1.
+  - fault-add: {name: hold-first-init, action: delay, source_uut: r2, destination_uut: r1, opcode: update, sequence: 1, delay_ms: 2000, count: 1}
+  - fault-remove: suppress-goodbye
+  - packet-mark: isolated-restart
+  - start: r2
+  - validate-fault: {name: hold-first-init, hits: 1, timeout: 10}
+  - fault-add: {name: silence-new-peer, action: drop, source_uut: r2, destination_uut: r1}
+  - validate-packet: {since: isolated-restart, source_uut: r2, destination_uut: r1, opcode: update, sequence: 1, event: delayed, min: 1, timeout: 5}
+  # Packet delivery and AF processing are asynchronous in the UUT.
+  - wait: 1
+  - validate-event: {uut: r1, contains: "reason peer restarted", min: 1, timeout: 5}
+  # DOWN canceled the old timer. PENDING must arm a new 15-second hold
+  # timer even though no subsequent packets can refresh it.
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: down, timeout: 25}
+  - validate-route: {uut: r1, prefix: 10.2.0.0/24, present: false, timeout: 10}
+  - validate-fault: {name: silence-new-peer, hits: 1, timeout: 3}
