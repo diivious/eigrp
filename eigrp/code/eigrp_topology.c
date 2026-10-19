@@ -2325,6 +2325,17 @@ static eigrp_result_t eigrp_topology_message_process(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_INVALID_ARGUMENT;
 }
 
+/* A withdrawn destination can remain owned by DUAL or the packetizer
+ * after its usable paths have disappeared.  Such descriptors do not consume
+ * maximum-prefix capacity until a reachable path is admitted again. */
+static bool eigrp_topology_prefix_reachable(eigrp_prefix_descriptor_t *prefix)
+{
+	eigrp_route_descriptor_t *best = eigrp_topology_route_read(prefix);
+
+	return best && best->distance != EIGRP_MAX_METRIC
+	    && best->metric.delay != EIGRP_MAX_METRIC;
+}
+
 static uint32_t eigrp_topology_prefix_count(eigrp_instance_t *runtime)
 {
 	eigrp_table_node_t *node;
@@ -2333,9 +2344,10 @@ static uint32_t eigrp_topology_prefix_count(eigrp_instance_t *runtime)
 	if (!runtime || !runtime->topology_table)
 		return 0;
 	for (node = eigrp_table_first(runtime->topology_table); node;
-	     node = eigrp_table_next(node))
-		if (node->info)
+	     node = eigrp_table_next(node)) {
+		if (eigrp_topology_prefix_reachable(node->info))
 			count++;
+	}
 	return count;
 }
 
@@ -2347,7 +2359,9 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 
 	if (!runtime || !prefix)
 		return false;
-	if (eigrp_topology_table_lookup(runtime->topology_table, prefix))
+	/* Only an existing reachable prefix can bypass new-slot admission. */
+	if (eigrp_topology_prefix_reachable(
+		    eigrp_topology_table_lookup(runtime->topology_table, prefix)))
 		return true;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af || !af->topology_maximum_prefix_configured)

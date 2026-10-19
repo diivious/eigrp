@@ -335,9 +335,24 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				eigrp_route_descriptor_t *topology_route =
 					eigrp_prefix_descriptor_lookup(prefix, nbr);
 				bool free_received_route = false;
+				bool unreachable = eigrp_metric_calculate(eigrp,
+					received_route->metric) == EIGRP_MAX_METRIC;
 
-				if (!topology_route
-				    && !eigrp_nbr_prefix_admit(eigrp, nbr, &received_route->dest)) {
+				/* A new unreachable path is a withdrawal without a route
+				 * to withdraw. Do not admit a poisoned descriptor. */
+				if (!topology_route && unreachable) {
+					eigrp_topology_route_free(received_route);
+					continue;
+				}
+				/* An existing path may itself be poisoned and no longer count
+				 * toward the prefix limit. Check capacity before reviving it,
+				 * but never reject a withdrawal of an owned route. */
+				if ((!topology_route
+				     && !eigrp_nbr_prefix_admit(eigrp, nbr,
+					&received_route->dest))
+				    || (!unreachable
+					&& !eigrp_topology_prefix_admit(eigrp,
+						&received_route->dest))) {
 					eigrp_topology_route_free(received_route);
 					continue;
 				}
