@@ -1,31 +1,61 @@
 # Copyright (C) 2026 Donnie V. Savage
 # EIGRP portable/core CI. The root Makefile owns test orchestration.
 #
-# Keep push and PR runs separate. Each run is gated in order:
-# fast compile/smoke -> CodeQL (Actions, C/C++, Python) -> full macOS/Linux UUT.
-# Switch CodeQL from GitHub-managed default setup to advanced setup before
-# enabling this workflow; otherwise the default CodeQL runs independently.
+# Run branch regressions until there is an open PR targeting master; then let
+# the PR validate the proposed merge, without duplicating the branch tests.
+# Gate: fast compile/smoke -> CodeQL -> full macOS/Linux UUT.
+# Use CodeQL advanced setup rather than default setup to avoid duplicate scans.
 
 name: EIGRP Core CI
 
 on:
   push:
+    branches-ignore: [master]
   pull_request:
+    branches: [master]
   workflow_dispatch:
 
-# Only a newer run of the SAME event/ref may cancel an earlier run. A branch
-# push must not cancel its corresponding PR-merge validation (or vice versa).
-# Never cancel an in-progress master or manual run.
+# Newer runs supersede older runs for the same event/ref only. Keep PR and
+# branch events isolated; manual runs must not cancel one another.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  select:
+    name: Select regression
+    runs-on: ubuntu-latest
+    outputs:
+      run_tests: ${{ steps.check.outputs.run_tests }}
+    steps:
+      - name: Check for an existing PR targeting master
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let run = true;
+            if (context.eventName === 'push') {
+              const branch = context.ref.slice('refs/heads/'.length);
+              const prs = await github.paginate(github.rest.pulls.list, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head: `${context.repo.owner}:${branch}`,
+                state: 'open',
+                per_page: 100
+              });
+              run = !prs.some(pr => pr.base.ref === 'master');
+              if (!run) core.info('Open master PR found; PR validation handles this push.');
+            }
+            core.setOutput('run_tests', String(run));
+
   fast:
     name: Fast Gate
+    needs: [select]
+    if: ${{ needs.select.outputs.run_tests == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out EIGRP
@@ -128,20 +158,22 @@ jobs:
           if-no-files-found: warn
 
   pipeline:
-    name: Pipeline result
-    needs: [fast, codeql, core]
-    # A skipped dependent job must not look like a passing merge gate.
-    # Do not start another job in a deliberately canceled, superseded run.
-    if: ${{ always() && !cancelled() }}
+    # Only the PR gate should be configured as a required merge check.
+    name: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'Branch regression result' }}
+    needs: [select, fast, codeql, core]
+    # A branch push covered by a PR needs no second pipeline; real gate errors
+    # must still be reported as failures, never as passing/skipped PR checks.
+    if: ${{ always() && !cancelled() && (needs.select.result != 'success' || needs.select.outputs.run_tests == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Require all stages to pass
         env:
+          SELECT_RESULT: ${{ needs.select.result }}
           FAST_RESULT: ${{ needs.fast.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
           CORE_RESULT: ${{ needs.core.result }}
         shell: bash
         run: |
-          printf 'Fast Gate: %s\nCodeQL: %s\nCore CI: %s\n' \
-            "$FAST_RESULT" "$CODEQL_RESULT" "$CORE_RESULT"
-          [[ "$FAST_RESULT" == success && "$CODEQL_RESULT" == success && "$CORE_RESULT" == success ]]
+          printf 'Selection: %s\nFast Gate: %s\nCodeQL: %s\nCore CI: %s\n' \
+            "$SELECT_RESULT" "$FAST_RESULT" "$CODEQL_RESULT" "$CORE_RESULT"
+          [[ "$SELECT_RESULT" == success && "$FAST_RESULT" == success && "$CODEQL_RESULT" == success && "$CORE_RESULT" == success ]]

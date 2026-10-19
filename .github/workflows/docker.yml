@@ -4,20 +4,10 @@ name: OpenEIGRP Docker
 
 on:
   push:
-    branches: [master, docker]
-    # Publication tags are independent of beta/gamma/production maturity.
+    # Only versioned release tags publish images. Branch pushes never build Docker.
     tags: ['rel-*']
-    paths:
-      - '.github/workflows/docker.yml'
-      - 'docker/**'
-      - 'tools/docker*.sh'
-      - 'tools/docker*.py'
-      - 'tools/frr.sh'
-      - 'tools/frr-install.sh'
-      - 'eigrp/code/**'
-      - 'frr/code/**'
-      - 'frr/patch/**'
   pull_request:
+    branches: [master]
     paths:
       - '.github/workflows/docker.yml'
       - 'docker/**'
