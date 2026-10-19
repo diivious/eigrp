@@ -18,7 +18,8 @@ def test_manual_summary_has_runtime_advertisement_and_withdrawal_path():
     assert "eigrp_summary_withdraw" in SUMMARY
     assert "eigrp_summary_route_build" in PACKETIZER
     assert "eigrp_summary_route_build" in UPDATE
-    assert "candidate->distance < selected_distance" in SUMMARY
+    # Metric selection is tested by executable eigrp/test/summary/summary_metric.py.
+    # Do not tie this call-path test to the spelling of a C expression.
 
 
 def test_summary_metric_changes_live_summary_vector():
