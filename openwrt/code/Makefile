@@ -12,11 +12,14 @@ CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -pthread
 OWRT_LINUX ?= $(if $(filter Linux,$(shell uname -s)),1,0)
 OBJS := eigrp_owrt_runtime.o eigrp_owrt_interface_state.o eigrp_owrt_config.o eigrp_owrt_policy.o
 OWRT_UCI ?= 0
+EIGRP_CORE_ARCHIVE ?= $(EIGRP_CORE_INCLUDE)/libeigrp-core.a
+EIGRP_OWRT_LDFLAGS ?=
+EIGRP_OWRT_LIBS ?= -luci -pthread
 ifeq ($(OWRT_UCI),1)
 OBJS += eigrp_owrt_uci.o
 endif
 ifeq ($(OWRT_LINUX),1)
-OBJS += eigrp_owrt_interface.o eigrp_owrt_packet.o eigrp_owrt_rib.o eigrp_owrt_rib_netlink.o
+OBJS += eigrp_owrt_interface.o eigrp_owrt_packet.o eigrp_owrt_rib.o eigrp_owrt_rib_netlink.o eigrp_owrt_mgnt.o
 endif
 
 eigrp_owrt_config.o: eigrp_owrt_config.c eigrp_owrt_config.h
@@ -30,6 +33,19 @@ eigrp_owrt_uci.o: eigrp_owrt_uci.c eigrp_owrt_config.h
 
 .PHONY: all clean
 all: libeigrp-owrt-runtime.a
+
+ifeq ($(OWRT_UCI)$(OWRT_LINUX),11)
+.PHONY: daemon
+daemon: openeigrpd openeigrpctl
+
+openeigrpd: eigrp_owrt_daemon.o libeigrp-owrt-runtime.a $(EIGRP_CORE_ARCHIVE)
+	$(CC) $(CFLAGS) $(EIGRP_OWRT_LDFLAGS) -o $@ eigrp_owrt_daemon.o \
+		-Wl,--start-group libeigrp-owrt-runtime.a $(EIGRP_CORE_ARCHIVE) -Wl,--end-group \
+		$(EIGRP_OWRT_LIBS)
+
+openeigrpctl: eigrp_owrt_ctl.o
+	$(CC) $(CFLAGS) $(EIGRP_OWRT_LDFLAGS) -o $@ $<
+endif
 
 libeigrp-owrt-runtime.a: $(OBJS)
 	$(AR) rcs $@ $(OBJS)
@@ -53,4 +69,5 @@ eigrp_owrt_rib_netlink.o: eigrp_owrt_rib_netlink.c eigrp_owrt_rib.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) libeigrp-owrt-runtime.a
+	rm -f $(OBJS) eigrp_owrt_mgnt.o eigrp_owrt_daemon.o eigrp_owrt_ctl.o \
+		libeigrp-owrt-runtime.a openeigrpd openeigrpctl

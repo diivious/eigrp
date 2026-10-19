@@ -35,9 +35,14 @@ cp "$root/openwrt/code/Makefile" "$root/openwrt/code/eigrp_owrt_runtime.c" \
     "$root/openwrt/code/eigrp_owrt_config.h" \
     "$root/openwrt/code/eigrp_owrt_policy.c" \
     "$root/openwrt/code/eigrp_owrt_uci.c" \
+    "$root/openwrt/code/eigrp_owrt_mgnt.c" \
+    "$root/openwrt/code/eigrp_owrt_mgnt.h" \
+    "$root/openwrt/code/eigrp_owrt_daemon.c" \
+    "$root/openwrt/code/eigrp_owrt_ctl.c" \
     "$tmp/eigrp/openwrt/code/"
 cp "$recipe" "$tmp/eigrp/openwrt/feed/openeigrp/Makefile"
 cp "$root/openwrt/feed/openeigrp/files/openeigrp.config" "$tmp/eigrp/openwrt/feed/openeigrp/files/openeigrp.config"
+cp "$root/openwrt/feed/openeigrp/files/openeigrp.init" "$tmp/eigrp/openwrt/feed/openeigrp/files/openeigrp.init"
 cat > "$tmp/openwrt/rules.mk" <<'MK'
 BUILD_DIR:=$(TOPDIR)/build
 INCLUDE_DIR:=$(TOPDIR)/include
@@ -48,6 +53,7 @@ TARGET_CPPFLAGS:=
 INSTALL_DIR:=mkdir -p
 INSTALL_DATA:=install -m 0644
 INSTALL_CONF:=install -m 0600
+INSTALL_BIN:=install -m 0755
 CP:=cp -fp
 MK
 cat > "$tmp/openwrt/include/package.mk" <<'MK'
@@ -74,6 +80,9 @@ include $(TEST_RECIPE)
 test:
 	$(Build/Prepare)
 	$(Build/Compile)
+	printf '%s\n' 'int main(void) { return 0; }' > $(PKG_BUILD_DIR)/openwrt-runtime/recipe-client.c
+	$(TARGET_CC) -o $(PKG_BUILD_DIR)/openwrt-runtime/openeigrpd $(PKG_BUILD_DIR)/openwrt-runtime/recipe-client.c
+	$(TARGET_CC) -o $(PKG_BUILD_DIR)/openwrt-runtime/openeigrpctl $(PKG_BUILD_DIR)/openwrt-runtime/recipe-client.c
 	$(call Build/InstallDev,$(TEST_DEV))
 	$(call Package/openeigrp/install,$(TEST_OUT))
 MK
@@ -82,6 +91,9 @@ make -s -f "$tmp/test.mk" test \
     TEST_RECIPE="$tmp/eigrp/openwrt/feed/openeigrp/Makefile" \
     TEST_DEV="$tmp/dev" TEST_OUT="$tmp/out" OPENEIGRP_UCI_BUILD=0
 test -f "$tmp/out/etc/config/openeigrp"
+test -x "$tmp/out/etc/init.d/openeigrp"
+test -x "$tmp/out/usr/sbin/openeigrpd"
+test -x "$tmp/out/usr/sbin/openeigrpctl"
 test -s "$tmp/out/usr/lib/libeigrp-core.a"
 test -s "$tmp/out/usr/lib/libeigrp-owrt-runtime.a"
 test -s "$tmp/dev/usr/lib/libeigrp-owrt-runtime.a"
@@ -95,4 +107,4 @@ test -f "$tmp/dev/usr/include/openeigrp/eigrp_owrt_config.h"
 if command -v nm >/dev/null 2>&1; then
     nm "$tmp/out/usr/lib/libeigrp-core.a" | grep -q 'eigrp_core_compiled_for_target'
 fi
-printf '%s\n' 'OpenWrt core/runtime/packet/RIB/config recipe staging/build/install test: PASS'
+printf '%s\n' 'OpenWrt OW-09 recipe staging/archive/package file permissions test: PASS'

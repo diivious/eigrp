@@ -30,8 +30,9 @@ package objects.
 ```
 
 The loader and normalized configuration model are implemented **now**.
-Procd startup, UCI change notifications, runtime daemon control and ubus
-management are **OW-09**. OW-08 does not pretend that a daemon is installed.
+OW-09 now supplies the procd-managed daemon and UCI SIGHUP reload. The
+configuration semantic APIs remain OW-08-owned. Custom ubus management RPCs
+are not currently exposed; the operational console uses a local socket.
 
 ## 2. UCI sections
 
@@ -144,8 +145,8 @@ configuration before committing an option set/reset. In UCI, the documented
 when the retained configuration is replayed. Deleting an entire named process
 or AF section deletes its owning configuration during reload.
 
-OW-09 will connect `uci commit`, procd reload and semantic replay in a running
-service. There is no installed daemon or reload hook at this stage.
+OW-09 connects procd reload and semantic replay in a running daemon.
+The reload path uses OW-08 best-effort rollback, not an atomic transaction.
 
 ## 4. Host policy and keychains
 
@@ -197,3 +198,13 @@ still compile `eigrp_owrt_config.c` and `eigrp_owrt_policy.c` and confirm
 source staging. The OW-09 live service gate will additionally verify
 persistence across restart, reload of a running adjacency and error handling
 for unsupported policy objects.
+
+## OW-09 live service connection
+
+The procd init script validates UCI before start/reload using
+`openeigrpd --check`. A valid reload signals the daemon using `SIGHUP`; the
+daemon reloads with `eigrp_owrt_uci_load` and then calls
+`eigrp_owrt_config_replace` while holding its host runtime mutation lock.
+Validation failure is logged without mutating the live snapshot; semantic
+failure follows OW-08 best-effort rollback. `SIGTERM` gracefully stops the
+watchers before terminating the core. See [daemon.md](daemon.md).

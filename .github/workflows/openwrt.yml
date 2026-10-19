@@ -1,35 +1,131 @@
 # Copyright (C) 2026 Donnie V. Savage
-# OpenWrt host/first-stage package recipe checks. Cross-build and QEMU/UUT
-# gates are added when the native daemon has real runtime targets.
-name: OpenWrt Package CI
+# OW-10 acceptance: portable/host tests, OpenWrt cross-build matrix and
+# live two-node QEMU adjacency/FIB exchange on the x86/64 image.
+# No writes are performed to either GitHub repository.
+name: OpenEIGRP OpenWrt Acceptance
 
 on:
   push:
     paths:
-      - 'tools/openwrt.sh'
+      - 'eigrp/**'
       - 'openwrt/**'
+      - 'tools/openwrt.sh'
       - '.github/workflows/openwrt.yml'
   pull_request:
     paths:
-      - 'tools/openwrt.sh'
+      - 'eigrp/**'
       - 'openwrt/**'
+      - 'tools/openwrt.sh'
       - '.github/workflows/openwrt.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: owrt-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/openwrt-shim' && github.event_name != 'workflow_dispatch' }}
+
 jobs:
-  setup-test:
-    name: ${{ matrix.os }} / OpenWrt feed/package test
+  host:
+    name: Host/UUT ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Component and nonprivileged UUT gate
+        run: ./tools/openwrt.sh --uut
+
+  cross-build:
+    name: Target ${{ matrix.target }} / cross-build${{ matrix.qemu && ' + QEMU UUT' || '' }}
+    needs: [host]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: armsr/armv8
+            runner: ubuntu-24.04-arm
+            qemu: false
+            artifact: armv8
+          - target: x86/64
+            runner: ubuntu-24.04
+            qemu: true
+            artifact: x86-64
     steps:
       - name: Check out EIGRP
         uses: actions/checkout@v4
-      - name: Run OpenWrt component and nonprivileged UUT suite
-        shell: bash
-        run: ./tools/openwrt.sh --uut
+        with:
+          path: eigrp
+      - name: Check out pinned OpenWrt baseline (read-only source)
+        uses: actions/checkout@v4
+        with:
+          repository: diivious/openwrt
+          ref: cd2c55e43b4e648c6e74101284ebff70fb050403
+          path: openwrt
+      - name: Confirm exact OpenWrt revision
+        working-directory: openwrt
+        run: test "$(git rev-parse HEAD)" = cd2c55e43b4e648c6e74101284ebff70fb050403
+      - name: Cache downloaded OpenWrt source archives only
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ow10-dl-${{ matrix.artifact }}-cd2c55e-${{ hashFiles('eigrp/openwrt/feed/openeigrp/Makefile') }}
+          restore-keys: |
+            ow10-dl-${{ matrix.artifact }}-cd2c55e-
+      - name: Install host prerequisites, without mutable optional feeds
+        working-directory: eigrp
+        run: ./tools/openwrt.sh --setup --skip-clone --skip-feeds
+      - name: Register OpenEIGRP feed
+        working-directory: eigrp
+        run: ./tools/openwrt.sh --install
+      - name: Configure target
+        working-directory: eigrp
+        run: ./tools/openwrt.sh --config --target '${{ matrix.target }}'
+      - name: Build cross-toolchain and OpenEIGRP package
+        working-directory: eigrp
+        run: ./tools/openwrt.sh --build --jobs 2
+      - name: Require real target package artifact
+        run: |
+          find openwrt/bin/packages -type f \( -name 'openeigrp*.apk' -o -name 'openeigrp*.ipk' \) | tee package-list.txt
+          test -s package-list.txt
+      - name: Prepare QEMU runner (x86 only)
+        if: matrix.qemu
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
+      - name: Build complete OpenWrt x86 QEMU image
+        if: matrix.qemu
+        working-directory: eigrp
+        run: ./tools/openwrt.sh --image-build --jobs 2
+      - name: Require two-node neighbor AND kernel route acceptance
+        if: matrix.qemu
+        working-directory: eigrp
+        run: ./tools/openwrt.sh --qemu --log-dir "$GITHUB_WORKSPACE/ow10-logs"
+      - name: Verify pinned OpenWrt sources were not modified
+        working-directory: openwrt
+        run: git diff --exit-code
+      - name: Preserve QEMU diagnostics on failure
+        if: failure() && matrix.qemu
+        uses: actions/upload-artifact@v4
+        with:
+          name: ow10-qemu-${{ matrix.artifact }}-logs
+          path: ow10-logs/
+          if-no-files-found: warn
+
+  acceptance:
+    name: Require all OpenWrt gates
+    if: ${{ always() && !cancelled() }}
+    needs: [host, cross-build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce successful host, architecture and QEMU gates
+        env:
+          HOST_STATUS: ${{ needs.host.result }}
+          CROSS_BUILD_STATUS: ${{ needs.cross-build.result }}
+        run: |
+          printf 'Host UUT: %s\nCross-build + two-node QEMU: %s\n' "$HOST_STATUS" "$CROSS_BUILD_STATUS"
+          test "$HOST_STATUS" = success
+          test "$CROSS_BUILD_STATUS" = success

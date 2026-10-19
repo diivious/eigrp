@@ -4,6 +4,12 @@ Copyright (C) 2026 Donnie V. Savage
 
 ## Purpose and current status
 
+**OW-10: real QEMU/unit-under-test and CI acceptance has been added.**
+The package/daemon cross-build was reported passing on Aurora. The new
+QEMU image-build and two-guest live adjacency/route gates still require
+Aurora/CI execution; native test success is not evidence of QEMU convergence.
+See [specs/uut.md](specs/uut.md) for topology, requirements and CI scope.
+
 `openwrt/` is the **native OpenWrt host shim** for the portable OpenEIGRP
 implementation in `../eigrp/code/`. It is the OpenWrt-specific translation
 boundary between OpenWrt host mechanics and the portable RFC 7868 EIGRP core.
@@ -12,7 +18,7 @@ OpenWrt is the operating system, packaging, and service-management environment.
 It is **not** another EIGRP implementation. DUAL, RTP, topology, packet
 semantics, metric handling, and neighbor behavior remain in `../eigrp/code/`.
 
-**Status: OW-08 UCI configuration and basic host policy/keychain integration implemented. The OpenWrt-native host adapters compile as target archives; the OW-09 daemon and service lifecycle are not yet available.**
+**Status: OW-09 daemon and procd service integration implemented.** The package now installs a real target executable and read-only operational client. Live OpenWrt device behavior and adjacency/RIB acceptance remain to be validated.
 
 - `../tools/openwrt.sh --setup` prepares a Debian/Ubuntu or macOS developer
   host and an OpenWrt buildroot checkout.
@@ -44,15 +50,24 @@ semantics, metric handling, and neighbor behavior remain in `../eigrp/code/`.
   now installs `/etc/config/openeigrp` as a retained configuration file.
 - `tools/openwrt.sh --clean`, `--test`, `--uut` and `--kernel` orchestrate
   package cleanup, independent component tests and isolated kernel UUTs.
-- **Not yet implemented:** an executable OpenWrt daemon, procd/ubus service
-  lifecycle, live configuration reload notifications, or two-node adjacency UUT.
+- `openwrt/code/eigrp_owrt_daemon.c` runs a foreground protocol daemon, consumes
+  UCI configuration, starts the packet/RIB/interface services and handles
+  SIGHUP reload and SIGTERM/SIGINT cleanup.
+- `/etc/init.d/openeigrp` provides procd supervision, startup checks, reload
+  triggers and logging through OpenWrt logread.
+- `openeigrpctl` exposes **read-only** protocols, interfaces, neighbors,
+  topology, traffic counters and event logs through a protected local socket.
+- **Not yet validated on an actual router:** two-node protocol adjacency,
+  kernel route convergence, repeated live reload and procd crash recovery.
+  There is no custom ubus RPC object yet; procd service status is available
+  using OpenWrt's standard service/ubus facilities.
 
 See [TASKS.md](TASKS.md), [specs/configuration.md](specs/configuration.md) and
 [specs/rib.md](specs/rib.md) for staged implementation and host boundaries.
 
 ## Authoritative source repositories
 
-- OpenEIGRP: <https://github.com/diivious/eigrp>, branch `master`
+- OpenEIGRP: <https://github.com/diivious/OpenEIGRP>, branch `openwrt-shim`
 - OpenWrt buildroot: <https://github.com/diivious/openwrt>, branch `main`
 
 `tools/openwrt.sh` does **not** pull, reset, rewrite history, or replace an
@@ -124,6 +139,8 @@ The OpenWrt shim is documented by the following files:
 - [specs/packets.md](specs/packets.md)  
   OW-06 protocol 88 raw sockets, IPv4/IPv6 metadata, transmit/receive flow,
   multicast groups and acceptance boundaries.
+- [specs/daemon.md](specs/daemon.md)  
+  OW-09 service lifecycle, management console, procd and validation gates.
 - [specs/packaging.md](specs/packaging.md)  
   Feed layout, package/build model, install payload, and how the shim should be
   brought into an OpenWrt checkout.
@@ -295,7 +312,7 @@ openwrt/feed/openeigrp/Makefile <-------+--src-link-+
                       v
                 openeigrp package
 
-      [No runtime daemon yet: OW-06 through OW-09]
+     [OW-09 links and packages the running daemon]
 ```
 
 Run on Aurora, from `~/projects/eigrp`:
@@ -310,13 +327,27 @@ The `--install` action creates `feeds.conf` from `feeds.conf.default` only
 when necessary, appends the single local `src-link openeigrp` entry, then runs
 `scripts/feeds update openeigrp` and
 `scripts/feeds install -p openeigrp openeigrp`. Repeating `--install` does not
-append duplicate entries. An existing conflicting feed entry or package
-symlink is refused rather than overwritten. The action does **not** modify
-`.config`, download unrelated feeds, or apply any patches.
+append duplicate entries. When the checkout is renamed from `eigrp/` to
+`openeigrp/`, `--install` also repairs a **broken** src-link and package
+symlinks that point to the now-absent sibling checkout. It backs up the prior
+`feeds.conf` before changing its sole OpenEIGRP declaration. A registered
+source that still exists, an unrelated feed, or a live/regular-file package
+path is refused rather than overwritten. Neither `--build` nor `--clean`
+repairs registration implicitly: run `--install` once after relocation.
+The action does **not** modify `.config`, download unrelated feeds, or
+apply any patches.
 
 **Configuration remains behind `--config`.** Once the recipe is available,
 `--config` selects `CONFIG_PACKAGE_openeigrp=y`, preserves the target
 (e.g. `armsr/armv8`), and runs `defconfig` plus `prereq` validation.
+In particular, repairing a relocated feed with `--install` does not recreate
+OpenWrt's `.config`. If `--verify` says `target: not configured`, run
+`./tools/openwrt.sh --config --target armsr/armv8` on Aurora before
+`--clean`, `--build`, or `--image-build`. The noninteractive `--config` action
+prevents OpenWrt make from falling back to terminal-sized `menuconfig`.
+`--clean` refuses an absent/invalid target or unselected package without
+modifying `.config` or starting an interactive configurator. Once the feed is
+registered, `--verify` also reports a missing configuration as a failure.
 
 For the **first ARM64 build**, from the OpenEIGRP checkout on Aurora:
 
@@ -494,8 +525,90 @@ sudo bash openwrt/test/rib-uut.sh --kernel # disposable namespace
 host/protocol interfaces. On macOS, Linux-specific tests are clearly skipped.
 The previous `*-smoke.sh` filenames were retired in OW-07 without aliases.
 
-OW-08 configuration is an adapter library, not a running daemon. The sample
-`/etc/config/openeigrp` file is installed but no procd service is started.
-Use standard UCI commands (`uci set`, `uci delete`, `uci commit openeigrp`)
-for writeback, and see [specs/configuration.md](specs/configuration.md) for
-supported sections, reset semantics and deferred OW-09 reload behavior.
+OW-08 introduced the retained configuration adapter. OW-09 connects it to
+the procd-managed daemon. Use standard UCI commands (`uci set`, `uci delete`,
+`uci commit openeigrp`) for writeback and the procd reload action to replay
+configuration. See [specs/configuration.md](specs/configuration.md) for the
+supported sections, reset semantics and best-effort rollback boundaries.
+
+## OW-09: Service deployment and operations
+
+On OpenWrt, install the generated `openeigrp` package and configure
+`/etc/config/openeigrp` using UCI. To validate and activate it:
+
+```sh
+openeigrpd --check
+/etc/init.d/openeigrp enable
+/etc/init.d/openeigrp start
+/etc/init.d/openeigrp status
+openeigrpctl status
+openeigrpctl neighbors
+openeigrpctl interfaces
+openeigrpctl topology
+openeigrpctl traffic
+openeigrpctl events
+/etc/init.d/openeigrp reload
+logread -e openeigrpd
+```
+
+The operational socket is `/var/run/openeigrpd.sock` with mode 0600, so
+console access normally requires root. Its protocol is read-only; it cannot
+modify configuration, interfaces or routes. The binary stays in the foreground
+for procd, rather than forking its own daemon process. UCI startup validation
+is also available without opening sockets using `openeigrpd --check`.
+
+Configuration/reload failure is reported to logread and must not silently
+replace the active configuration. Rollback of semantic changes currently uses
+OW-08's documented best-effort behavior, not an atomic transaction.
+
+Developers run `./tools/openwrt.sh --uut`, which includes the independent
+`openwrt/test/daemon-uut.sh` lifecycle test. The daemon UUT links the real
+portable core against native host code but uses a **test-only** UCI reader;
+real libuci and procd on a target remain separate acceptance gates.
+
+## OW-10 image and real QEMU unit-under-test
+
+On Debian/Ubuntu, `--setup` installs the QEMU system emulators for both
+supported UUT profiles (`qemu-system-arm` provides `qemu-system-aarch64`;
+`qemu-system-x86` provides `qemu-system-x86_64`) and `iproute2` for isolated
+kernel tests. Existing development hosts can install the ARM64 prerequisite
+without rerunning setup: `sudo apt-get install qemu-system-arm`. `--verify`
+reports QEMU availability for the selected profile but does not block ordinary
+package builds when an optional emulator is absent. `--qemu` requires the
+correct emulator and reports its package name before attempting to boot.
+The QEMU emulator itself is Linux-only in this integration; `--setup` on macOS
+does not install it.
+
+After `--install`, `--config`, and a successful `--build`, use the same
+OpenWrt driver for the full integration gate:
+
+```sh
+./tools/openwrt.sh --test               # component tests including QEMU harness contracts
+./tools/openwrt.sh --uut                # all nonprivileged native host UUTs
+./tools/openwrt.sh --image-build --jobs 2  # full OpenWrt firmware image (explicit)
+./tools/openwrt.sh --qemu --log-dir ./ow10-logs
+```
+
+The real QEMU UUT boots **two OpenWrt nodes** on an isolated virtual Ethernet
+link, applies UCI IPv4 named AS 4453, and requires neighbors in Up state plus
+Linux EIGRP protocol-192 routes to the peer's dummy interface prefix. It
+fails if any guest, package, adjacency or route requirement is missing.
+On `armsr/armv8`, a built `u-boot-qemu_armv8` firmware binary is required;
+use `--firmware` to select one explicitly. `--image` selects an existing
+`ext4-combined` disk. Individual `openwrt/test/qemu-test.sh` and
+`openwrt/test/qemu-uut.py` remain usable for diagnosis.
+
+If QEMU reports that the OpenWrt serial shell did not start, this is a
+**boot/console gate failure**, not proof of an EIGRP protocol failure. With
+`--log-dir ./ow10-logs`, inspect both `node1.serial.log` (guest U-Boot,
+GRUB and Linux console) and `node1.qemu.log` (QEMU errors); the harness
+also prints the end of both logs on boot failure. Verify that U-Boot loads
+EFI from the combined disk and that Linux reaches an interactive serial
+shell before attempting to diagnose adjacency. The source image is never
+modified by the runner.
+
+GitHub Actions uses Linux ARM64 and x86/64 cross-build jobs; the x86 job also
+builds and boots a full firmware image and runs the two-node UUT. Only the
+OpenWrt download source cache is restored: old toolchain binaries are not
+silently reused. See [specs/uut.md](specs/uut.md).
+

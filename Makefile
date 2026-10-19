@@ -11,7 +11,8 @@ export PYTHON
 	portable-scenarios ipv4-basic-core ipv6-basic-core rtp-core core-topology mesh-topology test \
 	scale scale-peers scale-internal scale-external scale-line scale-kite scale-peer-routes \
 	scale-100k scale-withdraw scale-mcast scale-linkdown scale-mixed-tlv scale-churn \
-	scale-stress scale-auth-md5 scale-auth scale-all clean frr-smoke
+	scale-stress scale-auth-md5 scale-auth scale-all clean frr-smoke \
+	merge-check merge-check-host merge-check-test
 
 all: build ## Build the standalone EIGRP code and Unix platform support.
 
@@ -149,3 +150,14 @@ clean: ## Remove generated build and UUT artifacts.
 	$(MAKE) -C eigrp/code clean
 	$(MAKE) -C unix/code clean
 	$(MAKE) -C eigrp/test/uut clean
+
+# Preserve make all as the fast portable/Unix build. The strict pre-merge gate
+# explicitly exercises every present integration, including target build/UUT.
+merge-check: ## Full pre-merge gate (FRR + OpenWrt cross-build, QEMU, live UUT).
+	bash tools/merge-check.sh --full $(MERGE_CHECK_ARGS)
+
+merge-check-host: ## Host-only shim regression; not full merge qualification.
+	bash tools/merge-check.sh --host $(MERGE_CHECK_ARGS)
+
+merge-check-test: ## Test merge-gate orchestration without FRR, root or QEMU.
+	bash test/merge/merge-check-test.sh

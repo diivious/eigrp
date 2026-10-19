@@ -118,7 +118,7 @@ its EIGRP metric/next-hop state matches its prior value.
  eigrp_terminate()       # RIB cleanup, then runtime finish internally
 ```
 
-The daemon in OW-09 will own this exact ordering. No daemon or host service
+The daemon delivered in OW-09 owns this ordering. Previously no host service
 process is invented by OW-07. Startup/stop are idempotent; watcher errors are
 visible and require an explicit stop/restart, not silent false success.
 

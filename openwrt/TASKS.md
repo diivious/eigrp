@@ -2,9 +2,9 @@
 
 Copyright (C) 2026 Donnie V. Savage
 
-Baseline: `diivious/eigrp@master` and `diivious/openwrt@main` (GitHub).
-Reviewed revisions (2026-10-17):
-- EIGRP `c872f7fc471334f8ac057fc67550fd655a98999e`
+Baseline: `diivious/OpenEIGRP@openwrt-shim` and `diivious/openwrt@main` (GitHub).
+Reviewed revisions (2026-10-18):
+- EIGRP source tree `edb28da4daffa70b1a8a8ef5f8bd3f34941eb68d`
 - OpenWrt `cd2c55e43b4e648c6e74101284ebff70fb050403`
 All changes are delivered for local review; the repositories are not modified
 remotely by this work. Preserve the five EIGRP-owned public API boundaries.
@@ -20,6 +20,8 @@ Do not implement EIGRP Stub behavior.
 - `openwrt/specs/rib.md`: OW-07 kernel routes, source subscriptions and replay
 - `openwrt/specs/configuration.md`: UCI, reload, writeback and management
 - `openwrt/specs/packaging.md`: feed, package and patch ownership
+- `openwrt/specs/daemon.md`: procd lifecycle and operational console
+- `openwrt/specs/uut.md`: OW-10 two-node QEMU UUT and cross-build CI acceptance
 
 ## Task overview
 
@@ -209,19 +211,54 @@ and an actual OpenWrt router route exchange are separate outstanding gates.
 **Acceptance:** Host component/UUT tests pass. Cross-target UCI build and
 service-runtime behavior are separately tracked and not claimed in CI.
 
-### OW-09: daemon and management
+### OW-09: daemon and management (implemented; device acceptance pending)
 
-- Install procd service with explicit graceful stop/reload and crash lifecycle.
-- Expose live management using `eigrp_mgnt.h` via CLI/ubus as appropriate,
-  including interfaces, neighbors, topology, traffic and event logs.
-- Validate permissions, log retention and restart cleanup on real OpenWrt.
+- The `openeigrpd` foreground binary links the portable EIGRP core and real
+  OpenWrt host services; starts receive worker, UCI semantic config, kernel
+  RIB and interface watchers; and closes them in reverse order.
+- procd `/etc/init.d/openeigrp` validates UCI before startup/reload,
+  supervises crashes, and routes logs through OpenWrt service logging.
+- SIGHUP reloads UCI using OW-08's best-effort snapshot replacement;
+  SIGTERM/SIGINT perform graceful teardown.
+- `openeigrpctl` exposes protocol, interface, neighbor, topology, traffic and
+  event snapshots from `eigrp_mgnt.h` on a Unix socket protected with 0600.
+  A custom ubus RPC object is deferred; standard procd/ubus service status
+  works through OpenWrt's service manager.
+- `openwrt/test/daemon-uut.sh` runs an actual native core+host executable with
+  a test-only UCI reader and checks startup, failure, reload and shutdown.
+  It is included in `tools/openwrt.sh --uut`, and remains independently runnable.
 
-### OW-10: real UUT and CI
+**Acceptance still needed on Aurora/OpenWrt:** ARM64 target daemon link with
+real `libuci`, on-device procd lifecycle/reload/crash behavior, actual protocol
+88 Hello neighbors and kernel route installation/withdrawal under convergence.
 
-- Create OpenWrt-specific tests under `openwrt/test/`. One or more QEMU images
-  with a reproducible topology should verify adjacencies and RIB exchange.
-- Add build-matrix Actions jobs on Linux for target architecture(s). Cache
-  toolchain carefully and fail on missing/dirty/stale package source.
+
+### OW-10: real UUT and CI (implemented; live validation pending)
+
+- `openwrt/test/qemu-uut.py` launches two actual QEMU OpenWrt VMs with
+  separate temporary images and a host-local QEMU socket-backed Ethernet link.
+  It provisions UCI named IPv4 AS 4453 and separate dummy-interface networks,
+  starts the real procd daemon and checks both neighbor UP states and imported
+  EIGRP Linux kernel routes (protocol 192). No simulated peer/route substitute.
+- `openwrt/test/qemu-test.sh` checks the UUT runner's contracts offline, and
+  is included in the `--test` / `--uut` central developer flow.
+- `tools/openwrt.sh --image-build` explicitly enables the ext4, gzip, ip-full and
+  dummy-kernel module image requirements and builds the complete OpenWrt image.
+  It preserves the normal `--build` package-only behavior.
+- `tools/openwrt.sh --qemu` chooses the configured target's image or accepts
+  `--image`, optional ARM64 `--firmware`, and `--log-dir`. Missing image, QEMU,
+  guest boot, procd/config, adjacency or FIB assertions fail the UUT.
+- `.github/workflows/openwrt.yml` runs Linux/macOS host suites, native Linux
+  x86/64 and ARM64 OpenWrt cross-builds, and a two-node x86 QEMU acceptance
+  step after full image creation. It pins OpenWrt's source revision, caches
+  only downloaded source tarballs, and rejects missing package artifacts.
+- Test semantics and topology are specified in `openwrt/specs/uut.md`.
+
+**Acceptance:** Offline UUT harness contract tests run locally. Aurora/CI
+must still confirm the full image build, live QEMU neighbor/route exchange,
+ARM64 target handling and GitHub Actions job success before claiming OW-10
+live acceptance complete. Never report a pass without observing both Up
+neighbors and installed EIGRP routes.
 - Retain the existing portable macOS/Linux `make test` gate. Add macOS shim
   syntax/host-neutral compile and configuration tests, without pretending to
   run Linux raw-socket or OpenWrt procd tests on Darwin.

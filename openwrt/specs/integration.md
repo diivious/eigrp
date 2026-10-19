@@ -81,11 +81,11 @@ openwrt/code/eigrp_owrt_policy.c
 openwrt/code/eigrp_owrt_keychain.c
     host-side policy and authentication material lookup
 
-openwrt/code/eigrp_owrt_mgmt.c
-    show/telemetry/ubus presentation using eigrp_mgnt.h snapshots
+openwrt/code/eigrp_owrt_mgnt.c
+    read-only local management presentation using eigrp_mgnt.h snapshots
 
-openwrt/code/eigrp_owrt_service.c
-    procd lifecycle bridge and daemon control helpers
+openwrt/code/eigrp_owrt_daemon.c
+    foreground procd-managed daemon and Unix signal lifecycle
 ```
 
 ## 4. What the shim owns, and what it must not own
@@ -295,3 +295,10 @@ OpenWrt /etc/config/openeigrp
 Only the normalized EIGRP public values cross into the core. The OW-09 daemon
 will own invocation order and synchronize reloads with operational callbacks;
 there is no service activated by the OW-08 archive-only package.
+
+## OW-09 deployed lifecycle
+
+The foreground daemon, local operational socket and procd init script are
+implemented as described in [daemon.md](daemon.md). A custom ubus API remains
+a future presentation layer; the daemon exposes read-only state through
+`openeigrpctl` and leaves generic service state to procd.

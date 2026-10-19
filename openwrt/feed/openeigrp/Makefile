@@ -2,8 +2,7 @@
 #
 # Copyright (C) 2026 Donnie V. Savage
 #
-# OW-08: OpenWrt runtime, kernel adapters and libuci configuration/host policy.
-# A runnable daemon and procd management remain OW-09 work.
+# OW-09: deployable foreground daemon, protected read-only management and procd.
 #
 # Resolve the *recipe* location, not OpenWrt's symlinked package directory.
 # Our source tree remains owned by the OpenEIGRP checkout.
@@ -15,7 +14,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openeigrp
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_LICENSE:=GPL-2.0-or-later BSD-2-Clause
 PKG_MAINTAINER:=Donnie V. Savage
 PKG_BUILD_PARALLEL:=1
@@ -30,8 +29,8 @@ define Package/openeigrp
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Routing and Redirection
-  TITLE:=OpenEIGRP portable core and native OpenWrt host libraries
-  URL:=https://github.com/diivious/eigrp
+  TITLE:=OpenEIGRP routing daemon for OpenWrt
+  URL:=https://github.com/diivious/OpenEIGRP
   DEPENDS:=+libuci
 endef
 
@@ -41,7 +40,8 @@ define Package/openeigrp/description
  queues, Linux netlink interface/address inventory, IPv4/IPv6 protocol 88
  sockets, packet I/O, multicast memberships and kernel RIB integration).
  UCI semantic configuration, policy and key lookup are included.
- This package does not yet provide a deployable daemon.
+ Includes a procd-managed openeigrpd daemon and read-only openeigrpctl
+ operational console over a local protected Unix socket.
 endef
 
 # Fail clearly if a detached/copied feed cannot locate its source checkout.
@@ -73,6 +73,10 @@ define Build/Prepare
 		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_config.h \
 		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_policy.c \
 		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_uci.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_mgnt.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_mgnt.h \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_daemon.c \
+		$(OPENEIGRP_RUNTIME_SOURCE)/eigrp_owrt_ctl.c \
 		$(PKG_BUILD_DIR)/openwrt-runtime/
 endef
 
@@ -96,6 +100,18 @@ define Build/Compile
 		EIGRP_CORE_INCLUDE="$(PKG_BUILD_DIR)" OWRT_LINUX=1 OWRT_UCI=$(OPENEIGRP_UCI_BUILD) \
 		libeigrp-owrt-runtime.a
 	@test -s $(PKG_BUILD_DIR)/openwrt-runtime/libeigrp-owrt-runtime.a
+	+@if [ "$(OPENEIGRP_UCI_BUILD)" = "1" ]; then \
+		$(MAKE) -C $(PKG_BUILD_DIR)/openwrt-runtime \
+		CC="$(TARGET_CC)" AR="$(TARGET_AR)" \
+		CFLAGS="$(TARGET_CFLAGS) -std=c11 -D_POSIX_C_SOURCE=200809L -pthread" \
+		CPPFLAGS="$(TARGET_CPPFLAGS) -I. -I$(PKG_BUILD_DIR)" \
+		EIGRP_CORE_INCLUDE="$(PKG_BUILD_DIR)" OWRT_LINUX=1 OWRT_UCI=1 \
+		EIGRP_OWRT_LDFLAGS="$(TARGET_LDFLAGS)" \
+		EIGRP_OWRT_LIBS="-L$(STAGING_DIR)/usr/lib -luci -pthread" daemon || exit $$?; \
+		test -s $(PKG_BUILD_DIR)/openwrt-runtime/openeigrpd && \
+		test -s $(PKG_BUILD_DIR)/openwrt-runtime/openeigrpctl; \
+	fi
+
 endef
 
 # Only the public host boundary is staged for future OpenWrt adapter builds.
@@ -119,12 +135,15 @@ define Package/openeigrp/conffiles
 /etc/config/openeigrp
 endef
 
-# Install real target archives; OW-09 will add a runnable daemon.
+# Install daemon, control client, protected UCI config, procd integration and archives.
 define Package/openeigrp/install
-	$(INSTALL_DIR) $(1)/usr/lib $(1)/etc/config
+	$(INSTALL_DIR) $(1)/usr/lib $(1)/usr/sbin $(1)/etc/init.d $(1)/etc/config
 	$(INSTALL_CONF) $(OPENEIGRP_RECIPE_DIR)/files/openeigrp.config $(1)/etc/config/openeigrp
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/libeigrp-core.a $(1)/usr/lib/
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/openwrt-runtime/libeigrp-owrt-runtime.a $(1)/usr/lib/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/openwrt-runtime/openeigrpd $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/openwrt-runtime/openeigrpctl $(1)/usr/sbin/
+	$(INSTALL_BIN) $(OPENEIGRP_RECIPE_DIR)/files/openeigrp.init $(1)/etc/init.d/openeigrp
 endef
 
 $(eval $(call BuildPackage,openeigrp))

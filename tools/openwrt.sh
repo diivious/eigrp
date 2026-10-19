@@ -21,14 +21,17 @@ menuconfig=0
 minimal_feeds=0
 build_jobs=2
 build_jobs_specified=0
+qemu_image=""
+qemu_firmware=""
+qemu_log_dir=""
 
 usage() {
 	cat <<USAGE
-usage: $(basename "$0") --setup|--install|--config|--build|--clean|--test|--uut|--kernel|--verify [options]
+usage: $(basename "$0") --setup|--install|--config|--build|--clean|--test|--uut|--kernel|--image-build|--qemu|--verify [options]
 
 actions:
-  --setup               Install host dependencies, clone OpenWrt if needed,
-                        and initialize OpenWrt feeds.
+  --setup               Install host build and QEMU UUT dependencies, clone
+                        OpenWrt if needed, and initialize OpenWrt feeds.
   --install             Register the local OpenEIGRP package feed safely.
   --verify              Check host, checkout, feeds and target state; change nothing.
   --config              Select/preserve target and OpenEIGRP package; run defconfig/prereq.
@@ -36,9 +39,14 @@ actions:
   --clean               Clean only the OpenEIGRP package build outputs.
   --test                Run host-neutral component, configuration and recipe tests.
   --uut                 Run all nonprivileged tests, including Linux interface,
-                        packet and kernel RIB unit-under-test scenarios.
+                        packet, kernel RIB and daemon unit-under-test scenarios.
   --kernel              Run the isolated privileged kernel RIB test (sudo is
                         used only for the disposable network namespace).
+  --image-build         Build an OpenWrt disk image suitable for two-node QEMU
+                        UUT (enables ext4, iproute2 and dummy interface support).
+  --qemu                Boot two disposable OpenWrt nodes and require EIGRP
+                        neighbor Up and exchanged Linux kernel routes.
+                        Linux setup installs qemu-system-arm and qemu-system-x86.
 
 options:
   --devel-root PATH     Parent directory of the OpenWrt checkout.
@@ -51,8 +59,13 @@ options:
                         Generic defaults: armsr/armv8 or x86/64.
   --menuconfig          With --config, launch interactive OpenWrt menuconfig
                         instead of automatic target selection.
-  --jobs N              With --build, parallel make jobs (default: 2).
+  --jobs N              With --build or --image-build, jobs (default: 2).
                         Direct test scripts remain available in openwrt/test/.
+  --image PATH          With --qemu, OpenWrt combined ext4 disk (.img[.gz]);
+                        defaults to image from selected build target.
+  --firmware PATH       With --qemu on ARM64, QEMU U-Boot firmware .bin;
+                        defaults to buildroot u-boot-qemu_armv8/u-boot.bin.
+  --log-dir PATH        With --qemu, preserve QEMU logs at this directory.
   --minimal-feeds       With --config, remove installed feed package links
                         before configuring (feed source checkouts stay intact).
                         Explicit recovery for broken optional-feed Kconfig.
@@ -88,7 +101,7 @@ set_action() {
 
 while (($#)); do
 	case "$1" in
-		--setup|--verify|--config|--install|--build|--clean|--test|--uut|--kernel) set_action "${1#--}"; shift ;;
+		--setup|--verify|--config|--install|--build|--clean|--test|--uut|--kernel|--image-build|--qemu) set_action "${1#--}"; shift ;;
 		--devel-root)
 			(($# >= 2)) || fail "--devel-root needs a path"
 			devel_root="$(absolute_path "$2")"; shift 2 ;;
@@ -108,6 +121,15 @@ while (($#)); do
 		--target)
 			(($# >= 2)) || fail "--target needs a value"
 			selected_target="$2"; shift 2 ;;
+		--image)
+			(($# >= 2)) || fail "--image needs a path"
+			qemu_image="$(absolute_path "$2")"; shift 2 ;;
+		--firmware)
+			(($# >= 2)) || fail "--firmware needs a path"
+			qemu_firmware="$(absolute_path "$2")"; shift 2 ;;
+		--log-dir)
+			(($# >= 2)) || fail "--log-dir needs a path"
+			qemu_log_dir="$(absolute_path "$2")"; shift 2 ;;
 		--help) usage; exit 0 ;;
 		--patch|--check)
 			fail "$1 is not implemented; see openwrt/TASKS.md" ;;
@@ -120,7 +142,8 @@ done
 [[ -z "$selected_target" || "$action" == config ]] || fail "--target requires --config"
 (( !menuconfig )) || [[ "$action" == config ]] || fail "--menuconfig requires --config"
 (( !minimal_feeds )) || [[ "$action" == config ]] || fail "--minimal-feeds requires --config"
-(( !build_jobs_specified )) || [[ "$action" == build ]] || fail "--jobs requires --build"
+(( !build_jobs_specified )) || [[ "$action" == build || "$action" == image-build ]] || fail "--jobs requires --build or --image-build"
+[[ -z "$qemu_image$qemu_firmware$qemu_log_dir" || "$action" == qemu ]] || fail "--image, --firmware and --log-dir require --qemu"
 [[ -z "$selected_target" ]] || (( !menuconfig )) || fail "--target and --menuconfig cannot be combined"
 if [[ "$action" != setup ]]; then
 	((!skip_packages && !skip_clone && !skip_feeds)) ||
@@ -168,9 +191,9 @@ install_packages() {
 		sudo apt-get update
 		sudo apt-get install -y \
 			build-essential binutils bison bzip2 ca-certificates clang curl \
-			diffutils file flex gawk gettext git libncurses-dev libssl-dev \
-			make patch perl pkg-config python3 python3-setuptools rsync \
-			subversion swig time unzip wget xz-utils zlib1g-dev
+			diffutils file flex gawk gettext git iproute2 libncurses-dev libssl-dev \
+			make patch perl pkg-config python3 python3-setuptools qemu-system-arm \
+			qemu-system-x86 rsync subversion swig time unzip wget xz-utils zlib1g-dev
 	else
 		command -v xcode-select >/dev/null 2>&1 || fail "Xcode Command Line Tools are required"
 		xcode-select -p >/dev/null 2>&1 || fail "run 'xcode-select --install' before setup"
@@ -278,13 +301,18 @@ package_recipe="$feed_root/openeigrp/Makefile"
 package_link="${openwrt_root%/}/package/feeds/openeigrp/openeigrp"
 
 verify_package_feed() {
-	local registered
+	local registered target
 	if [[ ! -e "$package_recipe" ]]; then
 		log "package: OpenEIGRP recipe absent: $package_recipe"
 		return 1
 	fi
 	if [[ ! -L "$package_link" || ! -f "$package_link/Makefile" ]]; then
-		log 'package: not installed (run --install)'
+		if [[ -L "$package_link" ]]; then
+			target="$(readlink "$package_link")"
+			log "package: stale OpenEIGRP package link: $package_link -> $target (run --install to repair)"
+		else
+			log 'package: not installed (run --install)'
+		fi
 		return 1
 	fi
 	registered="$(cd "$(dirname "$package_link")" && cd -P openeigrp && pwd -P)" || return 1
@@ -293,6 +321,33 @@ verify_package_feed() {
 		return 1
 	fi
 	log "package: OpenEIGRP feed registered ($registered)"
+}
+
+# A checkout renamed from eigrp/ to openeigrp/ may leave the src-link and
+# package registration pointing at an absent sibling checkout. Never take over
+# an existing checkout, a foreign feed path, or a developer-owned file.
+relocated_feed_source() {
+	local old="$1" old_root
+	[[ "$old" == /* && "$old" != "$feed_root" && ! -e "$old" && ! -L "$old" ]] || return 1
+	[[ "$old" == */openwrt/feed ]] || return 1
+	old_root="${old%/openwrt/feed}"
+	[[ "$(dirname "$old_root")" == "$(dirname "$eigrp_root")" ]] || return 1
+	case "$(basename "$old_root")" in eigrp|openeigrp) ;; *) return 1 ;; esac
+}
+
+# Only remove broken links owned by the OpenEIGRP feed registration. A live
+# symlink or a regular file/directory is never overwritten by this repair.
+prepare_broken_feed_link() {
+	local path="$1"
+	if [[ -L "$path" ]]; then
+		if [[ -e "$path" ]]; then
+			fail "refusing to overwrite live feed link: $path -> $(readlink "$path")"
+		fi
+		log "feeds: removing broken symlink $path -> $(readlink "$path")"
+		rm -- "$path" || fail "could not remove broken feed link: $path"
+	elif [[ -e "$path" ]]; then
+		fail "refusing to replace non-symlink feed path: $path"
+	fi
 }
 
 # A normal package install should not silently change configuration. Only
@@ -313,37 +368,76 @@ config_package_enable() {
 	fi
 	printf 'CONFIG_PACKAGE_openeigrp=y\n' >> "$tmp"
 	mv "$tmp" "$config"
-	log 'config: selected CONFIG_PACKAGE_openeigrp=y (core library build)'
+	log 'config: selected CONFIG_PACKAGE_openeigrp=y (core and OpenWrt host libraries)'
 }
 
-# Preserve an existing feeds.conf exactly, adding only our own src-link entry.
-# An existing conflicting feed name is always an error, never overwritten.
+# Register the local feed, or repair a proven relocation from an absent sibling
+# checkout. An existing feed from another checkout is always a hard conflict.
 install_openwrt() {
-	local feed_conf="$openwrt_root/feeds.conf" existing
+	local feed_conf="$openwrt_root/feeds.conf" existing old_source backup tmp
+	local feed_link="$openwrt_root/feeds/openeigrp"
 	[[ ! -L "$feed_conf" ]] || fail 'refusing symlinked feeds.conf'
 	verify_fs || fail 'OpenWrt checkout must be on a case-sensitive filesystem'
 	verify_checkout || fail 'OpenWrt checkout is missing or invalid'
 	[[ -f "$package_recipe" && -f "$eigrp_root/eigrp/code/Makefile" ]] ||
 		fail 'OpenEIGRP core or package recipe missing from checkout'
 	case "$feed_root" in *' '*) fail "OpenEIGRP feed path contains spaces: $feed_root" ;; esac
-	if [[ -e "$package_link" || -L "$package_link" ]]; then
-		verify_package_feed || fail 'existing OpenEIGRP package registration conflicts with this checkout'
-	fi
 	if [[ ! -f "$feed_conf" ]]; then
 		[[ ! -e "$feed_conf" && ! -L "$feed_conf" ]] || fail 'feeds.conf is not a regular file'
 		[[ -f "$openwrt_root/feeds.conf.default" ]] || fail 'feeds.conf.default is missing'
 		cp "$openwrt_root/feeds.conf.default" "$feed_conf"
 		log 'feeds: created feeds.conf from feeds.conf.default'
 	fi
-	# Do not trust duplicate/conflicting feed declarations.
-	existing="$(awk '$1 !~ /^#/ && $1 ~ /^src-/ && $2 == "openeigrp" {print $1 " " $3}' "$feed_conf")"
+	# Preserve the existing source of truth and reject duplicates, malformed
+	# declarations, or unrelated registrations before changing anything.
+	existing="$(awk '$1 !~ /^#/ && $1 ~ /^src-/ && $2 == "openeigrp" {print $1 " " $3; if (NF != 3) print "INVALID"}' "$feed_conf")"
+	[[ "$existing" != *$'\n'* && "$existing" != *INVALID* ]] ||
+		fail "duplicate or malformed OpenEIGRP feed entry in $feed_conf"
 	if [[ -n "$existing" && "$existing" != "src-link $feed_root" ]]; then
-		fail "conflicting OpenEIGRP feed entry: $existing"
-	fi
-	if [[ -z "$existing" ]]; then
+		[[ "$existing" == 'src-link '* ]] || fail "conflicting OpenEIGRP feed entry: $existing"
+		old_source="${existing#src-link }"
+		relocated_feed_source "$old_source" ||
+			fail "conflicting OpenEIGRP feed entry: $existing (existing checkout or foreign source)"
+		# An existing, functioning package registration must not be silently
+		# replaced even when the old src-link points to an absent directory.
+		if [[ -e "$package_link" || -e "$feed_link" ]]; then
+			fail 'OpenEIGRP feed has live paths; refusing automatic relocation'
+		fi
+		[[ ! -e "$package_link" || -L "$package_link" ]] ||
+			fail 'non-symlink OpenEIGRP package registration conflicts with this checkout'
+		backup="$(mktemp "$openwrt_root/feeds.conf.before-openeigrp-relocation.XXXXXXXX")"
+		cp -p "$feed_conf" "$backup" || fail 'cannot back up feeds.conf before relocation'
+		tmp="$(mktemp "$openwrt_root/feeds.conf.relocation.XXXXXXXX")"
+		awk -v replacement="src-link openeigrp $feed_root" '
+			$1 == "src-link" && $2 == "openeigrp" {print replacement; next}
+			{print}
+		' "$feed_conf" > "$tmp" || fail 'cannot prepare relocated feed declaration'
+		chmod --reference="$feed_conf" "$tmp"
+		mv -- "$tmp" "$feed_conf" || fail 'cannot update feeds.conf'
+		log "feeds: repaired relocated OpenEIGRP src-link $old_source -> $feed_root"
+		log "feeds: previous feeds.conf saved as $backup"
+		prepare_broken_feed_link "$package_link"
+		prepare_broken_feed_link "$feed_link"
+	elif [[ -z "$existing" ]]; then
+		[[ ! -e "$package_link" && ! -L "$package_link" ]] ||
+			fail 'unregistered OpenEIGRP package path already exists'
+		[[ ! -e "$feed_link" && ! -L "$feed_link" ]] ||
+			fail 'unregistered OpenEIGRP feed path already exists'
 		printf '\nsrc-link openeigrp %s\n' "$feed_root" >> "$feed_conf"
 		log "feeds: registered src-link openeigrp $feed_root"
 	else
+		# Idempotent repair when a previous registration was interrupted:
+		# discard only broken symlinks, never a functioning foreign link.
+		if [[ -L "$package_link" && ! -e "$package_link" ]]; then
+			prepare_broken_feed_link "$package_link"
+		elif [[ -e "$package_link" ]]; then
+			verify_package_feed || fail 'existing OpenEIGRP package registration conflicts with this checkout'
+		else
+			[[ ! -e "$package_link" ]] || fail 'unexpected package registration'
+		fi
+		if [[ -L "$feed_link" && ! -e "$feed_link" ]]; then
+			prepare_broken_feed_link "$feed_link"
+		fi
 		log 'feeds: OpenEIGRP src-link already registered'
 	fi
 	(
@@ -383,6 +477,24 @@ host_default_target() {
 		x86_64|amd64) printf '%s\n' x86/64 ;;
 		*) return 1 ;;
 	esac
+}
+
+# QEMU is a Linux-only live-UUT dependency, not a prerequisite for ordinary
+# package builds or native host tests. Debian/Ubuntu split the system
+# emulators into these packages; aarch64 lives in qemu-system-arm.
+qemu_requirements() {
+	local binary package
+	case "$1" in
+		armsr/armv8) binary=qemu-system-aarch64; package=qemu-system-arm ;;
+		x86/64) binary=qemu-system-x86_64; package=qemu-system-x86 ;;
+		*) log "qemu: unsupported target $1" >&2; return 1 ;;
+	esac
+	if command -v "$binary" >/dev/null 2>&1; then
+		log "qemu: $binary available"
+		return 0
+	fi
+	log "qemu: $binary is missing (Debian/Ubuntu: sudo apt-get install $package)" >&2
+	return 1
 }
 
 # Some OpenWrt Kconfig invocations emit fatal dependency diagnostics but
@@ -535,7 +647,7 @@ build_openwrt() {
 			done
 		fi
 	done
-	log 'OpenEIGRP OpenWrt base package build complete.'
+	log 'OpenEIGRP OpenWrt package and daemon build complete.'
 	log 'Package output (if produced): OpenWrt bin/packages/<target-arch>/*/openeigrp*'
 }
 
@@ -555,16 +667,16 @@ run_openwrt_test() {
 
 run_openwrt_tests() {
 	local filename
-	local -a components=(setup-test.sh runtime-test.sh config-test.sh)
+	local -a components=(setup-test.sh runtime-test.sh config-test.sh qemu-test.sh)
 	if [[ "$host" == Linux ]]; then
-		components+=(recipe-test.sh)
+		components+=(recipe-test.sh image-test.sh)
 	fi
 	for filename in "${components[@]}"; do
 		run_openwrt_test "$filename"
 	done
 	if [[ "$action" == uut ]]; then
 		if [[ "$host" == Linux ]]; then
-			for filename in interface-uut.sh packet-uut.sh rib-uut.sh; do
+			for filename in interface-uut.sh packet-uut.sh rib-uut.sh daemon-uut.sh; do
 				run_openwrt_test "$filename"
 			done
 		else
@@ -574,9 +686,152 @@ run_openwrt_tests() {
 	log "$action: PASS (all applicable tests)"
 }
 
+# OpenWrt scripts/config/ is a DIRECTORY containing Kconfig sources, not
+# Linux kernel's scripts/config executable. Follow the existing --config
+# implementation: edit .config atomically and let OpenWrt make defconfig
+# resolve dependencies. Preserve unrelated settings and the previous config.
+image_profile_enable() {
+	local config="$openwrt_root/.config" target="$1" symbol selected=1 tmp backup
+	local -a flags=(TARGET_ROOTFS_EXT4FS TARGET_IMAGES_GZIP PACKAGE_kmod-dummy PACKAGE_ip-full)
+	[[ "$target" != x86/64 ]] || flags+=(GRUB_IMAGES)
+	[[ -f "$config" && ! -L "$config" ]] || fail 'refusing nonregular or symlinked OpenWrt .config'
+
+	for symbol in "${flags[@]}"; do
+		if ! grep -qx "CONFIG_${symbol}=y" "$config"; then
+			selected=0
+			break
+		fi
+	done
+	if ((selected)); then
+		log 'image-build: required image options already selected'
+		return 0
+	fi
+
+	tmp="$(mktemp "$openwrt_root/.config.image.XXXXXXXX")"
+	# Replace both enabled/disabled forms, without duplicates or an unrelated
+	# configuration change. The name test uses exact keys, not prefix matches.
+	awk -v requested="${flags[*]}" '
+		BEGIN {
+			n = split(requested, names, " ")
+			for (i = 1; i <= n; i++) enabled["CONFIG_" names[i]] = 1
+		}
+		/^CONFIG_[^=]+=/ {
+			key = $0
+			sub(/=.*/, "", key)
+			if (key in enabled) next
+		}
+		/^# CONFIG_.* is not set$/ {
+			key = $0
+			sub(/^# /, "", key)
+			sub(/ is not set$/, "", key)
+			if (key in enabled) next
+		}
+		{ print }
+	' "$config" > "$tmp" || { rm -f "$tmp"; fail 'could not prepare OpenWrt image configuration'; }
+	printf 'CONFIG_%s=y\n' "${flags[@]}" >> "$tmp"
+	backup="$(mktemp "$openwrt_root/.config.before-openeigrp-image.XXXXXXXX")"
+	cp -p "$config" "$backup" || { rm -f "$tmp" "$backup"; fail 'could not back up OpenWrt configuration'; }
+	chmod --reference="$config" "$tmp"
+	mv "$tmp" "$config" || fail 'could not apply OpenWrt image configuration'
+	log "image-build: previous configuration saved as $backup"
+}
+
+# Full firmware images are an explicit action, not an unexpected side effect
+# of --build/--config. Only local .config changes; never rewrite host source.
+image_build_openwrt() {
+	local config="$openwrt_root/.config" target symbol
+	[[ "$host" == Linux ]] || fail '--image-build requires Linux'
+	verify_host_tools || fail 'host prerequisites missing; run --setup'
+	verify_fs || fail 'OpenWrt checkout must be on a case-sensitive filesystem'
+	verify_checkout || fail 'OpenWrt checkout is missing or invalid'
+	verify_package_feed || fail 'OpenEIGRP feed is missing; run --install'
+	[[ -f "$config" ]] || fail 'configure the target before --image-build'
+	target="$(configured_target "$config")"
+	case "$target" in
+		armsr/armv8|x86/64) ;;
+		*) fail "QEMU image profile supports only armsr/armv8 or x86/64, got $target" ;;
+	esac
+	grep -qx 'CONFIG_PACKAGE_openeigrp=y' "$config" || fail 'select openeigrp first via --config'
+	log "image-build: select ext4 disk and kernel dummy interface for $target"
+	image_profile_enable "$target"
+	(
+		cd "$openwrt_root"
+		run_config_make defconfig || fail 'OpenWrt image profile Kconfig validation failed'
+	)
+	for symbol in TARGET_ROOTFS_EXT4FS TARGET_IMAGES_GZIP PACKAGE_kmod-dummy PACKAGE_ip-full; do
+		grep -qx "CONFIG_${symbol}=y" "$config" ||
+			fail "OpenWrt rejected required image option CONFIG_${symbol}=y"
+	done
+	if [[ "$target" == x86/64 ]]; then
+		grep -qx 'CONFIG_GRUB_IMAGES=y' "$config" ||
+			fail 'OpenWrt rejected required image option CONFIG_GRUB_IMAGES=y'
+	fi
+	[[ "$(configured_target "$config")" == "$target" ]] ||
+		fail "OpenWrt image defconfig changed selected target (expected $target)"
+	grep -qx 'CONFIG_PACKAGE_openeigrp=y' "$config" ||
+		fail 'OpenWrt image defconfig deselected openeigrp'
+	log 'image-build: building complete OpenWrt firmware image (incremental toolchain reused)'
+	(cd "$openwrt_root" && make "-j${build_jobs}" V=s) || fail 'OpenWrt firmware image build failed'
+	find_qemu_image "$target" >/dev/null || fail "no combined ext4 QEMU image found for $target"
+	log "image-build: PASS; image: $(find_qemu_image "$target")"
+}
+
+find_qemu_image() {
+	local target="$1" directory pattern
+	directory="$openwrt_root/bin/targets/$target"
+	[[ -d "$directory" ]] || return 1
+	if [[ "$target" == armsr/armv8 ]]; then
+		pattern='*generic-ext4-combined-efi.img*'
+	else
+		pattern='*generic-ext4-combined.img*'
+	fi
+	find "$directory" -maxdepth 1 -type f -size +0c -name "$pattern" \
+		\( -name '*.img' -o -name '*.img.gz' \) -print | LC_ALL=C sort | sed -n '1p' | grep .
+}
+
+run_openwrt_qemu() {
+	local target image firmware
+	[[ "$host" == Linux ]] || fail '--qemu requires Linux'
+	command -v python3 >/dev/null || fail '--qemu requires Python 3'
+	[[ -f "$openwrt_root/.config" ]] || fail 'OpenWrt target missing; run --config'
+	target="$(configured_target "$openwrt_root/.config")"
+	case "$target" in
+		x86/64|armsr/armv8) ;;
+		*) fail "QEMU UUT unsupported target: $target" ;;
+	esac
+	qemu_requirements "$target" || fail 'QEMU host prerequisites missing; rerun --setup or install the package shown above'
+	image="$qemu_image"
+	if [[ -z "$image" ]]; then
+		image="$(find_qemu_image "$target")" || fail 'no matching QEMU image; run --image-build or supply --image'
+	fi
+	[[ -s "$image" ]] || fail "QEMU disk image missing: $image"
+	local -a arguments=(--image "$image" --arch "$target")
+	if [[ "$target" == armsr/armv8 ]]; then
+		firmware="${qemu_firmware:-$openwrt_root/bin/targets/armsr/armv8/u-boot-qemu_armv8/u-boot.bin}"
+		[[ -s "$firmware" ]] || fail "ARM QEMU firmware missing: $firmware; use --firmware"
+		arguments+=(--firmware "$firmware")
+	fi
+	if [[ -n "$qemu_log_dir" ]]; then
+		arguments+=(--log-dir "$qemu_log_dir")
+	fi
+	log "qemu: two OpenWrt guests, target=$target image=$image"
+	python3 "$eigrp_root/openwrt/test/qemu-uut.py" "${arguments[@]}" || fail 'OW-10 two-node QEMU UUT failed'
+}
+
 clean_openwrt() {
+	local config="$openwrt_root/.config" target
 	verify_checkout || fail 'OpenWrt checkout is missing or invalid'
 	verify_package_feed || fail 'OpenEIGRP package not installed; run --install'
+	# OpenWrt's package/clean target depends on .config. If it is absent,
+	# OpenWrt falls through to interactive menuconfig, which fails on headless
+	# hosts. Cleaning must not silently create or change the selected target.
+	[[ -s "$config" ]] ||
+		fail 'OpenWrt target is not configured; run ./tools/openwrt.sh --config before --clean'
+	target="$(configured_target "$config")"
+	[[ -n "$target" && -f "$openwrt_root/target/linux/$target/target.mk" ]] ||
+		fail 'OpenWrt target selection is missing or invalid; run ./tools/openwrt.sh --config'
+	grep -qx 'CONFIG_PACKAGE_openeigrp=y' "$config" ||
+		fail 'OpenEIGRP package is not selected; run ./tools/openwrt.sh --config'
 	log 'clean: removing only OpenEIGRP package outputs (OpenWrt toolchain preserved)'
 	(cd "$openwrt_root" && make package/openeigrp/clean V=s) || fail 'OpenEIGRP package clean failed'
 	log 'clean: PASS'
@@ -590,6 +845,16 @@ run_openwrt_kernel() {
 	sudo bash "$eigrp_root/openwrt/test/rib-uut.sh" --kernel || fail 'isolated kernel RIB UUT failed'
 	log 'kernel: PASS'
 }
+
+if [[ "$action" == image-build ]]; then
+	image_build_openwrt
+	exit 0
+fi
+
+if [[ "$action" == qemu ]]; then
+	run_openwrt_qemu
+	exit 0
+fi
 
 if [[ "$action" == test || "$action" == uut ]]; then
 	run_openwrt_tests
@@ -618,9 +883,22 @@ if [[ "$action" == verify ]]; then
 			log 'feeds: not initialized (run --setup)'
 		fi
 		verify_config || status=1
+		if [[ "$host" == Linux && -s "$openwrt_root/.config" ]]; then
+			# QEMU is an optional live-UUT facility, not a basic build/verify
+			# dependency. Report readiness without rejecting package-only hosts.
+			case "$(configured_target "$openwrt_root/.config")" in
+				armsr/armv8|x86/64)
+					qemu_requirements "$(configured_target "$openwrt_root/.config")" ||
+						log 'qemu: optional for package builds; required by --qemu'
+					;;
+			esac
+		fi
 		if [[ -e "$package_link" || -L "$package_link" ]]; then
 			verify_package_feed || status=1
-			if [[ -f "$openwrt_root/.config" ]] && ! grep -qx 'CONFIG_PACKAGE_openeigrp=y' "$openwrt_root/.config"; then
+			if [[ ! -s "$openwrt_root/.config" ]]; then
+				log 'package: OpenWrt target is not configured; run --config before build or clean'
+				status=1
+			elif ! grep -qx 'CONFIG_PACKAGE_openeigrp=y' "$openwrt_root/.config"; then
 				log 'package: not selected (run --config)'
 				status=1
 			fi
@@ -669,5 +947,15 @@ else
 	)
 fi
 
+# --skip-packages permits an intentionally lean host. Surface the missing
+# optional emulator here instead of deferring discovery to a QEMU attempt.
+if [[ "$host" == Linux && -s "$openwrt_root/.config" ]]; then
+	case "$(configured_target "$openwrt_root/.config")" in
+		armsr/armv8|x86/64)
+			qemu_requirements "$(configured_target "$openwrt_root/.config")" ||
+				log 'qemu: UUT prerequisites not installed; rerun --setup without --skip-packages'
+			;;
+	esac
+fi
 log 'OpenWrt host setup complete. Configure a target with: tools/openwrt.sh --config'
 log 'Portable tests are available separately: make -C <eigrp-checkout> test'

@@ -115,6 +115,20 @@ export PATH="$tmp/fake-bin:$PATH"
 export MAKE_CALL_LOG="$tmp/make.log"
 export FEEDS_CALL_LOG="$tmp/feeds.log"
 
+# Never call the real package manager. Exercise --setup's full dependency
+# manifest against a mocked sudo/apt-get entry point, including the QEMU
+# emulators used by both supported OpenWrt test architectures.
+cat > "$tmp/fake-bin/sudo" <<'MOCK'
+#!/bin/sh
+printf '%s\n' "$*" >> "$SUDO_CALL_LOG"
+case "$1 $2" in
+  'apt-get update'|'apt-get install') exit 0 ;;
+esac
+exit 80
+MOCK
+chmod +x "$tmp/fake-bin/sudo"
+export SUDO_CALL_LOG="$tmp/sudo.log"
+
 printf 'world:\n\t@true\n' > "$tmp/openwrt/Makefile"
 cat > "$tmp/openwrt/scripts/feeds" <<'MOCK'
 #!/bin/sh
@@ -137,6 +151,16 @@ git -C "$tmp/openwrt" -c user.name=CI -c user.email=ci@example.invalid \
 	commit --allow-empty -qm 'fixture'
 
 original="$(git -C "$tmp/openwrt" rev-parse HEAD)"
+"$driver" --setup --skip-clone --skip-feeds \
+	--openwrt-root "$tmp/openwrt" > "$tmp/setup-packages.log"
+grep -qx 'apt-get update' "$tmp/sudo.log"
+grep -q '^apt-get install -y ' "$tmp/sudo.log"
+for pkg in qemu-system-arm qemu-system-x86 iproute2; do
+	if ! grep -Eq "(^|[[:space:]])${pkg}([[:space:]]|$)" "$tmp/sudo.log"; then
+		echo "error: --setup does not install required $pkg" >&2
+		exit 1
+	fi
+done
 "$driver" --setup --skip-packages --skip-clone --skip-feeds \
 	--openwrt-root "$tmp/openwrt" > "$tmp/setup.log"
 [[ "$original" == "$(git -C "$tmp/openwrt" rev-parse HEAD)" ]]
@@ -145,7 +169,7 @@ original="$(git -C "$tmp/openwrt" rev-parse HEAD)"
 	--openwrt-root "$tmp/openwrt" > "$tmp/setup-with-feeds.log"
 grep -qx 'update -a' "$tmp/feeds.log"
 ! grep -q '^install -a$' "$tmp/feeds.log"
-"$driver" --verify --openwrt-root "$tmp/openwrt" > "$tmp/verify.log"
+"$driver" --verify --openwrt-root "$tmp/openwrt" > "$tmp/verify.log" 2>&1
 grep -q 'not configured' "$tmp/verify.log"
 
 # --config owns both Kconfig reconciliation and prerequisite validation.
@@ -161,8 +185,20 @@ grep -qx 'CONFIG_TARGET_armsr_armv8_DEVICE_generic=y' "$tmp/openwrt/.config"
 grep -qx 'defconfig' "$tmp/make.log"
 grep -qx 'prereq' "$tmp/make.log"
 ls "$tmp/openwrt/".config.before-openeigrp.* >/dev/null
-"$driver" --verify --openwrt-root "$tmp/openwrt" > "$tmp/verify.log"
+"$driver" --verify --openwrt-root "$tmp/openwrt" > "$tmp/verify.log" 2>&1
 grep -q 'armsr/armv8 (selected;' "$tmp/verify.log"
+# Read-only --verify reports QEMU readiness for the current profile, but
+# package-only developers are not blocked by missing optional emulators.
+grep -q 'qemu: qemu-system-aarch64 ' "$tmp/verify.log"
+# Missing emulators must fail before image/guest startup, with a concrete
+# package remedy. Hosts that already have QEMU installed exercise --verify.
+if ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
+	if "$driver" --qemu --openwrt-root "$tmp/openwrt" > "$tmp/qemu-missing.log" 2>&1; then
+		echo 'error: --qemu proceeded without the selected emulator' >&2
+		exit 1
+	fi
+	grep -q 'sudo apt-get install qemu-system-arm' "$tmp/qemu-missing.log"
+fi
 [[ "$original" == "$(git -C "$tmp/openwrt" rev-parse HEAD)" ]]
 
 # Plain --config must preserve an existing target, even if the host CPU
@@ -247,6 +283,58 @@ grep -qx 'install -p openeigrp openeigrp' "$tmp/feeds.log"
 # Idempotency: a second installation must not duplicate the feed declaration.
 "$driver" --install --openwrt-root "$tmp/openwrt" > "$tmp/install-again.log"
 [[ "$(grep -c '^src-link openeigrp ' "$tmp/openwrt/feeds.conf")" == 1 ]]
+# Moving the EIGRP checkout changes the src-link source path. Simulate the
+# old sibling checkout disappearing while OpenWrt retains two broken links.
+# --build must refuse that state; --install must repair only our dead links
+# and preserve every unrelated feed entry.
+old_feed="$(dirname "$root")/$(if [[ "$(basename "$root")" == eigrp ]]; then printf openeigrp; else printf eigrp; fi)/openwrt/feed"
+if [[ ! -e "$old_feed" && ! -L "$old_feed" ]]; then
+  sed -i "s|^src-link openeigrp .*|src-link openeigrp $old_feed|" "$tmp/openwrt/feeds.conf"
+  rm "$tmp/openwrt/package/feeds/openeigrp/openeigrp"
+  ln -s "$old_feed/openeigrp" "$tmp/openwrt/package/feeds/openeigrp/openeigrp"
+  mkdir -p "$tmp/openwrt/feeds"
+  ln -s "$old_feed" "$tmp/openwrt/feeds/openeigrp"
+  if "$driver" --build --openwrt-root "$tmp/openwrt" > "$tmp/stale-build.log" 2>&1; then
+    echo 'error: build accepted stale EIGRP registration' >&2
+    exit 1
+  fi
+  grep -q 'stale OpenEIGRP package link' "$tmp/stale-build.log"
+  "$driver" --install --openwrt-root "$tmp/openwrt" > "$tmp/move-install.log"
+  grep -q 'repaired relocated OpenEIGRP src-link' "$tmp/move-install.log"
+  grep -qx "src-link openeigrp $EIGRP_FEED_FOR_TEST" "$tmp/openwrt/feeds.conf"
+  grep -qx 'src-git packages https://example.invalid/packages.git' "$tmp/openwrt/feeds.conf"
+  [[ -f "$tmp/openwrt/package/feeds/openeigrp/openeigrp/Makefile" ]]
+  [[ ! -L "$tmp/openwrt/feeds/openeigrp" ]]
+  ls "$tmp/openwrt"/feeds.conf.before-openeigrp-relocation.* >/dev/null
+  "$driver" --install --openwrt-root "$tmp/openwrt" > "$tmp/move-idempotent.log"
+  [[ "$(grep -c '^src-link openeigrp ' "$tmp/openwrt/feeds.conf")" == 1 ]]
+fi
+# --clean must refuse absent/unselected configuration *before* invoking
+# OpenWrt make, which otherwise opens interactive menuconfig on a headless
+# machine. This reproduces an Aurora checkout-relocation failure.
+: > "$tmp/make.log"
+if "$driver" --clean --openwrt-root "$tmp/openwrt" > "$tmp/clean-unselected.log" 2>&1; then
+  echo 'error: --clean accepted an unselected package' >&2
+  exit 1
+fi
+grep -q 'OpenEIGRP package is not selected' "$tmp/clean-unselected.log"
+[[ ! -s "$tmp/make.log" ]]
+# A registered feed with no usable target is not merge/build ready; before
+# feed installation --verify may still succeed for a setup-only checkout.
+cp "$tmp/openwrt/.config" "$tmp/selected-config-backup"
+rm "$tmp/openwrt/.config"
+if "$driver" --verify --openwrt-root "$tmp/openwrt" > "$tmp/verify-unconfigured.log" 2>&1; then
+  echo 'error: --verify marked an installed but unconfigured feed ready' >&2
+  exit 1
+fi
+grep -q 'run --config before build or clean' "$tmp/verify-unconfigured.log"
+if "$driver" --clean --openwrt-root "$tmp/openwrt" > "$tmp/clean-unconfigured.log" 2>&1; then
+  echo 'error: --clean accepted missing .config and would open menuconfig' >&2
+  exit 1
+fi
+grep -q 'target is not configured' "$tmp/clean-unconfigured.log"
+[[ ! -s "$tmp/make.log" ]]
+cp "$tmp/selected-config-backup" "$tmp/openwrt/.config"
 # Package selection belongs to --config, not --install.
 ! grep -qx 'CONFIG_PACKAGE_openeigrp=y' "$tmp/openwrt/.config"
 "$driver" --config --openwrt-root "$tmp/openwrt" > "$tmp/config-pkg.log"
@@ -274,6 +362,17 @@ grep -qx -- '-j3 package/openeigrp/compile V=s' <(sed -n '3p' "$tmp/make.log")
 cmp -s "$tmp/healthy-config" "$tmp/openwrt/.config"
 [[ "$original" == "$(git -C "$tmp/openwrt" rev-parse HEAD)" ]]
 
+# A corrupt target selection must also stop before OpenWrt make.
+cp "$tmp/openwrt/.config" "$tmp/clean-valid-config"
+sed -i '/^CONFIG_TARGET_armsr_armv8=y$/d' "$tmp/openwrt/.config"
+: > "$tmp/make.log"
+if "$driver" --clean --openwrt-root "$tmp/openwrt" > "$tmp/clean-bad-target.log" 2>&1; then
+  echo 'error: --clean accepted a missing target selection' >&2
+  exit 1
+fi
+grep -q 'target selection is missing or invalid' "$tmp/clean-bad-target.log"
+[[ ! -s "$tmp/make.log" ]]
+cp "$tmp/clean-valid-config" "$tmp/openwrt/.config"
 # --clean invokes only the package clean target, never host tools/toolchain.
 : > "$tmp/make.log"
 "$driver" --clean --openwrt-root "$tmp/openwrt" > "$tmp/clean.log"

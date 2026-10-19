@@ -80,7 +80,7 @@ The OW-04 package builds and installs the archives `libeigrp-core.a` and
 `libeigrp-owrt-runtime.a` using OpenWrt's selected `TARGET_CC` and `TARGET_AR`.
 Developer staging exports `eigrp.h`, `eigrp_cli.h`, `eigrp_mgnt.h`,
 `eigrp_rib.h`, `eigrp_sys.h`, and the OpenWrt-private
-`eigrp_owrt_runtime.h`. This phase does not install an executable daemon.
+`eigrp_owrt_runtime.h`. OW-09 now installs executable binaries and a procd init script.
 
 When the real OpenWrt shim and daemon are implemented, the package can expand
 to include:
@@ -149,7 +149,7 @@ OW-04 package install
     -> /usr/lib/libeigrp-core.a          portable core archive
     -> /usr/lib/libeigrp-owrt-runtime.a  OpenWrt host scheduler archive
 
-OW-05 through OW-09 (not shipped yet)
+OW-05 through OW-09 (implemented; device testing pending)
     -> /usr/sbin/openeigrpd          daemon
     -> /etc/init.d/openeigrp         procd service script
     -> /etc/config/openeigrp         retained UCI config
@@ -194,8 +194,8 @@ OpenEIGRP feed/package
 The same target-built host archive now contains
 `eigrp_owrt_rib.o` and `eigrp_owrt_rib_netlink.o`, and the recipe stages
 `eigrp_owrt_rib.h`. The package is still a pair of static development
-archives, not a deployable daemon. Kernel FIB writes are only attempted by a
-future running daemon. The recipe stays in the local `src-link` feed.
+archives and the OW-09 deployable daemon. Kernel FIB writes are made by
+the running daemon only when EIGRP selects routes. The recipe stays in the local `src-link` feed.
 
 ## OW-08: UCI configuration payload
 
@@ -209,4 +209,17 @@ The native `recipe-test.sh` intentionally compiles host-neutral configuration
 and policy objects without libuci because Linux developer machines and macOS
 runners need not supply OpenWrt development headers. That is not evidence of
 an OpenWrt-target libuci compilation. `tools/openwrt.sh --build` performs the
-real cross-build. The executable daemon and procd hook are still OW-09.
+real cross-build. The executable daemon and procd hook are implemented in OW-09; see [daemon.md](daemon.md).
+
+## OW-09: Executables and service ownership
+
+The package now installs `/usr/sbin/openeigrpd`, `/usr/sbin/openeigrpctl`
+and `/etc/init.d/openeigrp`, along with the retained private UCI config and
+portable build archives. The daemon links the actual portable protocol core,
+OpenWrt adapters and `libuci`, and runs in the foreground under procd.
+
+The package is cross-compiled using `TARGET_CC`, `TARGET_CFLAGS` and
+`TARGET_LDFLAGS`. Normal OpenWrt builds require `libuci` and its headers;
+the native recipe test explicitly disables UCI during archive-only staging,
+while `daemon-uut.sh` performs a full native link with a test-only UCI loader.
+No native test substitutes for device-level `libuci` or procd qualification.

@@ -714,3 +714,15 @@ eigrp_instance_t *eigrp_sys_work_queue_instance(eigrp_work_queue_t *queue)
 {
 	return queue ? queue->instance : NULL;
 }
+
+/* Only the default Linux routing table/VRF is currently supported by OW-07.
+ * Resolve before creating any instance or opening a protocol socket. */
+eigrp_result_t eigrp_sys_vrf_resolve(const char *name, eigrp_vrf_id_t *vrf_id)
+{
+	if (!vrf_id)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (name && *name && strcmp(name, "default") != 0)
+		return EIGRP_RESULT_UNSUPPORTED;
+	*vrf_id = EIGRP_VRF_DEFAULT;
+	return EIGRP_RESULT_SUCCESS;
+}
