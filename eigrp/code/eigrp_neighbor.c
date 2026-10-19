@@ -1041,6 +1041,10 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 		// reset all the seq/ack counters
 		nbr->recv_sequence_number = 0;
 		nbr->peer_init_sequence_number = 0;
+		nbr->peer_init_retransmit_eligible = false;
+		nbr->peer_init_resync_pending = false;
+		if (nbr->peer_init_resync_prefixes)
+			eigrp_list_delete(&nbr->peer_init_resync_prefixes);
 		nbr->init_sequence_number = 0;
 		nbr->retrans_counter = 0;
 		nbr->cr_mode = false;

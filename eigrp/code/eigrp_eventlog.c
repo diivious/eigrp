@@ -253,6 +253,7 @@ static const char *eigrp_eventlog_nsf_name(eventmsg_arg_t reason)
 	case 2: return "peer graceful restart EOT received";
 	case 3: return "peer graceful restart complete";
 	case 4: return "peer restarted";
+	case 5: return "INIT replay topology resync";
 	default: return "unknown";
 	}
 }

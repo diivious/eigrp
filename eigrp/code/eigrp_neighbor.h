@@ -65,6 +65,14 @@ typedef struct eigrp_neighbor {
 
 	uint32_t recv_sequence_number; /* Last received sequence Number. */
 	uint32_t peer_init_sequence_number; /* Accepted peer INIT, for duplicate detection. */
+	/* Only an uncompleted peer INIT exchange may retransmit this sequence.
+	 * Do not reserve a real RTP sequence number as a completion sentinel. */
+	bool peer_init_retransmit_eligible;
+	/* A repeated INIT before EOT is ambiguous: it may be an RTP retry or
+	 * a restarted peer with the same INIT sequence.  Reconcile and re-send
+	 * topology once its EOT arrives instead of flapping the adjacency. */
+	bool peer_init_resync_pending;
+	eigrp_list_t *peer_init_resync_prefixes;
 	uint32_t init_sequence_number;
 
 	/* If a packet is unacknowledged, retry it up to the transport limit. */

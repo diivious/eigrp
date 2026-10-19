@@ -85,6 +85,10 @@ rtp-core: eigrp-uut-node
 	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/srtt-rto.yaml || status=$$?; \
 	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/lost-reliable-packet.yaml || status=$$?; \
 	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/lost-ack.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/peer-restart-before-eot.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/peer-restart.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/two-router.yaml ../rtp/peer-restart-hold.yaml || status=$$?; \
+	$(PYTHON) run.py ../rtp/three-router-shared.yaml ../rtp/backpressure-recovery.yaml || status=$$?; \
 	$(PYTHON) run.py ../rtp/three-router-shared.yaml ../rtp/reliable-multicast-peer-retry.yaml || status=$$?; \
 	exit $$status
 

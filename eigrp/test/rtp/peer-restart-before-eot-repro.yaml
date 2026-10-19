@@ -1,0 +1,24 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: review-rapid-restart-no-eot
+steps:
+  - fault-add: {name: initial-eot-block, action: drop, source_uut: r2, destination_uut: r1, opcode: update, sequence: 2}
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, timeout: 10}
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, timeout: 10}
+  - validate-fault: {name: initial-eot-block, hits: 1, timeout: 10}
+  - fault-add: {name: suppress-goodbye, action: drop, source_uut: r2, destination_uut: r1}
+  - stop: r2
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, timeout: 3}
+  - fault-remove: initial-eot-block
+  - fault-remove: suppress-goodbye
+  - packet-mark: rapid-restart
+  - start: r2
+  - validate-packet: {since: rapid-restart, source_uut: r2, destination_uut: r1, opcode: update, sequence: 1, event: delivered, min: 1, timeout: 6}
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, state: up, timeout: 10}
+  - validate-route: {uut: r2, prefix: 10.1.0.0/24, table: rib, timeout: 8}
+  # Reusing INIT sequence 1 before EOT is ambiguous.  Do not flap the
+  # adjacency; complete reconciliation and resend the full local topology.
+  - validate-event: {uut: r1, contains: 'reason peer restarted', min: 0, max: 0}
+  - validate-event: {uut: r1, contains: 'NSF INIT replay topology resync', min: 1, timeout: 5}
+  - validate-packet: {since: rapid-restart, source_uut: r1, destination_uut: r2, opcode: update, prefix: 10.1.0.0/24, event: delivered, min: 1, timeout: 8}
