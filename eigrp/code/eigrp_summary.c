@@ -227,6 +227,8 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 	eigrp_summary_config_t *summary;
 	const eigrp_summary_metric_config_t *metric_config;
 	eigrp_prefix_t best_component = {0};
+	const eigrp_route_descriptor_t *best_route = NULL;
+	eigrp_table_node_t *rn;
 	uint32_t selected_distance = EIGRP_MAX_METRIC;
 
 	if (!eigrp || !ei || !prefix || !route || !summary_prefix || !summary_route)
@@ -239,95 +241,141 @@ bool eigrp_summary_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
 					  &summary_prefix->destination))
 		return false;
 
-	memset(summary_route, 0, sizeof(*summary_route));
-	*summary_route = *route;
-	/* A summary represents the current aggregate, not whichever component
-	 * happened to trigger this UPDATE. Select the best reachable covered
-	 * component so one component withdrawal cannot poison a still-live
-	 * aggregate. */
-	if (eigrp->topology_table) {
-		eigrp_table_node_t *rn;
-		eigrp_route_descriptor_t *best_route = NULL;
-		for (rn = eigrp_table_first(eigrp->topology_table); rn;
-		     rn = eigrp_table_next(rn)) {
-			eigrp_prefix_descriptor_t *candidate = rn->info;
-			eigrp_route_descriptor_t *candidate_route;
-			if (!candidate
-			    || candidate->destination.address.afi != summary_prefix->destination.address.afi
-			    || candidate->destination.prefix_length <= summary_prefix->destination.prefix_length
-			    || !eigrp_prefix_address_match(&summary_prefix->destination,
+	/* Select the lowest local distance among usable covered components.
+	 * A path learned on the advertising interface cannot support an
+	 * aggregate sent back over that interface; local connected paths can. */
+	for (rn = eigrp_table_first(eigrp->topology_table); rn;
+	     rn = eigrp_table_next(rn)) {
+		eigrp_prefix_descriptor_t *candidate = rn->info;
+		eigrp_route_descriptor_t *candidate_route;
+
+		/* A connected DNDB can still have infinite distance while its
+		 * local RDB and feasible distance are finite. */
+		if (!candidate
+		    || (candidate->distance == EIGRP_MAX_METRIC
+			&& candidate->nt != EIGRP_TOPOLOGY_TYPE_CONNECTED)
+		    || candidate->destination.address.afi != summary_prefix->destination.address.afi
+		    || candidate->destination.prefix_length <= summary_prefix->destination.prefix_length
+		    || !eigrp_prefix_address_match(&summary_prefix->destination,
 						   &candidate->destination.address))
-				continue;
-			candidate_route = eigrp_topology_route_read(candidate);
-			if (!candidate_route)
-				continue;
-			if (!best_route || candidate->distance < selected_distance) {
-				best_route = candidate_route;
-				best_component = candidate->destination;
-				selected_distance = candidate->distance;
-			}
+			continue;
+		candidate_route = eigrp_topology_route_read(candidate);
+		if (!candidate_route || candidate_route->distance == EIGRP_MAX_METRIC
+		    || (candidate->distance == EIGRP_MAX_METRIC
+			&& (candidate->state != EIGRP_FSM_STATE_PASSIVE
+			    || candidate->fdistance == EIGRP_MAX_METRIC
+			    || candidate_route->adv_router != eigrp->neighbor_self))
+		    || candidate_route->metric.delay == EIGRP_MAX_METRIC
+		    || candidate_route->total_metric.delay == EIGRP_MAX_METRIC
+		    || (candidate_route->ei == ei
+			&& candidate_route->adv_router != eigrp->neighbor_self))
+			continue;
+		if (!best_route || candidate_route->distance < selected_distance) {
+			best_route = candidate_route;
+			best_component = candidate->destination;
+			selected_distance = candidate_route->distance;
 		}
-		if (best_route)
-			*summary_route = *best_route;
-		else
-			summary_route->metric.delay = EIGRP_MAX_METRIC;
 	}
-	summary_prefix->reported_metric = summary_route->metric;
-	summary_prefix->state = EIGRP_FSM_STATE_PASSIVE;
+
+	/* This is a locally originated *internal* aggregate, not a path through
+	 * the component's neighbor.  Never inherit its predecessor metric,
+	 * split-horizon provenance, external TLV, or external attributes. */
+	memset(summary_route, 0, sizeof(*summary_route));
 	summary_route->prefix = summary_prefix;
 	summary_route->dest = summary_prefix->destination;
+	summary_route->topology_id = best_route ? best_route->topology_id : route->topology_id;
+	summary_route->adv_router = eigrp->neighbor_self;
+	summary_route->type = eigrp->af_vectors.classic_internal_tlv_type;
+	if (best_route) {
+		summary_route->metric = best_route->total_metric;
+	} else {
+		summary_route->metric.delay = EIGRP_MAX_METRIC;
+	}
 
 	metric_config = eigrp_summary_metric_lookup(eigrp, &summary_prefix->destination);
-	if (metric_config && metric_config->metric_configured
-	    && selected_distance != EIGRP_MAX_METRIC) {
+	if (best_route && metric_config && metric_config->metric_configured)
 		eigrp_metric_values_convert(&metric_config->metric, &summary_route->metric);
-		summary_route->reported_metric = summary_route->metric;
-		summary_route->total_metric = summary_route->metric;
-	}
-	if (selected_distance != EIGRP_MAX_METRIC)
+
+	summary_route->reported_metric = summary_route->metric;
+	summary_route->total_metric = summary_route->metric;
+	summary_route->distance = eigrp_metric_calculate(eigrp, summary_route->metric);
+	summary_prefix->reported_metric = summary_route->metric;
+	summary_prefix->distance = summary_route->distance;
+	summary_prefix->fdistance = summary_route->distance;
+	summary_prefix->rdistance = summary_route->distance;
+	summary_prefix->state = EIGRP_FSM_STATE_PASSIVE;
+
+	if (best_route)
 		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SUMMARY_COMPONENT,
 				       &best_component, selected_distance, 0, 0, 0);
 	(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_SUMMARY_METRIC,
-			       &summary_prefix->destination,
-			       eigrp_metric_calculate(eigrp, summary_route->metric), 0, 0, 0);
+			       &summary_prefix->destination, summary_route->distance, 0, 0, 0);
 	return true;
 }
 
-
+/* Answer aggregate queries locally.  A QUERY for a suppressed specific must
+ * also terminate here, with an unreachable REPLY rather than a disclosure of
+ * the component's reachable DUAL state.  A leak-map permit is the exception. */
 bool eigrp_summary_query_route_build(eigrp_instance_t *eigrp, eigrp_intf_t *ei,
-                                     const eigrp_prefix_t *destination,
-                                     eigrp_prefix_descriptor_t *summary_prefix,
-                                     eigrp_route_descriptor_t *summary_route)
+				     const eigrp_prefix_t *destination,
+				     eigrp_prefix_descriptor_t *summary_prefix,
+				     eigrp_route_descriptor_t *summary_route)
 {
-    eigrp_intf_config_t *config;
-    eigrp_summary_config_t *configured;
-    eigrp_table_node_t *rn;
+	eigrp_intf_config_t *config;
+	eigrp_summary_config_t *configured;
+	eigrp_table_node_t *rn;
 
-    if (!eigrp || !ei || !destination || !summary_prefix || !summary_route)
-        return false;
-    config = eigrp_summary_intf_config(eigrp, ei);
-    if (!config)
-        return false;
-    for (configured = config->summaries; configured; configured = configured->next)
-        if (eigrp_summary_prefix_match(&configured->prefix, destination))
-            break;
-    if (!configured)
-        return false;
+	if (!eigrp || !ei || !destination || !summary_prefix || !summary_route)
+		return false;
+	config = eigrp_summary_intf_config(eigrp, ei);
+	for (configured = config ? config->summaries : NULL;
+	     configured; configured = configured->next)
+		if (eigrp_summary_prefix_match(&configured->prefix, destination))
+			break;
+	if (configured) {
+		for (rn = eigrp_table_first(eigrp->topology_table); rn;
+		     rn = eigrp_table_next(rn)) {
+			eigrp_prefix_descriptor_t *component = rn->info;
+			eigrp_route_descriptor_t *component_route;
 
-    for (rn = eigrp_table_first(eigrp->topology_table); rn; rn = eigrp_table_next(rn)) {
-        eigrp_prefix_descriptor_t *component = rn->info;
-        eigrp_route_descriptor_t *route;
-        if (!component || component->distance == EIGRP_MAX_METRIC
-            || component->destination.prefix_length <= destination->prefix_length
-            || !eigrp_prefix_address_match(destination, &component->destination.address))
-            continue;
-        route = eigrp_topology_route_read(component);
-        if (route && eigrp_summary_route_build(eigrp, ei, component, route,
-                                               summary_prefix, summary_route))
-            return true;
-    }
-    return false;
+			if (!component
+			    || (component->distance == EIGRP_MAX_METRIC
+				&& component->nt != EIGRP_TOPOLOGY_TYPE_CONNECTED)
+			    || component->destination.prefix_length <= destination->prefix_length
+			    || !eigrp_prefix_address_match(destination,
+						   &component->destination.address))
+				continue;
+			component_route = eigrp_topology_route_read(component);
+			if (component_route && eigrp_summary_route_build(
+					eigrp, ei, component, component_route,
+					summary_prefix, summary_route))
+				return true;
+		}
+		/* No reachable component: return an unreachable aggregate. */
+	} else if (!eigrp_summary_covers(eigrp, ei, destination)
+		   || eigrp_summary_specific_leak(eigrp, ei, destination)) {
+		return false;
+	}
+
+	memset(summary_prefix, 0, sizeof(*summary_prefix));
+	summary_prefix->destination = *destination;
+	summary_prefix->state = EIGRP_FSM_STATE_PASSIVE;
+	summary_prefix->distance = EIGRP_MAX_METRIC;
+	summary_prefix->fdistance = EIGRP_MAX_METRIC;
+	summary_prefix->rdistance = EIGRP_MAX_METRIC;
+	summary_prefix->reported_metric.delay = EIGRP_MAX_METRIC;
+	memset(summary_route, 0, sizeof(*summary_route));
+	summary_route->prefix = summary_prefix;
+	summary_route->dest = *destination;
+	summary_route->adv_router = eigrp->neighbor_self;
+	summary_route->type = eigrp->af_vectors.classic_internal_tlv_type;
+	summary_route->metric.delay = EIGRP_MAX_METRIC;
+	summary_route->reported_metric = summary_route->metric;
+	summary_route->total_metric = summary_route->metric;
+	summary_route->distance = EIGRP_MAX_METRIC;
+	return true;
 }
+
 
 void eigrp_summary_runtime_update(eigrp_instance_t *eigrp)
 {
