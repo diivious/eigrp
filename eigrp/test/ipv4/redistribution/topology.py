@@ -379,6 +379,129 @@ def test_redistributed_candidate_external_topology_lifecycle_executes(tmp_path):
                 assert(route->distance == EIGRP_MAX_METRIC);
                 assert(route->extdata.tag == 77U);
 
+                /* Runtime metric updates must retain local-route RD=0 and
+                 * must not turn a poisoned redistribution path reachable.
+                 */
+                runtime.k_values[0] = 2;
+                runtime.metric_version = EIGRP_TLV_64B_VERSION;
+                eigrp_topology_metric_update(&runtime);
+                assert(route->reported_distance == 0);
+                assert(route->distance == EIGRP_MAX_METRIC);
+
+                /* Reintroduce the local redistribution candidate. Its seed
+                 * delay is unscaled (10-us units), unlike its DUAL distance.
+                 */
+                assert(eigrp_rib_redist_add(&runtime, &candidate)
+                       == EIGRP_RESULT_SUCCESS);
+                pd = eigrp_topology_table_lookup(runtime.topology_table,
+                                                 &candidate.prefix);
+                route = only_route(&runtime, &candidate.prefix);
+                assert(route->metric.delay == 400);
+                assert(route->reported_distance == 0);
+                assert(route->distance != EIGRP_MAX_METRIC);
+                assert(eigrp_metrics_match(route->reported_metric, route->metric));
+                assert(eigrp_metrics_match(route->total_metric, route->metric));
+                assert(pd->rdistance == route->distance);
+                assert(eigrp_metrics_match(pd->reported_metric,
+                                           route->total_metric));
+
+                /* Build one self-originated connected route, independently
+                 * from the redistribution route above. */
+                {
+                    eigrp_intf_t link = {0};
+                    eigrp_prefix_descriptor_t *local_pd;
+                    eigrp_route_descriptor_t *local_route;
+                    eigrp_metrics_t local_metric = {0};
+                    eigrp_prefix_t local_destination = {0};
+                    eigrp_metric_t old_local_distance;
+                    eigrp_metric_t old_redist_distance = route->distance;
+                    eigrp_metrics_t redist_calculation = route->metric;
+
+                    link.params.bandwidth = 100000;
+                    link.params.delay = 100;
+                    link.params.load = 1;
+                    link.params.reliability = 255;
+                    local_metric.bandwidth = eigrp_bandwidth_to_scaled(
+                        link.params.bandwidth);
+                    local_metric.delay = eigrp_delay_to_scaled(
+                        link.params.delay);
+                    local_metric.load = link.params.load;
+                    local_metric.reliability = link.params.reliability;
+                    set_ipv4(&local_destination.address, 10, 88, 0, 0);
+                    local_destination.prefix_length = 24;
+                    local_pd = eigrp_topology_prefix_create();
+                    local_route = eigrp_topology_route_create(&link);
+                    assert(local_pd && local_route);
+                    local_pd->destination = local_destination;
+                    local_pd->nt = EIGRP_TOPOLOGY_TYPE_CONNECTED;
+                    local_pd->state = EIGRP_FSM_STATE_PASSIVE;
+                    local_pd->fdistance = local_pd->distance =
+                        local_pd->rdistance = eigrp_metric_calculate(
+                            &runtime, local_metric);
+                    local_pd->reported_metric = local_metric;
+                    local_route->type = EIGRP_TLV_IPv4_INT;
+                    local_route->dest = local_destination;
+                    local_route->adv_router = &self;
+                    local_route->metric = local_metric;
+                    local_route->reported_metric = local_metric;
+                    local_route->total_metric = local_metric;
+                    local_route->reported_distance = 0;
+                    local_route->distance = local_pd->distance;
+                    local_route->flags = EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG;
+                    eigrp_prefix_descriptor_add(runtime.topology_table, local_pd);
+                    eigrp_route_descriptor_add(&runtime, local_pd, local_route);
+                    old_local_distance = local_route->distance;
+
+                    /* Simulate an interface delay update and a K-value
+                     * recomputation in the same topology refresh. */
+                    link.params.delay = 200;
+                    runtime.k_values[2] = 2;
+                    eigrp_topology_metric_update(&runtime);
+                    local_metric.delay = eigrp_delay_to_scaled(200);
+                    assert(local_route->reported_distance == 0);
+                    assert(local_route->metric.delay == local_metric.delay);
+                    assert(eigrp_metrics_match(local_route->reported_metric,
+                                               local_metric));
+                    assert(eigrp_metrics_match(local_route->total_metric,
+                                               local_metric));
+                    assert(local_route->total_metric.delay == local_metric.delay);
+                    assert(local_route->total_metric.hop_count == 0);
+                    assert(local_route->distance ==
+                           eigrp_metric_calculate(&runtime, local_metric));
+                    assert(local_route->distance != old_local_distance);
+                    assert(local_route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG);
+                    assert(local_pd->fdistance == local_route->distance);
+                    assert(local_pd->rdistance == local_route->distance);
+                    assert(eigrp_metrics_match(local_pd->reported_metric,
+                                               local_route->total_metric));
+
+                    /* No second link-delay addition for redistributed seeds. */
+                    redist_calculation.delay = eigrp_delay_to_scaled(400);
+                    assert(route->reported_distance == 0);
+                    assert(route->distance != old_redist_distance);
+                    assert(route->distance == eigrp_metric_calculate(
+                        &runtime, redist_calculation));
+                    assert(eigrp_metrics_match(route->reported_metric,
+                                               route->metric));
+                    assert(eigrp_metrics_match(route->total_metric,
+                                               route->metric));
+                    assert(route->flags & EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG);
+                    assert(pd->rdistance == route->distance);
+                    assert(eigrp_metrics_match(pd->reported_metric,
+                                               route->total_metric));
+
+                    /* Reapply with identical inputs: no cumulative hop or
+                     * delay growth and no change of the selected metrics. */
+                    old_local_distance = local_route->distance;
+                    old_redist_distance = route->distance;
+                    eigrp_topology_metric_update(&runtime);
+                    assert(local_route->distance == old_local_distance);
+                    assert(route->distance == old_redist_distance);
+                    assert(local_route->total_metric.hop_count == 0);
+                    assert(route->reported_distance == 0);
+                    assert(local_route->reported_distance == 0);
+                }
+
                 eigrp_topology_table_delete(&runtime, runtime.topology_table);
                 eigrp_list_delete(&runtime.topology_changes);
                 return 0;

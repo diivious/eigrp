@@ -1258,11 +1258,52 @@ void eigrp_topology_metric_update(eigrp_instance_t *eigrp)
 			continue;
 		for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
 		     route = eigrp_topology_route_iterator_next(&iterator)) {
-			route->reported_distance = eigrp_metric_calculate(eigrp, route->reported_metric);
-			if (route->ei)
-				route->distance = eigrp_metric_total_calculate(eigrp, route);
-			else
-				route->distance = eigrp_metric_calculate(eigrp, route->total_metric);
+			if (route->adv_router == eigrp->neighbor_self) {
+				/* A local path has no neighbor-reported distance.  Its
+				 * advertised distance is still the complete local cost. */
+				route->reported_distance = 0;
+				if (!route->ei) {
+					/* A redistributed path has no inbound interface.
+					 * Its retained seed is the entire advertised vector,
+					 * including when the path has been poisoned. */
+					route->reported_metric = route->metric;
+					route->total_metric = route->metric;
+				}
+				if (route->metric.delay == EIGRP_MAX_METRIC) {
+					if (route->ei) {
+						route->reported_metric = route->metric;
+						route->total_metric = route->metric;
+					}
+					route->distance = EIGRP_MAX_METRIC;
+				} else if (route->ei) {
+					/* A connected route already includes its local link. */
+					eigrp_metrics_t metric = route->metric;
+
+					metric.bandwidth = eigrp_bandwidth_to_scaled(
+						route->ei->params.bandwidth);
+					metric.delay = eigrp_delay_to_scaled(
+						route->ei->params.delay);
+					metric.load = route->ei->params.load;
+					metric.reliability = route->ei->params.reliability;
+					metric.hop_count = 0;
+					route->metric = metric;
+					route->reported_metric = metric;
+					route->total_metric = metric;
+					route->distance = eigrp_metric_calculate(eigrp, metric);
+				} else {
+					/* Redistribution seed delay is still in 10-us units. */
+					route->distance = eigrp_topology_redistributed_distance(
+						eigrp, &route->metric);
+				}
+			} else {
+				route->reported_distance = eigrp_metric_calculate(
+					eigrp, route->reported_metric);
+				if (route->ei)
+					route->distance = eigrp_metric_total_calculate(eigrp, route);
+				else
+					route->distance = eigrp_metric_calculate(
+						eigrp, route->total_metric);
+			}
 		}
 		eigrp_topology_route_queue_resort(prefix->internal_routes);
 		eigrp_topology_route_queue_resort(prefix->external_routes);
@@ -1270,8 +1311,8 @@ void eigrp_topology_metric_update(eigrp_instance_t *eigrp)
 		if (best) {
 			prefix->distance = best->distance;
 			prefix->fdistance = best->distance;
-			prefix->rdistance = best->reported_distance;
-			prefix->reported_metric = best->reported_metric;
+			prefix->rdistance = best->distance;
+			prefix->reported_metric = best->total_metric;
 		}
 		eigrp_topology_update_node_flags(eigrp, prefix);
 		eigrp_update_routing_table(eigrp, prefix);
