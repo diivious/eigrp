@@ -1,0 +1,25 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Prefix-limit timer violation restart and third-incident lockout (IPv4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 10}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: violate}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, observe: 0.3}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: expire}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: violate}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, observe: 0.3}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: expire}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: violate}
+  - validate-convergence:
+      timeout: 8
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-locked, reliable_q: 0}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: false}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-locked, observe: 0.7}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: delete}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
+  - validate-route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: true, timeout: 12}
+  - stop: all

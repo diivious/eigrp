@@ -270,7 +270,7 @@ def validate_scenario(s):
                     "validate-event":("uut","contains")}.get(op,())
             if any(k not in arg for k in needed): raise SpecError(f"{where}: missing required fields {needed}")
             if op == "peer-limit":
-                if arg["operation"] not in ("suspend", "lock", "release", "delete"):
+                if arg["operation"] not in ("suspend", "lock", "release", "delete", "violate", "expire"):
                     raise SpecError(f"{where}: unsupported operation")
                 try: ipaddress.ip_address(arg["neighbor"])
                 except ValueError as exc: raise SpecError(f"{where}: invalid neighbor") from exc

@@ -969,6 +969,8 @@ bool eigrp_nbr_suspend(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state)
 	pthread_mutex_unlock(&eigrp->peer_lock);
 	if (first)
 		eigrp_nbr_down(nbr);
+	if (state == EIGRP_NBR_LIMIT_LOCKED)
+		eigrp_nbr_limit_timers_cancel(nbr);
 	return true;
 }
 
@@ -989,6 +991,209 @@ void eigrp_nbr_release(eigrp_nbr_t *nbr)
 		nbr->generation = eigrp->next_neighbor_generation;
 	}
 	pthread_mutex_unlock(&eigrp->peer_lock);
+}
+
+/* Cisco prefix-limit restart/reset defaults, in minutes.  An individual
+ * neighbor limit inherits timers from neighbor-all, then process-wide policy.
+ * Zero-valued options use the next available source/default. */
+#define EIGRP_LIMIT_RESTART_MINUTES 5U
+#define EIGRP_LIMIT_RESET_MINUTES 15U
+#define EIGRP_LIMIT_RESTART_COUNT 3U
+#define EIGRP_LIMIT_MINUTE_MSEC UINT64_C(60000)
+#define EIGRP_LIMIT_Q16 UINT32_C(65536)
+
+static void eigrp_nbr_limit_policy_resolve(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit, eigrp_prefix_limit_t *effective)
+{
+	eigrp_af_config_t *af;
+	const eigrp_prefix_limit_t *all = NULL;
+	const eigrp_prefix_limit_t *process = NULL;
+
+	*effective = *limit;
+	af = eigrp_af_config_runtime_read(nbr->ei->eigrp);
+	if (af) {
+		if (af->neighbor_policy
+		    && af->neighbor_policy->maximum_prefix_all_configured)
+			all = &af->neighbor_policy->maximum_prefix_all;
+		if (af->topology_maximum_prefix_configured)
+			process = &af->topology_maximum_prefix;
+	}
+if (!effective->restart_minutes)
+		effective->restart_minutes = all && all->restart_minutes
+			? all->restart_minutes
+			: process && process->restart_minutes
+				? process->restart_minutes : EIGRP_LIMIT_RESTART_MINUTES;
+	if (!effective->reset_time_minutes)
+		effective->reset_time_minutes = all && all->reset_time_minutes
+			? all->reset_time_minutes
+			: process && process->reset_time_minutes
+				? process->reset_time_minutes : EIGRP_LIMIT_RESET_MINUTES;
+	if (!effective->restart_count)
+		effective->restart_count = all && all->restart_count
+			? all->restart_count
+			: process && process->restart_count
+				? process->restart_count : EIGRP_LIMIT_RESTART_COUNT;
+	/* Dampening is enabled on the selected scope or its inherited defaults. */
+	if (!effective->dampened)
+		effective->dampened = (all && all->dampened)
+				      || (process && process->dampened);
+}
+
+/* Q16 approximation of 2^(-fraction), fraction expressed as eighth-order
+ * binary bits.  Whole half-lives divide by two exactly; fractional half
+ * lives use deterministic fixed-point factors without a libm dependency. */
+static uint32_t eigrp_nbr_limit_decay(uint32_t score, uint64_t elapsed,
+	uint64_t half_life)
+{
+	static const uint32_t factor[8] = {
+		46341U, 55109U, 60097U, 62758U,
+		64132U, 64830U, 65182U, 65359U,
+	};
+	uint32_t fraction;
+	unsigned i;
+
+	if (!score || !elapsed || !half_life)
+		return score;
+	if (elapsed / half_life >= 32U)
+		return 0;
+	score >>= (unsigned)(elapsed / half_life);
+	fraction = (uint32_t)(((elapsed % half_life) * 256U) / half_life);
+	for (i = 0; i < 8; ++i)
+		if (fraction & (128U >> i))
+			score = (uint32_t)(((uint64_t)score * factor[i]) >> 16);
+	return score;
+}
+
+/* The timer queue accepts uint32 milliseconds; rearm long intervals in
+ * chunks rather than truncating valid user-configured minute values. */
+static void eigrp_nbr_limit_timer_arm(eigrp_nbr_t *nbr,
+	eigrp_timer_event_t **timer, eigrp_event_callback_t callback,
+	uint64_t deadline)
+{
+	uint64_t now = eigrp_sys_monotime_msec();
+	uint64_t delta = deadline > now ? deadline - now : 1U;
+	if (delta > UINT32_MAX)
+		delta = UINT32_MAX;
+	eigrp_timer_add(nbr->ei->eigrp, timer, callback, nbr,
+			(uint32_t)delta);
+}
+
+void eigrp_nbr_limit_timers_cancel(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	eigrp_instance_t *eigrp = nbr->ei ? nbr->ei->eigrp : NULL;
+	eigrp_timer_cancel(eigrp, &nbr->t_limit_restart);
+	eigrp_timer_cancel(eigrp, &nbr->t_limit_reset);
+	nbr->limit_restart_due_msec = 0;
+	nbr->limit_reset_due_msec = 0;
+}
+
+void eigrp_nbr_limit_restart_expired(void *arg)
+{
+	eigrp_nbr_t *nbr = arg;
+	uint64_t now;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp)
+		return;
+	if (nbr->limit_state != EIGRP_NBR_LIMIT_SUSPENDED
+	    || !nbr->limit_restart_due_msec)
+		return;
+	now = eigrp_sys_monotime_msec();
+	if (now < nbr->limit_restart_due_msec) {
+		eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_restart,
+			eigrp_nbr_limit_restart_expired,
+			nbr->limit_restart_due_msec);
+		return;
+	}
+	nbr->limit_restart_due_msec = 0;
+	eigrp_nbr_release(nbr); /* Never jumps directly to UP. */
+}
+
+void eigrp_nbr_limit_reset_expired(void *arg)
+{
+	eigrp_nbr_t *nbr = arg;
+	uint64_t now;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp || !nbr->limit_reset_due_msec)
+		return;
+	now = eigrp_sys_monotime_msec();
+	if (now < nbr->limit_reset_due_msec) {
+		eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_reset,
+			eigrp_nbr_limit_reset_expired,
+			nbr->limit_reset_due_msec);
+		return;
+	}
+	nbr->limit_reset_due_msec = 0;
+	/* Never unlock a peer: manual clear is required even if reset expires. */
+	if (nbr->limit_state != EIGRP_NBR_LIMIT_LOCKED) {
+		nbr->limit_restarts = 0;
+		nbr->limit_penalty_q16 = 0;
+		nbr->limit_penalty_updated_msec = 0;
+	}
+}
+
+/* Apply one prefix-limit violation on the owning AF thread.  Repeated
+ * violations cannot shorten an existing suspension.  The violation limit
+ * counts incidents: the third violation locks under the default policy. */
+bool eigrp_nbr_limit_exceeded(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit)
+{
+	eigrp_prefix_limit_t effective;
+	uint64_t now, base, restart, half_life, score;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp || !limit
+	    || !limit->maximum || limit->warning_only || !nbr->published
+	    || nbr->limit_state != EIGRP_NBR_LIMIT_NONE)
+		return false;
+	eigrp_nbr_limit_policy_resolve(nbr, limit, &effective);
+	now = eigrp_sys_monotime_msec();
+	base = (uint64_t)effective.restart_minutes * EIGRP_LIMIT_MINUTE_MSEC;
+	half_life = base + base / 2U;
+	if (effective.dampened) {
+		if (nbr->limit_penalty_updated_msec && now > nbr->limit_penalty_updated_msec)
+			nbr->limit_penalty_q16 = eigrp_nbr_limit_decay(
+				nbr->limit_penalty_q16,
+				now - nbr->limit_penalty_updated_msec, half_life);
+		if (nbr->limit_penalty_q16 > UINT32_MAX - EIGRP_LIMIT_Q16)
+			nbr->limit_penalty_q16 = UINT32_MAX;
+		else
+			nbr->limit_penalty_q16 += EIGRP_LIMIT_Q16;
+		nbr->limit_penalty_updated_msec = now;
+	} else {
+		nbr->limit_penalty_q16 = 0;
+		nbr->limit_penalty_updated_msec = 0;
+	}
+	if (nbr->limit_restarts < UINT16_MAX)
+		++nbr->limit_restarts;
+	if (nbr->limit_restarts >= effective.restart_count) {
+		eigrp_nbr_limit_timers_cancel(nbr);
+		return eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_LOCKED);
+	}
+	restart = base;
+	if (effective.dampened) {
+		score = nbr->limit_penalty_q16;
+		/* Fixed point penalty gives one base interval on first violation. */
+		restart = (base * score) / EIGRP_LIMIT_Q16;
+	}
+	if (restart > UINT64_MAX - now || base == 0)
+		return false;
+	if (!eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED))
+		return false;
+	nbr->limit_restart_due_msec = now + restart;
+	nbr->limit_reset_due_msec = now +
+		(uint64_t)effective.reset_time_minutes * EIGRP_LIMIT_MINUTE_MSEC;
+	eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_restart,
+		eigrp_nbr_limit_restart_expired, nbr->limit_restart_due_msec);
+	eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_reset,
+		eigrp_nbr_limit_reset_expired, nbr->limit_reset_due_msec);
+	if (!nbr->t_limit_restart || !nbr->t_limit_reset) {
+		/* Allocation/shutdown failure cannot silently restore eligibility. */
+		eigrp_nbr_limit_timers_cancel(nbr);
+		(void)eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_LOCKED);
+		return false;
+	}
+	return true;
 }
 
 /* Final deletion is independent of the prefix-limit policy. */
@@ -1015,6 +1220,7 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 		}
 		pthread_mutex_unlock(&nbr->ei->eigrp->peer_lock);
 	}
+	eigrp_nbr_limit_timers_cancel(nbr);
 	eigrp_nbr_down(nbr);
 	eigrp_packet_queue_free(nbr->retrans_queue);
 	free(nbr);

@@ -73,6 +73,16 @@ typedef struct eigrp_neighbor {
 	uint8_t state; /* normal adjacency FSM status */
 	eigrp_nbr_limit_state_t limit_state; /* prefix-limit admission status */
 
+	/* Prefix-limit penalty lifetime is owned by this peer.  Protocol timers
+	 * are cancelled on DOWN; these survive until restart/reset or DELETE. */
+	uint16_t limit_restarts;
+	uint32_t limit_penalty_q16;
+	uint64_t limit_penalty_updated_msec;
+	uint64_t limit_restart_due_msec;
+	uint64_t limit_reset_due_msec;
+	eigrp_timer_event_t *t_limit_restart;
+	eigrp_timer_event_t *t_limit_reset;
+
 	uint32_t recv_sequence_number; /* Last received sequence Number. */
 	uint32_t peer_init_sequence_number; /* Accepted peer INIT, for duplicate detection. */
 	/* Only an uncompleted peer INIT exchange may retransmit this sequence.
@@ -150,6 +160,14 @@ extern void eigrp_nbr_delete(eigrp_nbr_t *neigh);
 /* Task 1 lifecycle API: scheduling/violation policy belongs to later tasks. */
 bool eigrp_nbr_suspend(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);
 void eigrp_nbr_release(eigrp_nbr_t *nbr);
+/* Task 2 timer engine.  Task 3 invokes this when a hard limit is crossed.
+ * Per-peer timer options inherit from neighbor-all, then process settings. */
+bool eigrp_nbr_limit_exceeded(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit);
+void eigrp_nbr_limit_restart_expired(void *arg);
+void eigrp_nbr_limit_reset_expired(void *arg);
+void eigrp_nbr_limit_timers_cancel(eigrp_nbr_t *nbr);
+
 bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr);
 
 extern void eigrp_nbr_holddown_expired(void *arg);

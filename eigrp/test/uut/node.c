@@ -17,6 +17,7 @@
 #include "eigrp_redistribute.h"
 #include "eigrp_mgnt.h"
 #include "eigrp_sys.h"
+#include "eigrp_timer.h"
 #include "eigrp_unix.h"
 #include "eigrp_unix_interface.h"
 #include "eigrp_unix_keychain.h"
@@ -149,6 +150,23 @@ static eigrp_result_t uut_limit_process(eigrp_instance_t *e, void *arg)
     nbr = eigrp_nbr_lookup(ei, NULL, &src);
     if (!nbr)
         return EIGRP_RESULT_NOT_FOUND;
+    /* Test-only fault injector invokes the real prefix-limit timer engine.
+     * Expiry is advanced on the AF thread, never through production CLI. */
+    if (strcmp(request->operation, "violate") == 0) {
+        eigrp_prefix_limit_t limit = {.maximum = 1};
+        return eigrp_nbr_limit_exceeded(nbr, &limit)
+            ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_CONFLICT;
+    }
+    if (strcmp(request->operation, "expire") == 0) {
+        if (nbr->limit_state != EIGRP_NBR_LIMIT_SUSPENDED ||
+            !nbr->limit_restart_due_msec)
+            return EIGRP_RESULT_CONFLICT;
+        eigrp_timer_cancel(e, &nbr->t_limit_restart);
+        nbr->limit_restart_due_msec = eigrp_sys_monotime_msec() - 1U;
+        eigrp_nbr_limit_restart_expired(nbr);
+        return eigrp_nbr_eligible(nbr)
+            ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_CONFLICT;
+    }
     if (strcmp(request->operation, "suspend") == 0)
         return eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED)
                    ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_CONFLICT;
