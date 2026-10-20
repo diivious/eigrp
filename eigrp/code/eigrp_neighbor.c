@@ -640,8 +640,9 @@ eigrp_result_t eigrp_nbr_state_iterate(
 		if (interface_name && strcmp(name, interface_name) != 0)
 			continue;
 		for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
-			/* Normal neighbor output contains established adjacencies only. */
-			if (nbr->state != EIGRP_NEIGHBOR_UP)
+			/* Also expose retained prefix-penalized peers to show/accounting. */
+			if (nbr->state != EIGRP_NEIGHBOR_UP
+			    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
 				continue;
 			memset(&state, 0, sizeof(state));
 			eigrp_nbr_runtime_address(nbr, &state.address);
@@ -910,10 +911,92 @@ eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 }
 
 
-/* Delete specified EIGRP neighbor from interface. */
+/* Only a non-penalized neighbor may enter the normal INIT handshake. */
+bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr)
+{
+	return nbr && nbr->limit_state == EIGRP_NBR_LIMIT_NONE;
+}
+
+/* Terminate the adjacency without destroying the neighbor identity.
+ * Both prefix-limit suspension and final deletion use this same teardown.
+ * No topology/RTP/GR ownership may outlive this operation. */
+void eigrp_nbr_down(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	if (nbr->ei)
+		eigrp_packet_neighbor_output_clear(nbr);
+	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+	/* A pending sync can exist before the peer is fully UP. */
+	eigrp_update_sync_cancel(nbr);
+	if (nbr->ei)
+		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
+	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_nbr_send_gr);
+	if (nbr->nbr_gr_prefixes)
+		eigrp_list_delete(&nbr->nbr_gr_prefixes);
+	if (nbr->nbr_gr_prefixes_send)
+		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
+	nbr->nbr_gr_packet_type = EIGRP_PACKET_PART_NA;
+}
+
+/* Keep the same published peer for prefix-limit penalty accounting. Ingress
+ * and the ordinary adjacency FSM see it as DOWN and ineligible. Generation
+ * changes invalidate any pre-suspension authenticated work still in packetQ. */
+bool eigrp_nbr_suspend(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state)
+{
+	eigrp_instance_t *eigrp;
+	bool first;
+
+	if (!nbr || !nbr->ei
+	    || (state != EIGRP_NBR_LIMIT_SUSPENDED && state != EIGRP_NBR_LIMIT_LOCKED))
+		return false;
+	eigrp = nbr->ei->eigrp;
+	if (!eigrp)
+		return false;
+	pthread_mutex_lock(&eigrp->peer_lock);
+	if (!nbr->published || (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED
+			      && state == EIGRP_NBR_LIMIT_SUSPENDED)) {
+		pthread_mutex_unlock(&eigrp->peer_lock);
+		return false;
+	}
+	first = nbr->limit_state == EIGRP_NBR_LIMIT_NONE;
+	nbr->limit_state = state;
+	if (first) {
+		if (++eigrp->next_neighbor_generation == 0)
+			++eigrp->next_neighbor_generation;
+		nbr->generation = eigrp->next_neighbor_generation;
+	}
+	pthread_mutex_unlock(&eigrp->peer_lock);
+	if (first)
+		eigrp_nbr_down(nbr);
+	return true;
+}
+
+/* Timer expiry restores eligibility only. A fresh Hello/INIT exchange is
+ * still required; the neighbor is never moved directly to UP. */
+void eigrp_nbr_release(eigrp_nbr_t *nbr)
+{
+	eigrp_instance_t *eigrp;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp)
+		return;
+	eigrp = nbr->ei->eigrp;
+	pthread_mutex_lock(&eigrp->peer_lock);
+	if (nbr->published && nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED) {
+		nbr->limit_state = EIGRP_NBR_LIMIT_NONE;
+		if (++eigrp->next_neighbor_generation == 0)
+			++eigrp->next_neighbor_generation;
+		nbr->generation = eigrp->next_neighbor_generation;
+	}
+	pthread_mutex_unlock(&eigrp->peer_lock);
+}
+
+/* Final deletion is independent of the prefix-limit policy. */
 void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 {
-	if (nbr && IS_DEBUG_EIGRP_EVENT) {
+	if (!nbr)
+		return;
+	if (IS_DEBUG_EIGRP_EVENT) {
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: neighbor %s delete%s%s",
 			   eigrp_print_addr(&nbr->src), nbr->ei ? " on " : "",
 			   nbr->ei ? eigrp_intf_name_string(nbr->ei) : "");
@@ -922,10 +1005,9 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 				   nbr->ei->eigrp->AS, nbr->state, nbr->retrans_counter);
 	}
 
-	/* Stop ingress lookup before teardown begins.  A receive-thread lookup
-	 * holding peer_lock therefore either completes its hold refresh first or
-	 * cannot obtain this neighbor after unpublication. */
-	if (nbr && nbr->ei) {
+	/* Unpublish before destroying adjacency-owned objects, so ingress
+	 * cannot rediscover a neighbor while it is being deleted. */
+	if (nbr->ei) {
 		pthread_mutex_lock(&nbr->ei->eigrp->peer_lock);
 		if (nbr->published) {
 			eigrp_list_delete_data(nbr->ei->nbrs, nbr);
@@ -933,23 +1015,8 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 		}
 		pthread_mutex_unlock(&nbr->ei->eigrp->peer_lock);
 	}
-
-	/* A paced packet can still point at nbr after its RTP queue was cleared. */
-	if (nbr->ei)
-		eigrp_packet_neighbor_output_clear(nbr);
-	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
-	if (nbr->ei)
-		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
-
-	/* Cancel neighbor-owned host runtime events before releasing queues/state. */
-	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_nbr_send_gr);
-	if (nbr->nbr_gr_prefixes)
-		eigrp_list_delete(&nbr->nbr_gr_prefixes);
-	if (nbr->nbr_gr_prefixes_send)
-		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
+	eigrp_nbr_down(nbr);
 	eigrp_packet_queue_free(nbr->retrans_queue);
-	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
-
 	free(nbr);
 }
 
@@ -1016,6 +1083,11 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 	if (operation != EIGRP_SET || !nbr)
 		return;
 
+	/* A suspended peer is not a live adjacency, regardless of its prior
+	 * handshake state. Only release may restore admission. */
+	if (nbr->limit_state != EIGRP_NBR_LIMIT_NONE
+	    && state != EIGRP_NEIGHBOR_DOWN)
+		return;
 	old_state = nbr->state;
 
 	/* Cancel a snapshot at the actual adjacency transition, not merely
@@ -1097,6 +1169,10 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 const char *eigrp_nbr_state_str(eigrp_nbr_t *nbr)
 {
 	const char *state;
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED)
+		return "Prefix-limit Pending";
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED)
+		return "Prefix-limit Locked";
 	switch (nbr->state) {
 	case EIGRP_NEIGHBOR_DOWN:
 		state = "Down";
@@ -1117,6 +1193,12 @@ const char *eigrp_nbr_state_str(eigrp_nbr_t *nbr)
 
 void eigrp_nbr_holddown_update(eigrp_nbr_t *nbr)
 {
+	if (!nbr)
+		return;
+	if (!eigrp_nbr_eligible(nbr)) {
+		eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
+		return;
+	}
 	switch (nbr->state) {
 	case EIGRP_NEIGHBOR_DOWN:
 		eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
@@ -1212,7 +1294,7 @@ static void eigrp_nbr_clear_hard(eigrp_nbr_t *nbr,
 		   eigrp_print_addr(&nbr->src), interface_name);
 	eigrp_nbr_clear_report(nbr, false, callback, arg);
 
-	if (peer_termination)
+	if (peer_termination && nbr->state != EIGRP_NEIGHBOR_DOWN)
 		eigrp_hello_send(nbr->ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN_NBR,
 				 &nbr->src);
 
@@ -1288,7 +1370,8 @@ eigrp_result_t eigrp_nbr_clear(
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
 		for (EIGRP_LIST_ITERATE(ei->nbrs, nbr_node, next_node, nbr)) {
-			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
+			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN
+			    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
 				continue;
 			if (request->soft)
 				eigrp_nbr_clear_soft(nbr, callback, arg);
@@ -1307,7 +1390,8 @@ eigrp_result_t eigrp_nbr_clear(
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
 		for (EIGRP_LIST_ITERATE(ei->nbrs, nbr_node, next_node, nbr)) {
-			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
+			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN
+			    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
 				continue;
 			if (request->soft)
 				eigrp_nbr_clear_soft(nbr, callback, arg);

@@ -1002,6 +1002,10 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	 * update neighbor state.
 	 */
 	nbr = eigrp_nbr_lookup(ei, eigrph, &src);
+	/* Prefix-limit suspension retains the peer identity, not its adjacency.
+	 * Reject all opcodes, including Hellos and ACKs, before RTP/DUAL. */
+	if (nbr && !eigrp_nbr_eligible(nbr))
+		return;
 	if (!input->ingress_authenticated
 	    || (input->ingress_neighbor_generation != 0
 	        && (!nbr || nbr->generation != input->ingress_neighbor_generation)))
@@ -2630,6 +2634,10 @@ bool eigrp_packet_ingress_authenticate(eigrp_instance_t *instance,
 	nbr = eigrp_nbr_lookup(ei, header, &input->source);
 	if (nbr && !nbr->published)
 		nbr = NULL;
+	/* Suspended neighbors keep their identity but are not eligible for any
+	 * ingress work, including authentication or hold-timer refresh. */
+	if (nbr && !eigrp_nbr_eligible(nbr))
+		goto done;
 	/* Only discovery Hellos may arrive without an existing peer. */
 	if (!nbr && (header->opcode != EIGRP_OPC_HELLO || ntohl(header->ack)))
 		goto done;

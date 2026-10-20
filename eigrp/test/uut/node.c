@@ -11,6 +11,8 @@
 #include "eigrp_auth.h"
 #include "eigrp_cli.h"
 #include "eigrp_interface.h"
+#include "eigrp_neighbor.h"
+#include "eigrp_structs.h"
 #include "eigrp_summary.h"
 #include "eigrp_redistribute.h"
 #include "eigrp_mgnt.h"
@@ -125,6 +127,53 @@ static eigrp_result_t uut_redist_change(bool add)
                : eigrp_redist_remove(&context, &source);
 }
 
+/* Test-only control: run lifecycle operations on the owning AF thread. */
+typedef struct uut_limit_args {
+    char ifname[256];
+    char address[128];
+    char operation[32];
+} uut_limit_args_t;
+
+static eigrp_result_t uut_limit_process(eigrp_instance_t *e, void *arg)
+{
+    const uut_limit_args_t *request = arg;
+    eigrp_intf_t *ei = eigrp_intf_lookup_by_name(e, request->ifname);
+    eigrp_addr_t src = {0};
+    eigrp_nbr_t *nbr;
+    int family = strchr(request->address, ':') ? AF_INET6 : AF_INET;
+
+    if (!ei || inet_pton(family, request->address,
+                         family == AF_INET ? (void *)&src.ip.v4 : (void *)&src.ip.v6) != 1)
+        return EIGRP_RESULT_INVALID_ARGUMENT;
+    src.afi = family;
+    nbr = eigrp_nbr_lookup(ei, NULL, &src);
+    if (!nbr)
+        return EIGRP_RESULT_NOT_FOUND;
+    if (strcmp(request->operation, "suspend") == 0)
+        return eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED)
+                   ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_CONFLICT;
+    if (strcmp(request->operation, "lock") == 0)
+        return eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_LOCKED)
+                   ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_CONFLICT;
+    if (strcmp(request->operation, "release") == 0) {
+        if (nbr->limit_state != EIGRP_NBR_LIMIT_SUSPENDED)
+            return EIGRP_RESULT_CONFLICT;
+        eigrp_nbr_release(nbr);
+        return EIGRP_RESULT_SUCCESS;
+    }
+    if (strcmp(request->operation, "delete") == 0) {
+        eigrp_address_t address = {.afi = family == AF_INET
+            ? EIGRP_AFI_IPV4 : EIGRP_AFI_IPV6};
+        eigrp_nbr_clear_request_t clear = {.address = &address};
+        memcpy(address.bytes, family == AF_INET
+            ? (const void *)&src.ip.v4 : (const void *)&src.ip.v6,
+            family == AF_INET ? 4U : 16U);
+        /* Exercise the same hard-clear target used by the actual CLI. */
+        return eigrp_nbr_clear(e, &clear, NULL, NULL, NULL);
+    }
+    return EIGRP_RESULT_INVALID_ARGUMENT;
+}
+
 static void load(const char *path){FILE *f=fopen(path,"r");char line[LINE],op[32],a[256],b[256],c[256];unsigned x,y,z;if(!f){perror(path);exit(2);}eigrp_sys_runtime_init();eigrp_init();if(!eigrp_process_receive_start()){fprintf(stderr,"unable to start EIGRP receive worker\n");exit(2);}while(fgets(line,sizeof(line),f)){if(line[0]=='#'||line[0]=='\n')continue;if(sscanf(line,"%31s %255s %255s %255s %u %u %u",op,a,b,c,&x,&y,&z)<1)continue;if(!strcmp(op,"router")){snprintf(instance_name,sizeof(instance_name),"%s",a);asn=(uint16_t)strtoul(b,NULL,10);}else if(!strcmp(op,"afi")){afi=!strcmp(a,"ipv6")?EIGRP_AFI_IPV6:EIGRP_AFI_IPV4;}else if(!strcmp(op,"interface")){eigrp_unix_interface_t *ui=NULL;eigrp_result_t r=eigrp_unix_interface_create(a,(eigrp_ifindex_t)strtoul(b,NULL,10),true,(uint32_t)strtoul(c,NULL,10),x,&ui);if(r!=EIGRP_RESULT_SUCCESS)die("interface create",r);}else if(!strcmp(op,"address")){eigrp_prefix_t p=prefix_parse(b);eigrp_result_t r=eigrp_unix_interface_address_add(a,&p,false);if(r!=EIGRP_RESULT_SUCCESS)die("address add",r);}else if(!strcmp(op,"segment")){eigrp_unix_segment_t *s=eigrp_unix_segment_find(b);if(!s){eigrp_result_t r=eigrp_unix_segment_create(b,&s);if(r!=EIGRP_RESULT_SUCCESS)die("segment create",r);}eigrp_unix_interface_t *ui=eigrp_unix_interface_find(a);if(!ui)die("segment interface",EIGRP_RESULT_NOT_FOUND);{eigrp_result_t r=eigrp_unix_segment_interface_attach(s,instance_name,ui);if(r!=EIGRP_RESULT_SUCCESS)die("segment attach",r);}}else if(!strcmp(op,"up")){/* Deferred until EIGRP configuration is complete. */}}
  fclose(f);if(!instance_name[0]||!asn){fprintf(stderr,"missing router definition\n");exit(2);}if(eigrp_af_config_create(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn)!=EIGRP_RESULT_SUCCESS)die("af create",EIGRP_RESULT_INTERNAL_FAILURE);af=eigrp_af_config_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn);if(!af)die("af read",EIGRP_RESULT_NOT_FOUND);{eigrp_instance_context_t ctx={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&ctx);if(r!=EIGRP_RESULT_SUCCESS)die("context",r);runtime=ctx.runtime;f=fopen(path,"r");if(!f){perror(path);exit(2);}while(fgets(line,sizeof(line),f)){if(sscanf(line,"%31s %255s %255s",op,a,b)<1)continue;if(!strcmp(op,"router-id")){struct in_addr v;if(inet_pton(AF_INET,a,&v)!=1)exit(2);r=eigrp_instance_router_id_update(EIGRP_SET,&ctx,ntohl(v.s_addr));if(r!=EIGRP_RESULT_SUCCESS)die("router-id",r);}else if(!strcmp(op,"network")){eigrp_prefix_t p=prefix_parse(a);r=eigrp_network_create(&ctx,&p);if(r!=EIGRP_RESULT_SUCCESS)die("network",r);}else if(!strcmp(op,"passive")){
     eigrp_intf_context_t ic = {.address_family=af};
@@ -158,7 +207,15 @@ static void load(const char *path){FILE *f=fopen(path,"r");char line[LINE],op[32
 	 * prevents an adjacency from racing partial UUT configuration. */
 	f=fopen(path,"r");if(!f){perror(path);exit(2);}while(fgets(line,sizeof(line),f)){if(sscanf(line,"%31s %255s",op,a)<1)continue;if(!strcmp(op,"up")){r=eigrp_unix_interface_up(a);if(r!=EIGRP_RESULT_SUCCESS)die("interface up",r);}}fclose(f);}}
 
-int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){fprintf(stderr,"usage: %s config\n",argv[0]);return 2;}load(argv[1]);puts("READY");fflush(stdout);while(fgets(line,sizeof(line),stdin)){if(sscanf(line,"%31s %255s",verb,ifname)<1)continue;if(!strcmp(verb,"STATE"))state();else if(!strcmp(verb,"TECH"))tech();else if(!strcmp(verb,"EVENTS"))events();else if(!strcmp(verb,"UP")){printf("RESULT|%d\n",(int)eigrp_unix_interface_up(ifname));fflush(stdout);}else if(!strcmp(verb,"DOWN")){printf("RESULT|%d\n",(int)eigrp_unix_interface_down(ifname));fflush(stdout);}else if(!strcmp(verb,"SOURCE-ADD") || !strcmp(verb,"SOURCE-DEL")){
+int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){fprintf(stderr,"usage: %s config\n",argv[0]);return 2;}load(argv[1]);puts("READY");fflush(stdout);while(fgets(line,sizeof(line),stdin)){if(sscanf(line,"%31s %255s",verb,ifname)<1)continue;if(!strcmp(verb,"STATE"))state();else if(!strcmp(verb,"TECH"))tech();else if(!strcmp(verb,"EVENTS"))events();else if(!strcmp(verb,"UP")){printf("RESULT|%d\n",(int)eigrp_unix_interface_up(ifname));fflush(stdout);}else if(!strcmp(verb,"DOWN")){printf("RESULT|%d\n",(int)eigrp_unix_interface_down(ifname));fflush(stdout);}else if(!strcmp(verb,"LIMIT")){
+    uut_limit_args_t request = {0};
+    eigrp_result_t result = EIGRP_RESULT_INVALID_ARGUMENT;
+    if(sscanf(line,"%*s %255s %127s %31s",request.ifname,
+              request.address,request.operation)==3)
+        result = eigrp_instance_message_call(runtime,uut_limit_process,&request);
+    printf("RESULT|%d\n",(int)result);
+    fflush(stdout);
+}else if(!strcmp(verb,"SOURCE-ADD") || !strcmp(verb,"SOURCE-DEL")){
     unsigned long long metric=1;
     if(!strcmp(verb,"SOURCE-ADD")){
         if(sscanf(line,"%*s %*s %llu",&metric)!=1){puts("RESULT|invalid-metric");fflush(stdout);continue;}

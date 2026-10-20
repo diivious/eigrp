@@ -33,6 +33,15 @@
 /* Caller must hold instance->peer_lock (ingress authentication already does). */
 bool eigrp_nbr_admit_locked(const eigrp_intf_t *ei);
 
+/* Prefix-limit admission is orthogonal to the normal EIGRP DOWN/PENDING/UP
+ * handshake. A suspended neighbor is DOWN operationally, but remains published
+ * so its penalty identity survives until explicit deletion. */
+typedef enum eigrp_nbr_limit_state {
+	EIGRP_NBR_LIMIT_NONE = 0,
+	EIGRP_NBR_LIMIT_SUSPENDED,
+	EIGRP_NBR_LIMIT_LOCKED,
+} eigrp_nbr_limit_state_t;
+
 /* Neighbor Data Structure */
 typedef struct eigrp_neighbor {
 
@@ -61,7 +70,8 @@ typedef struct eigrp_neighbor {
 	uint64_t multicast_epoch; /* Changes on every UP transition. */
 
 	/* EIGRP neighbor Information */
-	uint8_t state; /* neigbor status. */
+	uint8_t state; /* normal adjacency FSM status */
+	eigrp_nbr_limit_state_t limit_state; /* prefix-limit admission status */
 
 	uint32_t recv_sequence_number; /* Last received sequence Number. */
 	uint32_t peer_init_sequence_number; /* Accepted peer INIT, for duplicate detection. */
@@ -133,7 +143,14 @@ typedef struct eigrp_neighbor {
 extern eigrp_nbr_t *eigrp_nbr_lookup(eigrp_intf_t *, struct eigrp_header *,
 					  eigrp_addr_t *);
 extern eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *, eigrp_addr_t *);
+/* DOWN clears operational ownership but retains the neighbor identity.
+ * DELETE additionally unpublishes the peer and frees all remaining state. */
+void eigrp_nbr_down(eigrp_nbr_t *nbr);
 extern void eigrp_nbr_delete(eigrp_nbr_t *neigh);
+/* Task 1 lifecycle API: scheduling/violation policy belongs to later tasks. */
+bool eigrp_nbr_suspend(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);
+void eigrp_nbr_release(eigrp_nbr_t *nbr);
+bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr);
 
 extern void eigrp_nbr_holddown_expired(void *arg);
 
