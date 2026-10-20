@@ -68,7 +68,35 @@ typedef enum eigrp_eventlog_opcode {
 	EIGRP_EVENTLOG_OPCODE_PEER_CAPABILITY,
 	EIGRP_EVENTLOG_OPCODE_INTERFACE_STATE,
 	EIGRP_EVENTLOG_OPCODE_SUCCESSOR_CHANGE,
+	/* Append diagnostic codes to preserve existing numeric event IDs. */
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_RX,
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION,
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_EOT,
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_RESYNC,
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_HOLD,
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_SYNC,
+	EIGRP_EVENTLOG_OPCODE_RTP_INIT_STATE,
 } eigrp_eventlog_opcode_t;
+
+/* Recorded decisions, not inferred from later neighbor state. */
+typedef enum eigrp_eventlog_init_decision {
+	EIGRP_EVENTLOG_INIT_NEW = 1,
+	EIGRP_EVENTLOG_INIT_DUPLICATE_ACK,
+	EIGRP_EVENTLOG_INIT_REPLAY_ACK,
+	EIGRP_EVENTLOG_INIT_RESTART,
+	EIGRP_EVENTLOG_INIT_PENDING,
+} eigrp_eventlog_init_decision_t;
+
+typedef enum eigrp_eventlog_init_resync {
+	EIGRP_EVENTLOG_INIT_RESYNC_START = 1,
+	EIGRP_EVENTLOG_INIT_RESYNC_COMPLETE,
+} eigrp_eventlog_init_resync_t;
+
+typedef enum eigrp_eventlog_init_sync {
+	EIGRP_EVENTLOG_INIT_SYNC_LOCAL_INIT = 1,
+	EIGRP_EVENTLOG_INIT_SYNC_TABLE_START,
+	EIGRP_EVENTLOG_INIT_SYNC_EOT_QUEUED,
+} eigrp_eventlog_init_sync_t;
 
 typedef enum eigrp_eventlog_neighbor_reason {
 	EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE = 0,

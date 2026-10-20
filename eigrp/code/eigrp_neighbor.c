@@ -546,6 +546,23 @@ static void eigrp_nbr_runtime_address(const eigrp_nbr_t *nbr,
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
+/* A neighbor's QUERY-retained or poisoned RDB is not an admitted,
+ * reachable prefix.  A legitimate alternate route still counts even if it
+ * is not the selected successor, provided the destination is reachable. */
+static bool eigrp_nbr_prefix_reachable(eigrp_prefix_descriptor_t *prefix,
+					     eigrp_nbr_t *neighbor)
+{
+	eigrp_route_descriptor_t *route;
+
+	if (!prefix || prefix->distance == EIGRP_MAX_METRIC
+	    || prefix->fdistance == EIGRP_MAX_METRIC
+	    || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
+		return false;
+	route = eigrp_prefix_descriptor_lookup(prefix, neighbor);
+	return route && route->distance != EIGRP_MAX_METRIC
+	    && route->metric.delay != EIGRP_MAX_METRIC;
+}
+
 static uint32_t eigrp_nbr_prefix_count(eigrp_instance_t *runtime,
 					    eigrp_nbr_t *neighbor)
 {
@@ -560,7 +577,7 @@ static uint32_t eigrp_nbr_prefix_count(eigrp_instance_t *runtime,
 		prefix = route_node->info;
 		if (!prefix)
 			continue;
-		if (eigrp_prefix_descriptor_lookup(prefix, neighbor))
+		if (eigrp_nbr_prefix_reachable(prefix, neighbor))
 			count++;
 	}
 	return count;
@@ -1519,7 +1536,9 @@ bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 	if (!runtime || !neighbor || !prefix)
 		return false;
 	existing = eigrp_topology_table_lookup(runtime->topology_table, prefix);
-	if (existing && eigrp_prefix_descriptor_lookup(existing, neighbor))
+	/* An RDB created by an unknown QUERY has not consumed a neighbor slot.
+	 * A subsequent UPDATE must pass admission even if the RDB already exists. */
+	if (eigrp_nbr_prefix_reachable(existing, neighbor))
 		return true;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af)

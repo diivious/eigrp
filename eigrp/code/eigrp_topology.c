@@ -1248,6 +1248,7 @@ void eigrp_topology_metric_update(eigrp_instance_t *eigrp)
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route, *best;
 	eigrp_topology_route_iterator_t iterator;
+	bool unelected;
 
 	if (!eigrp || !eigrp->topology_table)
 		return;
@@ -1256,9 +1257,18 @@ void eigrp_topology_metric_update(eigrp_instance_t *eigrp)
 		prefix = rn->info;
 		if (!prefix || prefix->state != EIGRP_FSM_STATE_PASSIVE)
 			continue;
+		/* A QUERY for an unknown prefix retains its neighbor RDB but has
+		 * no elected successor. Recalculate the candidate's metrics without
+		 * electing it, changing the advertised distance, or touching the RIB.
+		 * Local connected/redistributed candidates are different: they can
+		 * legitimately recover after their own metric becomes reachable. */
+		unelected = prefix->distance == EIGRP_MAX_METRIC
+			&& prefix->fdistance == EIGRP_MAX_METRIC
+			&& prefix->reported_metric.delay == EIGRP_MAX_METRIC;
 		for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
 		     route = eigrp_topology_route_iterator_next(&iterator)) {
 			if (route->adv_router == eigrp->neighbor_self) {
+				unelected = false;
 				/* A local path has no neighbor-reported distance.  Its
 				 * advertised distance is still the complete local cost. */
 				route->reported_distance = 0;
@@ -1307,6 +1317,9 @@ void eigrp_topology_metric_update(eigrp_instance_t *eigrp)
 		}
 		eigrp_topology_route_queue_resort(prefix->internal_routes);
 		eigrp_topology_route_queue_resort(prefix->external_routes);
+		/* Only a subsequent DUAL event may elect a retained QUERY route. */
+		if (unelected)
+			continue;
 		best = eigrp_topology_route_read(prefix);
 		if (best) {
 			prefix->distance = best->distance;
@@ -2325,15 +2338,28 @@ static eigrp_result_t eigrp_topology_message_process(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_INVALID_ARGUMENT;
 }
 
-/* A withdrawn destination can remain owned by DUAL or the packetizer
- * after its usable paths have disappeared.  Such descriptors do not consume
- * maximum-prefix capacity until a reachable path is admitted again. */
+/* Maximum-prefix counts accepted, usable destinations, not just installed
+ * successors.  A valid alternate consumes capacity even when its successor
+ * flags are clear.  A route retained only for an unknown QUERY has no
+ * DUAL-established feasible distance (FD == infinity); it is not an
+ * UPDATE-admitted destination.  Unreachable shells retained for deferred
+ * withdrawal do not consume capacity. */
 static bool eigrp_topology_prefix_reachable(eigrp_prefix_descriptor_t *prefix)
 {
-	eigrp_route_descriptor_t *best = eigrp_topology_route_read(prefix);
+	eigrp_topology_route_iterator_t iterator;
+	eigrp_route_descriptor_t *route;
 
-	return best && best->distance != EIGRP_MAX_METRIC
-	    && best->metric.delay != EIGRP_MAX_METRIC;
+	if (!prefix || prefix->distance == EIGRP_MAX_METRIC
+	    || prefix->fdistance == EIGRP_MAX_METRIC
+	    || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
+		return false;
+	for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
+	     route = eigrp_topology_route_iterator_next(&iterator)) {
+		if (route->distance != EIGRP_MAX_METRIC
+		    && route->metric.delay != EIGRP_MAX_METRIC)
+			return true;
+	}
+	return false;
 }
 
 static uint32_t eigrp_topology_prefix_count(eigrp_instance_t *runtime)

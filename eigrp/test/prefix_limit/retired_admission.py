@@ -500,6 +500,10 @@ def prefix_admission_executable(tmp_path_factory):
                 received_route->metric = seed_metric();
                 if (poisoned)
                     received_route->metric.delay = EIGRP_MAX_METRIC;
+                /* eigrp_update_receive() obtains prefix before this block.
+                 * Carry the same real table lookup into the extracted gate. */
+                eigrp_prefix_descriptor_t *prefix = eigrp_topology_table_lookup(
+                    eigrp->topology_table, &received_route->dest);
                 for (int once = 0; once < 1; once++) {
                     /* INGRESS_GATE_PRODUCTION */
                     accepted = true;
