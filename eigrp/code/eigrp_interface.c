@@ -1602,7 +1602,7 @@ int eigrp_intf_down(eigrp_intf_t *ei)
 	 * query process*/
 	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
 		eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-			EIGRP_EVENTLOG_NEIGHBOR_REASON_INTERFACE_DOWN);
+			EIGRP_EVENTLOG_NBR_INTF_DOWN);
 		eigrp_nbr_delete(nbr);
 	}
 	eigrp_topology_connected_interface_down(ei->eigrp, ei);

@@ -145,7 +145,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				  "Neighbor %s (%s) is down: Interface Goodbye received",
 				  eigrp_print_addr(&nbr->src), nbr->ei->name);
 		eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-			EIGRP_EVENTLOG_NEIGHBOR_REASON_GOODBYE);
+			EIGRP_EVENTLOG_NBR_GOODBYE);
 		eigrp_nbr_delete(nbr);
 		return NULL;
 	}
@@ -159,7 +159,7 @@ eigrp_hello_parameter_decode(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					  "Neighbor %s (%s) is down: K-value mismatch",
 					  eigrp_print_addr(&nbr->src), nbr->ei->name);
 			eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-				EIGRP_EVENTLOG_NEIGHBOR_REASON_K_MISMATCH);
+				EIGRP_EVENTLOG_NBR_K_MISMATCH);
 		}
 		return nbr;
 	}
@@ -256,7 +256,7 @@ static void eigrp_peer_termination_decode(eigrp_instance_t *eigrp,
 			  "Neighbor %s (%s) is down: Peer Termination received",
 			  eigrp_print_addr(&nbr->src), nbr->ei->name);
 	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-		EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_TERMINATION);
+		EIGRP_EVENTLOG_NBR_PEER_TERMINATION);
 	eigrp_nbr_delete(nbr);
 }
 

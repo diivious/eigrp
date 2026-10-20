@@ -139,6 +139,7 @@ PACKET_GROUP_KEYS = {"source_uut", "destination_uut", "source_interface", "desti
 STEP_FIELDS = {
     "link-up": {"uut", "interface"}, "link-down": {"uut", "interface"},
     "peer-limit": {"uut", "interface", "neighbor", "operation"},
+    "peer-limit-config": {"uut", "maximum", "warning_only"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
     "redistribute-add": {"uut", "source"}, "redistribute-remove": {"uut", "source"},
     "wait": {"seconds"}, "fault-add": {"name", "action", "source_uut", "destination_uut",
@@ -207,7 +208,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","source-route-add","source-route-remove","redistribute-add","redistribute-remove","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -264,11 +265,16 @@ def validate_scenario(s):
             check_keys(arg,STEP_FIELDS[op],where)
             needed={"link-up":("uut","interface"),"link-down":("uut","interface"),
                     "peer-limit":("uut","interface","neighbor","operation"),
+                    "peer-limit-config":("uut","maximum"),
                     "source-route-add":("uut","prefix"),"source-route-remove":("uut","prefix"),
                     "redistribute-add":("uut","source"),"redistribute-remove":("uut","source"),
                     "fault-add":("action",),"fault-remove":("name",),"validate-fault":("name",),
                     "validate-event":("uut","contains")}.get(op,())
             if any(k not in arg for k in needed): raise SpecError(f"{where}: missing required fields {needed}")
+            if op == "peer-limit-config":
+                _count(arg["maximum"], f"{where}.maximum")
+                if "warning_only" in arg and type(arg["warning_only"]) is not bool:
+                    raise SpecError(f"{where}: warning_only must be boolean")
             if op == "peer-limit":
                 if arg["operation"] not in ("suspend", "lock", "release", "delete", "violate", "expire"):
                     raise SpecError(f"{where}: unsupported operation")
@@ -358,6 +364,11 @@ class Node:
         result = self.cmd(f"LIMIT {interface} {neighbor} {operation}", timeout=10)
         if result != "RESULT|0":
             raise RuntimeError(f"{self.name}: peer limit operation failed: {result}")
+
+    def peer_limit_config(self, maximum, warning_only=False):
+        result = self.cmd(f"LIMIT-CFG {maximum} {int(warning_only)}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: limit configuration failed: {result}")
 
     def source_route_change(self, prefix, add, metric=1):
         command = (f"SOURCE-ADD {prefix} {metric}" if add
@@ -614,6 +625,9 @@ class Runner:
         elif op == "peer-limit":
             self.nodes[arg["uut"]].peer_limit(
                 arg["interface"], arg["neighbor"], arg["operation"])
+        elif op == "peer-limit-config":
+            self.nodes[arg["uut"]].peer_limit_config(
+                arg["maximum"], arg.get("warning_only", False))
         elif op in ("source-route-add", "source-route-remove"):
             prefix = str(ipaddress.ip_network(arg["prefix"], strict=False))
             self.nodes[arg["uut"]].source_route_change(

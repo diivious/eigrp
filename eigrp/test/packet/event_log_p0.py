@@ -8,7 +8,7 @@ def read(name):
     return (CODE / name).read_text()
 
 
-def test_neighbor_down_reasons_are_logged_at_cause_sites():
+def test_neighbor_down_events_are_logged_at_cause_sites():
     eventlog = read("eigrp_eventlog.h")
     neighbor = read("eigrp_neighbor.c")
     hello = read("eigrp_hello.c")
@@ -17,22 +17,23 @@ def test_neighbor_down_reasons_are_logged_at_cause_sites():
     fsm = read("eigrp_fsm.c")
     interface = read("eigrp_interface.c")
 
-    for reason in (
+    for event in (
         "HOLD_EXPIRED", "K_MISMATCH", "GOODBYE", "PEER_RESTART",
-        "RTP_RETRY_LIMIT", "ADMIN_CLEAR", "INTERFACE_DOWN",
-        "PEER_TERMINATION", "SIA",
+        "RTP_RETRY_LIMIT", "ADMIN_CLEAR", "INTF_DOWN",
+        "PEER_TERMINATION", "SIA", "PREFIX_LIMIT",
     ):
-        assert f"EIGRP_EVENTLOG_NEIGHBOR_REASON_{reason}" in eventlog
+        assert f"EIGRP_EVENTLOG_NBR_{event}" in eventlog
 
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_HOLD_EXPIRED" in neighbor
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_ADMIN_CLEAR" in neighbor
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_K_MISMATCH" in hello
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_GOODBYE" in hello
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_TERMINATION" in hello
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_RTP_RETRY_LIMIT" in packet
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART" in update
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_SIA" in fsm
-    assert "EIGRP_EVENTLOG_NEIGHBOR_REASON_INTERFACE_DOWN" in interface
+    assert "EIGRP_EVENTLOG_NBR_HOLD_EXPIRED" in neighbor
+    assert "EIGRP_EVENTLOG_NBR_ADMIN_CLEAR" in neighbor
+    assert "EIGRP_EVENTLOG_NBR_PREFIX_LIMIT" in neighbor
+    assert "EIGRP_EVENTLOG_NBR_K_MISMATCH" in hello
+    assert "EIGRP_EVENTLOG_NBR_GOODBYE" in hello
+    assert "EIGRP_EVENTLOG_NBR_PEER_TERMINATION" in hello
+    assert "EIGRP_EVENTLOG_NBR_RTP_RETRY_LIMIT" in packet
+    assert "EIGRP_EVENTLOG_NBR_PEER_RESTART" in update
+    assert "EIGRP_EVENTLOG_NBR_SIA" in fsm
+    assert "EIGRP_EVENTLOG_NBR_INTF_DOWN" in interface
 
 
 def test_packet_reject_reasons_cover_pre_protocol_drop_paths():
@@ -59,12 +60,13 @@ def test_packet_reject_reasons_cover_pre_protocol_drop_paths():
     assert "eigrp_hello_reject_event" in hello
 
 
-def test_neighbor_transition_event_carries_reason_in_arg4():
+def test_neighbor_transition_event_carries_nbr_event_in_arg4():
     neighbor = read("eigrp_neighbor.c")
     eventlog = read("eigrp_eventlog.c")
 
     assert "old_state, nbr->state, nbr->ei->ifindex, reason" in neighbor
-    assert "eigrp_eventlog_neighbor_reason_name(entry->arg4)" in eventlog
+    assert "eigrp_eventlog_nbr_event_name(entry->arg4)" in eventlog
+    assert 'case EIGRP_EVENTLOG_NBR_PREFIX_LIMIT: return "prefix limit exceeded";' in eventlog
     assert "reason %s" in eventlog
 
 

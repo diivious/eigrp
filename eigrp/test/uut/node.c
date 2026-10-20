@@ -192,6 +192,31 @@ static eigrp_result_t uut_limit_process(eigrp_instance_t *e, void *arg)
     return EIGRP_RESULT_INVALID_ARGUMENT;
 }
 
+/* Test-only configuration dispatch through the actual portable neighbor
+ * policy target. Live packets, not a test fault injector, trigger penalties. */
+typedef struct uut_limit_config_args {
+    uint32_t maximum;
+    bool warning_only;
+} uut_limit_config_args_t;
+
+static eigrp_result_t uut_limit_config_process(eigrp_instance_t *e, void *arg)
+{
+    const uut_limit_config_args_t *request = arg;
+    eigrp_instance_context_t context = {0};
+    eigrp_prefix_limit_t limit = {
+        .maximum = request->maximum,
+        .warning_only = request->warning_only,
+    };
+    eigrp_result_t result = eigrp_af_config_context_read(instance_name, afi,
+        EIGRP_UNIX_DEFAULT_VRF_NAME, asn, &context);
+    (void)e;
+    if (result != EIGRP_RESULT_SUCCESS)
+        return result;
+    return request->maximum ? eigrp_nbr_max_prefix_all_update(EIGRP_SET,
+        &context, &limit) : eigrp_nbr_max_prefix_all_update(EIGRP_RESET,
+        &context, NULL);
+}
+
 static void load(const char *path){FILE *f=fopen(path,"r");char line[LINE],op[32],a[256],b[256],c[256];unsigned x,y,z;if(!f){perror(path);exit(2);}eigrp_sys_runtime_init();eigrp_init();if(!eigrp_process_receive_start()){fprintf(stderr,"unable to start EIGRP receive worker\n");exit(2);}while(fgets(line,sizeof(line),f)){if(line[0]=='#'||line[0]=='\n')continue;if(sscanf(line,"%31s %255s %255s %255s %u %u %u",op,a,b,c,&x,&y,&z)<1)continue;if(!strcmp(op,"router")){snprintf(instance_name,sizeof(instance_name),"%s",a);asn=(uint16_t)strtoul(b,NULL,10);}else if(!strcmp(op,"afi")){afi=!strcmp(a,"ipv6")?EIGRP_AFI_IPV6:EIGRP_AFI_IPV4;}else if(!strcmp(op,"interface")){eigrp_unix_interface_t *ui=NULL;eigrp_result_t r=eigrp_unix_interface_create(a,(eigrp_ifindex_t)strtoul(b,NULL,10),true,(uint32_t)strtoul(c,NULL,10),x,&ui);if(r!=EIGRP_RESULT_SUCCESS)die("interface create",r);}else if(!strcmp(op,"address")){eigrp_prefix_t p=prefix_parse(b);eigrp_result_t r=eigrp_unix_interface_address_add(a,&p,false);if(r!=EIGRP_RESULT_SUCCESS)die("address add",r);}else if(!strcmp(op,"segment")){eigrp_unix_segment_t *s=eigrp_unix_segment_find(b);if(!s){eigrp_result_t r=eigrp_unix_segment_create(b,&s);if(r!=EIGRP_RESULT_SUCCESS)die("segment create",r);}eigrp_unix_interface_t *ui=eigrp_unix_interface_find(a);if(!ui)die("segment interface",EIGRP_RESULT_NOT_FOUND);{eigrp_result_t r=eigrp_unix_segment_interface_attach(s,instance_name,ui);if(r!=EIGRP_RESULT_SUCCESS)die("segment attach",r);}}else if(!strcmp(op,"up")){/* Deferred until EIGRP configuration is complete. */}}
  fclose(f);if(!instance_name[0]||!asn){fprintf(stderr,"missing router definition\n");exit(2);}if(eigrp_af_config_create(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn)!=EIGRP_RESULT_SUCCESS)die("af create",EIGRP_RESULT_INTERNAL_FAILURE);af=eigrp_af_config_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn);if(!af)die("af read",EIGRP_RESULT_NOT_FOUND);{eigrp_instance_context_t ctx={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&ctx);if(r!=EIGRP_RESULT_SUCCESS)die("context",r);runtime=ctx.runtime;f=fopen(path,"r");if(!f){perror(path);exit(2);}while(fgets(line,sizeof(line),f)){if(sscanf(line,"%31s %255s %255s",op,a,b)<1)continue;if(!strcmp(op,"router-id")){struct in_addr v;if(inet_pton(AF_INET,a,&v)!=1)exit(2);r=eigrp_instance_router_id_update(EIGRP_SET,&ctx,ntohl(v.s_addr));if(r!=EIGRP_RESULT_SUCCESS)die("router-id",r);}else if(!strcmp(op,"network")){eigrp_prefix_t p=prefix_parse(a);r=eigrp_network_create(&ctx,&p);if(r!=EIGRP_RESULT_SUCCESS)die("network",r);}else if(!strcmp(op,"passive")){
     eigrp_intf_context_t ic = {.address_family=af};
@@ -231,6 +256,16 @@ int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){
     if(sscanf(line,"%*s %255s %127s %31s",request.ifname,
               request.address,request.operation)==3)
         result = eigrp_instance_message_call(runtime,uut_limit_process,&request);
+    printf("RESULT|%d\n",(int)result);
+    fflush(stdout);
+ }else if(!strcmp(verb,"LIMIT-CFG")){
+    uut_limit_config_args_t request = {0};
+    unsigned warning = 0;
+    eigrp_result_t result = EIGRP_RESULT_INVALID_ARGUMENT;
+    if(sscanf(line,"%*s %u %u",&request.maximum,&warning)==2 && warning <= 1U){
+        request.warning_only = warning != 0;
+        result = eigrp_instance_message_call(runtime,uut_limit_config_process,&request);
+    }
     printf("RESULT|%d\n",(int)result);
     fflush(stdout);
 }else if(!strcmp(verb,"SOURCE-ADD") || !strcmp(verb,"SOURCE-DEL")){

@@ -360,7 +360,7 @@ def prefix_admission_executable(tmp_path_factory):
                 route->flags &= ~EIGRP_ROUTE_DESCRIPTOR_SUCCESSOR_FLAG;
             }
 
-            static void test_empty_shell_does_not_consume_capacity(void)
+            static void test_empty_shell_consumes_capacity(void)
             {
                 eigrp_instance_t runtime;
                 eigrp_af_config_t af;
@@ -369,11 +369,11 @@ def prefix_admission_executable(tmp_path_factory):
                 max_prefix(&af, 1, false);
                 empty_prefix(&runtime, 1);
                 eigrp_prefix_t target = dest(2);
-                assert(eigrp_topology_prefix_admit(&runtime, &target));
+                assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 runtime_destroy(&runtime);
             }
 
-            static void test_poisoned_route_does_not_consume_capacity(void)
+            static void test_retained_poisoned_route_consumes_capacity(void)
             {
                 eigrp_instance_t runtime;
                 eigrp_af_config_t af;
@@ -385,11 +385,11 @@ def prefix_admission_executable(tmp_path_factory):
                 mark_poison(r);
                 r->prefix->req_action = EIGRP_FSM_NEED_UPDATE;
                 eigrp_prefix_t target = dest(2);
-                assert(eigrp_topology_prefix_admit(&runtime, &target));
+                assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 runtime_destroy(&runtime);
             }
 
-            static void test_readvertisement_must_check_new_capacity(void)
+            static void test_retained_shell_refresh_consumes_no_new_capacity(void)
             {
                 eigrp_instance_t runtime;
                 eigrp_af_config_t af;
@@ -400,11 +400,11 @@ def prefix_admission_executable(tmp_path_factory):
                 empty_prefix(&runtime, 2);
                 eigrp_prefix_t stale = dest(2), live = dest(1);
                 assert(eigrp_topology_prefix_admit(&runtime, &live));
-                assert(!eigrp_topology_prefix_admit(&runtime, &stale));
+                assert(eigrp_topology_prefix_admit(&runtime, &stale));
                 runtime_destroy(&runtime);
             }
 
-            static void test_poisoned_readvertisement_respects_capacity(void)
+            static void test_retained_poison_refresh_consumes_no_new_capacity(void)
             {
                 eigrp_instance_t runtime;
                 eigrp_af_config_t af;
@@ -416,7 +416,7 @@ def prefix_admission_executable(tmp_path_factory):
                     NULL, seed_metric(), true, 2);
                 mark_poison(stale);
                 eigrp_prefix_t target = dest(2);
-                assert(!eigrp_topology_prefix_admit(&runtime, &target));
+                assert(eigrp_topology_prefix_admit(&runtime, &target));
                 runtime_destroy(&runtime);
             }
 
@@ -445,7 +445,7 @@ def prefix_admission_executable(tmp_path_factory):
                 eigrp_prefix_t target = dest(2);
                 assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 mark_poison(second);
-                assert(eigrp_topology_prefix_admit(&runtime, &target));
+                assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 runtime_destroy(&runtime);
             }
 
@@ -464,11 +464,11 @@ def prefix_admission_executable(tmp_path_factory):
                 assert(eigrp_topology_prefix_admit(&runtime, &target));
                 af.topology_maximum_prefix.warning_only = false;
                 mark_poison(r);
-                assert(eigrp_topology_prefix_admit(&runtime, &target));
+                assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 /* Even with a stale finite distance, a poisoned metric
                  * vector must not count as a reachable prefix. */
                 r->distance = 123456;
-                assert(eigrp_topology_prefix_admit(&runtime, &target));
+                assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 r->metric.delay = 100;
                 assert(!eigrp_topology_prefix_admit(&runtime, &target));
                 runtime_destroy(&runtime);
@@ -500,10 +500,6 @@ def prefix_admission_executable(tmp_path_factory):
                 received_route->metric = seed_metric();
                 if (poisoned)
                     received_route->metric.delay = EIGRP_MAX_METRIC;
-                /* eigrp_update_receive() obtains prefix before this block.
-                 * Carry the same real table lookup into the extracted gate. */
-                eigrp_prefix_descriptor_t *prefix = eigrp_topology_table_lookup(
-                    eigrp->topology_table, &received_route->dest);
                 for (int once = 0; once < 1; once++) {
                     /* INGRESS_GATE_PRODUCTION */
                     accepted = true;
@@ -524,7 +520,7 @@ def prefix_admission_executable(tmp_path_factory):
                     NULL, seed_metric(), true, 1);
                 empty_prefix(&runtime, 2);
                 neighbor_gate_allowed = true;
-                assert(!ingress_check(&runtime, 2, false, NULL));
+                assert(ingress_check(&runtime, 2, false, NULL));
                 mark_poison(live);
                 assert(ingress_check(&runtime, 2, false, NULL));
                 runtime_destroy(&runtime);
@@ -568,12 +564,13 @@ def prefix_admission_executable(tmp_path_factory):
                 mark_poison(stale);
                 neighbor_gate_allowed = true;
                 /* An existing RDB is not a free slot when it is poisoned. */
-                assert(!ingress_check(&runtime, 2, false, stale));
+                assert(ingress_check(&runtime, 2, false, stale));
                 /* Withdrawal of the same RDB must reach DUAL unconditionally. */
                 assert(ingress_check(&runtime, 2, true, stale));
-                /* Still enforce topology even if neighbor admission is skipped. */
+                /* Already retained RDBs bypass new-slot neighbor admission;
+                 * topology accounting still checks destination identity. */
                 neighbor_gate_allowed = false;
-                assert(!ingress_check(&runtime, 2, false, stale));
+                assert(ingress_check(&runtime, 2, false, stale));
                 neighbor_gate_allowed = true;
                 runtime_destroy(&runtime);
             }
@@ -582,13 +579,13 @@ def prefix_admission_executable(tmp_path_factory):
             {
                 if (argc != 2) return 2;
                 if (!strcmp(argv[1], "empty"))
-                    test_empty_shell_does_not_consume_capacity();
+                    test_empty_shell_consumes_capacity();
                 else if (!strcmp(argv[1], "poison"))
-                    test_poisoned_route_does_not_consume_capacity();
+                    test_retained_poisoned_route_consumes_capacity();
                 else if (!strcmp(argv[1], "readvert-shell"))
-                    test_readvertisement_must_check_new_capacity();
+                    test_retained_shell_refresh_consumes_no_new_capacity();
                 else if (!strcmp(argv[1], "readvert-poison"))
-                    test_poisoned_readvertisement_respects_capacity();
+                    test_retained_poison_refresh_consumes_no_new_capacity();
                 else if (!strcmp(argv[1], "mixed"))
                     test_live_external_path_counts_despite_poisoned_internal();
                 else if (!strcmp(argv[1], "recover"))

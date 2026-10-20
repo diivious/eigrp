@@ -334,7 +334,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			eigrp_update_nsf_eventlog(eigrp, nbr, 4, flags,
 				ntohl(eigrph->sequence));
 			eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-				EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART);
+				EIGRP_EVENTLOG_NBR_PEER_RESTART);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
 			nbr->peer_init_retransmit_eligible =
@@ -363,7 +363,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	}
 
 	/*If there is topology information*/
-	while (pkt->endp > pkt->getp) {
+	while (pkt->endp > pkt->getp && !nbr->limit_cleanup_pending) {
 		size_t tlv_start = pkt->getp;
 
 		route = (nbr->decoder)(eigrp, nbr, pkt, length);
@@ -408,12 +408,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				 * may have a valid alternate without successor flags.
 				 * Withdrawals must always reach DUAL. */
 				if (!unreachable
-				    && (((!topology_route
-					  || topology_route->distance == EIGRP_MAX_METRIC
-					  || topology_route->metric.delay == EIGRP_MAX_METRIC
-					  || prefix->distance == EIGRP_MAX_METRIC
-					  || prefix->fdistance == EIGRP_MAX_METRIC
-					  || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
+				    && ((!topology_route
 					 && !eigrp_nbr_prefix_admit(eigrp, nbr,
 						&received_route->dest))
 					|| !eigrp_topology_prefix_admit(eigrp,

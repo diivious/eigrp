@@ -67,6 +67,23 @@ static void run_timers(int afi)
     nbr = eigrp_nbr_create(&ei, &src);
     assert(nbr);
 
+    /* A receive-time violation marks the neighbor DOWN/ineligible but
+     * cannot free packet- or DUAL-owned objects until the caller returns. */
+    assert(eigrp_nbr_limit_mark(nbr, &limit));
+    assert(nbr->limit_cleanup_pending);
+    assert(nbr->limit_state == EIGRP_NBR_LIMIT_NONE);
+    assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
+    assert(!eigrp_nbr_eligible(nbr));
+    assert(!nbr->t_limit_restart && !nbr->t_limit_reset);
+    eigrp_nbr_limit_cleanup(nbr);
+    assert(!nbr->limit_cleanup_pending);
+    assert(nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED);
+    assert(nbr->t_limit_restart && nbr->t_limit_reset);
+    eigrp_nbr_delete(nbr);
+    assert(!eigrp.timer_head);
+    nbr = eigrp_nbr_create(&ei, &src);
+    assert(nbr);
+
     /* Warning-only never starts a penalty. */
     limit.warning_only = true;
     assert(!eigrp_nbr_limit_exceeded(nbr, &limit));

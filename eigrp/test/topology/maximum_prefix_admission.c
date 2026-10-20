@@ -229,9 +229,14 @@ static void assert_usable_alternate_counts(void)
     selected->flags = 0;
     assert(!eigrp_topology_prefix_admit(&eigrp, &target));
     alternate->metric.delay = EIGRP_MAX_METRIC;
-    assert(eigrp_topology_prefix_admit(&eigrp, &target));
+    /* Reachability changes alone do not release topology capacity. */
+    assert(!eigrp_topology_prefix_admit(&eigrp, &target));
     alternate->metric.delay = eigrp_delay_to_scaled(200);
     assert(!eigrp_topology_prefix_admit(&eigrp, &target));
+    /* Actual descriptor retirement releases the occupied destination. */
+    eigrp_prefix_descriptor_delete(&eigrp, eigrp.topology_table,
+                                   selected->prefix);
+    assert(eigrp_topology_prefix_admit(&eigrp, &target));
     eigrp_topology_table_delete(&eigrp, eigrp.topology_table);
     eigrp_list_delete(&eigrp.topology_changes);
 }
@@ -252,12 +257,12 @@ int main(void)
     init_runtime(&eigrp, &self);
     memset(&policy, 0, sizeof(policy));
     policy.topology_maximum_prefix_configured = true;
-    policy.topology_maximum_prefix.maximum = 1;
+    policy.topology_maximum_prefix.maximum = 3;
 
 #ifdef TEST_NEIGHBOR_LIMIT
     { /* Configure the real neighbor policy, not a test-specific shortcut. */
         eigrp_instance_context_t context = {.config = &policy};
-        eigrp_prefix_limit_t neighbor_limit = {.maximum = 1};
+        eigrp_prefix_limit_t neighbor_limit = {.maximum = 3};
         assert(eigrp_nbr_max_prefix_all_update(EIGRP_SET, &context,
                      &neighbor_limit) == EIGRP_RESULT_SUCCESS);
     }
@@ -272,31 +277,30 @@ int main(void)
     absent = query_int->prefix->destination;
     absent.address.bytes[3] = 14;
 
-    /* Exactly at the cap: an elected refresh needs no new slot, and
-     * neither a new destination nor a QUERY candidate may revive. */
+    /* All three destinations, including QUERY-only entries, consume slots.
+     * Refreshes of retained destinations do not allocate a fourth slot. */
     assert(eigrp_topology_prefix_admit(&eigrp, &installed->prefix->destination));
     assert(!eigrp_topology_prefix_admit(&eigrp, &absent));
-    assert(!eigrp_topology_prefix_admit(&eigrp, &query_int->dest));
-    assert(!eigrp_topology_prefix_admit(&eigrp, &query_ext->dest));
+    assert(eigrp_topology_prefix_admit(&eigrp, &query_int->dest));
+    assert(eigrp_topology_prefix_admit(&eigrp, &query_ext->dest));
 #ifdef TEST_NEIGHBOR_LIMIT
     assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &installed->dest));
     assert(!eigrp_nbr_prefix_admit(&eigrp, &peer, &absent));
-    assert(!eigrp_nbr_prefix_admit(&eigrp, &peer, &query_int->dest));
-    assert(!eigrp_nbr_prefix_admit(&eigrp, &peer, &query_ext->dest));
+    assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &query_int->dest));
+    assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &query_ext->dest));
 #endif
 
-    /* A queued withdrawal still owns its descriptor; it does not
-     * occupy a reachable-prefix slot.  Neither QUERY-only descriptor
-     * may turn that freed slot into two counted routes. */
+    /* An unreachable path retains its descriptor and continues to count.
+     * Only actual retirement releases capacity. */
     installed->metric.delay = EIGRP_MAX_METRIC;
     installed->distance = EIGRP_MAX_METRIC;
     installed->prefix->distance = EIGRP_MAX_METRIC;
     installed->prefix->reported_metric.delay = EIGRP_MAX_METRIC;
-    assert(eigrp_topology_prefix_admit(&eigrp, &absent));
+    assert(!eigrp_topology_prefix_admit(&eigrp, &absent));
     assert(eigrp_topology_prefix_admit(&eigrp, &query_int->dest));
     assert(eigrp_topology_prefix_admit(&eigrp, &query_ext->dest));
 #ifdef TEST_NEIGHBOR_LIMIT
-    assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &absent));
+    assert(!eigrp_nbr_prefix_admit(&eigrp, &peer, &absent));
     assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &query_int->dest));
     assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &query_ext->dest));
 #endif
@@ -306,28 +310,28 @@ int main(void)
      * Its DUAL feasible distance remains infinite. */
     query_int->prefix->distance = query_int->distance;
     query_int->prefix->reported_metric = query_int->total_metric;
-    assert(eigrp_topology_prefix_admit(&eigrp, &absent));
+    assert(!eigrp_topology_prefix_admit(&eigrp, &absent));
     query_int->prefix->distance = EIGRP_MAX_METRIC;
     query_int->prefix->reported_metric.delay = EIGRP_MAX_METRIC;
 
-    /* Route replacement at the limit must work without retiring the
-     * queued poisoned descriptor. The replacement then consumes the slot. */
+    /* A fixture-inserted replacement is also retained, and cannot free
+     * capacity until its descriptor is retired. */
     replacement = add_path(&eigrp, &peer, &link, 13, false, true, false);
     assert(eigrp_topology_prefix_admit(&eigrp, &replacement->dest));
     assert(!eigrp_topology_prefix_admit(&eigrp, &absent));
-    assert(!eigrp_topology_prefix_admit(&eigrp, &query_int->dest));
-    assert(!eigrp_topology_prefix_admit(&eigrp, &query_ext->dest));
+    assert(eigrp_topology_prefix_admit(&eigrp, &query_int->dest));
+    assert(eigrp_topology_prefix_admit(&eigrp, &query_ext->dest));
 #ifdef TEST_NEIGHBOR_LIMIT
     assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &replacement->dest));
-    assert(!eigrp_nbr_prefix_admit(&eigrp, &peer, &query_int->dest));
-    assert(!eigrp_nbr_prefix_admit(&eigrp, &peer, &query_ext->dest));
+    assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &query_int->dest));
+    assert(eigrp_nbr_prefix_admit(&eigrp, &peer, &query_ext->dest));
 #endif
 
     /* A genuine withdrawal of replacement frees capacity again. */
     replacement->distance = EIGRP_MAX_METRIC;
     replacement->prefix->distance = EIGRP_MAX_METRIC;
     replacement->prefix->reported_metric.delay = EIGRP_MAX_METRIC;
-    assert(eigrp_topology_prefix_admit(&eigrp, &absent));
+    assert(!eigrp_topology_prefix_admit(&eigrp, &absent));
     assert_unelected(&eigrp, query_ext);
     assert_usable_alternate_counts();
     return 0;

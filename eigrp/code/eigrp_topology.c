@@ -384,8 +384,13 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 	eigrp_list_t *routes = eigrp_topology_route_class_queue(node, route);
 
 	if (eigrp_list_lookup(routes, route) == NULL) {
-		eigrp_list_insert(routes, route);
+		bool first_peer_path = route->adv_router
+			&& !eigrp_prefix_descriptor_lookup(node, route->adv_router);
+		if (!eigrp_list_insert(routes, route))
+			return;
 		route->prefix = node;
+		if (first_peer_path && route->adv_router->limit_prefix_count_valid)
+			route->adv_router->limit_prefix_count++;
 
 		if (eigrp_topology_route_read(node) == route
 		    && eigrp_topology_southbound_nexthop(route, &nexthop)) {
@@ -620,7 +625,12 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
 		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_TOPOLOGY_ROUTE_DELETE,
 			&node->destination, route->ei ? route->ei->ifindex : 0,
 			route->reported_distance, route->distance, installed);
+		eigrp_nbr_t *owner = route->adv_router;
 		eigrp_list_delete_data(routes, route);
+		if (owner && owner->limit_prefix_count_valid
+		    && owner->limit_prefix_count
+		    && !eigrp_prefix_descriptor_lookup(node, owner))
+			owner->limit_prefix_count--;
 		if (installed) {
 			eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &node->destination);
 
@@ -2338,43 +2348,17 @@ static eigrp_result_t eigrp_topology_message_process(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_INVALID_ARGUMENT;
 }
 
-/* Maximum-prefix counts accepted, usable destinations, not just installed
- * successors.  A valid alternate consumes capacity even when its successor
- * flags are clear.  A route retained only for an unknown QUERY has no
- * DUAL-established feasible distance (FD == infinity); it is not an
- * UPDATE-admitted destination.  Unreachable shells retained for deferred
- * withdrawal do not consume capacity. */
-static bool eigrp_topology_prefix_reachable(eigrp_prefix_descriptor_t *prefix)
-{
-	eigrp_topology_route_iterator_t iterator;
-	eigrp_route_descriptor_t *route;
-
-	if (!prefix || prefix->distance == EIGRP_MAX_METRIC
-	    || prefix->fdistance == EIGRP_MAX_METRIC
-	    || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
-		return false;
-	for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
-	     route = eigrp_topology_route_iterator_next(&iterator)) {
-		if (route->distance != EIGRP_MAX_METRIC
-		    && route->metric.delay != EIGRP_MAX_METRIC)
-			return true;
-	}
-	return false;
-}
-
+/* Every destination still present in the topology database counts, even
+ * if QUERY-retained, poisoned, or awaiting deferred retirement. */
 static uint32_t eigrp_topology_prefix_count(eigrp_instance_t *runtime)
 {
-	eigrp_table_node_t *node;
-	uint32_t count = 0;
-
 	if (!runtime || !runtime->topology_table)
 		return 0;
-	for (node = eigrp_table_first(runtime->topology_table); node;
-	     node = eigrp_table_next(node)) {
-		if (eigrp_topology_prefix_reachable(node->info))
-			count++;
-	}
-	return count;
+	/* Topology publication sets node->info with node creation, and
+	 * retirement removes the node. The indexed table size is O(1). */
+	if (runtime->topology_table->size > UINT32_MAX)
+		return UINT32_MAX;
+	return (uint32_t)runtime->topology_table->size;
 }
 
 bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
@@ -2385,9 +2369,8 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 
 	if (!runtime || !prefix)
 		return false;
-	/* Only an existing reachable prefix can bypass new-slot admission. */
-	if (eigrp_topology_prefix_reachable(
-		    eigrp_topology_table_lookup(runtime->topology_table, prefix)))
+	/* Every retained topology destination consumes one prefix slot. */
+	if (eigrp_topology_table_lookup(runtime->topology_table, prefix))
 		return true;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af || !af->topology_maximum_prefix_configured)

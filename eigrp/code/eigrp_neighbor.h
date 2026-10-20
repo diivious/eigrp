@@ -72,6 +72,14 @@ typedef struct eigrp_neighbor {
 	/* EIGRP neighbor Information */
 	uint8_t state; /* normal adjacency FSM status */
 	eigrp_nbr_limit_state_t limit_state; /* prefix-limit admission status */
+	/* The receive path marks DOWN immediately, but drains DUAL/RTP only
+	 * after the packet TLV walker returns. Owned by the AF thread. */
+	bool limit_cleanup_pending;
+	uint8_t limit_previous_state;
+	eigrp_prefix_limit_t limit_pending_policy;
+	/* Maintained on actual RDB insert/delete, so admission stays O(1). */
+	uint32_t limit_prefix_count;
+	bool limit_prefix_count_valid;
 
 	/* Prefix-limit penalty lifetime is owned by this peer.  Protocol timers
 	 * are cancelled on DOWN; these survive until restart/reset or DELETE. */
@@ -162,6 +170,11 @@ bool eigrp_nbr_suspend(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);
 void eigrp_nbr_release(eigrp_nbr_t *nbr);
 /* Task 2 timer engine.  Task 3 invokes this when a hard limit is crossed.
  * Per-peer timer options inherit from neighbor-all, then process settings. */
+/* Mark prefix-limit DOWN without retiring descriptors used by this packet. */
+bool eigrp_nbr_limit_mark(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit);
+/* Complete DOWN and start the penalty only at a safe receive boundary. */
+void eigrp_nbr_limit_cleanup(eigrp_nbr_t *nbr);
 bool eigrp_nbr_limit_exceeded(eigrp_nbr_t *nbr,
 	const eigrp_prefix_limit_t *limit);
 void eigrp_nbr_limit_restart_expired(void *arg);

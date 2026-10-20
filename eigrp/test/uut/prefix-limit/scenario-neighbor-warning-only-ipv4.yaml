@@ -1,0 +1,14 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Neighbor maximum-prefix warning-only does not withdraw or suspend (IPv4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
+  - peer-limit-config: {uut: r1, maximum: 1, warning_only: true}
+  - redistribute-add: {uut: r2, source: static}
+  - source-route-add: {uut: r2, prefix: 192.0.2.202/32, metric: 20}
+  - validate-route: {uut: r1, prefix: 192.0.2.202/32, table: rib, present: true, timeout: 12}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 2}
+  - source-route-remove: {uut: r2, prefix: 192.0.2.202/32}
+  - redistribute-remove: {uut: r2, source: static}
+  - stop: all

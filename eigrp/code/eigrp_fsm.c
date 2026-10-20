@@ -185,7 +185,7 @@ static void eigrp_fsm_active_timer_expired(void *arg)
 				status->sia_queries, status->sia_response_received ? 1 : 0, 0);
 			eigrp_debug_neighbor_sia(stuck, "SIA active timer expired");
 			eigrp_nbr_state_update_reason(EIGRP_SET, stuck, EIGRP_NEIGHBOR_DOWN,
-				EIGRP_EVENTLOG_NEIGHBOR_REASON_SIA);
+				EIGRP_EVENTLOG_NBR_SIA);
 			eigrp_nbr_delete(stuck);
 			return;
 		}

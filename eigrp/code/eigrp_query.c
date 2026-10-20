@@ -132,6 +132,10 @@ static bool eigrp_query_unknown_route_record(eigrp_instance_t *eigrp,
 			eigrp_topology_prefix_free(prefix);
 		return false;
 	}
+	/* QUERY retention consumes the same neighbor capacity as UPDATE,
+	 * without making the route eligible for successor election. */
+	if (nbr->limit_prefix_count_valid)
+		nbr->limit_prefix_count++;
 	/* Route storage is intentionally separate from route_descriptor_add(),
 	 * which can install the first path into the host RIB. */
 	if (new_prefix)
@@ -196,7 +200,7 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	nbr->recv_sequence_number = ntohl(eigrph->sequence);
 
 	// process all TLVs in the packet
-	while (pkt->endp > pkt->getp) {
+	while (pkt->endp > pkt->getp && !nbr->limit_cleanup_pending) {
 		size_t tlv_start = pkt->getp;
 
 		route = (nbr->decoder)(eigrp, nbr, pkt, length);

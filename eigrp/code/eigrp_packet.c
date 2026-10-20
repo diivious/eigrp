@@ -339,7 +339,7 @@ static void eigrp_packet_retransmit_limit_exceeded(eigrp_nbr_t *nbr)
 					 sizeof(address)),
 			  nbr->ei->name);
 	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-		EIGRP_EVENTLOG_NEIGHBOR_REASON_RTP_RETRY_LIMIT);
+		EIGRP_EVENTLOG_NBR_RTP_RETRY_LIMIT);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -1010,6 +1010,10 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	    || (input->ingress_neighbor_generation != 0
 	        && (!nbr || nbr->generation != input->ingress_neighbor_generation)))
 		return;
+	/* Retained penalized peers are lookup-visible but not protocol-eligible.
+	 * Reject even ACK Hellos before they can revive stale RTP state. */
+	if (nbr && !eigrp_nbr_eligible(nbr))
+		return;
 	if (opcode == EIGRP_OPC_HELLO) {
 		/* Several discovery Hellos can be queued before a new neighbor is
 		 * published. Reconcile those sequences exactly once after creation. */
@@ -1134,6 +1138,10 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 			EIGRP_EVENTLOG_PACKET_REJECT_UNSUPPORTED_OPCODE, opcode, 0);
 		break;
 	}
+	/* A prefix-limit DOWN transition is committed inside admission, but
+	 * topology/RTP teardown waits until the TLV handler has returned. */
+	if (nbr->limit_cleanup_pending)
+		eigrp_nbr_limit_cleanup(nbr);
 }
 
 static eigrp_packet_input_t *eigrp_packet_input_dequeue_locked(eigrp_instance_t *eigrp)
