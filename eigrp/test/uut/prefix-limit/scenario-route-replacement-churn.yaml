@@ -1,0 +1,38 @@
+schema: eigrp-uut-test/v1
+topology: ../dual-kite/ipv4-kite.yaml
+name: Prefix replacement under DUAL withdrawal and re-advertisement
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, state: up, timeout: 12}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, state: up, timeout: 12}
+  - redistribute-add: {uut: r3, source: static}
+  - source-route-add: {uut: r3, prefix: 192.0.2.101/32, metric: 20}
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - route: {uut: r1, prefix: 192.0.2.101/32, table: rib}
+        - route: {uut: r2, prefix: 192.0.2.101/32, table: rib}
+  - source-route-remove: {uut: r3, prefix: 192.0.2.101/32}
+  - source-route-add: {uut: r3, prefix: 192.0.2.102/32, metric: 20}
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - route: {uut: r1, prefix: 192.0.2.101/32, table: rib, present: false}
+        - route: {uut: r2, prefix: 192.0.2.101/32, table: rib, present: false}
+        - route: {uut: r1, prefix: 192.0.2.102/32, table: rib}
+        - route: {uut: r2, prefix: 192.0.2.102/32, table: rib}
+  - source-route-remove: {uut: r3, prefix: 192.0.2.102/32}
+  - source-route-add: {uut: r3, prefix: 192.0.2.101/32, metric: 20}
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - route: {uut: r1, prefix: 192.0.2.102/32, table: rib, present: false}
+        - route: {uut: r2, prefix: 192.0.2.102/32, table: rib, present: false}
+        - route: {uut: r1, prefix: 192.0.2.101/32, table: rib}
+        - route: {uut: r2, prefix: 192.0.2.101/32, table: rib}
+  - redistribute-remove: {uut: r3, source: static}
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - route: {uut: r1, prefix: 192.0.2.101/32, table: rib, present: false}
+        - route: {uut: r2, prefix: 192.0.2.101/32, table: rib, present: false}

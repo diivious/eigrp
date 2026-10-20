@@ -1,0 +1,35 @@
+schema: eigrp-uut-test/v1
+topology: two-router.yaml
+name: rtp-peer-restart-diagnostic-events
+steps:
+  - packet-mark: initial-adjacency
+  - start: all
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up}
+        - route: {uut: r1, prefix: 10.2.0.0/24}
+        - route: {uut: r2, prefix: 10.1.0.0/24}
+  - validate-packet: {since: initial-adjacency, source_uut: r2, destination_uut: r1, opcode: update, sequence: 2, event: delivered, min: 1, timeout: 10}
+  - validate-event: {uut: r1, contains: 'RTP INIT received', min: 1, timeout: 5}
+  - validate-event: {uut: r1, contains: 'RTP INIT state', min: 1, timeout: 5}
+  - fault-add: {name: suppress-goodbye, action: drop, source_uut: r2, destination_uut: r1}
+  - stop: r2
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, state: up, timeout: 2}
+  - fault-remove: suppress-goodbye
+  - packet-mark: restarted-peer
+  - start: r2
+  - validate-packet: {since: restarted-peer, source_uut: r2, destination_uut: r1, opcode: update, sequence: 1, event: delivered, min: 1, timeout: 10}
+  - validate-convergence:
+      timeout: 20
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, state: up}
+        - neighbor: {uut: r2, neighbor: 10.0.0.1, state: up}
+        - route: {uut: r1, prefix: 10.2.0.0/24}
+        - route: {uut: r2, prefix: 10.1.0.0/24}
+  - validate-event: {uut: r1, contains: 'action restart', min: 1, timeout: 5}
+  - validate-event: {uut: r1, contains: 'RTP INIT hold rearm', min: 1, timeout: 5}
+  - validate-event: {uut: r1, contains: 'phase local-init', min: 1, timeout: 5}
+  - validate-event: {uut: r1, contains: 'phase table-start', min: 1, timeout: 5}
+  - validate-event: {uut: r2, contains: 'RTP INIT EOT', min: 1, timeout: 5}

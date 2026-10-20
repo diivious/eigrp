@@ -44,6 +44,20 @@
  * replay reconciliation, not a confirmed peer reboot. */
 #define EIGRP_UPDATE_NSF_INIT_REPLAY_RESYNC 5U
 
+/* A compact snapshot at the actual INIT/EOT decision.  No pointers or
+ * per-route records are retained by the bounded event ring. */
+static void eigrp_update_init_event(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
+	uint16_t opcode, eventmsg_arg_t a, eventmsg_arg_t b,
+	eventmsg_arg_t c, eventmsg_arg_t d)
+{
+	eigrp_prefix_t peer;
+
+	if (!eigrp || !nbr)
+		return;
+	eigrp_eventlog_addr_from_legacy(&peer, &nbr->src);
+	(void)eigrp_eventlog_msg_add(eigrp, opcode, &peer, a, b, c, d);
+}
+
 static void eigrp_update_nsf_eventlog(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	uint32_t reason, uint32_t flags, uint32_t sequence)
 {
@@ -154,6 +168,19 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 
 
 	flags = ntohl(eigrph->flags);
+	if (flags == EIGRP_INIT_FLAG) {
+		eigrp_update_init_event(eigrp, nbr, EIGRP_EVENTLOG_OPCODE_RTP_INIT_RX,
+			ntohl(eigrph->sequence), nbr->peer_init_sequence_number,
+			nbr->recv_sequence_number, nbr->state);
+		eigrp_update_init_event(eigrp, nbr, EIGRP_EVENTLOG_OPCODE_RTP_INIT_STATE,
+			nbr->init_sequence_number,
+			nbr->retrans_queue ? nbr->retrans_queue->count : 0,
+			nbr->t_holddown != NULL,
+			nbr->t_holddown ? eigrp_timer_remaining_seconds(eigrp, nbr->t_holddown) : 0);
+	} else if (flags == EIGRP_EOT_FLAG && nbr->peer_init_sequence_number)
+		eigrp_update_init_event(eigrp, nbr, EIGRP_EVENTLOG_OPCODE_RTP_INIT_EOT,
+			ntohl(eigrph->sequence), nbr->peer_init_sequence_number,
+			nbr->peer_init_retransmit_eligible, nbr->peer_init_resync_pending);
 
 	/* RFC 7868 section 5.3.4: an INIT UPDATE can be retransmitted
 	 * after other RTP packets have been received (for example when its ACK
@@ -179,7 +206,19 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			if (nbr->peer_init_resync_prefixes)
 				(void)eigrp_list_index_enable(nbr->peer_init_resync_prefixes);
 			nbr->peer_init_resync_pending = true;
+			eigrp_update_init_event(eigrp, nbr,
+				EIGRP_EVENTLOG_OPCODE_RTP_INIT_RESYNC,
+				EIGRP_EVENTLOG_INIT_RESYNC_START,
+				nbr->peer_init_resync_prefixes
+					? nbr->peer_init_resync_prefixes->count : 0,
+				0, nbr->sync_active);
 		}
+		eigrp_update_init_event(eigrp, nbr,
+			EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION,
+			ntohl(eigrph->sequence),
+			nbr->peer_init_resync_pending ? EIGRP_EVENTLOG_INIT_REPLAY_ACK
+				: EIGRP_EVENTLOG_INIT_DUPLICATE_ACK,
+			nbr->peer_init_retransmit_eligible, nbr->peer_init_resync_pending);
 		eigrp_hello_send_ack_sequence(nbr, ntohl(eigrph->sequence));
 		return;
 	}
@@ -188,6 +227,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
 		nbr->peer_init_retransmit_eligible =
 			ntohl(eigrph->sequence) != 0;
+		eigrp_update_init_event(eigrp, nbr,
+			EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION,
+			ntohl(eigrph->sequence), EIGRP_EVENTLOG_INIT_NEW,
+			nbr->peer_init_retransmit_eligible, nbr->peer_init_resync_pending);
 	} else if (flags == EIGRP_EOT_FLAG && peer_init_previously_seen
 		   && eigrp_packet_sequence_before(
 			   nbr->peer_init_sequence_number, ntohl(eigrph->sequence))) {
@@ -283,6 +326,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		/* Our own INIT can be ACKed before the peer's first INIT reaches
 		 * the AF.  That first INIT is not evidence of a peer restart. */
 		if (nbr->state == EIGRP_NEIGHBOR_UP && peer_init_previously_seen) {
+			eigrp_update_init_event(eigrp, nbr,
+				EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION,
+				ntohl(eigrph->sequence), EIGRP_EVENTLOG_INIT_RESTART,
+				nbr->peer_init_retransmit_eligible, nbr->peer_init_resync_pending);
 			eigrp_debug_nsf_event(eigrp, nbr, flags, "peer restarted");
 			eigrp_update_nsf_eventlog(eigrp, nbr, 4, flags,
 				ntohl(eigrph->sequence));
@@ -301,7 +348,17 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			/* DOWN canceled the hold timer.  Ingress refreshed it before
 			 * the restart transition, so rearm it for this new PENDING peer. */
 			eigrp_nbr_holddown_update(nbr);
+			eigrp_update_init_event(eigrp, nbr,
+				EIGRP_EVENTLOG_OPCODE_RTP_INIT_HOLD,
+				nbr->t_holddown != NULL,
+				eigrp_timer_remaining_seconds(eigrp, nbr->t_holddown),
+				nbr->state, 0);
 			eigrp_update_send_init(eigrp, nbr);
+		} else if (flags == EIGRP_INIT_FLAG) {
+			eigrp_update_init_event(eigrp, nbr,
+				EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION,
+				ntohl(eigrph->sequence), EIGRP_EVENTLOG_INIT_PENDING,
+				nbr->peer_init_retransmit_eligible, nbr->peer_init_resync_pending);
 		}
 	}
 
@@ -344,14 +401,22 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					eigrp_topology_route_free(received_route);
 					continue;
 				}
-				/* An existing path may itself be poisoned and no longer count
-				 * toward the prefix limit. Check capacity before reviving it,
-				 * but never reject a withdrawal of an owned route. */
-				if ((!topology_route
-				     && !eigrp_nbr_prefix_admit(eigrp, nbr,
-					&received_route->dest))
-				    || (!unreachable
-					&& !eigrp_topology_prefix_admit(eigrp,
+				/* A finite refresh of an accepted, reachable neighbor path
+				 * consumes no new peer slot.  An RDB retained from a QUERY, or
+				 * a previously poisoned path, must pass admission before its
+				 * finite UPDATE can become usable.  An existing accepted prefix
+				 * may have a valid alternate without successor flags.
+				 * Withdrawals must always reach DUAL. */
+				if (!unreachable
+				    && (((!topology_route
+					  || topology_route->distance == EIGRP_MAX_METRIC
+					  || topology_route->metric.delay == EIGRP_MAX_METRIC
+					  || prefix->distance == EIGRP_MAX_METRIC
+					  || prefix->fdistance == EIGRP_MAX_METRIC
+					  || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
+					 && !eigrp_nbr_prefix_admit(eigrp, nbr,
+						&received_route->dest))
+					|| !eigrp_topology_prefix_admit(eigrp,
 						&received_route->dest))) {
 					eigrp_topology_route_free(received_route);
 					continue;
@@ -469,6 +534,9 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	}
 
 	if (peer_init_resync_complete) {
+		unsigned long remaining = nbr->peer_init_resync_prefixes
+			? nbr->peer_init_resync_prefixes->count : 0;
+
 		/* EOT completes the ambiguous INIT epoch.  Withdraw routes not
 		 * readvertised by the peer, then refresh our own topology for a
 		 * possible rebooted peer.  For a mere lost-ACK retry this is a
@@ -483,6 +551,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			EIGRP_UPDATE_NSF_INIT_REPLAY_RESYNC, flags,
 			ntohl(eigrph->sequence));
 		eigrp_update_send_EOT(nbr);
+		eigrp_update_init_event(eigrp, nbr,
+			EIGRP_EVENTLOG_OPCODE_RTP_INIT_RESYNC,
+			EIGRP_EVENTLOG_INIT_RESYNC_COMPLETE, 0, remaining,
+			nbr->sync_active);
 	}
 
 	/* Every reliable UPDATE, including the adjacency INIT UPDATE, must be
@@ -574,6 +646,9 @@ void eigrp_update_send_init(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
 
 	nbr->init_sequence_number = packet->sequence_number;
 	eigrp_update_neighbor_packet_queue(nbr, packet);
+	eigrp_update_init_event(eigrp, nbr, EIGRP_EVENTLOG_OPCODE_RTP_INIT_SYNC,
+		EIGRP_EVENTLOG_INIT_SYNC_LOCAL_INIT, nbr->init_sequence_number,
+		nbr->retrans_queue ? nbr->retrans_queue->count : 0, nbr->sync_active);
 }
 
 /* A full topology may contain far more advertisements than can be held in
@@ -614,6 +689,9 @@ void eigrp_update_send_EOT(eigrp_nbr_t *nbr)
 	/* Allocation failure is recoverable, not an invitation to declare
 	 * synchronization complete or omit the final EOT. */
 	nbr->sync_active = true;
+	eigrp_update_init_event(nbr->ei->eigrp, nbr, EIGRP_EVENTLOG_OPCODE_RTP_INIT_SYNC,
+		EIGRP_EVENTLOG_INIT_SYNC_TABLE_START, 0,
+		nbr->retrans_queue->count, nbr->sync_active);
 	nbr->sync_packet = eigrp_update_neighbor_packet_create(nbr, 0);
 	eigrp_update_sync_continue(nbr);
 }
@@ -629,6 +707,7 @@ void eigrp_update_sync_continue(eigrp_nbr_t *nbr)
 	eigrp_table_node_t *rn;
 	uint16_t packet_limit;
 	uint32_t route_count;
+	uint32_t eot_sequence;
 	eigrp_prefix_t *summary_seen;
 	size_t summary_seen_count;
 	size_t summary_seen_capacity;
@@ -837,7 +916,11 @@ void eigrp_update_sync_continue(eigrp_nbr_t *nbr)
 	/* EOT belongs only on the final packet in the initial table walk. */
 	((struct eigrp_header *)eigrp_stream_data(packet->s))->flags =
 		htonl(EIGRP_EOT_FLAG);
+	eot_sequence = packet->sequence_number;
 	eigrp_update_neighbor_packet_queue(nbr, packet);
+	eigrp_update_init_event(eigrp, nbr, EIGRP_EVENTLOG_OPCODE_RTP_INIT_SYNC,
+		EIGRP_EVENTLOG_INIT_SYNC_EOT_QUEUED, eot_sequence,
+		nbr->retrans_queue->count, nbr->sync_active);
 	return;
 
 blocked_alloc:

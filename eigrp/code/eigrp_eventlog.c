@@ -81,6 +81,13 @@ static const char *const eigrp_eventlog_formats[] = {
 	[EIGRP_EVENTLOG_OPCODE_PEER_CAPABILITY] = "Peer capability",
 	[EIGRP_EVENTLOG_OPCODE_INTERFACE_STATE] = "Interface state",
 	[EIGRP_EVENTLOG_OPCODE_SUCCESSOR_CHANGE] = "Successor change",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_RX] = "RTP INIT received",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION] = "RTP INIT decision",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_EOT] = "RTP INIT EOT",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_RESYNC] = "RTP INIT resync",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_HOLD] = "RTP INIT hold",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_SYNC] = "RTP INIT sync",
+	[EIGRP_EVENTLOG_OPCODE_RTP_INIT_STATE] = "RTP INIT state",
 };
 
 static const eigrp_eventlog_msg_t *
@@ -246,6 +253,37 @@ static const char *eigrp_eventlog_opcode_name(eventmsg_arg_t opcode)
 	}
 }
 
+static const char *eigrp_eventlog_init_decision_name(eventmsg_arg_t decision)
+{
+	switch (decision) {
+	case EIGRP_EVENTLOG_INIT_NEW: return "new";
+	case EIGRP_EVENTLOG_INIT_DUPLICATE_ACK: return "duplicate-ack";
+	case EIGRP_EVENTLOG_INIT_REPLAY_ACK: return "replay-ack";
+	case EIGRP_EVENTLOG_INIT_RESTART: return "restart";
+	case EIGRP_EVENTLOG_INIT_PENDING: return "pending";
+	default: return "unknown";
+	}
+}
+
+static const char *eigrp_eventlog_init_resync_name(eventmsg_arg_t stage)
+{
+	switch (stage) {
+	case EIGRP_EVENTLOG_INIT_RESYNC_START: return "start";
+	case EIGRP_EVENTLOG_INIT_RESYNC_COMPLETE: return "complete";
+	default: return "unknown";
+	}
+}
+
+static const char *eigrp_eventlog_init_sync_name(eventmsg_arg_t stage)
+{
+	switch (stage) {
+	case EIGRP_EVENTLOG_INIT_SYNC_LOCAL_INIT: return "local-init";
+	case EIGRP_EVENTLOG_INIT_SYNC_TABLE_START: return "table-start";
+	case EIGRP_EVENTLOG_INIT_SYNC_EOT_QUEUED: return "eot-queued";
+	default: return "unknown";
+	}
+}
+
 static const char *eigrp_eventlog_nsf_name(eventmsg_arg_t reason)
 {
 	switch (reason) {
@@ -394,6 +432,51 @@ eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 			       "Successor change %s old %lu new %lu metric %lu FD %lu", addr,
 			       (unsigned long)entry->arg1, (unsigned long)entry->arg2,
 			       (unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_RX:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT received %s seq %lu previous %lu last-rx %lu state %lu",
+			addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			(unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_STATE:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT state %s local-init %lu reliable-queue %lu hold-armed %lu hold-sec %lu",
+			addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			(unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_DECISION:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT decision %s seq %lu action %s eligible %lu pending %lu",
+			addr, (unsigned long)entry->arg1,
+			eigrp_eventlog_init_decision_name(entry->arg2),
+			(unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_EOT:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT EOT %s seq %lu accepted-init %lu eligible %lu pending %lu",
+			addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			(unsigned long)entry->arg3, (unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_RESYNC:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT resync %s phase %s snapshot %lu remaining %lu sync-active %lu",
+			addr, eigrp_eventlog_init_resync_name(entry->arg1),
+			(unsigned long)entry->arg2, (unsigned long)entry->arg3,
+			(unsigned long)entry->arg4);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_HOLD:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT hold rearm %s armed %lu remaining-sec %lu state %lu",
+			addr, (unsigned long)entry->arg1, (unsigned long)entry->arg2,
+			(unsigned long)entry->arg3);
+		break;
+	case EIGRP_EVENTLOG_OPCODE_RTP_INIT_SYNC:
+		(void)snprintf(message, sizeof(message),
+			"RTP INIT sync %s phase %s seq %lu queue %lu active %lu",
+			addr, eigrp_eventlog_init_sync_name(entry->arg1),
+			(unsigned long)entry->arg2, (unsigned long)entry->arg3,
+			(unsigned long)entry->arg4);
 		break;
 	case EIGRP_EVENTLOG_OPCODE_RTP_ACK:
 		(void)snprintf(message, sizeof(message), "RTP ACK from %s seq %lu queue %lu",
