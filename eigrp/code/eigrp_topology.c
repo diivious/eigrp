@@ -372,6 +372,23 @@ eigrp_route_descriptor_t *eigrp_topology_route_create(eigrp_intf_t *intf)
 	return new;
 }
 
+/* Count redistribution, not connected self-paths or peer-learned externals.
+ * A destination with several redistributed sources consumes only one slot. */
+bool eigrp_topology_redist_present(const eigrp_instance_t *eigrp,
+    const eigrp_prefix_descriptor_t *prefix)
+{
+    eigrp_route_descriptor_t *route;
+    eigrp_list_item_t *item;
+
+    if (!eigrp || !prefix || !prefix->external_routes || !eigrp->neighbor_self)
+        return false;
+    for (EIGRP_LIST_ITERATE_RO(prefix->external_routes, item, route)) {
+        if (route->adv_router == eigrp->neighbor_self && !route->ei)
+            return true;
+    }
+    return false;
+}
+
 /*
  * Adding topology entry to topology node
  */
@@ -386,9 +403,14 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 	if (eigrp_list_lookup(routes, route) == NULL) {
 		bool first_peer_path = route->adv_router
 			&& !eigrp_prefix_descriptor_lookup(node, route->adv_router);
+		bool first_redist = eigrp && route->adv_router == eigrp->neighbor_self
+			&& !route->ei && eigrp_topology_route_external(route)
+			&& !eigrp_topology_redist_present(eigrp, node);
 		if (!eigrp_list_insert(routes, route))
 			return;
 		route->prefix = node;
+		if (first_redist && eigrp->redist_prefix_count < UINT32_MAX)
+			eigrp->redist_prefix_count++;
 		if (first_peer_path && route->adv_router->limit_prefix_count_valid)
 			route->adv_router->limit_prefix_count++;
 
@@ -626,7 +648,12 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
 			&node->destination, route->ei ? route->ei->ifindex : 0,
 			route->reported_distance, route->distance, installed);
 		eigrp_nbr_t *owner = route->adv_router;
+		bool was_redist = eigrp && owner == eigrp->neighbor_self
+			&& !route->ei && eigrp_topology_route_external(route);
 		eigrp_list_delete_data(routes, route);
+		if (was_redist && !eigrp_topology_redist_present(eigrp, node)
+		    && eigrp->redist_prefix_count)
+			eigrp->redist_prefix_count--;
 		if (owner && owner->limit_prefix_count_valid
 		    && owner->limit_prefix_count
 		    && !eigrp_prefix_descriptor_lookup(node, owner))

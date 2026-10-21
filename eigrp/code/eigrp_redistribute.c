@@ -311,27 +311,7 @@ eigrp_result_t eigrp_redist_remove(
 
 static uint32_t eigrp_redist_prefix_count(eigrp_instance_t *runtime)
 {
-	eigrp_table_node_t *node;
-	eigrp_prefix_descriptor_t *prefix;
-	eigrp_list_item_t *item;
-	eigrp_route_descriptor_t *route;
-	uint32_t count = 0;
-
-	if (!runtime || !runtime->topology_table || !runtime->neighbor_self)
-		return 0;
-	for (node = eigrp_table_first(runtime->topology_table); node;
-	     node = eigrp_table_next(node)) {
-		prefix = node->info;
-		if (!prefix)
-			continue;
-		for (EIGRP_LIST_ITERATE_RO(prefix->external_routes, item, route)) {
-			if (route->adv_router == runtime->neighbor_self) {
-				count++;
-				break;
-			}
-		}
-	}
-	return count;
+	return runtime ? runtime->redist_prefix_count : 0;
 }
 
 bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
@@ -348,7 +328,7 @@ bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 	    || !af->redistribute_policy->maximum_prefix_configured)
 		return true;
 	prefix = eigrp_topology_table_lookup(runtime->topology_table, &route->prefix);
-	if (prefix && eigrp_prefix_descriptor_lookup(prefix, runtime->neighbor_self))
+	if (eigrp_topology_redist_present(runtime, prefix))
 		return true;
 	limit = &af->redistribute_policy->maximum_prefix;
 	{

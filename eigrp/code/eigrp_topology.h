@@ -84,6 +84,10 @@ extern void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,
 					       eigrp_table_t *table,
 					       eigrp_prefix_descriptor_t *pe);
 
+/* Counts distinct destinations with a retained, self-owned external path. */
+bool eigrp_topology_redist_present(const eigrp_instance_t *eigrp,
+    const eigrp_prefix_descriptor_t *prefix);
+
 /* Locally redistributed host-RIB candidates become EIGRP external paths. */
 eigrp_result_t eigrp_topology_redistributed_route_update(
 	eigrp_instance_t *eigrp, const eigrp_rib_route_t *source_route,

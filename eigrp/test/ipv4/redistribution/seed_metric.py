@@ -57,6 +57,16 @@ def test_redistribution_seed_metric_precedence_executes(tmp_path):
                 return EIGRP_RESULT_SUCCESS;
             }
 
+            /* This fixture isolates metric selection, not topology ownership. */
+            bool eigrp_topology_redist_present(
+                const eigrp_instance_t *runtime,
+                const eigrp_prefix_descriptor_t *prefix)
+            {
+                (void)runtime;
+                (void)prefix;
+                return false;
+            }
+
             eigrp_result_t eigrp_topology_redistributed_route_update(
                 eigrp_instance_t *runtime,
                 const eigrp_rib_route_t *route,

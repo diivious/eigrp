@@ -145,6 +145,7 @@ struct eigrp_instance {
 	struct eigrp_network_runtime *networks; /* EIGRP runtime networks. */
 
 	eigrp_table_t *topology_table;
+	uint32_t redist_prefix_count; /* Distinct retained self-owned external destinations. */
 
 	uint64_t serno; /* Global serial number counter for topology entry
 			   changes*/

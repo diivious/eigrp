@@ -1,0 +1,29 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Redistribution maximum-prefix distinct-path accounting and recovery (IPV4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.211/32', metric: 20}
+  - validate-route: {uut: r2, prefix: '192.0.2.211/32', table: rib, present: true, timeout: 15}
+  # Replacing an existing source consumes no additional destination slot.
+  - source-route-add: {uut: r1, prefix: '192.0.2.211/32', metric: 30}
+  - validate-route: {uut: r2, prefix: '192.0.2.211/32', table: rib, present: true, timeout: 15}
+  - source-route-add: {uut: r1, prefix: '192.0.2.212/32', metric: 20}
+  - validate-event: {uut: r1, contains: 'scope redistribution count 2 max 1', timeout: 10}
+  - validate-route: {uut: r2, prefix: '192.0.2.212/32', table: rib, present: false, timeout: 2}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 3}
+  # The slot is reclaimed only when the old descriptor is retired.
+  - source-route-remove: {uut: r1, prefix: '192.0.2.211/32'}
+  - validate-route: {uut: r2, prefix: '192.0.2.211/32', table: rib, present: false, timeout: 15}
+  - source-route-add: {uut: r1, prefix: '192.0.2.212/32', metric: 25}
+  - validate-route: {uut: r2, prefix: '192.0.2.212/32', table: rib, present: true, timeout: 15}
+  - redist-limit-config: {uut: r1, maximum: 1, warning_only: true}
+  - source-route-add: {uut: r1, prefix: '192.0.2.213/32', metric: 20}
+  - validate-route: {uut: r2, prefix: '192.0.2.213/32', table: rib, present: true, timeout: 15}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.212/32'}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.213/32'}
+  - redistribute-remove: {uut: r1, source: static}
+  - stop: all

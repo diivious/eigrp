@@ -487,6 +487,126 @@ static void test_empty_destination_retirement(void)
     fixture_delete(&f);
 }
 
+/* Exercise real admission and topology ownership. In particular an existing
+ * connected route owned by neighbor_self does not exempt new redistribution. */
+static void test_redist_prefix_accounting(void)
+{
+    struct fixture f;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit = {.maximum = 1};
+    eigrp_rib_route_t second;
+    eigrp_prefix_descriptor_t *connected;
+    eigrp_route_descriptor_t *connected_route;
+    eigrp_intf_t connected_intf = {0};
+    eigrp_prefix_descriptor_t *first;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    assert(f.runtime.redist_prefix_count == 1);
+    context = (eigrp_instance_context_t){.config = &f.af,
+        .runtime = &f.runtime, .topology_id = EIGRP_TOPOLOGY_ID_BASE};
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+
+    /* Changing an already counted destination does not consume another slot. */
+    f.candidate.tag++;
+    assert(eigrp_rib_redist_add(&f.runtime, &f.candidate)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_prefix_count == 1);
+    second = f.candidate;
+    set_ipv4(&second.prefix.address, 10, 77, 1, 0);
+    assert(eigrp_rib_redist_add(&f.runtime, &second)
+           == EIGRP_RESULT_CONFLICT);
+    assert(f.runtime.redist_prefix_count == 1);
+
+    /* Connected and redistributed routes share neighbor_self but are distinct
+     * resources. A connected-only destination must not bypass the limit. */
+    connected = eigrp_topology_prefix_create();
+    connected_route = eigrp_topology_route_create(NULL);
+    assert(connected && connected_route);
+    connected->destination = second.prefix;
+    connected_route->adv_router = &f.self;
+    connected_route->type = EIGRP_TLV_IPv4_INT;
+    connected_intf.eigrp = &f.runtime;
+    connected_intf.ifindex = 3;
+    connected_route->ei = &connected_intf;
+    eigrp_prefix_descriptor_add(f.runtime.topology_table, connected);
+    eigrp_route_descriptor_add(&f.runtime, connected, connected_route);
+    assert(!eigrp_topology_redist_present(&f.runtime, connected));
+    assert(eigrp_rib_redist_add(&f.runtime, &second)
+           == EIGRP_RESULT_CONFLICT);
+    assert(f.runtime.redist_prefix_count == 1);
+
+    /* Withdrawal leaves the poisoned route retained until packetization.
+     * Admission continues to account for that descriptor. */
+    first = fixture_prefix(&f);
+    assert(eigrp_rib_redist_del(&f.runtime, &f.candidate)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_prefix_count == 1);
+    assert(eigrp_rib_redist_add(&f.runtime, &second)
+           == EIGRP_RESULT_CONFLICT);
+
+    first->req_action = 0;
+    eigrp_list_delete_data(f.runtime.topology_changes, first);
+    eigrp_update_topology_table_prefix(&f.runtime, f.runtime.topology_table, first);
+    assert(f.runtime.redist_prefix_count == 0);
+    assert(eigrp_rib_redist_add(&f.runtime, &second)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_prefix_count == 1);
+    assert(eigrp_topology_redist_present(&f.runtime, connected));
+
+    limit.warning_only = true;
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+    set_ipv4(&second.prefix.address, 10, 77, 2, 0);
+    assert(eigrp_rib_redist_add(&f.runtime, &second)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_prefix_count == 2);
+    fixture_delete(&f);
+    assert(f.runtime.redist_prefix_count == 0);
+    eigrp_redist_policy_delete_all(&f.af);
+}
+
+/* Exercise the real RIB admission and topology ownership over thousands of
+ * unique destinations; no source scans or fake counter assignments. */
+static void test_redist_prefix_volume(void)
+{
+    struct fixture f;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit = {.maximum = 100000};
+    eigrp_rib_route_t candidate;
+    eigrp_prefix_descriptor_t *prefix;
+    unsigned i;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    context = (eigrp_instance_context_t){.config = &f.af,
+        .runtime = &f.runtime, .topology_id = EIGRP_TOPOLOGY_ID_BASE};
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+    candidate = f.candidate;
+    candidate.prefix.prefix_length = 32;
+    for (i = 1; i < 100000; ++i) {
+        set_ipv4(&candidate.prefix.address, 198, 18 + ((i >> 16) & 1U),
+                 (i >> 8) & 255U, i & 255U);
+        assert(eigrp_rib_redist_add(&f.runtime, &candidate)
+               == EIGRP_RESULT_SUCCESS);
+        assert(f.runtime.redist_prefix_count == i + 1);
+        prefix = eigrp_topology_table_lookup(f.runtime.topology_table,
+                                             &candidate.prefix);
+        assert(prefix);
+        prefix->req_action = 0;
+        eigrp_list_delete_data(f.runtime.topology_changes, prefix);
+    }
+    set_ipv4(&candidate.prefix.address, 198, 19, 134, 160);
+    assert(eigrp_rib_redist_add(&f.runtime, &candidate)
+           == EIGRP_RESULT_CONFLICT);
+    assert(f.runtime.redist_prefix_count == 100000);
+    fixture_delete(&f);
+    assert(f.runtime.redist_prefix_count == 0);
+    eigrp_redist_policy_delete_all(&f.af);
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -500,6 +620,10 @@ int main(int argc, char **argv)
         test_query_after_route_descriptor_cleanup();
     else if (strcmp(argv[1], "retirement") == 0)
         test_empty_destination_retirement();
+    else if (strcmp(argv[1], "redist-prefix") == 0)
+        test_redist_prefix_accounting();
+    else if (strcmp(argv[1], "redist-volume") == 0)
+        test_redist_prefix_volume();
     else
         return 2;
     return 0;

@@ -172,7 +172,10 @@ class R1:
         peers = set()
         up_peers = set()
         queue_counts = None
-        for _ in range(PEERS + 200):
+        # STATE now emits one NBR and one ACCOUNT row per peer, plus a
+        # bounded number of interface, topology, RIB, and summary rows.
+        # Keep the runaway-output guard without truncating valid snapshots.
+        for _ in range(2 * PEERS + 200):
             line = self.responses.get(timeout=timeout)
             if line == "END":
                 return peers, up_peers, queue_counts
