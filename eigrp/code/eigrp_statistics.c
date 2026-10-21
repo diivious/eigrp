@@ -16,6 +16,7 @@
 #include "eigrp_neighbor.h"
 #include "eigrp_statistics.h"
 #include "eigrp_topology.h"
+#include "eigrp_sys.h"
 
 static eigrp_result_t
 eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
@@ -63,6 +64,8 @@ static uint32_t eigrp_statistics_neighbor_prefix_count(
 
 	if (!runtime || !runtime->topology_table || !neighbor)
 		return 0;
+	if (neighbor->limit_prefix_count_valid)
+		return neighbor->limit_prefix_count;
 
 	for (route_node = eigrp_table_first(runtime->topology_table); route_node;
 	     route_node = eigrp_table_next(route_node)) {
@@ -106,14 +109,22 @@ eigrp_result_t eigrp_statistics_accounting_iterate(
 		for (EIGRP_LIST_ITERATE_RO(interface->nbrs, neighbor_node, neighbor)) {
 			eigrp_statistics_accounting_state_t state = {0};
 
-			if (neighbor->state == EIGRP_NEIGHBOR_DOWN)
+			state.status = eigrp_nbr_limit_status(neighbor);
+			if (!state.status)
 				continue;
 			eigrp_statistics_neighbor_address(neighbor,
 							  &state.neighbor_address);
 			state.interface_name = eigrp_intf_name_string(interface);
-			state.neighbor_state = eigrp_nbr_state_str(neighbor);
 			state.prefix_count = eigrp_statistics_neighbor_prefix_count(
 				context->runtime, neighbor);
+			state.restart_count = neighbor->limit_restarts;
+			{
+				uint64_t now = eigrp_sys_monotime_msec();
+				state.restart_seconds = eigrp_nbr_limit_seconds(
+					neighbor->limit_restart_due_msec, now);
+				state.reset_seconds = eigrp_nbr_limit_seconds(
+					neighbor->limit_reset_due_msec, now);
+			}
 			result = callback(&state, arg);
 			if (result != EIGRP_RESULT_SUCCESS)
 				return result;

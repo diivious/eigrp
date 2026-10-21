@@ -182,6 +182,9 @@ void eigrp_nbr_limit_reset_expired(void *arg);
 void eigrp_nbr_limit_timers_cancel(eigrp_nbr_t *nbr);
 
 bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr);
+/* Read-only prefix-limit status for operational state snapshots. */
+char eigrp_nbr_limit_status(const eigrp_nbr_t *nbr);
+uint32_t eigrp_nbr_limit_seconds(uint64_t deadline_msec, uint64_t now_msec);
 
 extern void eigrp_nbr_holddown_expired(void *arg);
 

@@ -74,6 +74,11 @@ typedef struct eigrp_nbr_state {
 	unsigned long reliable_queue_count;
 	uint32_t sequence_number;
 	uint32_t prefix_count;
+	/* Prefix-limit admission is separate from the adjacency FSM. */
+	char limit_status; /* A adjacency, P suspended, D locked; 0 unpenalized. */
+	uint16_t limit_restarts;
+	uint32_t limit_restart_seconds;
+	uint32_t limit_reset_seconds;
 	uint64_t retransmit_count;
 	uint8_t retry_count;
 	bool srtt_valid;
@@ -133,6 +138,8 @@ eigrp_result_t eigrp_topology_instance_iterate(
 typedef enum eigrp_timer_state_type {
 	EIGRP_TIMER_STATE_HELLO = 0,
 	EIGRP_TIMER_STATE_PEER_HOLD,
+	EIGRP_TIMER_STATE_LIMIT_RESTART,
+	EIGRP_TIMER_STATE_LIMIT_RESET,
 } eigrp_timer_state_type_t;
 
 typedef struct eigrp_timer_state {
@@ -215,8 +222,11 @@ typedef struct eigrp_statistics_traffic_state {
 typedef struct eigrp_statistics_accounting_state {
 	eigrp_address_t neighbor_address;
 	const char *interface_name;
-	const char *neighbor_state;
+	char status; /* A adjacency, P suspended, D locked */
 	uint32_t prefix_count;
+	uint16_t restart_count;
+	uint32_t restart_seconds;
+	uint32_t reset_seconds;
 } eigrp_statistics_accounting_state_t;
 
 typedef eigrp_result_t (*eigrp_statistics_accounting_cb)(

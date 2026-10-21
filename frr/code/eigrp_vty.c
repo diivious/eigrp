@@ -375,7 +375,8 @@ static void eigrp_neighbors_helper(struct vty *vty, eigrp_instance_t *eigrp,
 	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
 		if (!ifname || strcmp(ei->name, ifname) == 0) {
 			for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
-				if (detail || (nbr->state == EIGRP_NEIGHBOR_UP))
+				if (detail || (nbr->state == EIGRP_NEIGHBOR_UP)
+				    || nbr->limit_state != EIGRP_NBR_LIMIT_NONE)
 					show_ip_eigrp_neighbor_sub(vty, nbr,
 								   !!detail);
 			}

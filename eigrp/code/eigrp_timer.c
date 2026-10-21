@@ -179,7 +179,27 @@ eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context
 
 		for (EIGRP_LIST_ITERATE_RO(interface->nbrs, neighbor_node, neighbor)) {
 			eigrp_timer_state_t state = {0};
+			uint64_t now = eigrp_sys_monotime_msec();
 
+			state.interface_name = eigrp_intf_name_string(interface);
+			state.neighbor_present = true;
+			eigrp_timer_neighbor_address(neighbor, &state.neighbor_address);
+			if (neighbor->t_limit_restart) {
+				state.type = EIGRP_TIMER_STATE_LIMIT_RESTART;
+				state.expiration_seconds = eigrp_nbr_limit_seconds(
+					neighbor->limit_restart_due_msec, now);
+				result = callback(&state, arg);
+				if (result != EIGRP_RESULT_SUCCESS)
+					return result;
+			}
+			if (neighbor->t_limit_reset) {
+				state.type = EIGRP_TIMER_STATE_LIMIT_RESET;
+				state.expiration_seconds = eigrp_nbr_limit_seconds(
+					neighbor->limit_reset_due_msec, now);
+				result = callback(&state, arg);
+				if (result != EIGRP_RESULT_SUCCESS)
+					return result;
+			}
 			if (neighbor->state == EIGRP_NEIGHBOR_DOWN
 			    || !neighbor->t_holddown)
 				continue;

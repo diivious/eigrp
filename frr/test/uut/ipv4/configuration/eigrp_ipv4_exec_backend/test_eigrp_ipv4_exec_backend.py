@@ -146,7 +146,10 @@ def test_accounting_and_traffic_have_real_ipv4_backend_data():
     assert "eigrp_statistics_neighbor_prefix_count" in statistics
     assert "state.prefix_count = eigrp_statistics_neighbor_prefix_count" in statistics
     assert "Total Prefix Count:" in vty
-    assert "Restart fields are n/a until neighbor maximum-prefix enforcement is implemented." in vty
+    assert "state->restart_count" in vty
+    assert "state->restart_seconds" in vty
+    assert "state->reset_seconds" in vty
+    assert "eigrp_nbr_limit_status(neighbor)" in statistics
 
     for field in (
         "sent_hello", "received_hello", "sent_update", "received_update",

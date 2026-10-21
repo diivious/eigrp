@@ -655,6 +655,15 @@ eigrp_result_t eigrp_nbr_state_iterate(
 				nbr->retrans_queue ? nbr->retrans_queue->count : 0;
 			state.sequence_number = nbr->recv_sequence_number;
 			state.prefix_count = eigrp_nbr_prefix_count(runtime, nbr);
+			state.limit_status = eigrp_nbr_limit_status(nbr);
+			state.limit_restarts = nbr->limit_restarts;
+			{
+				uint64_t now = eigrp_sys_monotime_msec();
+				state.limit_restart_seconds = eigrp_nbr_limit_seconds(
+					nbr->limit_restart_due_msec, now);
+				state.limit_reset_seconds = eigrp_nbr_limit_seconds(
+					nbr->limit_reset_due_msec, now);
+			}
 			state.retransmit_count = nbr->retransmissions;
 			if (nbr->retrans_queue && nbr->retrans_queue->tail)
 				state.retry_count = nbr->retrans_queue->tail->retrans_counter;
@@ -904,6 +913,31 @@ eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 	return NULL;
 }
 
+
+/* Cisco accounting state reflects prefix-limit eligibility, not the DUAL FSM. */
+char eigrp_nbr_limit_status(const eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return 0;
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED)
+		return 'D';
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED
+	    || nbr->limit_cleanup_pending)
+		return 'P';
+	return nbr->state == EIGRP_NEIGHBOR_UP ? 'A' : 0;
+}
+
+/* Round up a live remaining deadline; 0 is reserved for stopped/expired. */
+uint32_t eigrp_nbr_limit_seconds(uint64_t deadline_msec, uint64_t now_msec)
+{
+	uint64_t remain;
+
+	if (!deadline_msec || deadline_msec <= now_msec)
+		return 0;
+	remain = deadline_msec - now_msec;
+	remain = remain / 1000U + (remain % 1000U != 0);
+	return remain > UINT32_MAX ? UINT32_MAX : (uint32_t)remain;
+}
 
 /* Only a non-penalized neighbor may enter the normal INIT handshake. */
 bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr)

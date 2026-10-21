@@ -6,6 +6,7 @@ steps:
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 10}
   - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: violate}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, observe: 0.3}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: P, restart_count: 1, restart_active: true, reset_active: true, observe: 0.2}
   - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: expire}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
   - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: violate}
@@ -19,6 +20,7 @@ steps:
         - neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-locked, reliable_q: 0}
         - route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: false}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-locked, observe: 0.7}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: D, restart_count: 3, restart_active: false, reset_active: false, observe: 0.2}
   - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: delete}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
   - validate-route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: true, timeout: 12}

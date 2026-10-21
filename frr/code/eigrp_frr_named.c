@@ -4065,6 +4065,9 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 	char address[INET6_ADDRSTRLEN];
 	char uptime[32];
 	char srtt[16];
+	char hold[16];
+	char rto[16];
+	char seq[16];
 
 	if (!show->printed_header) {
 		show->address_width = state->address.afi == EIGRP_AFI_IPV6
@@ -4098,12 +4101,24 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 		snprintf(srtt, sizeof(srtt), "%u", state->srtt_msec);
 	else
 		snprintf(srtt, sizeof(srtt), "n/a");
-	eigrp_vty_duration_string(state->uptime_seconds, uptime, sizeof(uptime));
-	vty_out(show->vty, "%-*s %-15s %-5u %-8s %-6s %-5u %-3lu %-10u\n",
+	if (state->limit_status == 'P' || state->limit_status == 'D') {
+		/* A retained penalty record is not a live adjacency. */
+		snprintf(hold, sizeof(hold), "-");
+		snprintf(uptime, sizeof(uptime), "-");
+		snprintf(srtt, sizeof(srtt), "-");
+		snprintf(rto, sizeof(rto), "-");
+		snprintf(seq, sizeof(seq), "-");
+	} else {
+		snprintf(hold, sizeof(hold), "%u", state->hold_time);
+		eigrp_vty_duration_string(state->uptime_seconds, uptime, sizeof(uptime));
+		snprintf(rto, sizeof(rto), "%u", state->rto_msec);
+		snprintf(seq, sizeof(seq), "%u", state->sequence_number);
+	}
+	vty_out(show->vty, "%-*s %-15s %-5s %-8s %-6s %-5s %-3lu %-10s\n",
 		(int)show->address_width,
 		eigrp_vty_address_string(&state->address, address, sizeof(address)),
-		state->interface_name, state->hold_time, uptime, srtt, state->rto_msec,
-		state->reliable_queue_count, state->sequence_number);
+		state->interface_name, hold, uptime, srtt, rto,
+		state->reliable_queue_count, seq);
 	if (show->detail) {
 		vty_out(show->vty,
 			"   Version %u.%u/%u.%u, Retrans: %" PRIu64
@@ -4111,6 +4126,13 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 			state->os_major, state->os_minor, state->tlv_major,
 			state->tlv_minor, state->retransmit_count, state->retry_count,
 			state->prefix_count);
+		if (state->limit_status == 'P' || state->limit_status == 'D'
+		    || state->limit_restarts)
+			vty_out(show->vty,
+				"   Prefix-limit: %c, restarts: %u, restart/reset: %u/%u seconds\n",
+				state->limit_status ? state->limit_status : 'A',
+				state->limit_restarts, state->limit_restart_seconds,
+				state->limit_reset_seconds);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }
@@ -4504,16 +4526,14 @@ static eigrp_result_t eigrp_vty_accounting_state_render(
 	struct eigrp_vty_accounting_show *show = arg;
 	char address[INET6_ADDRSTRLEN];
 
-	const char *code = strcmp(state->neighbor_state, "Up") == 0
-				   ? "A"
-				   : strcmp(state->neighbor_state, "Waiting for Init") == 0
-					     ? "P"
-					     : "D";
+	uint32_t remaining = state->status == 'P' ? state->restart_seconds
+							: state->reset_seconds;
 
-	vty_out(show->vty, "%-5s %-40s %-22s %-10u %-9s %s\n", code,
+	vty_out(show->vty, "%-5c %-40s %-22s %-10u %-9u %u\n", state->status,
 		eigrp_vty_address_string(&state->neighbor_address, address,
 					 sizeof(address)),
-		state->interface_name, state->prefix_count, "n/a", "n/a");
+		state->interface_name, state->prefix_count, state->restart_count,
+		remaining);
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -4540,8 +4560,6 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 		&context, &total_prefix_count, eigrp_vty_accounting_state_render, &show);
 	if (result == EIGRP_RESULT_SUCCESS) {
 		vty_out(vty, "Total Prefix Count: %u\n", total_prefix_count);
-		vty_out(vty,
-			"Restart fields are n/a until neighbor maximum-prefix enforcement is implemented.\n");
 	} else if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, "  Runtime accounting data is not available\n");
 	} else {
@@ -4609,6 +4627,19 @@ static eigrp_result_t eigrp_vty_timer_state_render(const eigrp_timer_state_t *st
 	if (state->type == EIGRP_TIMER_STATE_HELLO) {
 		vty_out(show->vty, "%-10s %-12u %-22s %s\n", "Hello",
 			state->expiration_seconds, "Hello", state->interface_name);
+		return EIGRP_RESULT_SUCCESS;
+	}
+
+	if (state->type == EIGRP_TIMER_STATE_LIMIT_RESTART
+	    || state->type == EIGRP_TIMER_STATE_LIMIT_RESET) {
+		vty_out(show->vty, "%-10s %-12u %-22s %s via %s\n",
+			"Prefix", state->expiration_seconds,
+			state->type == EIGRP_TIMER_STATE_LIMIT_RESTART
+				? "Prefix-limit restart" : "Prefix-limit reset",
+			state->neighbor_present
+				? eigrp_vty_address_string(&state->neighbor_address,
+					address, sizeof(address)) : "-",
+			state->interface_name ? state->interface_name : "-");
 		return EIGRP_RESULT_SUCCESS;
 	}
 

@@ -96,6 +96,27 @@ def topology_afi(t):
         raise SpecError("UUT topology requires exactly one address family")
     return next(iter(families))
 
+ACCOUNT_ASSERTION_KEYS = {"uut", "neighbor", "interface", "status", "restart_count", "prefix_count", "restart_active", "reset_active", "timeout", "observe"}
+
+def validate_accounting_assertion(e, where):
+    if not isinstance(e, dict):
+        raise SpecError(f"{where}: accounting assertion must be a mapping")
+    check_keys(e, ACCOUNT_ASSERTION_KEYS, where)
+    if not isinstance(e.get("uut"), str) or not e["uut"]:
+        raise SpecError(f"{where}: uut is required")
+    try:
+        ipaddress.ip_address(e["neighbor"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SpecError(f"{where}: valid neighbor address is required") from exc
+    if e.get("status", "A") not in ("A", "P", "D"):
+        raise SpecError(f"{where}: status must be A, P or D")
+    for key in ("restart_count", "prefix_count"):
+        if key in e and (not isinstance(e[key], int) or isinstance(e[key], bool) or e[key] < 0):
+            raise SpecError(f"{where}: {key} must be non-negative integer")
+    for key in ("restart_active", "reset_active"):
+        if key in e and not isinstance(e[key], bool):
+            raise SpecError(f"{where}: {key} must be boolean")
+
 NEIGHBOR_ASSERTION_KEYS = {"uut", "neighbor", "interface", "state", "timeout", "observe",
                            "reliable_q", "rto", "srtt_valid", "srtt", "retransmissions"}
 
@@ -208,7 +229,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","source-route-add","source-route-remove","redistribute-add","redistribute-remove","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","source-route-add","source-route-remove","redistribute-add","redistribute-remove","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -220,6 +241,7 @@ def validate_scenario(s):
             if arg in marks: raise SpecError(f"{where}: duplicate mark {arg!r}")
             marks.add(arg)
         elif op=="validate-neighbor": validate_neighbor_assertion(arg,where)
+        elif op=="validate-accounting": validate_accounting_assertion(arg,where)
         elif op=="validate-route": validate_route_assertion(arg,where)
         elif op=="validate-packet": validate_packet_assertion(arg,where,marks)
         elif op=="validate-convergence":
@@ -343,11 +365,12 @@ class Node:
                 if row==until: return out
                 out.append(row)
     def state(self):
-        rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"topology":[],"paths":[],"rib":[],"source":[]}; current_prefix=None
+        rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"accounting":[],"topology":[],"paths":[],"rib":[],"source":[]}; current_prefix=None
         for row in rows:
             f=row.split("|"); typ=f[0]; kv=dict(part.split("=",1) for part in f[1:] if "=" in part)
             if typ=="INTF": st["interfaces"].append({"interface":kv["name"],"runtime":kv["runtime_present"]=="1","shutdown":kv["shutdown"]=="1","peers":int(kv["peer_count"]),"output_q":int(kv["output_queue"]),"reliable_q":int(kv["reliable_queue"])})
             elif typ=="NBR": st["neighbors"].append({"address":kv["address"],"interface":kv["interface"],"state":kv["state"],"runtime":kv["runtime_present"]=="1","reliable_q":int(kv["reliable_queue"]),"rto":int(kv["rto_ms"]),"srtt_valid":kv["srtt_valid"]=="1","srtt":int(kv["srtt_ms"]),"retransmissions":int(kv["retransmits"])})
+            elif typ=="ACCOUNT": st["accounting"].append({"address":kv["address"],"interface":kv["interface"],"status":kv["status"],"prefix_count":int(kv["prefix_count"]),"restart_count":int(kv["restart_count"]),"restart_active":int(kv["restart_seconds"])>0,"reset_active":int(kv["reset_seconds"])>0})
             elif typ=="TOPO":
                 current_prefix=kv["prefix"]; st["topology"].append({"prefix":current_prefix,"active":kv["active"]=="1","fd":int(kv["feasible_distance"]),"successors":int(kv["successors"])})
             elif typ=="PATH": st["paths"].append({"prefix":current_prefix,"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","feasible_successor":kv.get("feasible_successor")=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
@@ -509,6 +532,19 @@ class Runner:
         if state == "limit-locked" and any(n["state"] != "Prefix-limit Locked" for n in matches):
             return False
         return all(k not in e or n.get(k)==e[k] for n in matches for k in ("reliable_q","rto","srtt_valid","srtt","retransmissions"))
+    def accounting_ok(self,e):
+        validate_accounting_assertion(e, "validate-accounting")
+        st=self.nodes[e["uut"]].state()
+        for row in st["accounting"]:
+            if row["address"].lower()!=e["neighbor"].lower():
+                continue
+            if "interface" in e and row["interface"]!=e["interface"]:
+                continue
+            if row["status"]!=e.get("status", "A"):
+                continue
+            if all(k not in e or row[k]==e[k] for k in ("restart_count", "prefix_count", "restart_active", "reset_active")):
+                return True
+        return False
     def route_ok(self,e):
         validate_route_assertion(e,"validate-route")
         st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["paths"] if table=="path" else st["topology"]
@@ -577,7 +613,7 @@ class Runner:
             seen.add(key)
         return False
     def expect(self,kind,e):
-        timeout=float(e.get("timeout",5)); deadline=time.monotonic()+timeout; okfn={"neighbor":self.neighbor_ok,"route":self.route_ok,"packet":self.packet_ok,"fault":self.fault_ok,"retransmission":self.retransmission_ok,"retry":self.retry_ok}[kind]
+        timeout=float(e.get("timeout",5)); deadline=time.monotonic()+timeout; okfn={"neighbor":self.neighbor_ok,"accounting":self.accounting_ok,"route":self.route_ok,"packet":self.packet_ok,"fault":self.fault_ok,"retransmission":self.retransmission_ok,"retry":self.retry_ok}[kind]
         if kind=="packet" and any(k in e for k in ("max","max_groups","max_per_group")):
             upper=dict(e); upper["min"]=0; upper.pop("min_groups",None)
             while time.monotonic()<deadline:
@@ -585,7 +621,7 @@ class Runner:
                 time.sleep(.05)
             if okfn(e): return
             raise AssertionError(f"validate-{kind} failed at end of observation window: expected {e}")
-        if kind=="neighbor" and e.get("state", "up").lower() not in ("up", "present") and e.get("observe"):
+        if ((kind=="neighbor" and e.get("state", "up").lower() not in ("up", "present")) or kind=="accounting") and e.get("observe"):
             deadline=time.monotonic()+float(e["observe"])
             while time.monotonic()<deadline:
                 if not okfn(e):
@@ -648,6 +684,7 @@ class Runner:
             if not self.broker.remove_fault(arg if isinstance(arg,str) else arg["name"]): raise SpecError(f"unknown fault {arg}")
         elif op=="validate-fault": self.expect("fault",arg)
         elif op=="validate-neighbor": self.expect("neighbor",arg)
+        elif op=="validate-accounting": self.expect("accounting",arg)
         elif op=="validate-route": self.expect("route",arg)
         elif op=="validate-packet": self.expect("packet",arg)
         elif op=="validate-retransmission": self.expect("retransmission",arg)
