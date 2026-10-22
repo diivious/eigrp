@@ -146,6 +146,15 @@ struct eigrp_instance {
 
 	eigrp_table_t *topology_table;
 	uint32_t redist_prefix_count; /* Distinct retained self-owned external destinations. */
+	/* AF-wide redistribution prefix-limit penalty; never neighbor-owned. */
+	uint8_t redist_limit_state; /* 0 normal, 1 suspended, 2 locked. */
+	uint16_t redist_limit_restarts;
+	uint32_t redist_limit_penalty_q16;
+	uint64_t redist_limit_penalty_updated_msec;
+	uint64_t redist_limit_restart_due_msec;
+	uint64_t redist_limit_reset_due_msec;
+	eigrp_timer_event_t *t_redist_limit_restart;
+	eigrp_timer_event_t *t_redist_limit_reset;
 
 	uint64_t serno; /* Global serial number counter for topology entry
 			   changes*/

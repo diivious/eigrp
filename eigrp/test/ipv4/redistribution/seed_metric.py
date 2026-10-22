@@ -31,6 +31,26 @@ def test_redistribution_seed_metric_precedence_executes(tmp_path):
             #include "eigrp/code/eigrp_metric.c"
             #include "eigrp/code/eigrp_redistribute.c"
 
+            /* Penalty callbacks are retained by live redistribution ingress;
+             * this metric-only harness does not run a host RIB or timer loop. */
+            uint64_t eigrp_sys_monotime_msec(void) { return 1; }
+            void eigrp_timer_add(eigrp_instance_t *eigrp,
+                eigrp_timer_event_t **owner, eigrp_event_callback_t callback,
+                void *arg, uint32_t delay)
+            { (void)eigrp; (void)owner; (void)callback; (void)arg; (void)delay; }
+            void eigrp_timer_cancel(eigrp_instance_t *eigrp,
+                eigrp_timer_event_t **owner)
+            { (void)eigrp; if (owner) *owner = NULL; }
+            eigrp_result_t eigrp_rib_redistribute_add(eigrp_instance_t *eigrp,
+                const eigrp_redist_source_t *source)
+            { (void)eigrp; (void)source; return EIGRP_RESULT_SUCCESS; }
+            eigrp_result_t eigrp_rib_redistribute_remove(eigrp_instance_t *eigrp,
+                const eigrp_redist_source_t *source)
+            { (void)eigrp; (void)source; return EIGRP_RESULT_SUCCESS; }
+            eigrp_result_t eigrp_topology_redistributed_source_remove(
+                eigrp_instance_t *eigrp, const eigrp_redist_source_t *source)
+            { (void)eigrp; (void)source; return EIGRP_RESULT_SUCCESS; }
+
             static eigrp_af_config_t *test_runtime_af;
 
             void eigrp_log(eigrp_log_level_t level, const char *format, ...)

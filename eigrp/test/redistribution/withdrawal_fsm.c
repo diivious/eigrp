@@ -550,6 +550,13 @@ static void test_redist_prefix_accounting(void)
     eigrp_list_delete_data(f.runtime.topology_changes, first);
     eigrp_update_topology_table_prefix(&f.runtime, f.runtime.topology_table, first);
     assert(f.runtime.redist_prefix_count == 0);
+    /* A retired descriptor frees accounting, not an active suspension. */
+    assert(f.runtime.redist_limit_state != 0);
+    assert(eigrp_rib_redist_add(&f.runtime, &second)
+           == EIGRP_RESULT_CONFLICT);
+    assert(eigrp_redist_max_prefix_update(EIGRP_RESET, &context, NULL)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_state == 0);
     assert(eigrp_rib_redist_add(&f.runtime, &second)
            == EIGRP_RESULT_SUCCESS);
     assert(f.runtime.redist_prefix_count == 1);

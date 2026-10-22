@@ -36,6 +36,8 @@ def test_redistributed_candidate_external_topology_lifecycle_executes(tmp_path):
             #include "eigrp/code/eigrp_rib.h"
             #include "eigrp/code/eigrp_topology.h"
 
+            uint64_t eigrp_sys_monotime_msec(void) { return 1; }
+
             static eigrp_af_config_t *test_runtime_af;
             static unsigned query_work;
             static unsigned update_work;

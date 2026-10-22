@@ -162,6 +162,7 @@ STEP_FIELDS = {
     "peer-limit": {"uut", "interface", "neighbor", "operation"},
     "peer-limit-config": {"uut", "maximum", "warning_only"},
     "redist-limit-config": {"uut", "maximum", "warning_only"},
+    "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "timeout"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
     "redistribute-add": {"uut", "source"}, "redistribute-remove": {"uut", "source"},
     "wait": {"seconds"}, "fault-add": {"name", "action", "source_uut", "destination_uut",
@@ -230,7 +231,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","redist-limit-config","source-route-add","source-route-remove","redistribute-add","redistribute-remove","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","redist-limit-config","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -290,6 +291,7 @@ def validate_scenario(s):
                     "peer-limit":("uut","interface","neighbor","operation"),
                     "peer-limit-config":("uut","maximum"),
                     "redist-limit-config":("uut","maximum"),
+                    "redist-limit-clear":("uut",),"redist-limit-expire":("uut",),"validate-redist-limit":("uut","state"),
                     "source-route-add":("uut","prefix"),"source-route-remove":("uut","prefix"),
                     "redistribute-add":("uut","source"),"redistribute-remove":("uut","source"),
                     "fault-add":("action",),"fault-remove":("name",),"validate-fault":("name",),
@@ -377,6 +379,7 @@ class Node:
                 current_prefix=kv["prefix"]; st["topology"].append({"prefix":current_prefix,"active":kv["active"]=="1","fd":int(kv["feasible_distance"]),"successors":int(kv["successors"])})
             elif typ=="PATH": st["paths"].append({"prefix":current_prefix,"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","feasible_successor":kv.get("feasible_successor")=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
             elif typ=="RIB": st["rib"].append({"prefix":kv["prefix"],"next_hop":kv["next_hop"],"metric":int(kv["metric"]),"distance":int(kv["admin_distance"])})
+            elif typ=="REDIST-LIMIT": st["redist_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"count":int(kv["count"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1"}
             elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
     def link(self,up,ifname):
@@ -399,6 +402,16 @@ class Node:
         result = self.cmd(f"REDIST-LIMIT-CFG {maximum} {int(warning_only)}", timeout=10)
         if result != "RESULT|0":
             raise RuntimeError(f"{self.name}: redistribution limit configuration failed: {result}")
+
+    def redist_limit_expire(self):
+        result = self.cmd("REDIST-LIMIT-EXPIRE", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: redistribution restart expiry failed: {result}")
+
+    def redist_limit_clear(self):
+        result = self.cmd("REDIST-LIMIT-CLEAR", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: redistribution penalty clear failed: {result}")
 
     def source_route_change(self, prefix, add, metric=1):
         command = (f"SOURCE-ADD {prefix} {metric}" if add
@@ -674,6 +687,19 @@ class Runner:
         elif op == "redist-limit-config":
             self.nodes[arg["uut"]].redist_limit_config(
                 arg["maximum"], arg.get("warning_only", False))
+        elif op == "redist-limit-expire":
+            self.nodes[arg["uut"]].redist_limit_expire()
+        elif op == "redist-limit-clear":
+            self.nodes[arg["uut"]].redist_limit_clear()
+        elif op == "validate-redist-limit":
+            deadline = time.monotonic() + float(arg.get("timeout", 10))
+            while True:
+                actual = self.nodes[arg["uut"]].state().get("redist_limit", {})
+                if all(actual.get(k) == v for k,v in arg.items() if k not in ("uut", "timeout")):
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"redistribution limit state mismatch: {actual} expected {arg}")
+                time.sleep(0.1)
         elif op in ("source-route-add", "source-route-remove"):
             prefix = str(ipaddress.ip_network(arg["prefix"], strict=False))
             self.nodes[arg["uut"]].source_route_change(

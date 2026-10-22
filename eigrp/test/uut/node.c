@@ -15,6 +15,7 @@
 #include "eigrp_structs.h"
 #include "eigrp_summary.h"
 #include "eigrp_redistribute.h"
+#include "eigrp_timer.h"
 #include "eigrp_mgnt.h"
 #include "eigrp_sys.h"
 #include "eigrp_timer.h"
@@ -45,7 +46,7 @@ static eigrp_result_t topo_route_cb(const eigrp_topology_route_state_t *s,void *
 static void source_cb(const eigrp_rib_route_t *r,void *arg){char p[160];(void)arg;prefix_text(&r->prefix,p,sizeof(p));printf("SRC|prefix=%s|protocol=%u|metric=%llu\n",p,(unsigned)r->redist.source.protocol,(unsigned long long)r->metric);}
 static void rib_cb(eigrp_instance_t *e,const eigrp_rib_route_t *r,void *arg){char p[160],nh[INET6_ADDRSTRLEN]="-";(void)arg;if(e!=runtime)return;prefix_text(&r->prefix,p,sizeof(p));if(r->nexthop_count&&r->nexthops[0].gateway_present)addr_text(&r->nexthops[0].gateway,nh,sizeof(nh));printf("RIB|prefix=%s|next_hop=%s|metric=%llu|admin_distance=%u\n",p,nh,(unsigned long long)r->metric,r->install.admin_dist);}
 static void traffic(void){eigrp_instance_context_t c={0};eigrp_statistics_traffic_state_t s={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c);if(r==EIGRP_RESULT_SUCCESS)r=eigrp_statistics_traffic_state_read(&c,&s);if(r==EIGRP_RESULT_SUCCESS)printf("TRAFFIC|sent_valid=0x%x|received_valid=0x%x|sent_ack=%llu|sent_hello=%llu|sent_query=%llu|sent_reply=%llu|sent_update=%llu|sent_sia_query=%llu|sent_sia_reply=%llu|received_ack=%llu|received_hello=%llu|received_query=%llu|received_reply=%llu|received_update=%llu|received_sia_query=%llu|received_sia_reply=%llu\n",s.sent_valid,s.received_valid,(unsigned long long)s.sent_ack,(unsigned long long)s.sent_hello,(unsigned long long)s.sent_query,(unsigned long long)s.sent_reply,(unsigned long long)s.sent_update,(unsigned long long)s.sent_sia_query,(unsigned long long)s.sent_sia_reply,(unsigned long long)s.received_ack,(unsigned long long)s.received_hello,(unsigned long long)s.received_query,(unsigned long long)s.received_reply,(unsigned long long)s.received_update,(unsigned long long)s.received_sia_query,(unsigned long long)s.received_sia_reply);else if(r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=traffic|result=%d\n",(int)r);}
-static void state_emit(void){eigrp_instance_context_t c={0};if(eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|instance=%s|asn=%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);{uint32_t total=0;(void)eigrp_statistics_accounting_iterate(&c,&total,accounting_cb,NULL);} (void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);traffic();puts("END");fflush(stdout);}
+static void state_emit(void){eigrp_instance_context_t c={0};if(eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|instance=%s|asn=%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);{uint32_t total=0;(void)eigrp_statistics_accounting_iterate(&c,&total,accounting_cb,NULL);} (void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);printf("REDIST-LIMIT|state=%u|restarts=%u|count=%u|restart_active=%u|reset_active=%u\n",runtime->redist_limit_state,runtime->redist_limit_restarts,runtime->redist_prefix_count,runtime->t_redist_limit_restart!=NULL,runtime->t_redist_limit_reset!=NULL);traffic();puts("END");fflush(stdout);}
 
 static eigrp_result_t tech_cb(const eigrp_status_protocol_state_t *s,void *arg){char rid[INET_ADDRSTRLEN]="-";struct in_addr a;(void)arg;if(s->router_id_configured){a.s_addr=htonl(s->router_id);inet_ntop(AF_INET,&a,rid,sizeof(rid));}printf("PROTOCOL|instance=%s|afi=%s|vrf=%s|asn=%u|shutdown=%u|router_id=%s|runtime_present=%u\n",s->instance_name?s->instance_name:"-",s->afi==EIGRP_AFI_IPV6?"ipv6":"ipv4",s->vrf_name?s->vrf_name:"-",s->asn,s->shutdown?1:0,rid,s->runtime_present?1:0);return EIGRP_RESULT_SUCCESS;}
 static void tech_emit(void){eigrp_status_capability_state_t c={0};eigrp_result_t r=eigrp_status_capability_state_read(&c);if(r==EIGRP_RESULT_SUCCESS)printf("CAPABILITY|release=%s|tlv1=%u|tlv2=%u|wide_metrics=%u|ipv4=%u|ipv6=%u|bfd=%u|snmp=%u\n",c.release?c.release:"-",c.tlv1?1:0,c.tlv2?1:0,c.wide_metrics?1:0,c.ipv4?1:0,c.ipv6?1:0,c.bfd?1:0,c.snmp?1:0);r=eigrp_status_tech_support_iterate(tech_cb,NULL);if(r!=EIGRP_RESULT_SUCCESS&&r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=tech-support|result=%d\n",(int)r);state_emit();}
@@ -237,6 +238,25 @@ static eigrp_result_t uut_redist_limit_process(eigrp_instance_t *e, void *arg)
         &context, NULL);
 }
 
+static eigrp_result_t uut_redist_clear_process(eigrp_instance_t *e, void *arg)
+{
+    (void)arg;
+    return eigrp_redist_limit_clear(e);
+}
+
+/* Advance the actual restart callback without waiting five wall-clock minutes.
+ * This only changes test time, and executes on the owning AF thread. */
+static eigrp_result_t uut_redist_expire_process(eigrp_instance_t *e, void *arg)
+{
+    (void)arg;
+    if (e->redist_limit_state != 1)
+        return EIGRP_RESULT_CONFLICT;
+    eigrp_timer_cancel(e, &e->t_redist_limit_restart);
+    e->redist_limit_restart_due_msec = 1;
+    eigrp_redist_limit_restart_expired(e);
+    return EIGRP_RESULT_SUCCESS;
+}
+
 static void load(const char *path){FILE *f=fopen(path,"r");char line[LINE],op[32],a[256],b[256],c[256];unsigned x,y,z;if(!f){perror(path);exit(2);}eigrp_sys_runtime_init();eigrp_init();if(!eigrp_process_receive_start()){fprintf(stderr,"unable to start EIGRP receive worker\n");exit(2);}while(fgets(line,sizeof(line),f)){if(line[0]=='#'||line[0]=='\n')continue;if(sscanf(line,"%31s %255s %255s %255s %u %u %u",op,a,b,c,&x,&y,&z)<1)continue;if(!strcmp(op,"router")){snprintf(instance_name,sizeof(instance_name),"%s",a);asn=(uint16_t)strtoul(b,NULL,10);}else if(!strcmp(op,"afi")){afi=!strcmp(a,"ipv6")?EIGRP_AFI_IPV6:EIGRP_AFI_IPV4;}else if(!strcmp(op,"interface")){eigrp_unix_interface_t *ui=NULL;eigrp_result_t r=eigrp_unix_interface_create(a,(eigrp_ifindex_t)strtoul(b,NULL,10),true,(uint32_t)strtoul(c,NULL,10),x,&ui);if(r!=EIGRP_RESULT_SUCCESS)die("interface create",r);}else if(!strcmp(op,"address")){eigrp_prefix_t p=prefix_parse(b);eigrp_result_t r=eigrp_unix_interface_address_add(a,&p,false);if(r!=EIGRP_RESULT_SUCCESS)die("address add",r);}else if(!strcmp(op,"segment")){eigrp_unix_segment_t *s=eigrp_unix_segment_find(b);if(!s){eigrp_result_t r=eigrp_unix_segment_create(b,&s);if(r!=EIGRP_RESULT_SUCCESS)die("segment create",r);}eigrp_unix_interface_t *ui=eigrp_unix_interface_find(a);if(!ui)die("segment interface",EIGRP_RESULT_NOT_FOUND);{eigrp_result_t r=eigrp_unix_segment_interface_attach(s,instance_name,ui);if(r!=EIGRP_RESULT_SUCCESS)die("segment attach",r);}}else if(!strcmp(op,"up")){/* Deferred until EIGRP configuration is complete. */}}
  fclose(f);if(!instance_name[0]||!asn){fprintf(stderr,"missing router definition\n");exit(2);}if(eigrp_af_config_create(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn)!=EIGRP_RESULT_SUCCESS)die("af create",EIGRP_RESULT_INTERNAL_FAILURE);af=eigrp_af_config_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn);if(!af)die("af read",EIGRP_RESULT_NOT_FOUND);{eigrp_instance_context_t ctx={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&ctx);if(r!=EIGRP_RESULT_SUCCESS)die("context",r);runtime=ctx.runtime;f=fopen(path,"r");if(!f){perror(path);exit(2);}while(fgets(line,sizeof(line),f)){if(sscanf(line,"%31s %255s %255s",op,a,b)<1)continue;if(!strcmp(op,"router-id")){struct in_addr v;if(inet_pton(AF_INET,a,&v)!=1)exit(2);r=eigrp_instance_router_id_update(EIGRP_SET,&ctx,ntohl(v.s_addr));if(r!=EIGRP_RESULT_SUCCESS)die("router-id",r);}else if(!strcmp(op,"network")){eigrp_prefix_t p=prefix_parse(a);r=eigrp_network_create(&ctx,&p);if(r!=EIGRP_RESULT_SUCCESS)die("network",r);}else if(!strcmp(op,"passive")){
     eigrp_intf_context_t ic = {.address_family=af};
@@ -297,6 +317,12 @@ int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){
         result = eigrp_instance_message_call(runtime,uut_redist_limit_process,&request);
     }
     printf("RESULT|%d\n",(int)result);
+    fflush(stdout);
+}else if(!strcmp(verb,"REDIST-LIMIT-EXPIRE")){
+    printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_redist_expire_process,NULL));
+    fflush(stdout);
+}else if(!strcmp(verb,"REDIST-LIMIT-CLEAR")){
+    printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_redist_clear_process,NULL));
     fflush(stdout);
 }else if(!strcmp(verb,"SOURCE-ADD") || !strcmp(verb,"SOURCE-DEL")){
     unsigned long long metric=1;

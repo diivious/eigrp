@@ -18,6 +18,9 @@
 #include "eigrp_log.h"
 #include "eigrp_eventlog.h"
 #include "eigrp_instance.h"
+#include "eigrp_timer.h"
+#include "eigrp_sys.h"
+#include <stdint.h>
 
 eigrp_result_t eigrp_topology_redistributed_route_update(
 	eigrp_instance_t *eigrp, const eigrp_rib_route_t *source_route,
@@ -309,6 +312,219 @@ eigrp_result_t eigrp_redist_remove(
 	return result;
 }
 
+/* Penalty state is scoped to one EIGRP AF runtime, not to a source or peer.
+ * Source subscriptions remain live during suspension so withdrawals continue
+ * to be processed. Recovery replays the RIB using the existing host API. */
+#define REDIST_LIMIT_MINUTE_MSEC UINT64_C(60000)
+#define REDIST_LIMIT_Q16 UINT32_C(65536)
+#define REDIST_LIMIT_RESTART_DEFAULT 5U
+#define REDIST_LIMIT_RESET_DEFAULT 15U
+#define REDIST_LIMIT_COUNT_DEFAULT 3U
+
+void eigrp_redist_limit_restart_expired(void *arg);
+static void eigrp_redist_limit_reset_expired(void *arg);
+
+static void eigrp_redist_limit_timers_cancel(eigrp_instance_t *runtime)
+{
+	if (!runtime)
+		return;
+	eigrp_timer_cancel(runtime, &runtime->t_redist_limit_restart);
+	eigrp_timer_cancel(runtime, &runtime->t_redist_limit_reset);
+	runtime->redist_limit_restart_due_msec = 0;
+	runtime->redist_limit_reset_due_msec = 0;
+}
+
+static void eigrp_redist_limit_timer_arm(eigrp_instance_t *runtime,
+	eigrp_timer_event_t **timer, eigrp_event_callback_t callback,
+	uint64_t deadline)
+{
+	uint64_t now = eigrp_sys_monotime_msec();
+	uint64_t delta = deadline > now ? deadline - now : 1;
+	if (delta > UINT32_MAX)
+		delta = UINT32_MAX;
+	eigrp_timer_add(runtime, timer, callback, runtime, (uint32_t)delta);
+}
+
+static uint32_t eigrp_redist_limit_decay(uint32_t score, uint64_t elapsed,
+	uint64_t half_life)
+{
+	static const uint32_t factors[8] = {
+		46341U, 55109U, 60097U, 62758U, 64132U, 64830U, 65182U, 65359U
+	};
+	uint32_t fraction;
+	unsigned i;
+	if (!score || !elapsed || !half_life)
+		return score;
+	if (elapsed / half_life >= 32)
+		return 0;
+	score >>= (unsigned)(elapsed / half_life);
+	fraction = (uint32_t)(((elapsed % half_life) * 256U) / half_life);
+	for (i = 0; i < 8; ++i)
+		if (fraction & (128U >> i))
+			score = (uint32_t)(((uint64_t)score * factors[i]) >> 16);
+	return score;
+}
+
+static void eigrp_redist_limit_withdraw(eigrp_instance_t *runtime)
+{
+	eigrp_af_config_t *af = eigrp_af_config_runtime_read(runtime);
+	eigrp_redist_config_t *cfg;
+	if (!af)
+		return;
+	for (cfg = af->redistributions; cfg; cfg = cfg->next)
+		(void)eigrp_topology_redistributed_source_remove(runtime, &cfg->source);
+}
+
+static void eigrp_redist_limit_replay(eigrp_instance_t *runtime)
+{
+	eigrp_af_config_t *af = eigrp_af_config_runtime_read(runtime);
+	eigrp_redist_config_t *cfg;
+	if (!af)
+		return;
+	/* Unsubscribe every source before replay. A replay can synchronously
+	 * retrigger the penalty, but every source must remain subscribed so
+	 * withdrawals and later recovery continue to be observable. */
+	for (cfg = af->redistributions; cfg; cfg = cfg->next)
+		(void)eigrp_rib_redistribute_remove(runtime, &cfg->source);
+	for (cfg = af->redistributions; cfg; cfg = cfg->next)
+		(void)eigrp_rib_redistribute_add(runtime, &cfg->source);
+}
+
+static void eigrp_redist_limit_release(eigrp_instance_t *runtime,
+	bool reset_history)
+{
+	if (!runtime)
+		return;
+	eigrp_redist_limit_timers_cancel(runtime);
+	runtime->redist_limit_state = 0;
+	if (reset_history) {
+		runtime->redist_limit_restarts = 0;
+		runtime->redist_limit_penalty_q16 = 0;
+		runtime->redist_limit_penalty_updated_msec = 0;
+	}
+	eigrp_redist_limit_replay(runtime);
+}
+
+void eigrp_redist_limit_restart_expired(void *arg)
+{
+	eigrp_instance_t *runtime = arg;
+	uint64_t now;
+	if (!runtime || runtime->redist_limit_state != 1 ||
+	    !runtime->redist_limit_restart_due_msec)
+		return;
+	now = eigrp_sys_monotime_msec();
+	if (now < runtime->redist_limit_restart_due_msec) {
+		eigrp_redist_limit_timer_arm(runtime, &runtime->t_redist_limit_restart,
+			eigrp_redist_limit_restart_expired,
+			runtime->redist_limit_restart_due_msec);
+		return;
+	}
+	/* Keep the history and reset timer across automatic restarts. */
+	runtime->redist_limit_restart_due_msec = 0;
+	runtime->redist_limit_state = 0;
+	eigrp_redist_limit_replay(runtime);
+}
+
+static void eigrp_redist_limit_reset_expired(void *arg)
+{
+	eigrp_instance_t *runtime = arg;
+	uint64_t now;
+	if (!runtime || !runtime->redist_limit_reset_due_msec)
+		return;
+	now = eigrp_sys_monotime_msec();
+	if (now < runtime->redist_limit_reset_due_msec) {
+		eigrp_redist_limit_timer_arm(runtime, &runtime->t_redist_limit_reset,
+			eigrp_redist_limit_reset_expired,
+			runtime->redist_limit_reset_due_msec);
+		return;
+	}
+	runtime->redist_limit_reset_due_msec = 0;
+	/* Expiry must never release a locked source. */
+	if (runtime->redist_limit_state != 2) {
+		runtime->redist_limit_restarts = 0;
+		runtime->redist_limit_penalty_q16 = 0;
+		runtime->redist_limit_penalty_updated_msec = 0;
+	}
+}
+
+static void eigrp_redist_limit_exceeded(eigrp_instance_t *runtime,
+	const eigrp_prefix_limit_t *limit)
+{
+	eigrp_af_config_t *af = eigrp_af_config_runtime_read(runtime);
+	uint64_t now, base, interval, half_life;
+	uint32_t count, restart_minutes, reset_minutes;
+	bool dampened;
+	if (!runtime || !limit || runtime->redist_limit_state)
+		return;
+	restart_minutes = limit->restart_minutes ? limit->restart_minutes :
+		(af && af->topology_maximum_prefix_configured &&
+		 af->topology_maximum_prefix.restart_minutes ?
+		 af->topology_maximum_prefix.restart_minutes : REDIST_LIMIT_RESTART_DEFAULT);
+	reset_minutes = limit->reset_time_minutes ? limit->reset_time_minutes :
+		(af && af->topology_maximum_prefix_configured &&
+		 af->topology_maximum_prefix.reset_time_minutes ?
+		 af->topology_maximum_prefix.reset_time_minutes : REDIST_LIMIT_RESET_DEFAULT);
+	count = limit->restart_count ? limit->restart_count :
+		(af && af->topology_maximum_prefix_configured &&
+		 af->topology_maximum_prefix.restart_count ?
+		 af->topology_maximum_prefix.restart_count : REDIST_LIMIT_COUNT_DEFAULT);
+	dampened = limit->dampened || (af && af->topology_maximum_prefix_configured &&
+		 af->topology_maximum_prefix.dampened);
+	now = eigrp_sys_monotime_msec();
+	base = (uint64_t)restart_minutes * REDIST_LIMIT_MINUTE_MSEC;
+	half_life = base + base / 2U;
+	if (dampened) {
+		if (runtime->redist_limit_penalty_updated_msec &&
+		    now > runtime->redist_limit_penalty_updated_msec)
+			runtime->redist_limit_penalty_q16 = eigrp_redist_limit_decay(
+				runtime->redist_limit_penalty_q16,
+				now - runtime->redist_limit_penalty_updated_msec, half_life);
+		if (runtime->redist_limit_penalty_q16 > UINT32_MAX - REDIST_LIMIT_Q16)
+			runtime->redist_limit_penalty_q16 = UINT32_MAX;
+		else
+			runtime->redist_limit_penalty_q16 += REDIST_LIMIT_Q16;
+		runtime->redist_limit_penalty_updated_msec = now;
+	} else {
+		runtime->redist_limit_penalty_q16 = 0;
+		runtime->redist_limit_penalty_updated_msec = 0;
+	}
+	if (runtime->redist_limit_restarts < UINT16_MAX)
+		++runtime->redist_limit_restarts;
+	/* Set ineligible BEFORE topology withdrawal. */
+	runtime->redist_limit_state =
+		runtime->redist_limit_restarts >= count ? 2 : 1;
+	eigrp_redist_limit_timers_cancel(runtime);
+	eigrp_redist_limit_withdraw(runtime);
+	if (runtime->redist_limit_state == 2)
+		return;
+	interval = dampened ? (base * runtime->redist_limit_penalty_q16) /
+		REDIST_LIMIT_Q16 : base;
+	runtime->redist_limit_restart_due_msec = now + interval;
+	runtime->redist_limit_reset_due_msec = now +
+		(uint64_t)reset_minutes * REDIST_LIMIT_MINUTE_MSEC;
+	eigrp_redist_limit_timer_arm(runtime, &runtime->t_redist_limit_restart,
+		eigrp_redist_limit_restart_expired,
+		runtime->redist_limit_restart_due_msec);
+	eigrp_redist_limit_timer_arm(runtime, &runtime->t_redist_limit_reset,
+		eigrp_redist_limit_reset_expired,
+		runtime->redist_limit_reset_due_msec);
+	if (!runtime->t_redist_limit_restart || !runtime->t_redist_limit_reset) {
+		eigrp_redist_limit_timers_cancel(runtime);
+		runtime->redist_limit_state = 2;
+	}
+}
+
+eigrp_result_t eigrp_redist_limit_clear(eigrp_instance_t *runtime)
+{
+	if (!runtime)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	if (eigrp_instance_thread_dispatch_needed(runtime))
+		return EIGRP_RESULT_CONFLICT;
+	if (runtime->redist_limit_state)
+		eigrp_redist_limit_release(runtime, true);
+	return EIGRP_RESULT_SUCCESS;
+}
+
 static uint32_t eigrp_redist_prefix_count(eigrp_instance_t *runtime)
 {
 	return runtime ? runtime->redist_prefix_count : 0;
@@ -322,6 +538,8 @@ bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 	const eigrp_prefix_limit_t *limit;
 
 	if (!runtime || !route)
+		return false;
+	if (runtime->redist_limit_state)
 		return false;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af || !af->redistribute_policy
@@ -337,7 +555,8 @@ bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 			eigrp_log(EIGRP_LOG_WARNING,
 				  "EIGRP redistribution maximum-prefix threshold reached (%u/%u)",
 				  count + 1U, limit->maximum);
-		if (!eigrp_prefix_limit_allows(limit, count, false)) {
+		if (!limit->warning_only && count >= limit->maximum) {
+			eigrp_redist_limit_exceeded(runtime, limit);
 			(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
 				&route->prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_REDISTRIBUTION,
 				count + 1U, limit->maximum, 0);
@@ -537,6 +756,8 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
 		memset(&context->config->redistribute_policy->maximum_prefix, 0,
 		       sizeof(context->config->redistribute_policy->maximum_prefix));
 	}
+	if (context->runtime && context->runtime->redist_limit_state)
+		eigrp_redist_limit_release(context->runtime, true);
 	return EIGRP_RESULT_SUCCESS;
 	}
 
@@ -557,9 +778,9 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
 		context->config->redistribute_policy->maximum_prefix = *limit;
 		context->config->redistribute_policy->maximum_prefix_configured = true;
 	}
-	return context->runtime && (limit->dampened || limit->reset_time_minutes
-		|| limit->restart_minutes || limit->restart_count)
-		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
+	if (context->runtime && context->runtime->redist_limit_state)
+		eigrp_redist_limit_release(context->runtime, true);
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
