@@ -162,6 +162,8 @@ STEP_FIELDS = {
     "peer-limit": {"uut", "interface", "neighbor", "operation"},
     "peer-limit-config": {"uut", "maximum", "warning_only"},
     "redist-limit-config": {"uut", "maximum", "warning_only"},
+    "process-limit-config": {"uut", "maximum", "warning_only"},
+    "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "restart_active", "reset_active", "timeout"},
     "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "timeout"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
     "redistribute-add": {"uut", "source"}, "redistribute-remove": {"uut", "source"},
@@ -231,7 +233,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","redist-limit-config","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","redist-limit-config","process-limit-config","process-limit-clear","process-limit-expire","validate-process-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -291,13 +293,15 @@ def validate_scenario(s):
                     "peer-limit":("uut","interface","neighbor","operation"),
                     "peer-limit-config":("uut","maximum"),
                     "redist-limit-config":("uut","maximum"),
+                    "process-limit-config":("uut","maximum"),
+                    "process-limit-clear":("uut",),"process-limit-expire":("uut",),"validate-process-limit":("uut","state"),
                     "redist-limit-clear":("uut",),"redist-limit-expire":("uut",),"validate-redist-limit":("uut","state"),
                     "source-route-add":("uut","prefix"),"source-route-remove":("uut","prefix"),
                     "redistribute-add":("uut","source"),"redistribute-remove":("uut","source"),
                     "fault-add":("action",),"fault-remove":("name",),"validate-fault":("name",),
                     "validate-event":("uut","contains")}.get(op,())
             if any(k not in arg for k in needed): raise SpecError(f"{where}: missing required fields {needed}")
-            if op in ("peer-limit-config", "redist-limit-config"):
+            if op in ("peer-limit-config", "redist-limit-config", "process-limit-config"):
                 _count(arg["maximum"], f"{where}.maximum")
                 if "warning_only" in arg and type(arg["warning_only"]) is not bool:
                     raise SpecError(f"{where}: warning_only must be boolean")
@@ -380,6 +384,7 @@ class Node:
             elif typ=="PATH": st["paths"].append({"prefix":current_prefix,"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","feasible_successor":kv.get("feasible_successor")=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
             elif typ=="RIB": st["rib"].append({"prefix":kv["prefix"],"next_hop":kv["next_hop"],"metric":int(kv["metric"]),"distance":int(kv["admin_distance"])})
             elif typ=="REDIST-LIMIT": st["redist_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"count":int(kv["count"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1"}
+            elif typ=="PROCESS-LIMIT": st["process_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1"}
             elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
     def link(self,up,ifname):
@@ -402,6 +407,21 @@ class Node:
         result = self.cmd(f"REDIST-LIMIT-CFG {maximum} {int(warning_only)}", timeout=10)
         if result != "RESULT|0":
             raise RuntimeError(f"{self.name}: redistribution limit configuration failed: {result}")
+
+    def process_limit_config(self, maximum, warning_only=False):
+        result = self.cmd(f"PROCESS-LIMIT-CFG {maximum} {int(warning_only)}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process limit configuration failed: {result}")
+
+    def process_limit_expire(self):
+        result = self.cmd("PROCESS-LIMIT-EXPIRE", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process restart expiry failed: {result}")
+
+    def process_limit_clear(self):
+        result = self.cmd("PROCESS-LIMIT-CLEAR", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process penalty clear failed: {result}")
 
     def redist_limit_expire(self):
         result = self.cmd("REDIST-LIMIT-EXPIRE", timeout=10)
@@ -687,6 +707,21 @@ class Runner:
         elif op == "redist-limit-config":
             self.nodes[arg["uut"]].redist_limit_config(
                 arg["maximum"], arg.get("warning_only", False))
+        elif op == "process-limit-config":
+            self.nodes[arg["uut"]].process_limit_config(arg["maximum"], arg.get("warning_only", False))
+        elif op == "process-limit-expire":
+            self.nodes[arg["uut"]].process_limit_expire()
+        elif op == "process-limit-clear":
+            self.nodes[arg["uut"]].process_limit_clear()
+        elif op == "validate-process-limit":
+            deadline = time.monotonic() + float(arg.get("timeout", 10))
+            while True:
+                actual = self.nodes[arg["uut"]].state().get("process_limit", {})
+                if all(actual.get(k) == v for k,v in arg.items() if k not in ("uut", "timeout")):
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"process limit state mismatch: {actual} expected {arg}")
+                time.sleep(0.1)
         elif op == "redist-limit-expire":
             self.nodes[arg["uut"]].redist_limit_expire()
         elif op == "redist-limit-clear":

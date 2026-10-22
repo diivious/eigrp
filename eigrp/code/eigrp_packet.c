@@ -31,6 +31,7 @@
 #include "eigrp_eventlog.h"
 #include "eigrp_timer.h"
 #include "eigrp_packetizer.h"
+#include "eigrp_process_limit.h"
 /* Packet Type String. */
 const eigrp_message_t eigrp_packet_type_str[] = {
 	{EIGRP_OPC_UPDATE, "Update"},
@@ -978,6 +979,10 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 
 	eigrp_debug_packet_receive(ei, &src, &dst, eigrph, length);
 	opcode = eigrph->opcode;
+	/* A process-wide suspension blocks new Hello adjacency discovery as well as
+	 * existing neighbor traffic. The periodic sender is quiesced separately. */
+	if (eigrp->process_limit_state && opcode == EIGRP_OPC_HELLO)
+		return;
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		char source_text[64];
@@ -1107,6 +1112,7 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 		return;
 	}
 
+	eigrp->process_limit_packet_active = true;
 	switch (opcode) {
 	case EIGRP_OPC_PROBE:
 		eigrp_packet_reject_event(ei, &src, opcode,
@@ -1140,6 +1146,9 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	}
 	/* A prefix-limit DOWN transition is committed inside admission, but
 	 * topology/RTP teardown waits until the TLV handler has returned. */
+	eigrp->process_limit_packet_active = false;
+	if (eigrp->process_limit_cleanup_pending)
+		eigrp_process_limit_cleanup(eigrp);
 	if (nbr->limit_cleanup_pending)
 		eigrp_nbr_limit_cleanup(nbr);
 }

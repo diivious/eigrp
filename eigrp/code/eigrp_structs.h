@@ -145,6 +145,17 @@ struct eigrp_instance {
 	struct eigrp_network_runtime *networks; /* EIGRP runtime networks. */
 
 	eigrp_table_t *topology_table;
+	/* Process-wide prefix penalty scoped to this AF instance. */
+	uint8_t process_limit_state; /* 0 normal, 1 suspended, 2 locked. */
+	bool process_limit_cleanup_pending;
+	bool process_limit_packet_active;
+	uint16_t process_limit_restarts;
+	uint32_t process_limit_penalty_q16;
+	uint64_t process_limit_penalty_updated_msec;
+	uint64_t process_limit_restart_due_msec;
+	uint64_t process_limit_reset_due_msec;
+	eigrp_timer_event_t *t_process_limit_restart;
+	eigrp_timer_event_t *t_process_limit_reset;
 	uint32_t redist_prefix_count; /* Distinct retained self-owned external destinations. */
 	/* AF-wide redistribution prefix-limit penalty; never neighbor-owned. */
 	uint8_t redist_limit_state; /* 0 normal, 1 suspended, 2 locked. */

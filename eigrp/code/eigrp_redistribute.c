@@ -365,7 +365,7 @@ static uint32_t eigrp_redist_limit_decay(uint32_t score, uint64_t elapsed,
 	return score;
 }
 
-static void eigrp_redist_limit_withdraw(eigrp_instance_t *runtime)
+void eigrp_redist_routes_withdraw(eigrp_instance_t *runtime)
 {
 	eigrp_af_config_t *af = eigrp_af_config_runtime_read(runtime);
 	eigrp_redist_config_t *cfg;
@@ -375,7 +375,7 @@ static void eigrp_redist_limit_withdraw(eigrp_instance_t *runtime)
 		(void)eigrp_topology_redistributed_source_remove(runtime, &cfg->source);
 }
 
-static void eigrp_redist_limit_replay(eigrp_instance_t *runtime)
+void eigrp_redist_routes_replay(eigrp_instance_t *runtime)
 {
 	eigrp_af_config_t *af = eigrp_af_config_runtime_read(runtime);
 	eigrp_redist_config_t *cfg;
@@ -402,7 +402,7 @@ static void eigrp_redist_limit_release(eigrp_instance_t *runtime,
 		runtime->redist_limit_penalty_q16 = 0;
 		runtime->redist_limit_penalty_updated_msec = 0;
 	}
-	eigrp_redist_limit_replay(runtime);
+	eigrp_redist_routes_replay(runtime);
 }
 
 void eigrp_redist_limit_restart_expired(void *arg)
@@ -422,7 +422,7 @@ void eigrp_redist_limit_restart_expired(void *arg)
 	/* Keep the history and reset timer across automatic restarts. */
 	runtime->redist_limit_restart_due_msec = 0;
 	runtime->redist_limit_state = 0;
-	eigrp_redist_limit_replay(runtime);
+	eigrp_redist_routes_replay(runtime);
 }
 
 static void eigrp_redist_limit_reset_expired(void *arg)
@@ -494,7 +494,7 @@ static void eigrp_redist_limit_exceeded(eigrp_instance_t *runtime,
 	runtime->redist_limit_state =
 		runtime->redist_limit_restarts >= count ? 2 : 1;
 	eigrp_redist_limit_timers_cancel(runtime);
-	eigrp_redist_limit_withdraw(runtime);
+	eigrp_redist_routes_withdraw(runtime);
 	if (runtime->redist_limit_state == 2)
 		return;
 	interval = dampened ? (base * runtime->redist_limit_penalty_q16) /
@@ -539,7 +539,7 @@ bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 
 	if (!runtime || !route)
 		return false;
-	if (runtime->redist_limit_state)
+	if (runtime->redist_limit_state || runtime->process_limit_state)
 		return false;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af || !af->redistribute_policy

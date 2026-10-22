@@ -5,6 +5,10 @@
 #include <string.h>
 #include "eigrp_query.c"
 
+void eigrp_process_limit_exceeded(eigrp_instance_t *runtime,
+    const eigrp_prefix_limit_t *limit) { (void)runtime; (void)limit; }
+eigrp_result_t eigrp_process_limit_clear(eigrp_instance_t *runtime)
+{ (void)runtime; return EIGRP_RESULT_SUCCESS; }
 unsigned long term_debug_eigrp = 0;
 void eigrp_timer_cancel(eigrp_instance_t *eigrp, eigrp_timer_event_t **owner)
 { (void)eigrp; (void)owner; }

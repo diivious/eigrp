@@ -74,6 +74,7 @@ typedef struct eigrp_neighbor {
 	eigrp_nbr_limit_state_t limit_state; /* prefix-limit admission status */
 	/* The receive path marks DOWN immediately, but drains DUAL/RTP only
 	 * after the packet TLV walker returns. Owned by the AF thread. */
+	bool process_limit_suspended; /* Suspension owned by the AF process penalty. */
 	bool limit_cleanup_pending;
 	uint8_t limit_previous_state;
 	eigrp_prefix_limit_t limit_pending_policy;

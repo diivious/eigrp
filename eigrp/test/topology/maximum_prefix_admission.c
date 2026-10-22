@@ -24,6 +24,15 @@
 #include "eigrp/code/eigrp_instance.h"
 #include "eigrp/code/eigrp_eventlog.h"
 
+/* This fixture tests topology slot accounting; process penalty lifecycle
+ * is exercised by the dedicated process-limit UUT scenarios. */
+void eigrp_process_limit_exceeded(eigrp_instance_t *runtime,
+                                  const eigrp_prefix_limit_t *limit)
+{
+    (void)runtime;
+    (void)limit;
+}
+
 static unsigned installs, withdrawals, updates;
 static eigrp_af_config_t policy;
 #ifdef TEST_NEIGHBOR_LIMIT
