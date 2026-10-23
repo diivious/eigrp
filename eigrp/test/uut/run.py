@@ -164,7 +164,7 @@ STEP_FIELDS = {
     "redist-limit-config": {"uut", "maximum", "warning_only"},
     "process-limit-config": {"uut", "maximum", "warning_only", "dampened"},
     "inbound-filter-config": {"uut", "prefix", "enabled"},
-    "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "process-limit-reset-expire": {"uut"}, "process-limit-stale": {"uut"}, "process-limit-age": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "penalty_min", "penalty_max", "timeout"},
+    "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "process-limit-reset-expire": {"uut"}, "process-limit-stale": {"uut"}, "process-limit-age": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "penalty_min", "penalty_max", "penalty_after_age", "timeout"},
     "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "timeout"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
     "redistribute-add": {"uut", "source"}, "redistribute-remove": {"uut", "source"},
@@ -324,6 +324,11 @@ def validate_scenario(s):
                     if field in arg: _count(arg[field], f"{where}.{field}")
                 if arg.get("penalty_min",0) > arg.get("penalty_max",4294967295):
                     raise SpecError(f"{where}: penalty bounds are inverted")
+                if "penalty_after_age" in arg:
+                    if type(arg["penalty_after_age"]) is not bool:
+                        raise SpecError(f"{where}: penalty_after_age must be boolean")
+                    if any(k in arg for k in ("penalty", "penalty_min", "penalty_max")):
+                        raise SpecError(f"{where}: penalty_after_age conflicts with fixed penalty bounds")
             if op == "process-limit-config" and "dampened" in arg and type(arg["dampened"]) is not bool:
                 raise SpecError(f"{where}: dampened must be boolean")
             if op == "peer-limit":
@@ -338,6 +343,7 @@ class Node:
     def __init__(self,name,config,sock):
         self.name=name; self.config=config; self.sock=sock; self.p=None
         self.stderr=[]; self.err_thread=None; self.stdout_thread=None
+        self.process_limit_age_elapsed=None
         self.responses=queue.Queue(); self.cmd_lock=threading.Lock()
     def _start_stdout_reader(self):
         # Read from the buffered TextIO stream in exactly one thread. select()
@@ -449,8 +455,10 @@ class Node:
             raise RuntimeError(f"{self.name}: process reset timer expiry failed")
 
     def process_limit_age(self):
-        if self.cmd("PROCESS-LIMIT-AGE", timeout=10) != "RESULT|0":
-            raise RuntimeError(f"{self.name}: process penalty aging failed")
+        result = self.cmd("PROCESS-LIMIT-AGE", timeout=10)
+        if not result.startswith("RESULT|0|elapsed="):
+            raise RuntimeError(f"{self.name}: process penalty aging failed: {result}")
+        self.process_limit_age_elapsed = int(result.split("=", 1)[1])
 
     def process_limit_stale(self):
         if self.cmd("PROCESS-LIMIT-STALE", timeout=10) != "RESULT|0":
@@ -762,15 +770,25 @@ class Runner:
             self.nodes[arg["uut"]].process_limit_clear()
         elif op == "validate-process-limit":
             deadline = time.monotonic() + float(arg.get("timeout", 10))
+            penalty_min = arg.get("penalty_min", 0)
+            penalty_max = arg.get("penalty_max", 4294967295)
+            if arg.get("penalty_after_age"):
+                elapsed = self.nodes[arg["uut"]].process_limit_age_elapsed
+                if elapsed is None:
+                    raise RuntimeError("process penalty age was not recorded")
+                # One initial Q16 incident decays by elapsed/7.5m; the
+                # recurring violation contributes one more Q16 incident.
+                expected = 65536 + 65536 * 2 ** (-elapsed / 450000)
+                penalty_min = int(expected) - 256
+                penalty_max = int(expected) + 256
             while True:
                 actual = self.nodes[arg["uut"]].state().get("process_limit", {})
                 if (all(actual.get(k) == v for k,v in arg.items()
-                        if k not in ("uut", "timeout", "penalty_min", "penalty_max"))
-                    and actual.get("penalty", 0) >= arg.get("penalty_min", 0)
-                    and actual.get("penalty", 0) <= arg.get("penalty_max", 4294967295)):
+                        if k not in ("uut", "timeout", "penalty_min", "penalty_max", "penalty_after_age"))
+                    and penalty_min <= actual.get("penalty", 0) <= penalty_max):
                     break
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(f"process limit state mismatch: {actual} expected {arg}")
+                    raise RuntimeError(f"process limit state mismatch: {actual} expected {arg} penalty bounds [{penalty_min}, {penalty_max}]")
                 time.sleep(0.1)
         elif op == "redist-limit-expire":
             self.nodes[arg["uut"]].redist_limit_expire()

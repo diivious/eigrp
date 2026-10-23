@@ -14,9 +14,9 @@ steps:
   # independently count the next hard-limit incident.
   - process-limit-age: {uut: r1}
   - process-limit-expire: {uut: r1}
-  # After one 7.5-minute half-life, the old Q16 incident contributes
-  # roughly 32768, then the second contributes 65536.
-  - validate-process-limit: {uut: r1, state: 1, restarts: 2, restart_active: true, reset_active: true, penalty_min: 97000, penalty_max: 100000}
+  # CI hosts can have less than 7.5 minutes of monotonic uptime.
+  # Check the real decay using the elapsed interval actually aged by the UUT.
+  - validate-process-limit: {uut: r1, state: 1, restarts: 2, restart_active: true, reset_active: true, penalty_after_age: true}
   - process-limit-expire: {uut: r1}
   - validate-process-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
   - source-route-remove: {uut: r1, prefix: '192.0.2.254/32'}

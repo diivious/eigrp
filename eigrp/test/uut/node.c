@@ -299,15 +299,20 @@ static eigrp_result_t uut_process_reset_expire(eigrp_instance_t *e,
     return EIGRP_RESULT_SUCCESS;
 }
 
-/* Age the recorded dampening incident by one default half-life (7.5m).
- * Only the test clock history is adjusted; actual penalty code computes decay. */
+/* Age a recorded penalty by up to one default half-life (7.5m).
+ * Fresh CI hosts may have less than 7.5m monotonic uptime. Clamp the
+ * elapsed interval rather than underflowing the history timestamp. The
+ * real penalty path still computes the decay when the incident recurs. */
 static eigrp_result_t uut_process_limit_age(eigrp_instance_t *e, void *arg)
 {
     uint64_t now = eigrp_sys_monotime_msec();
-    (void)arg;
-    if (!e->eigrp_pfxlimits_af_decay_msec || now <= 450000U)
+    uint64_t elapsed;
+    if (!e->eigrp_pfxlimits_af_decay_msec || now <= 1U)
         return EIGRP_RESULT_CONFLICT;
-    e->eigrp_pfxlimits_af_decay_msec = now - 450000U;
+    elapsed = now > 450000U ? 450000U : now - 1U;
+    e->eigrp_pfxlimits_af_decay_msec = now - elapsed;
+    if (arg)
+        *(uint64_t *)arg = elapsed;
     return EIGRP_RESULT_SUCCESS;
 }
 
@@ -444,7 +449,10 @@ int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){
 }else if(!strcmp(verb,"PROCESS-LIMIT-RESET-EXPIRE")){
     printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_reset_expire,NULL));fflush(stdout);
  }else if(!strcmp(verb,"PROCESS-LIMIT-AGE")){
-    printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_limit_age,NULL));fflush(stdout);
+    uint64_t elapsed = 0;
+    eigrp_result_t result = eigrp_instance_message_call(runtime,uut_process_limit_age,&elapsed);
+    printf("RESULT|%d|elapsed=%llu\n", (int)result, (unsigned long long)elapsed);
+    fflush(stdout);
 }else if(!strcmp(verb,"PROCESS-LIMIT-STALE")){
     printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_stale_timer,NULL));fflush(stdout);
 }else if(!strcmp(verb,"PROCESS-LIMIT-CLEAR")){
