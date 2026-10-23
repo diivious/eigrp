@@ -56,24 +56,43 @@ static uint32_t eigrp_process_limit_decay(uint32_t score, uint64_t elapsed,
 	return score;
 }
 
+/* Process suspension is a separate reason for adjacency ineligibility.
+ * Never overwrite a peer's own prefix-limit state or its penalty timers. */
 static void eigrp_process_limit_neighbors(eigrp_instance_t *runtime, bool release)
 {
 	eigrp_list_item_t *if_node, *nbr_node;
 	eigrp_intf_t *intf;
 	eigrp_nbr_t *nbr;
+	if (!runtime->eiflist)
+		return;
 	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, intf)) {
 		if (!intf || !intf->nbrs)
 			continue;
 		for (EIGRP_LIST_ITERATE_RO(intf->nbrs, nbr_node, nbr)) {
+			if (!nbr || !nbr->published)
+				continue;
 			if (release) {
-				if (nbr->process_limit_suspended) {
-					nbr->process_limit_suspended = false;
-					eigrp_nbr_release(nbr);
-				}
-			} else if (!nbr->process_limit_suspended &&
-				   nbr->limit_state == EIGRP_NBR_LIMIT_NONE && nbr->published) {
+				if (!nbr->process_limit_suspended)
+					continue;
+				pthread_mutex_lock(&runtime->peer_lock);
+				nbr->process_limit_suspended = false;
+				if (++runtime->next_neighbor_generation == 0)
+					++runtime->next_neighbor_generation;
+				nbr->generation = runtime->next_neighbor_generation;
+				pthread_mutex_unlock(&runtime->peer_lock);
+			} else {
+				if (nbr->process_limit_suspended)
+					continue;
+				pthread_mutex_lock(&runtime->peer_lock);
 				nbr->process_limit_suspended = true;
-				(void)eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED);
+				if (++runtime->next_neighbor_generation == 0)
+					++runtime->next_neighbor_generation;
+				nbr->generation = runtime->next_neighbor_generation;
+				pthread_mutex_unlock(&runtime->peer_lock);
+				/* Already penalized peers have completed DOWN teardown.
+				 * Their independent suspension must survive process release. */
+				if (nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
+					eigrp_nbr_down(nbr);
 			}
 		}
 	}
@@ -229,7 +248,16 @@ eigrp_result_t eigrp_process_limit_clear(eigrp_instance_t *runtime)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (eigrp_instance_thread_dispatch_needed(runtime))
 		return EIGRP_RESULT_CONFLICT;
-	if (runtime->process_limit_state)
+	if (runtime->process_limit_state) {
 		eigrp_process_limit_release(runtime, true);
+	} else {
+		/* Automatic restart restores admission, not the incident history.
+		 * An explicit clear during the reset window must erase that history
+		 * without replaying RIB sources or disturbing healthy neighbors. */
+		eigrp_process_limit_timers_cancel(runtime);
+		runtime->process_limit_restarts = 0;
+		runtime->process_limit_penalty_q16 = 0;
+		runtime->process_limit_penalty_updated_msec = 0;
+	}
 	return EIGRP_RESULT_SUCCESS;
 }

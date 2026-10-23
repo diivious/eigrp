@@ -14,10 +14,16 @@ steps:
   - validate-process-limit: {uut: r1, state: 1, restarts: 2, restart_active: true}
   - process-limit-expire: {uut: r1}
   - validate-process-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: P, restart_count: 0}
+  # An identical config replay must not unlock the process or reset history.
+  - process-limit-config: {uut: r1, maximum: 4}
+  - validate-process-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
   - source-route-remove: {uut: r1, prefix: '192.0.2.232/32'}
   - validate-process-limit: {uut: r1, state: 2, restarts: 3}
-  - process-limit-clear: {uut: r1}
-  - validate-process-limit: {uut: r1, state: 0, restarts: 0}
+  # Changing policy deliberately releases a locked process, unlike replaying
+  # the identical policy. With the excess source removed, readmission succeeds.
+  - process-limit-config: {uut: r1, maximum: 5}
+  - validate-process-limit: {uut: r1, state: 0, restarts: 0, restart_active: false, reset_active: false}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 20}
   - validate-route: {uut: r2, prefix: '192.0.2.231/32', table: rib, present: true, timeout: 15}
   - source-route-remove: {uut: r1, prefix: '192.0.2.231/32'}

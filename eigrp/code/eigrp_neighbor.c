@@ -922,7 +922,7 @@ char eigrp_nbr_limit_status(const eigrp_nbr_t *nbr)
 	if (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED)
 		return 'D';
 	if (nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED
-	    || nbr->limit_cleanup_pending)
+	    || nbr->limit_cleanup_pending || nbr->process_limit_suspended)
 		return 'P';
 	return nbr->state == EIGRP_NEIGHBOR_UP ? 'A' : 0;
 }
@@ -943,7 +943,9 @@ uint32_t eigrp_nbr_limit_seconds(uint64_t deadline_msec, uint64_t now_msec)
 bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr)
 {
 	return nbr && nbr->limit_state == EIGRP_NBR_LIMIT_NONE
-	       && !nbr->limit_cleanup_pending;
+	       && !nbr->limit_cleanup_pending && !nbr->process_limit_suspended
+	       && (!nbr->ei || !nbr->ei->eigrp
+	           || !nbr->ei->eigrp->process_limit_state);
 }
 
 /* Terminate the adjacency without destroying the neighbor identity.
@@ -1374,7 +1376,8 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 
 	/* A suspended peer is not a live adjacency, regardless of its prior
 	 * handshake state. Only release may restore admission. */
-	if (nbr->limit_state != EIGRP_NBR_LIMIT_NONE
+	if ((nbr->limit_state != EIGRP_NBR_LIMIT_NONE
+	     || nbr->process_limit_suspended)
 	    && state != EIGRP_NEIGHBOR_DOWN)
 		return;
 	old_state = nbr->state;

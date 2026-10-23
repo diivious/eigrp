@@ -2412,7 +2412,10 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 			eigrp_log(EIGRP_LOG_WARNING,
 				  "EIGRP topology maximum-prefix threshold reached (%u/%u)",
 				  count + 1U, limit->maximum);
-		if (!eigrp_prefix_limit_allows(limit, count, false)) {
+		/* Process admission supports restart/reset/dampening policies.
+		 * The legacy basic-only admission helper would bypass hard limits
+		 * whenever any of those options was configured. */
+		if (!limit->warning_only && count >= limit->maximum) {
 			(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
 				prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_TOPOLOGY, count + 1U,
 				limit->maximum, 0);
@@ -2448,9 +2451,15 @@ eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation, eig
 	if (operation != EIGRP_SET || !limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (context->config) {
+		/* Reapplying the same policy must not bypass a process lockout or
+		 * reset incident history. Only an actual configuration change may
+		 * clear the running penalty. */
+		bool changed = !context->config->topology_maximum_prefix_configured
+			|| memcmp(&context->config->topology_maximum_prefix,
+				limit, sizeof(*limit)) != 0;
 		context->config->topology_maximum_prefix = *limit;
 		context->config->topology_maximum_prefix_configured = true;
-		if (context->runtime)
+		if (changed && context->runtime)
 			(void)eigrp_process_limit_clear(context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;

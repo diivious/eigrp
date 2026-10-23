@@ -12,6 +12,11 @@ scenarios = (
     ("examples/two-router.yaml", "prefix-limit/scenario-process-penalty-ipv4.yaml"),
     ("examples/two-router.yaml", "prefix-limit/scenario-process-lockout-ipv4.yaml"),
     ("examples/ipv6-basic-core.yaml", "prefix-limit/scenario-process-penalty-ipv6.yaml"),
+    ("examples/two-router.yaml", "prefix-limit/scenario-process-reset-window-ipv4.yaml"),
+    ("examples/two-router.yaml", "prefix-limit/scenario-process-neighbor-overlap-ipv4.yaml"),
+    ("examples/two-router.yaml", "prefix-limit/scenario-process-neighbor-overlap-reverse-ipv4.yaml"),
+    ("examples/two-router.yaml", "prefix-limit/scenario-process-timer-reset-ipv4.yaml"),
+    ("examples/two-router.yaml", "prefix-limit/scenario-process-dampened-ipv4.yaml"),
 )
 
 

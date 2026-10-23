@@ -10,6 +10,7 @@ steps:
   - validate-route: {uut: r2, prefix: '192.0.2.221/32', table: rib, present: true, timeout: 15}
   - source-route-add: {uut: r1, prefix: '192.0.2.222/32', metric: 20}
   - validate-process-limit: {uut: r1, state: 1, restarts: 1, restart_active: true, reset_active: true}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: P, restart_count: 0}
   - validate-route: {uut: r2, prefix: '192.0.2.221/32', table: rib, present: false, timeout: 28}
   - source-route-remove: {uut: r1, prefix: '192.0.2.222/32'}
   - process-limit-clear: {uut: r1}

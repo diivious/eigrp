@@ -20,11 +20,29 @@
 #include "eigrp/code/eigrp_rib.h"
 #include "eigrp/code/eigrp_topology.h"
 #include "eigrp/code/eigrp_table.h"
+#include "eigrp/code/eigrp_process_limit.h"
+#include "eigrp/code/eigrp_timer.h"
 
+#ifndef EIGRP_TEST_PROCESS_VOLUME
 void eigrp_process_limit_exceeded(eigrp_instance_t *runtime,
     const eigrp_prefix_limit_t *limit) { (void)runtime; (void)limit; }
 eigrp_result_t eigrp_process_limit_clear(eigrp_instance_t *runtime)
 { (void)runtime; return EIGRP_RESULT_SUCCESS; }
+#else
+/* No live peer or socket in this direct 100K-DUAL fixture. */
+void eigrp_nbr_down(eigrp_nbr_t *nbr) { (void)nbr; }
+void eigrp_nbr_release(eigrp_nbr_t *nbr) { (void)nbr; }
+bool eigrp_intf_is_passive(eigrp_intf_t *intf) { (void)intf; return false; }
+void eigrp_hello_send(eigrp_intf_t *intf, uint8_t type, eigrp_addr_t *nbr)
+{ (void)intf; (void)type; (void)nbr; }
+void eigrp_update_send_process_GR(eigrp_instance_t *e, enum GR_type type)
+{ (void)e; (void)type; }
+eigrp_result_t eigrp_nbr_clear(eigrp_instance_t *e,
+    const eigrp_nbr_clear_request_t *request, eigrp_nbr_clear_cb callback,
+    void *arg, size_t *count)
+{ (void)e; (void)request; (void)callback; (void)arg; (void)count;
+  return EIGRP_RESULT_SUCCESS; }
+#endif
 static eigrp_af_config_t *test_runtime_af;
 static unsigned query_work;
 static unsigned update_work;
@@ -36,8 +54,14 @@ void eigrp_packetizer_prefix_defer_free(eigrp_instance_t *eigrp,
                                        eigrp_prefix_descriptor_t *prefix)
 {
     (void)eigrp;
+#ifdef EIGRP_TEST_PROCESS_VOLUME
+    /* Model packetizer completion and reclamation on this single-threaded
+     * fixture only, after the prefix has been detached from topology. */
+    eigrp_topology_prefix_free(prefix);
+#else
     assert(prefix && deferred_prefix == NULL);
     deferred_prefix = prefix;
+#endif
 }
 
 unsigned long term_debug_eigrp;
@@ -618,6 +642,95 @@ static void test_redist_prefix_volume(void)
     eigrp_redist_policy_delete_all(&f.af);
 }
 
+#ifdef EIGRP_TEST_PROCESS_VOLUME
+/* Full real topology/RIB/DUAL path with 100,000 retained redistributed
+ * destinations, then an AF process hard-limit violation and withdrawal.
+ * Verify actual descriptor ownership after simulated packetizer retirement. */
+static void test_process_prefix_volume(void)
+{
+    struct fixture f;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit = {.maximum = 100000, .restart_count = 3};
+    eigrp_rib_route_t candidate, overflow;
+    eigrp_prefix_descriptor_t *prefix;
+    eigrp_table_node_t *rn, *next;
+    unsigned i;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    assert(pthread_mutex_init(&f.runtime.work_lock, NULL) == 0);
+    assert(pthread_cond_init(&f.runtime.work_cond, NULL) == 0);
+    f.runtime.thread_running = true;
+    context = (eigrp_instance_context_t){.config = &f.af,
+        .runtime = &f.runtime, .topology_id = EIGRP_TOPOLOGY_ID_BASE};
+    assert(eigrp_topology_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+    candidate = f.candidate;
+    candidate.prefix.prefix_length = 32;
+    for (i = 1; i < 100000; ++i) {
+        set_ipv4(&candidate.prefix.address, 198, 18 + ((i >> 16) & 1U),
+                 (i >> 8) & 255U, i & 255U);
+        assert(eigrp_rib_redist_add(&f.runtime, &candidate)
+               == EIGRP_RESULT_SUCCESS);
+        prefix = eigrp_topology_table_lookup(f.runtime.topology_table,
+                                             &candidate.prefix);
+        assert(prefix && prefix->external_routes->count == 1);
+        prefix->req_action = 0;
+        eigrp_list_delete_data(f.runtime.topology_changes, prefix);
+    }
+    assert(f.runtime.topology_table->size == 100000);
+    assert(f.runtime.redist_prefix_count == 100000);
+    overflow = candidate;
+    set_ipv4(&overflow.prefix.address, 198, 19, 134, 160);
+    assert(eigrp_rib_redist_add(&f.runtime, &overflow)
+           == EIGRP_RESULT_CONFLICT);
+    assert(f.runtime.process_limit_state == 1);
+    assert(f.runtime.process_limit_restarts == 1);
+    assert(f.runtime.topology_table->size == 100000);
+    assert(f.runtime.redist_prefix_count == 100000);
+    assert(!eigrp_topology_table_lookup(f.runtime.topology_table,
+                                        &overflow.prefix));
+    /* Every previous external path must now be unreachable, but owned until
+     * its withdrawal work is consumed. */
+    for (rn = eigrp_table_first(f.runtime.topology_table); rn;
+         rn = eigrp_table_next(rn)) {
+        prefix = rn->info;
+        assert(prefix && prefix->external_routes->count == 1);
+        assert(only_route(&f.runtime, &prefix->destination)->distance
+               == EIGRP_MAX_METRIC);
+    }
+    /* Consume every deferred withdrawal then prove real DNDB/DRDB
+     * retirement, rather than relying on filtered operational output. */
+    for (rn = eigrp_table_first(f.runtime.topology_table); rn; rn = next) {
+        next = eigrp_table_next(rn);
+        prefix = rn->info;
+        assert(prefix && (prefix->req_action & EIGRP_FSM_NEED_UPDATE));
+        prefix->req_action = 0;
+        eigrp_list_delete_data(f.runtime.topology_changes, prefix);
+        eigrp_update_topology_table_prefix(&f.runtime,
+                                           f.runtime.topology_table, prefix);
+    }
+    assert(f.runtime.topology_table->size == 0);
+    assert(f.runtime.redist_prefix_count == 0);
+    assert(f.runtime.process_limit_state == 1);
+    assert(eigrp_rib_redist_add(&f.runtime, &candidate)
+           == EIGRP_RESULT_CONFLICT);
+    assert(eigrp_process_limit_clear(&f.runtime) == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.process_limit_state == 0);
+    assert(!f.runtime.t_process_limit_restart &&
+           !f.runtime.t_process_limit_reset);
+    assert(eigrp_rib_redist_add(&f.runtime, &candidate)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_prefix_count == 1);
+    fixture_delete(&f);
+    assert(f.runtime.redist_prefix_count == 0);
+    eigrp_timer_cancel_all(&f.runtime);
+    f.runtime.thread_running = false;
+    assert(pthread_cond_destroy(&f.runtime.work_cond) == 0);
+    assert(pthread_mutex_destroy(&f.runtime.work_lock) == 0);
+}
+#endif
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -635,6 +748,10 @@ int main(int argc, char **argv)
         test_redist_prefix_accounting();
     else if (strcmp(argv[1], "redist-volume") == 0)
         test_redist_prefix_volume();
+#ifdef EIGRP_TEST_PROCESS_VOLUME
+    else if (strcmp(argv[1], "process-volume") == 0)
+        test_process_prefix_volume();
+#endif
     else
         return 2;
     return 0;

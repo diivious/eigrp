@@ -47,7 +47,7 @@ static eigrp_result_t topo_route_cb(const eigrp_topology_route_state_t *s,void *
 static void source_cb(const eigrp_rib_route_t *r,void *arg){char p[160];(void)arg;prefix_text(&r->prefix,p,sizeof(p));printf("SRC|prefix=%s|protocol=%u|metric=%llu\n",p,(unsigned)r->redist.source.protocol,(unsigned long long)r->metric);}
 static void rib_cb(eigrp_instance_t *e,const eigrp_rib_route_t *r,void *arg){char p[160],nh[INET6_ADDRSTRLEN]="-";(void)arg;if(e!=runtime)return;prefix_text(&r->prefix,p,sizeof(p));if(r->nexthop_count&&r->nexthops[0].gateway_present)addr_text(&r->nexthops[0].gateway,nh,sizeof(nh));printf("RIB|prefix=%s|next_hop=%s|metric=%llu|admin_distance=%u\n",p,nh,(unsigned long long)r->metric,r->install.admin_dist);}
 static void traffic(void){eigrp_instance_context_t c={0};eigrp_statistics_traffic_state_t s={0};eigrp_result_t r=eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c);if(r==EIGRP_RESULT_SUCCESS)r=eigrp_statistics_traffic_state_read(&c,&s);if(r==EIGRP_RESULT_SUCCESS)printf("TRAFFIC|sent_valid=0x%x|received_valid=0x%x|sent_ack=%llu|sent_hello=%llu|sent_query=%llu|sent_reply=%llu|sent_update=%llu|sent_sia_query=%llu|sent_sia_reply=%llu|received_ack=%llu|received_hello=%llu|received_query=%llu|received_reply=%llu|received_update=%llu|received_sia_query=%llu|received_sia_reply=%llu\n",s.sent_valid,s.received_valid,(unsigned long long)s.sent_ack,(unsigned long long)s.sent_hello,(unsigned long long)s.sent_query,(unsigned long long)s.sent_reply,(unsigned long long)s.sent_update,(unsigned long long)s.sent_sia_query,(unsigned long long)s.sent_sia_reply,(unsigned long long)s.received_ack,(unsigned long long)s.received_hello,(unsigned long long)s.received_query,(unsigned long long)s.received_reply,(unsigned long long)s.received_update,(unsigned long long)s.received_sia_query,(unsigned long long)s.received_sia_reply);else if(r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=traffic|result=%d\n",(int)r);}
-static void state_emit(void){eigrp_instance_context_t c={0};if(eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|instance=%s|asn=%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);{uint32_t total=0;(void)eigrp_statistics_accounting_iterate(&c,&total,accounting_cb,NULL);} (void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);printf("REDIST-LIMIT|state=%u|restarts=%u|count=%u|restart_active=%u|reset_active=%u\n",runtime->redist_limit_state,runtime->redist_limit_restarts,runtime->redist_prefix_count,runtime->t_redist_limit_restart!=NULL,runtime->t_redist_limit_reset!=NULL);printf("PROCESS-LIMIT|state=%u|restarts=%u|restart_active=%u|reset_active=%u\n",runtime->process_limit_state,runtime->process_limit_restarts,runtime->t_process_limit_restart!=NULL,runtime->t_process_limit_reset!=NULL);traffic();puts("END");fflush(stdout);}
+static void state_emit(void){eigrp_instance_context_t c={0};if(eigrp_af_config_context_read(instance_name,afi,EIGRP_UNIX_DEFAULT_VRF_NAME,asn,&c)!=EIGRP_RESULT_SUCCESS){puts("END");fflush(stdout);return;}printf("STATE|instance=%s|asn=%u\n",instance_name,asn);(void)eigrp_intf_state_iterate(af,runtime,NULL,intf_cb,NULL);(void)eigrp_nbr_state_iterate(af,runtime,NULL,false,nbr_cb,NULL);{uint32_t total=0;(void)eigrp_statistics_accounting_iterate(&c,&total,accounting_cb,NULL);} (void)eigrp_topology_state_iterate(af,runtime,NULL,true,topo_pfx_cb,topo_route_cb,NULL);eigrp_unix_rib_route_walk(rib_cb,NULL);eigrp_unix_rib_source_walk(source_cb,NULL);printf("REDIST-LIMIT|state=%u|restarts=%u|count=%u|restart_active=%u|reset_active=%u\n",runtime->redist_limit_state,runtime->redist_limit_restarts,runtime->redist_prefix_count,runtime->t_redist_limit_restart!=NULL,runtime->t_redist_limit_reset!=NULL);printf("PROCESS-LIMIT|state=%u|restarts=%u|restart_active=%u|reset_active=%u|penalty=%u\n",runtime->process_limit_state,runtime->process_limit_restarts,runtime->t_process_limit_restart!=NULL,runtime->t_process_limit_reset!=NULL,runtime->process_limit_penalty_q16);traffic();puts("END");fflush(stdout);}
 
 static eigrp_result_t tech_cb(const eigrp_status_protocol_state_t *s,void *arg){char rid[INET_ADDRSTRLEN]="-";struct in_addr a;(void)arg;if(s->router_id_configured){a.s_addr=htonl(s->router_id);inet_ntop(AF_INET,&a,rid,sizeof(rid));}printf("PROTOCOL|instance=%s|afi=%s|vrf=%s|asn=%u|shutdown=%u|router_id=%s|runtime_present=%u\n",s->instance_name?s->instance_name:"-",s->afi==EIGRP_AFI_IPV6?"ipv6":"ipv4",s->vrf_name?s->vrf_name:"-",s->asn,s->shutdown?1:0,rid,s->runtime_present?1:0);return EIGRP_RESULT_SUCCESS;}
 static void tech_emit(void){eigrp_status_capability_state_t c={0};eigrp_result_t r=eigrp_status_capability_state_read(&c);if(r==EIGRP_RESULT_SUCCESS)printf("CAPABILITY|release=%s|tlv1=%u|tlv2=%u|wide_metrics=%u|ipv4=%u|ipv6=%u|bfd=%u|snmp=%u\n",c.release?c.release:"-",c.tlv1?1:0,c.tlv2?1:0,c.wide_metrics?1:0,c.ipv4?1:0,c.ipv6?1:0,c.bfd?1:0,c.snmp?1:0);r=eigrp_status_tech_support_iterate(tech_cb,NULL);if(r!=EIGRP_RESULT_SUCCESS&&r!=EIGRP_RESULT_NOT_FOUND)printf("ERROR|operation=tech-support|result=%d\n",(int)r);state_emit();}
@@ -167,7 +167,10 @@ static eigrp_result_t uut_limit_process(eigrp_instance_t *e, void *arg)
         eigrp_timer_cancel(e, &nbr->t_limit_restart);
         nbr->limit_restart_due_msec = eigrp_sys_monotime_msec() - 1U;
         eigrp_nbr_limit_restart_expired(nbr);
-        return eigrp_nbr_eligible(nbr)
+        /* The neighbor penalty can expire while the process penalty
+         * still blocks overall adjacency eligibility. */
+        return nbr->limit_state == EIGRP_NBR_LIMIT_NONE &&
+                       !nbr->limit_restart_due_msec
             ? EIGRP_RESULT_SUCCESS : EIGRP_RESULT_CONFLICT;
     }
     if (strcmp(request->operation, "suspend") == 0)
@@ -200,6 +203,7 @@ static eigrp_result_t uut_limit_process(eigrp_instance_t *e, void *arg)
 typedef struct uut_limit_config_args {
     uint32_t maximum;
     bool warning_only;
+    bool dampened;
 } uut_limit_config_args_t;
 
 static eigrp_result_t uut_limit_config_process(eigrp_instance_t *e, void *arg)
@@ -244,7 +248,8 @@ static eigrp_result_t uut_process_limit_process(eigrp_instance_t *e, void *arg)
     const uut_limit_config_args_t *request = arg;
     eigrp_instance_context_t context = {0};
     eigrp_prefix_limit_t limit = {.maximum = request->maximum,
-                                  .warning_only = request->warning_only};
+                                  .warning_only = request->warning_only,
+                                  .dampened = request->dampened};
     eigrp_result_t result = eigrp_af_config_context_read(instance_name, afi,
         EIGRP_UNIX_DEFAULT_VRF_NAME, asn, &context);
     (void)e;
@@ -269,6 +274,45 @@ static eigrp_result_t uut_process_expire_process(eigrp_instance_t *e, void *arg)
     eigrp_timer_cancel(e, &e->t_process_limit_restart);
     e->process_limit_restart_due_msec = 1;
     eigrp_process_limit_restart_expired(e);
+    return EIGRP_RESULT_SUCCESS;
+}
+
+/* Test-only timer controls on the owning AF thread.  Invoke the actual
+ * registered callbacks after canceling the timer to model an elapsed deadline. */
+static eigrp_event_callback_t uut_saved_reset_callback;
+
+static eigrp_result_t uut_process_reset_expire_process(eigrp_instance_t *e,
+                                                       void *arg)
+{
+    (void)arg;
+    if (!e->t_process_limit_reset)
+        return EIGRP_RESULT_CONFLICT;
+    uut_saved_reset_callback = e->t_process_limit_reset->callback;
+    eigrp_timer_cancel(e, &e->t_process_limit_reset);
+    e->process_limit_reset_due_msec = 1;
+    uut_saved_reset_callback(e);
+    return EIGRP_RESULT_SUCCESS;
+}
+
+/* Age the recorded dampening incident by one default half-life (7.5m).
+ * Only the test clock history is adjusted; actual penalty code computes decay. */
+static eigrp_result_t uut_process_age_process(eigrp_instance_t *e, void *arg)
+{
+    uint64_t now = eigrp_sys_monotime_msec();
+    (void)arg;
+    if (!e->process_limit_penalty_updated_msec || now <= 450000U)
+        return EIGRP_RESULT_CONFLICT;
+    e->process_limit_penalty_updated_msec = now - 450000U;
+    return EIGRP_RESULT_SUCCESS;
+}
+
+static eigrp_result_t uut_process_stale_process(eigrp_instance_t *e, void *arg)
+{
+    (void)arg;
+    /* A canceled timer may never resurrect suspension or history. */
+    eigrp_process_limit_restart_expired(e);
+    if (uut_saved_reset_callback)
+        uut_saved_reset_callback(e);
     return EIGRP_RESULT_SUCCESS;
 }
 
@@ -354,15 +398,23 @@ int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){
     fflush(stdout);
 }else if(!strcmp(verb,"PROCESS-LIMIT-CFG")){
     uut_limit_config_args_t request = {0};
-    unsigned warning = 0;
+    unsigned warning = 0, dampened = 0;
     eigrp_result_t result = EIGRP_RESULT_INVALID_ARGUMENT;
-    if(sscanf(line,"%*s %u %u",&request.maximum,&warning)==2 && warning <= 1U){
+    if(sscanf(line,"%*s %u %u %u",&request.maximum,&warning,&dampened)==3
+       && warning <= 1U && dampened <= 1U){
         request.warning_only = warning != 0;
+        request.dampened = dampened != 0;
         result = eigrp_instance_message_call(runtime,uut_process_limit_process,&request);
     }
     printf("RESULT|%d\n",(int)result);fflush(stdout);
 }else if(!strcmp(verb,"PROCESS-LIMIT-EXPIRE")){
     printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_expire_process,NULL));fflush(stdout);
+}else if(!strcmp(verb,"PROCESS-LIMIT-RESET-EXPIRE")){
+    printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_reset_expire_process,NULL));fflush(stdout);
+ }else if(!strcmp(verb,"PROCESS-LIMIT-AGE")){
+    printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_age_process,NULL));fflush(stdout);
+}else if(!strcmp(verb,"PROCESS-LIMIT-STALE")){
+    printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_stale_process,NULL));fflush(stdout);
 }else if(!strcmp(verb,"PROCESS-LIMIT-CLEAR")){
     printf("RESULT|%d\n",(int)eigrp_instance_message_call(runtime,uut_process_clear_process,NULL));fflush(stdout);
 }else if(!strcmp(verb,"REDIST-LIMIT-EXPIRE")){

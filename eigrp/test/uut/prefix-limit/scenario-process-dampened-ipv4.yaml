@@ -1,0 +1,33 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Process dampening accrues across retry violations and preserves lockout
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  - process-limit-config: {uut: r1, maximum: 4, dampened: true}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.253/32', metric: 20}
+  - validate-route: {uut: r2, prefix: '192.0.2.253/32', table: rib, present: true, timeout: 15}
+  - source-route-add: {uut: r1, prefix: '192.0.2.254/32', metric: 20}
+  - validate-process-limit: {uut: r1, state: 1, restarts: 1, restart_active: true, reset_active: true, penalty: 65536}
+  # Offending routes remain. Each real restart callback must replay and
+  # independently count the next hard-limit incident.
+  - process-limit-age: {uut: r1}
+  - process-limit-expire: {uut: r1}
+  # After one 7.5-minute half-life, the old Q16 incident contributes
+  # roughly 32768, then the second contributes 65536.
+  - validate-process-limit: {uut: r1, state: 1, restarts: 2, restart_active: true, reset_active: true, penalty_min: 97000, penalty_max: 100000}
+  - process-limit-expire: {uut: r1}
+  - validate-process-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.254/32'}
+  - process-limit-stale: {uut: r1}
+  - validate-process-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
+  - process-limit-clear: {uut: r1}
+  - validate-process-limit: {uut: r1, state: 0, restarts: 0, penalty: 0}
+  - process-limit-stale: {uut: r1}
+  - validate-process-limit: {uut: r1, state: 0, restarts: 0, penalty: 0}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 20}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.253/32'}
+  - redistribute-remove: {uut: r1, source: static}
+  - process-limit-config: {uut: r1, maximum: 0}
+  - stop: all
