@@ -1,0 +1,41 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Redistribution identical config replay preserves suspension and lockout (IPv4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.231/32', metric: 20}
+  - validate-route: {uut: r2, prefix: '192.0.2.231/32', table: rib, present: true, timeout: 15}
+  - source-route-add: {uut: r1, prefix: '192.0.2.232/32', metric: 20}
+  - validate-redist-limit: {uut: r1, state: 1, restarts: 1, restart_active: true, reset_active: true}
+  - validate-route: {uut: r2, prefix: '192.0.2.231/32', table: rib, present: false, timeout: 15}
+  # Replay and repeated SET use the real retained configuration target.
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - validate-redist-limit: {uut: r1, state: 1, restarts: 1, restart_active: true, reset_active: true}
+  - validate-route: {uut: r2, prefix: '192.0.2.231/32', table: rib, present: false, timeout: 3}
+  - redist-limit-expire: {uut: r1}
+  - validate-redist-limit: {uut: r1, state: 1, restarts: 2, restart_active: true}
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - validate-redist-limit: {uut: r1, state: 1, restarts: 2, restart_active: true}
+  - redist-limit-expire: {uut: r1}
+  - validate-redist-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - redist-limit-config: {uut: r1, maximum: 1}
+  - validate-redist-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}
+  - validate-route: {uut: r2, prefix: '192.0.2.231/32', table: rib, present: false, timeout: 3}
+  # Only an actual policy change or explicit clear may recover from lockout.
+  - source-route-remove: {uut: r1, prefix: '192.0.2.232/32'}
+  - redist-limit-config: {uut: r1, maximum: 2}
+  - validate-redist-limit: {uut: r1, state: 0, restarts: 0, count: 1}
+  - validate-route: {uut: r2, prefix: '192.0.2.231/32', table: rib, present: true, timeout: 15}
+  - redist-limit-config: {uut: r1, maximum: 2}
+  - validate-redist-limit: {uut: r1, state: 0, restarts: 0, count: 1}
+  # Changing warning-only is also a real policy change.
+  - redist-limit-config: {uut: r1, maximum: 1, warning_only: true}
+  - validate-redist-limit: {uut: r1, state: 0, restarts: 0, count: 1}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.231/32'}
+  - redistribute-remove: {uut: r1, source: static}
+  - stop: all

@@ -520,8 +520,17 @@ eigrp_result_t eigrp_redist_limit_clear(eigrp_instance_t *runtime)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (eigrp_instance_thread_dispatch_needed(runtime))
 		return EIGRP_RESULT_CONFLICT;
-	if (runtime->redist_limit_state)
+	if (runtime->redist_limit_state) {
 		eigrp_redist_limit_release(runtime, true);
+	} else {
+		/* Automatic restart restores admission but leaves the reset-window
+		 * history intact. A manual clear or changed policy must erase it
+		 * without replaying sources that are already active. */
+		eigrp_redist_limit_timers_cancel(runtime);
+		runtime->redist_limit_restart_cnt = 0;
+		runtime->redist_limit_penalty_q16 = 0;
+		runtime->redist_limit_decay_msec = 0;
+	}
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -738,6 +747,20 @@ void eigrp_redist_policy_update_all(void)
  * Sets or removes the redistribution prefix-limit configuration.
  * Retained configuration stays here while supported runtime limit semantics are enforced.
  */
+/* Compare configured values, not struct bytes (which may include padding).
+ * Every limit parameter participates in the policy; an unchanged replay is
+ * not an operator-initiated recovery from suspension or lockout. */
+static bool eigrp_redist_limit_equal(const eigrp_prefix_limit_t *a,
+	const eigrp_prefix_limit_t *b)
+{
+	return a->maximum == b->maximum && a->threshold == b->threshold
+	       && a->warning_only == b->warning_only
+	       && a->dampened == b->dampened
+	       && a->reset_time_minutes == b->reset_time_minutes
+	       && a->restart_minutes == b->restart_minutes
+	       && a->restart_count == b->restart_count;
+}
+
 eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
 {
 	eigrp_redist_message_args_t message = {
@@ -749,16 +772,19 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
 		return eigrp_instance_message_call(context->runtime,
 			eigrp_redist_message_process, &message);
 	if (operation == EIGRP_RESET) {
-	if (!context || (!context->config && !context->runtime))
-		return EIGRP_RESULT_NOT_FOUND;
-	if (context->config && context->config->redistribute_policy) {
-		context->config->redistribute_policy->maximum_prefix_configured = false;
-		memset(&context->config->redistribute_policy->maximum_prefix, 0,
-		       sizeof(context->config->redistribute_policy->maximum_prefix));
-	}
-	if (context->runtime && context->runtime->redist_limit_state)
-		eigrp_redist_limit_release(context->runtime, true);
-	return EIGRP_RESULT_SUCCESS;
+		bool changed = false;
+
+		if (!context || (!context->config && !context->runtime))
+			return EIGRP_RESULT_NOT_FOUND;
+		if (context->config && context->config->redistribute_policy) {
+			changed = context->config->redistribute_policy->maximum_prefix_configured;
+			context->config->redistribute_policy->maximum_prefix_configured = false;
+			memset(&context->config->redistribute_policy->maximum_prefix, 0,
+			       sizeof(context->config->redistribute_policy->maximum_prefix));
+		}
+		if (changed && context->runtime)
+			(void)eigrp_redist_limit_clear(context->runtime);
+		return EIGRP_RESULT_SUCCESS;
 	}
 
 	if (operation != EIGRP_SET)
@@ -769,17 +795,22 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
 	if (context->config) {
-		if (!context->config->redistribute_policy) {
-			context->config->redistribute_policy =
-				calloc(1, sizeof(*context->config->redistribute_policy));
-			if (!context->config->redistribute_policy)
+		bool changed;
+		eigrp_redist_policy_config_t *policy = context->config->redistribute_policy;
+
+		if (!policy) {
+			policy = calloc(1, sizeof(*policy));
+			if (!policy)
 				return EIGRP_RESULT_INTERNAL_FAILURE;
+			context->config->redistribute_policy = policy;
 		}
-		context->config->redistribute_policy->maximum_prefix = *limit;
-		context->config->redistribute_policy->maximum_prefix_configured = true;
+		changed = !policy->maximum_prefix_configured
+			  || !eigrp_redist_limit_equal(&policy->maximum_prefix, limit);
+		policy->maximum_prefix = *limit;
+		policy->maximum_prefix_configured = true;
+		if (changed && context->runtime)
+			(void)eigrp_redist_limit_clear(context->runtime);
 	}
-	if (context->runtime && context->runtime->redist_limit_state)
-		eigrp_redist_limit_release(context->runtime, true);
 	return EIGRP_RESULT_SUCCESS;
 }
 

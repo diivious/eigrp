@@ -65,6 +65,7 @@ def withdrawal_binary(tmp_path_factory):
         "query-empty",
         "retirement",
         "redist-prefix",
+        "redist-limit-config",
         "redist-volume",
     ],
 )

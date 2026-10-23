@@ -46,6 +46,8 @@ eigrp_result_t eigrp_nbr_clear(eigrp_instance_t *e,
 static eigrp_af_config_t *test_runtime_af;
 static unsigned query_work;
 static unsigned update_work;
+static unsigned redist_subscriptions;
+static unsigned redist_unsubscriptions;
 static eigrp_prefix_descriptor_t *deferred_prefix;
 
 /* This FSM-only harness has no packetizer worker. Capture the retired
@@ -149,6 +151,7 @@ eigrp_result_t eigrp_rib_redistribute_add(
 {
     (void)eigrp;
     (void)source;
+    ++redist_subscriptions;
     return EIGRP_RESULT_SUCCESS;
 }
 
@@ -158,6 +161,7 @@ eigrp_result_t eigrp_rib_redistribute_remove(
 {
     (void)eigrp;
     (void)source;
+    ++redist_unsubscriptions;
     return EIGRP_RESULT_SUCCESS;
 }
 
@@ -515,6 +519,188 @@ static void test_empty_destination_retirement(void)
     fixture_delete(&f);
 }
 
+/* Reapplying retained redistribution configuration is not operator recovery.
+ * Exercise real admission for suspension, plus a locked-state fixture that
+ * models completed repeat incidents without relying on wall-clock timers. */
+static void test_redist_limit_config_replay(void)
+{
+    struct fixture f;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t limit = {.maximum = 1, .restart_count = 3};
+    eigrp_prefix_limit_t replay;
+    eigrp_rib_route_t second;
+    uint64_t restart_due, reset_due;
+    unsigned subscribed, unsubscribed;
+    unsigned i;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    context = (eigrp_instance_context_t){.config = &f.af,
+        .runtime = &f.runtime, .topology_id = EIGRP_TOPOLOGY_ID_BASE};
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+    second = f.candidate;
+    set_ipv4(&second.prefix.address, 10, 77, 1, 0);
+    assert(eigrp_rib_redist_add(&f.runtime, &second) == EIGRP_RESULT_CONFLICT);
+    assert(f.runtime.redist_limit_state != 0);
+    assert(f.runtime.redist_limit_restart_cnt == 1);
+    /* This standalone FSM harness has no timer scheduler, so the real
+     * violation fails closed into lockout. Model a scheduled suspension
+     * separately to verify an unchanged SET preserves its deadlines. */
+    f.runtime.redist_limit_state = 1;
+    f.runtime.redist_limit_restart_due_msec = 60000;
+    f.runtime.redist_limit_reset_due_msec = 900000;
+    restart_due = f.runtime.redist_limit_restart_due_msec;
+    reset_due = f.runtime.redist_limit_reset_due_msec;
+    subscribed = redist_subscriptions;
+    unsubscribed = redist_unsubscriptions;
+
+    /* A separate config replay and repeated SET must preserve suspension,
+     * both deadlines and the incident history without replaying the RIB. */
+    for (i = 0; i < 3; i++) {
+        replay = limit;
+        assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &replay)
+               == EIGRP_RESULT_SUCCESS);
+        assert(f.runtime.redist_limit_state == 1);
+        assert(f.runtime.redist_limit_restart_cnt == 1);
+        assert(f.runtime.redist_limit_restart_due_msec == restart_due);
+        assert(f.runtime.redist_limit_reset_due_msec == reset_due);
+        assert(redist_subscriptions == subscribed);
+        assert(redist_unsubscriptions == unsubscribed);
+    }
+
+    /* A locked runtime represents the third violation. Replays must not
+     * silently unlock it, restart sources or erase dampening history. */
+    eigrp_timer_cancel(&f.runtime, &f.runtime.t_redist_limit_restart);
+    eigrp_timer_cancel(&f.runtime, &f.runtime.t_redist_limit_reset);
+    f.runtime.redist_limit_restart_due_msec = 0;
+    f.runtime.redist_limit_reset_due_msec = 0;
+    f.runtime.redist_limit_state = 2;
+    f.runtime.redist_limit_restart_cnt = 3;
+    f.runtime.redist_limit_penalty_q16 = 131072;
+    f.runtime.redist_limit_decay_msec = 42;
+    for (i = 0; i < 3; i++) {
+        /* Equal field values must compare equal despite padding bytes. */
+        memset(&replay, 0xa5, sizeof(replay));
+        replay.maximum = limit.maximum;
+        replay.threshold = limit.threshold;
+        replay.warning_only = limit.warning_only;
+        replay.dampened = limit.dampened;
+        replay.reset_time_minutes = limit.reset_time_minutes;
+        replay.restart_minutes = limit.restart_minutes;
+        replay.restart_count = limit.restart_count;
+        assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &replay)
+               == EIGRP_RESULT_SUCCESS);
+        assert(f.runtime.redist_limit_state == 2);
+        assert(f.runtime.redist_limit_restart_cnt == 3);
+        assert(f.runtime.redist_limit_penalty_q16 == 131072);
+        assert(f.runtime.redist_limit_decay_msec == 42);
+        assert(redist_subscriptions == subscribed);
+        assert(redist_unsubscriptions == unsubscribed);
+        assert(eigrp_rib_redist_add(&f.runtime, &second)
+               == EIGRP_RESULT_CONFLICT);
+    }
+    replay.maximum = 0;
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &replay)
+           == EIGRP_RESULT_INVALID_ARGUMENT);
+    assert(f.runtime.redist_limit_state == 2);
+
+    /* Every policy field is meaningful. A real change may manually recover;
+     * the next identical SET must again be an idempotent no-op. */
+#define CHECK_CHANGED_POLICY() do { \
+    f.runtime.redist_limit_state = 2; \
+    f.runtime.redist_limit_restart_cnt = 3; \
+    f.runtime.redist_limit_penalty_q16 = 131072; \
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit) \
+           == EIGRP_RESULT_SUCCESS); \
+    assert(f.runtime.redist_limit_state == 0); \
+    assert(f.runtime.redist_limit_restart_cnt == 0); \
+    assert(f.runtime.redist_limit_penalty_q16 == 0); \
+    ++subscribed; ++unsubscribed; \
+    assert(redist_subscriptions == subscribed); \
+    assert(redist_unsubscriptions == unsubscribed); \
+    f.runtime.redist_limit_state = 2; \
+    f.runtime.redist_limit_restart_cnt = 3; \
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit) \
+           == EIGRP_RESULT_SUCCESS); \
+    assert(f.runtime.redist_limit_state == 2); \
+    assert(f.runtime.redist_limit_restart_cnt == 3); \
+    assert(redist_subscriptions == subscribed); \
+    assert(redist_unsubscriptions == unsubscribed); \
+} while (0)
+    limit.maximum = 2;
+    CHECK_CHANGED_POLICY();
+    limit.threshold = 75;
+    CHECK_CHANGED_POLICY();
+    limit.warning_only = true;
+    CHECK_CHANGED_POLICY();
+    limit.dampened = true;
+    CHECK_CHANGED_POLICY();
+    limit.reset_time_minutes = 10;
+    CHECK_CHANGED_POLICY();
+    limit.restart_minutes = 2;
+    CHECK_CHANGED_POLICY();
+    limit.restart_count = 4;
+    CHECK_CHANGED_POLICY();
+#undef CHECK_CHANGED_POLICY
+
+    /* An automatic restart can leave admission active with prior incident
+     * history and a pending reset deadline. Identical config keeps that
+     * history; a real change clears it without unnecessary RIB replay. */
+    f.runtime.redist_limit_state = 0;
+    f.runtime.redist_limit_restart_cnt = 2;
+    f.runtime.redist_limit_penalty_q16 = 131072;
+    f.runtime.redist_limit_decay_msec = 42;
+    f.runtime.redist_limit_reset_due_msec = 123456;
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_restart_cnt == 2);
+    assert(f.runtime.redist_limit_penalty_q16 == 131072);
+    assert(f.runtime.redist_limit_reset_due_msec == 123456);
+    limit.maximum = 5;
+    assert(eigrp_redist_max_prefix_update(EIGRP_SET, &context, &limit)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_state == 0);
+    assert(f.runtime.redist_limit_restart_cnt == 0);
+    assert(f.runtime.redist_limit_penalty_q16 == 0);
+    assert(f.runtime.redist_limit_decay_msec == 0);
+    assert(f.runtime.redist_limit_reset_due_msec == 0);
+    assert(redist_subscriptions == subscribed);
+    assert(redist_unsubscriptions == unsubscribed);
+    /* Explicit manual recovery has the same reset-window semantics. */
+    f.runtime.redist_limit_restart_cnt = 2;
+    assert(eigrp_redist_limit_clear(&f.runtime) == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_restart_cnt == 0);
+    assert(redist_subscriptions == subscribed);
+    assert(redist_unsubscriptions == unsubscribed);
+
+    /* Removing the configured policy is recovery, but repeating its removal
+     * is not an alternative lockout-clear command. */
+    f.runtime.redist_limit_state = 2;
+    f.runtime.redist_limit_restart_cnt = 3;
+    assert(eigrp_redist_max_prefix_update(EIGRP_RESET, &context, NULL)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_state == 0);
+    assert(f.runtime.redist_limit_restart_cnt == 0);
+    ++subscribed; ++unsubscribed;
+    assert(redist_subscriptions == subscribed);
+    assert(redist_unsubscriptions == unsubscribed);
+    f.runtime.redist_limit_state = 2;
+    f.runtime.redist_limit_restart_cnt = 3;
+    assert(eigrp_redist_max_prefix_update(EIGRP_RESET, &context, NULL)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_state == 2);
+    assert(f.runtime.redist_limit_restart_cnt == 3);
+    assert(redist_subscriptions == subscribed);
+    assert(redist_unsubscriptions == unsubscribed);
+    assert(eigrp_redist_limit_clear(&f.runtime) == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.redist_limit_state == 0);
+    assert(f.runtime.redist_limit_restart_cnt == 0);
+    fixture_delete(&f);
+    eigrp_redist_policy_delete_all(&f.af);
+    eigrp_timer_cancel_all(&f.runtime);
+}
+
 /* Exercise real admission and topology ownership. In particular an existing
  * connected route owned by neighbor_self does not exempt new redistribution. */
 static void test_redist_prefix_accounting(void)
@@ -744,6 +930,8 @@ int main(int argc, char **argv)
         test_query_after_route_descriptor_cleanup();
     else if (strcmp(argv[1], "retirement") == 0)
         test_empty_destination_retirement();
+    else if (strcmp(argv[1], "redist-limit-config") == 0)
+        test_redist_limit_config_replay();
     else if (strcmp(argv[1], "redist-prefix") == 0)
         test_redist_prefix_accounting();
     else if (strcmp(argv[1], "redist-volume") == 0)

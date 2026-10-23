@@ -11,6 +11,7 @@ uut = root / "eigrp/test/uut"
 scenarios = (
     ("examples/two-router.yaml", "prefix-limit/scenario-redist-penalty-ipv4.yaml"),
     ("examples/two-router.yaml", "prefix-limit/scenario-redist-lockout-ipv4.yaml"),
+    ("examples/two-router.yaml", "prefix-limit/scenario-redist-config-replay-lockout-ipv4.yaml"),
     ("examples/two-router.yaml", "prefix-limit/scenario-redist-count-ipv4.yaml"),
     ("examples/ipv6-basic-core.yaml", "prefix-limit/scenario-redist-count-ipv6.yaml"),
 )
