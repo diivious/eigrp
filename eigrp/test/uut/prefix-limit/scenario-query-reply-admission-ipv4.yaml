@@ -1,0 +1,71 @@
+schema: eigrp-uut-test/v1
+topology: ../dual-kite/ipv4-kite.yaml
+name: Neighbor prefix policy preserves QUERY/REPLY convergence and retirement (IPv4)
+steps:
+  - start: r3
+  - start: r1
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, timeout: 7}
+  - validate-route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3, timeout: 7}
+  - start: r2
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, timeout: 7}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, timeout: 7}
+  - validate-convergence:
+      timeout: 7
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.23.0.3}
+  # Configure after initial convergence. This avoids conflating adjacency
+  # initialization with incremental admission, while exercising the threshold
+  # during QUERY/REPLY withdrawal and recovery on the same destinations.
+  # The hard-limit rejection boundary is covered by the executable receive
+  # regression; warning-only keeps all three routers available for DUAL.
+  - peer-limit-config: {uut: r1, maximum: 1, warning_only: true}
+  - peer-limit-config: {uut: r2, maximum: 1, warning_only: true}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, prefix_count: 2, status: A}
+  - validate-accounting: {uut: r2, neighbor: 10.23.0.3, interface: eth23, prefix_count: 3, status: A}
+  - packet-mark: first-withdrawal
+  - link-down: {uut: r3, interface: lan3}
+  - validate-packet: {opcode: query, prefix: 10.3.0.0/24, since: first-withdrawal, min: 1, timeout: 3, event: delivered}
+  - validate-packet: {opcode: reply, prefix: 10.3.0.0/24, since: first-withdrawal, min: 1, timeout: 3, event: delivered}
+  - validate-convergence:
+      timeout: 9
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, present: false}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, present: false}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, present: false}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, present: false}
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, state: up, timeout: 3}
+  - validate-neighbor: {uut: r2, neighbor: 10.23.0.3, interface: eth23, state: up, timeout: 3}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, prefix_count: 1, status: A}
+  - validate-accounting: {uut: r2, neighbor: 10.23.0.3, interface: eth23, prefix_count: 2, status: A}
+  - link-up: {uut: r3, interface: lan3}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, active: false, successors: 1}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.23.0.3}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, prefix_count: 2, status: A}
+  - validate-accounting: {uut: r2, neighbor: 10.23.0.3, interface: eth23, prefix_count: 3, status: A}
+  - packet-mark: second-withdrawal
+  - link-down: {uut: r3, interface: lan3}
+  - validate-packet: {opcode: query, prefix: 10.3.0.0/24, since: second-withdrawal, min: 1, timeout: 3, event: delivered}
+  - validate-packet: {opcode: reply, prefix: 10.3.0.0/24, since: second-withdrawal, min: 1, timeout: 3, event: delivered}
+  - validate-convergence:
+      timeout: 9
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: topology, present: false}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: topology, present: false}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, prefix_count: 1, status: A}
+  - validate-accounting: {uut: r2, neighbor: 10.23.0.3, interface: eth23, prefix_count: 2, status: A}
+  - link-up: {uut: r3, interface: lan3}
+  - validate-convergence:
+      timeout: 10
+      expect:
+        - route: {uut: r1, prefix: 10.3.0.0/24, table: rib, next_hop: 10.13.0.3}
+        - route: {uut: r2, prefix: 10.3.0.0/24, table: rib, next_hop: 10.23.0.3}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, prefix_count: 2, status: A}
+  - validate-accounting: {uut: r2, neighbor: 10.23.0.3, interface: eth23, prefix_count: 3, status: A}
+  - stop: all

@@ -1900,6 +1900,17 @@ static const eigrp_prefix_limit_t *eigrp_nbr_limit_lookup(
 	return NULL;
 }
 
+bool eigrp_nbr_route_admit(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
+	const eigrp_prefix_t *dest, const eigrp_metrics_t *metric)
+{
+	/* Unreachable routes are still processed by DUAL as withdrawal/REPLY
+	 * events, but they must not consume a newly retained neighbor path. */
+	if (!metric || eigrp_metric_calculate(eigrp, *metric) == EIGRP_MAX_METRIC)
+		return false;
+	return eigrp_nbr_prefix_admit(eigrp, nbr, dest)
+		&& eigrp_topology_prefix_admit(eigrp, dest);
+}
+
 bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 	const eigrp_prefix_t *prefix)
 {

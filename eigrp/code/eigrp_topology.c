@@ -390,6 +390,21 @@ bool eigrp_topology_redist_present(const eigrp_instance_t *eigrp,
     return false;
 }
 
+/* Insert once and account only after storage succeeds.  A route moved between
+ * metric/class queues is not a newly owned neighbor destination. */
+bool eigrp_topology_route_insert(eigrp_instance_t *eigrp,
+	eigrp_prefix_descriptor_t *prefix, eigrp_route_descriptor_t *route,
+	bool first_peer_path)
+{
+	if (!eigrp_list_insert(eigrp_topology_route_class_queue(prefix, route), route))
+		return false;
+	if (first_peer_path && route->adv_router
+	    && route->adv_router != eigrp->neighbor_self
+	    && route->adv_router->limit_prefix_count_valid)
+		route->adv_router->limit_prefix_count++;
+	return true;
+}
+
 /*
  * Adding topology entry to topology node
  */
@@ -407,13 +422,12 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 		bool first_redist = eigrp && route->adv_router == eigrp->neighbor_self
 			&& !route->ei && eigrp_topology_route_external(route)
 			&& !eigrp_topology_redist_present(eigrp, node);
-		if (!eigrp_list_insert(routes, route))
+		if (!eigrp_topology_route_insert(eigrp, node, route,
+						first_peer_path))
 			return;
 		route->prefix = node;
 		if (first_redist && eigrp->redist_prefix_count < UINT32_MAX)
 			eigrp->redist_prefix_count++;
-		if (first_peer_path && route->adv_router->limit_prefix_count_valid)
-			route->adv_router->limit_prefix_count++;
 
 		if (eigrp_topology_route_read(node) == route
 		    && eigrp_topology_southbound_nexthop(route, &nexthop)) {
@@ -1038,8 +1052,12 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 	enum metric_change change = METRIC_SAME;
 	uint32_t new_reported_distance;
 	bool class_changed;
+	bool stored;
+	bool first_peer_path;
 
 	assert(route);
+	if (msg->transient_route)
+		return METRIC_SAME;
 
 	if (!route->adv_router)
 		route->adv_router = msg->adv_router;
@@ -1048,6 +1066,11 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 	if (!route->ei && msg->adv_router)
 		route->ei = msg->adv_router->ei;
 
+	stored = eigrp_list_lookup(prefix->internal_routes, route) != NULL
+		|| eigrp_list_lookup(prefix->external_routes, route) != NULL;
+	first_peer_path = !stored && route->adv_router
+		&& route->adv_router != eigrp->neighbor_self
+		&& !eigrp_prefix_descriptor_lookup(prefix, route->adv_router);
 	class_changed =
 		(eigrp_list_lookup(prefix->external_routes, route) != NULL)
 		!= eigrp_topology_route_external(route);
@@ -1060,7 +1083,7 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		change = METRIC_DECREASE;
 		break;
 	case EIGRP_INT:
-		if (!class_changed
+		if (stored && !class_changed
 		    && eigrp_metrics_match(msg->metrics, route->reported_metric))
 			return change; // No change
 
@@ -1078,7 +1101,7 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		route->distance = eigrp_metric_total_calculate(eigrp, route);
 		break;
 	case EIGRP_EXT:
-		if (!class_changed
+		if (stored && !class_changed
 		    && eigrp_metrics_match(msg->metrics, route->reported_metric))
 			return change;
 
@@ -1131,7 +1154,11 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		eigrp_list_delete_data(prefix->internal_routes, route);
 	if (eigrp_list_lookup(prefix->external_routes, route))
 		eigrp_list_delete_data(prefix->external_routes, route);
-	eigrp_list_insert(eigrp_topology_route_class_queue(prefix, route), route);
+	if (!eigrp_topology_route_insert(eigrp, prefix, route,
+						  first_peer_path)) {
+		msg->transient_route = !stored;
+		return METRIC_SAME;
+	}
 
 	return change;
 }

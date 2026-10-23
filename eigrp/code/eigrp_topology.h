@@ -28,6 +28,9 @@
 
 /* EIGRP Route Descriptor related functions. */
 extern eigrp_route_descriptor_t *eigrp_topology_route_create(eigrp_intf_t *);
+/* Neighbor path insertions share one count-update point. */
+bool eigrp_topology_route_insert(eigrp_instance_t *,
+	eigrp_prefix_descriptor_t *, eigrp_route_descriptor_t *, bool);
 extern void eigrp_route_descriptor_add(eigrp_instance_t *,
 				       eigrp_prefix_descriptor_t *,
 				       eigrp_route_descriptor_t *);

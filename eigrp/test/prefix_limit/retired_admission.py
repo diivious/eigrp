@@ -25,6 +25,10 @@ def prefix_admission_executable(tmp_path_factory):
     # Exercise the actual receive admission statements, not a copied
     # approximation. Compile them with the real topology admission function.
     ingress_gate = update_source[start:end]
+    neighbor_source = (ROOT / "eigrp/code/eigrp_neighbor.c").read_text()
+    route_admit_start = neighbor_source.index("bool eigrp_nbr_route_admit(")
+    route_admit_end = neighbor_source.index("bool eigrp_nbr_prefix_admit(", route_admit_start)
+    route_admit = neighbor_source[route_admit_start:route_admit_end]
     source.write_text(textwrap.dedent(r'''
 
             #include <assert.h>
@@ -489,6 +493,8 @@ static eigrp_af_config_t *test_runtime_af;
                 return neighbor_gate_allowed;
             }
 
+            /* NBR_ROUTE_ADMIT_PRODUCTION */
+
             static bool ingress_check(eigrp_instance_t *eigrp,
                                       unsigned id, bool poisoned,
                                       eigrp_route_descriptor_t *topology_route)
@@ -603,7 +609,8 @@ static eigrp_af_config_t *test_runtime_af;
                 else return 2;
                 return 0;
             }
-''').replace("/* INGRESS_GATE_PRODUCTION */", ingress_gate))
+''').replace("/* INGRESS_GATE_PRODUCTION */", ingress_gate)
+               .replace("/* NBR_ROUTE_ADMIT_PRODUCTION */", route_admit))
     compiler = os.environ.get("CC", "cc")
     result = subprocess.run(
         [compiler, "-std=gnu11", "-O0", "-Wall", "-Wextra", "-Werror",

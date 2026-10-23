@@ -120,7 +120,7 @@ static void eigrp_update_receive_GR_ask(eigrp_instance_t *eigrp,
 {
 	eigrp_list_item_t *node1;
 	eigrp_prefix_descriptor_t *prefix;
-	eigrp_fsm_action_message_t fsm_msg;
+	eigrp_fsm_action_message_t fsm_msg = {0};
 
 	/* iterate over all prefixes which weren't advertised by neighbor */
 	for (EIGRP_LIST_ITERATE_RO(nbr_prefixes, node1, prefix)) {
@@ -387,7 +387,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				if (nbr->peer_init_resync_pending && nbr->peer_init_resync_prefixes)
 					eigrp_list_delete_data(nbr->peer_init_resync_prefixes, prefix);
 
-				struct eigrp_fsm_action_message msg;
+				struct eigrp_fsm_action_message msg = {0};
 				eigrp_route_descriptor_t *received_route = route;
 				eigrp_route_descriptor_t *topology_route =
 					eigrp_prefix_descriptor_lookup(prefix, nbr);
@@ -408,10 +408,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				 * may have a valid alternate without successor flags.
 				 * Withdrawals must always reach DUAL. */
 				if (!unreachable
-				    && ((!topology_route
-					 && !eigrp_nbr_prefix_admit(eigrp, nbr,
-						&received_route->dest))
-					|| !eigrp_topology_prefix_admit(eigrp,
+				    && (!topology_route
+					? !eigrp_nbr_route_admit(eigrp, nbr,
+						&received_route->dest, &received_route->metric)
+					: !eigrp_topology_prefix_admit(eigrp,
 						&received_route->dest))) {
 					eigrp_topology_route_free(received_route);
 					continue;
@@ -447,9 +447,14 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 							  &msg.metrics);
 				msg.route = route;
 				msg.prefix = prefix;
+				/* Admission was checked before copying the route. Inbound
+				 * filtering can still poison a newly decoded path. */
+				msg.transient_route = !topology_route &&
+					eigrp_metric_calculate(eigrp, msg.metrics)
+						== EIGRP_MAX_METRIC;
 				eigrp_fsm_event(&msg);
 
-				if (free_received_route)
+				if (free_received_route || msg.transient_route)
 					eigrp_topology_route_free(received_route);
 
 			} else {
@@ -465,8 +470,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				/* Enforce neighbor and topology limits only for a genuinely new
 				 * accepted destination/path. Duplicate UPDATEs do not consume
 				 * another prefix slot. */
-				if (!eigrp_nbr_prefix_admit(eigrp, nbr, &route->dest)
-				    || !eigrp_topology_prefix_admit(eigrp, &route->dest)) {
+				if (!eigrp_nbr_route_admit(eigrp, nbr, &route->dest, &route->metric)) {
 					eigrp_topology_route_free(route);
 					continue;
 				}
@@ -1033,7 +1037,7 @@ static void eigrp_update_send_GR_part(eigrp_nbr_t *nbr)
 		 * still valid, then consume this resync work item. */
 		if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
 					      &prefix->destination)) {
-			eigrp_fsm_action_message_t fsm_msg;
+			eigrp_fsm_action_message_t fsm_msg = {0};
 			eigrp_route_descriptor_t *fsm_route =
 				eigrp_prefix_descriptor_lookup(prefix, nbr);
 

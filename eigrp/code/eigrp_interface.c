@@ -1551,7 +1551,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 		eigrp_update_send_all(eigrp, NULL);
 
 	} else {
-		eigrp_fsm_action_message_t msg;
+		eigrp_fsm_action_message_t msg = {0};
 
 		route->prefix = prefix;
 		eigrp_route_descriptor_add(eigrp, prefix, route);

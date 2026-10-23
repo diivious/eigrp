@@ -73,15 +73,13 @@ static bool eigrp_query_unknown_route_record(eigrp_instance_t *eigrp,
 				 eigrp_prefix_descriptor_t *prefix)
 {
 	eigrp_route_descriptor_t *previous;
-	eigrp_list_t *routes;
 	bool new_prefix = prefix == NULL;
 
 	if (!eigrp || !nbr || !route || !nbr->ei || !eigrp->topology_table
 	    || route->metric.delay == EIGRP_MAX_METRIC
 	    || route->metric.delay == EIGRP_METRIC_MAX)
 		return false;
-	if (!eigrp_nbr_prefix_admit(eigrp, nbr, &route->dest)
-	    || !eigrp_topology_prefix_admit(eigrp, &route->dest))
+	if (!eigrp_nbr_route_admit(eigrp, nbr, &route->dest, &route->metric))
 		return false;
 
 	if (new_prefix) {
@@ -124,18 +122,11 @@ static bool eigrp_query_unknown_route_record(eigrp_instance_t *eigrp,
 	route->reported_metric = route->metric;
 	route->reported_distance = eigrp_metric_calculate(eigrp, route->reported_metric);
 	route->distance = eigrp_metric_total_calculate(eigrp, route);
-	routes = eigrp_topology_route_queue(prefix,
-			(route->type == eigrp->af_vectors.classic_external_tlv_type
-			 || route->type == EIGRP_TLV_MP_EXT) ? 1 : 0);
-	if (!eigrp_list_insert(routes, route)) {
+	if (!eigrp_topology_route_insert(eigrp, prefix, route, true)) {
 		if (new_prefix)
 			eigrp_topology_prefix_free(prefix);
 		return false;
 	}
-	/* QUERY retention consumes the same neighbor capacity as UPDATE,
-	 * without making the route eligible for successor election. */
-	if (nbr->limit_prefix_count_valid)
-		nbr->limit_prefix_count++;
 	/* Route storage is intentionally separate from route_descriptor_add(),
 	 * which can install the first path into the host RIB. */
 	if (new_prefix)
@@ -191,7 +182,7 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			 struct eigrp_header *eigrph, eigrp_stream_t *pkt,
 			 eigrp_intf_t *ei, int length)
 {
-	eigrp_fsm_action_message_t msg;
+	eigrp_fsm_action_message_t msg = {0};
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 
@@ -282,9 +273,12 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		msg.route = route;
 		msg.metrics = received_route->metric;
 		msg.prefix = prefix;
+		msg.transient_route = !topology_route &&
+			!eigrp_nbr_route_admit(eigrp, nbr, &prefix->destination,
+						   &msg.metrics);
 		eigrp_fsm_event(&msg);
 
-		if (free_received_route)
+		if (free_received_route || msg.transient_route)
 			eigrp_topology_route_free(received_route);
 	}
 

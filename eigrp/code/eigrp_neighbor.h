@@ -32,6 +32,10 @@
 
 /* Caller must hold instance->peer_lock (ingress authentication already does). */
 bool eigrp_nbr_admit_locked(const eigrp_intf_t *ei);
+/* Combined neighbor/topology admission for a new neighbor-owned path. */
+bool eigrp_nbr_route_admit(eigrp_instance_t *, eigrp_nbr_t *,
+	const eigrp_prefix_t *, const eigrp_metrics_t *);
+
 
 /* Prefix-limit admission is orthogonal to the normal EIGRP DOWN/PENDING/UP
  * handshake. A suspended neighbor is DOWN operationally, but remains published
