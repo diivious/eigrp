@@ -343,7 +343,9 @@ void show_ip_eigrp_neighbor_sub(struct vty *vty, eigrp_nbr_t *nbr,
 			nbr->tlv_rel_minor);
 		vty_out(vty, ", Retrans: %" PRIu64 ", Retries: %u\n",
 			nbr->retransmissions, retry_count);
-		if (nbr->limit_state != EIGRP_NBR_LIMIT_NONE || nbr->limit_restart_cnt) {
+		if (eigrp_nbr_limit_status(nbr) == 'P'
+		    || eigrp_nbr_limit_status(nbr) == 'D'
+		    || nbr->limit_restart_cnt) {
 			uint64_t now = eigrp_sys_monotime_msec();
 			vty_out(vty, "   Prefix-limit: %c, restarts: %u, restart/reset: %u/%u seconds\n",
 				eigrp_nbr_limit_status(nbr) ? eigrp_nbr_limit_status(nbr) : 'A',

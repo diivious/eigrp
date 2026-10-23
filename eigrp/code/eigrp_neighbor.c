@@ -634,8 +634,7 @@ eigrp_result_t eigrp_nbr_state_iterate(
 			continue;
 		for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
 			/* Also expose retained prefix-penalized peers to show/accounting. */
-			if (nbr->state != EIGRP_NEIGHBOR_UP
-			    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
+			if (!eigrp_nbr_limit_status(nbr))
 				continue;
 			memset(&state, 0, sizeof(state));
 			eigrp_nbr_runtime_address(nbr, &state.address);
@@ -1461,7 +1460,7 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 const char *eigrp_nbr_state_str(eigrp_nbr_t *nbr)
 {
 	const char *state;
-	if (nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED)
+	if (eigrp_nbr_limit_status(nbr) == 'P')
 		return "Prefix-limit Pending";
 	if (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED)
 		return "Prefix-limit Locked";

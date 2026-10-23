@@ -172,6 +172,7 @@ STEP_FIELDS = {
                "opcode", "prefix", "sequence", "ack", "cr", "delay_ms", "copies", "count"},
     "fault-remove": {"name"}, "validate-fault": {"name", "hits", "remaining", "timeout"},
     "validate-event": {"uut", "contains", "after", "min", "max", "timeout"},
+    "validate-log": {"uut", "contains", "min", "timeout"},
     "validate-retransmission": {"source_uut", "destination_uut", "opcode", "since", "timeout"},
     "validate-retry": {"source_uut", "opcode", "since", "timeout"},
 }
@@ -233,7 +234,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","peer-limit","peer-limit-config","redist-limit-config","process-limit-config","process-limit-clear","process-limit-expire","process-limit-reset-expire","process-limit-stale","process-limit-age","validate-process-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","validate-log","peer-limit","peer-limit-config","redist-limit-config","process-limit-config","process-limit-clear","process-limit-expire","process-limit-reset-expire","process-limit-stale","process-limit-age","validate-process-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -299,8 +300,13 @@ def validate_scenario(s):
                     "source-route-add":("uut","prefix"),"source-route-remove":("uut","prefix"),
                     "redistribute-add":("uut","source"),"redistribute-remove":("uut","source"),
                     "fault-add":("action",),"fault-remove":("name",),"validate-fault":("name",),
-                    "validate-event":("uut","contains")}.get(op,())
+                    "validate-event":("uut","contains"),
+                    "validate-log":("uut","contains")}.get(op,())
             if any(k not in arg for k in needed): raise SpecError(f"{where}: missing required fields {needed}")
+            if op == "validate-log":
+                if not isinstance(arg["contains"], str) or not arg["contains"]:
+                    raise SpecError(f"{where}: contains must be a nonempty string")
+                if "min" in arg: _count(arg["min"], f"{where}.min", 1)
             if op in ("peer-limit-config", "redist-limit-config", "process-limit-config"):
                 _count(arg["maximum"], f"{where}.maximum")
                 if "warning_only" in arg and type(arg["warning_only"]) is not bool:
@@ -791,6 +797,15 @@ class Runner:
         elif op=="validate-packet": self.expect("packet",arg)
         elif op=="validate-retransmission": self.expect("retransmission",arg)
         elif op=="validate-retry": self.expect("retry",arg)
+        elif op=="validate-log":
+            node=self.nodes[arg["uut"]]
+            deadline=time.monotonic()+float(arg.get("timeout",3))
+            while True:
+                matching=[line for line in list(node.stderr) if arg["contains"] in line]
+                if len(matching)>=arg.get("min",1): break
+                if time.monotonic()>=deadline:
+                    raise AssertionError(f"validate-log failed: {arg}; stderr={list(node.stderr)}")
+                time.sleep(.05)
         elif op=="validate-event":
             if not self.event_ok(arg): raise AssertionError(f"validate-event failed: {arg}")
         elif op=="validate-convergence":

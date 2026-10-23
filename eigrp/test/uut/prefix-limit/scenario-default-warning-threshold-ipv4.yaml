@@ -1,0 +1,25 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Default 75-percent redistribution prefix warning (IPv4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  # UUT config omits the threshold just as FRR YANG does.
+  - redist-limit-config: {uut: r1, maximum: 4}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.241/32', metric: 20}
+  - source-route-add: {uut: r1, prefix: '192.0.2.242/32', metric: 20}
+  - validate-redist-limit: {uut: r1, state: 0, count: 2}
+  - source-route-add: {uut: r1, prefix: '192.0.2.243/32', metric: 20}
+  - validate-log: {uut: r1, contains: 'redistribution maximum-prefix threshold reached (3/4)', timeout: 4}
+  - validate-redist-limit: {uut: r1, state: 0, count: 3}
+  - validate-route: {uut: r2, prefix: '192.0.2.243/32', table: rib, present: true, timeout: 15}
+  - source-route-add: {uut: r1, prefix: '192.0.2.244/32', metric: 20}
+  - validate-redist-limit: {uut: r1, state: 0, count: 4}
+  - source-route-add: {uut: r1, prefix: '192.0.2.245/32', metric: 20}
+  - validate-redist-limit: {uut: r1, state: 1, restarts: 1}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.245/32'}
+  - redist-limit-clear: {uut: r1}
+  - validate-redist-limit: {uut: r1, state: 0, restarts: 0, count: 4}
+  - redistribute-remove: {uut: r1, source: static}
+  - stop: all
