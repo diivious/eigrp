@@ -1,0 +1,27 @@
+schema: eigrp-uut-test/v1
+topology: ../dual-kite/ipv4-kite.yaml
+name: ISS-05 process suspension retires multiple neighbors in one topology pass (IPv4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, state: up, timeout: 15}
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, state: up, timeout: 15}
+  - validate-route: {uut: r1, prefix: '10.3.0.0/24', table: rib, present: true, timeout: 12}
+  - process-limit-config: {uut: r1, maximum: 5}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.241/32', metric: 20}
+  - validate-route: {uut: r2, prefix: '192.0.2.241/32', table: rib, present: true, timeout: 12}
+  - source-route-add: {uut: r1, prefix: '192.0.2.242/32', metric: 20}
+  - validate-process-limit: {uut: r1, state: 1, restarts: 1}
+  - validate-accounting: {uut: r1, neighbor: 10.12.0.2, interface: eth12, status: P}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, status: P}
+  - validate-route: {uut: r1, prefix: '10.3.0.0/24', table: rib, present: false, timeout: 15}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.242/32'}
+  - process-limit-config: {uut: r1, maximum: 6}
+  - validate-process-limit: {uut: r1, state: 0, restarts: 0}
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, state: up, timeout: 20}
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, state: up, timeout: 20}
+  - validate-route: {uut: r1, prefix: '10.3.0.0/24', table: rib, present: true, timeout: 15}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.241/32'}
+  - redistribute-remove: {uut: r1, source: static}
+  - process-limit-config: {uut: r1, maximum: 0}
+  - stop: all

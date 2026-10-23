@@ -31,6 +31,7 @@ eigrp_result_t eigrp_pfxlimits_state_clear(eigrp_instance_t *runtime)
 #else
 /* No live peer or socket in this direct 100K-DUAL fixture. */
 void eigrp_nbr_down(eigrp_nbr_t *nbr) { (void)nbr; }
+void eigrp_nbr_down_deferred(eigrp_nbr_t *nbr) { (void)nbr; }
 void eigrp_nbr_limit_release(eigrp_nbr_t *nbr) { (void)nbr; }
 bool eigrp_intf_is_passive(eigrp_intf_t *intf) { (void)intf; return false; }
 void eigrp_hello_send(eigrp_intf_t *intf, uint8_t type, eigrp_addr_t *nbr)
@@ -829,6 +830,127 @@ static void test_redist_prefix_volume(void)
 }
 
 #ifdef EIGRP_TEST_PROCESS_VOLUME
+/* Compare every semantic process-limit field even when padding differs.
+ * Reapplying identical policy must not erase accumulated penalty history. */
+static void test_process_policy_padding(void)
+{
+    struct fixture f;
+    eigrp_instance_context_t context;
+    eigrp_prefix_limit_t a, b;
+    unsigned field;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    context = (eigrp_instance_context_t){.config = &f.af,
+        .runtime = &f.runtime, .topology_id = EIGRP_TOPOLOGY_ID_BASE};
+    memset(&a, 0xa5, sizeof(a));
+    memset(&b, 0x5a, sizeof(b));
+    a.maximum = b.maximum = 12;
+    a.threshold = b.threshold = 75;
+    a.warning_only = b.warning_only = false;
+    a.dampened = b.dampened = false;
+    a.reset_time_minutes = b.reset_time_minutes = 15;
+    a.restart_minutes = b.restart_minutes = 5;
+    a.restart_count = b.restart_count = 3;
+    assert(memcmp(&a, &b, sizeof(a)) != 0);
+    assert(eigrp_topology_max_prefix_update(EIGRP_SET, &context, &a)
+           == EIGRP_RESULT_SUCCESS);
+    f.runtime.eigrp_pfxlimits_af_restart_cnt = 2;
+    f.runtime.eigrp_pfxlimits_af_penalty_q16 = 65536;
+    assert(eigrp_topology_max_prefix_update(EIGRP_SET, &context, &b)
+           == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.eigrp_pfxlimits_af_restart_cnt == 2);
+    assert(f.runtime.eigrp_pfxlimits_af_penalty_q16 == 65536);
+
+    for (field = 0; field < 7; ++field) {
+        b = a;
+        switch (field) {
+        case 0: ++b.maximum; break;
+        case 1: ++b.threshold; break;
+        case 2: b.warning_only = true; break;
+        case 3: b.dampened = true; break;
+        case 4: ++b.reset_time_minutes; break;
+        case 5: ++b.restart_minutes; break;
+        case 6: ++b.restart_count; break;
+        }
+        f.runtime.eigrp_pfxlimits_af_restart_cnt = 2;
+        f.runtime.eigrp_pfxlimits_af_penalty_q16 = 65536;
+        assert(eigrp_topology_max_prefix_update(EIGRP_SET, &context, &b)
+               == EIGRP_RESULT_SUCCESS);
+        assert(f.runtime.eigrp_pfxlimits_af_restart_cnt == 0);
+        assert(f.runtime.eigrp_pfxlimits_af_penalty_q16 == 0);
+        assert(eigrp_topology_max_prefix_update(EIGRP_SET, &context, &a)
+               == EIGRP_RESULT_SUCCESS);
+    }
+    fixture_delete(&f);
+}
+
+/* Execute batch topology retirement using the actual DUAL FSM. Both a
+ * retained path and an outstanding REPLY with no peer RDB are required. */
+static void test_process_batch_dual(void)
+{
+    struct fixture f;
+    eigrp_nbr_t a = {0}, b = {0}, unaffected = {0};
+    eigrp_nbr_t *snapshot[2];
+    eigrp_intf_t intf = {0};
+    eigrp_prefix_descriptor_t *owned, *waiting;
+    eigrp_route_descriptor_t *peer_path, *peer_path_b;
+
+    fixture_init(&f);
+    fixture_drain_initial_update(&f);
+    intf.eigrp = &f.runtime;
+    intf.params.bandwidth = 100000;
+    intf.params.delay = 100;
+    a.ei = b.ei = unaffected.ei = &intf;
+    a.published = b.published = unaffected.published = true;
+    a.eigrp_pfxlimits_af_suspended = b.eigrp_pfxlimits_af_suspended = true;
+
+    owned = fixture_prefix(&f);
+    peer_path = eigrp_topology_route_create(&intf);
+    assert(peer_path);
+    peer_path->adv_router = &a;
+    peer_path->type = EIGRP_TLV_IPv4_INT;
+    peer_path->dest = owned->destination;
+    peer_path->metric.bandwidth = eigrp_bandwidth_to_scaled(100000);
+    peer_path->metric.delay = 100;
+    peer_path->metric.reliability = 255;
+    peer_path->metric.load = 1;
+    peer_path->reported_metric = peer_path->metric;
+    peer_path->reported_distance = eigrp_metric_calculate(&f.runtime, peer_path->metric);
+    peer_path->distance = eigrp_metric_total_calculate(&f.runtime, peer_path);
+    eigrp_route_descriptor_add(&f.runtime, owned, peer_path);
+    assert(eigrp_prefix_descriptor_lookup(owned, &a) == peer_path);
+    /* Two neighbors share one DNDB. Both DRDBs must be retired by the
+     * same pass without processing either neighbor twice. */
+    peer_path_b = eigrp_topology_route_create(&intf);
+    assert(peer_path_b);
+    *peer_path_b = *peer_path;
+    peer_path_b->adv_router = &b;
+    eigrp_route_descriptor_add(&f.runtime, owned, peer_path_b);
+    assert(eigrp_prefix_descriptor_lookup(owned, &b) == peer_path_b);
+
+    waiting = eigrp_topology_prefix_create();
+    assert(waiting);
+    set_ipv4(&waiting->destination.address, 192, 0, 2, 254);
+    waiting->destination.prefix_length = 32;
+    waiting->state = EIGRP_FSM_STATE_ACTIVE_1;
+    waiting->query_origin = &a;
+    eigrp_prefix_descriptor_add(f.runtime.topology_table, waiting);
+    eigrp_fsm_reply_status_add(waiting, &b);
+    assert(waiting->rij->count == 1);
+
+    eigrp_topology_suspended_neighbors_down(&f.runtime, snapshot, 2);
+    assert(!a.topo_batch_seen && !b.topo_batch_seen);
+    assert(peer_path->distance == EIGRP_MAX_METRIC);
+    assert(peer_path_b->distance == EIGRP_MAX_METRIC);
+    assert(owned->state == EIGRP_FSM_STATE_PASSIVE);
+    assert(waiting->query_origin == NULL);
+    assert(waiting->rij->count == 0);
+    assert(waiting->state == EIGRP_FSM_STATE_PASSIVE);
+    assert(!unaffected.eigrp_pfxlimits_af_suspended);
+    fixture_delete(&f);
+}
+
 /* Full real topology/RIB/DUAL path with 100,000 retained redistributed
  * destinations, then an AF process hard-limit violation and withdrawal.
  * Verify actual descriptor ownership after simulated packetizer retirement. */
@@ -939,6 +1061,10 @@ int main(int argc, char **argv)
 #ifdef EIGRP_TEST_PROCESS_VOLUME
     else if (strcmp(argv[1], "process-volume") == 0)
         test_process_prefix_volume();
+    else if (strcmp(argv[1], "process-padding") == 0)
+        test_process_policy_padding();
+    else if (strcmp(argv[1], "process-batch") == 0)
+        test_process_batch_dual();
 #endif
     else
         return 2;

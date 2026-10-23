@@ -25,6 +25,7 @@
 #include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
 #include "eigrp_eventlog.h"
+#include "eigrp_filter.h"
 
 void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			   eigrp_prefix_descriptor_t *prefix,
@@ -127,6 +128,9 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		msg.adv_router = nbr;
 		msg.route = route;
 		msg.metrics = received_route->metric;
+		if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
+						  &received_route->dest))
+			msg.metrics.delay = EIGRP_MAX_METRIC;
 		msg.prefix = prefix;
 		msg.transient_route = !topology_route &&
 			!eigrp_nbr_route_admit(eigrp, nbr, &prefix->destination,

@@ -947,10 +947,9 @@ bool eigrp_nbr_is_eligible(const eigrp_nbr_t *nbr)
 	           || !nbr->ei->eigrp->eigrp_pfxlimits_af_state);
 }
 
-/* Terminate the adjacency without destroying the neighbor identity.
- * Both prefix-limit suspension and final deletion use this same teardown.
- * No topology/RTP/GR ownership may outlive this operation. */
-void eigrp_nbr_down(eigrp_nbr_t *nbr)
+/* Begin neighbor teardown but leave DUAL processing to the caller's
+ * coordinated topology pass. Only AF-wide suspension may use this path. */
+void eigrp_nbr_down_deferred(eigrp_nbr_t *nbr)
 {
 	if (!nbr)
 		return;
@@ -968,14 +967,22 @@ void eigrp_nbr_down(eigrp_nbr_t *nbr)
 	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	/* A pending sync can exist before the peer is fully UP. */
 	eigrp_update_sync_cancel(nbr);
-	if (nbr->ei)
-		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_nbr_send_gr);
 	if (nbr->nbr_gr_prefixes)
 		eigrp_list_delete(&nbr->nbr_gr_prefixes);
 	if (nbr->nbr_gr_prefixes_send)
 		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
 	nbr->nbr_gr_packet_type = EIGRP_PACKET_PART_NA;
+}
+
+/* Complete neighbor teardown, including its topology/DUAL obligations. */
+void eigrp_nbr_down(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	eigrp_nbr_down_deferred(nbr);
+	if (nbr->ei)
+		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 }
 
 /* Keep the same published peer for prefix-limit penalty accounting. Ingress

@@ -13,6 +13,23 @@
  * Copyright (C) 2026 Donnie V. Savage
  */
 #include "eigrp_sys.h"
+#ifdef EIGRP_UUT_TEST
+#include <string.h>
+#include "eigrp_prefix.h"
+
+/* Only the UUT executable enables this deterministic host ACL fixture. */
+static eigrp_prefix_t uut_denied_prefix;
+static bool uut_denied_active;
+
+void eigrp_unix_policy_uut_deny_set(const eigrp_prefix_t *prefix)
+{
+    uut_denied_active = prefix != NULL;
+    if (prefix) {
+        uut_denied_prefix = *prefix;
+        eigrp_prefix_normalize(&uut_denied_prefix);
+    }
+}
+#endif
 
 void eigrp_sys_policy_init(void)
 {
@@ -45,6 +62,16 @@ eigrp_result_t eigrp_sys_filter_evaluate(
     if (!decision)
         return EIGRP_RESULT_INVALID_ARGUMENT;
     *decision = EIGRP_FILTER_DECISION_PERMIT;
+#ifdef EIGRP_UUT_TEST
+    if (uut_denied_active && name && prefix &&
+        type == EIGRP_DISTRIBUTE_ACCESS_LIST &&
+        strcmp(name, "uut-inbound-deny") == 0 &&
+        prefix->address.afi == uut_denied_prefix.address.afi &&
+        prefix->prefix_length == uut_denied_prefix.prefix_length &&
+        memcmp(prefix->address.bytes, uut_denied_prefix.address.bytes,
+               prefix->address.afi == EIGRP_AFI_IPV4 ? 4U : 16U) == 0)
+        *decision = EIGRP_FILTER_DECISION_DENY;
+#endif
     return EIGRP_RESULT_SUCCESS;
 }
 

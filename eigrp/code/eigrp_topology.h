@@ -81,6 +81,10 @@ extern void eigrp_update_routing_table(eigrp_instance_t *eigrp,
 				       eigrp_prefix_descriptor_t *pe);
 extern void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp,
 					 eigrp_nbr_t *neigh);
+/* Finish deferred neighbor teardown with one topology traversal.
+ * 'peers' is reusable per-prefix storage sized for suspended neighbors. */
+void eigrp_topology_suspended_neighbors_down(eigrp_instance_t *eigrp,
+		eigrp_nbr_t **peers, size_t capacity);
 extern void eigrp_topology_connected_interface_down(eigrp_instance_t *eigrp,
 						    eigrp_intf_t *ei);
 extern void eigrp_update_topology_table_prefix(eigrp_instance_t *eigrp,

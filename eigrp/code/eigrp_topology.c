@@ -1555,6 +1555,88 @@ void eigrp_topology_connected_interface_down(eigrp_instance_t *eigrp,
 	eigrp_update_send_all(eigrp, ei);
 }
 
+/* Save affected neighbors before DUAL mutates route queues and reply
+ * status. A temporary neighbor mark avoids duplicate work without a hash
+ * table or an additional topology traversal. */
+static bool eigrp_topology_suspended_peer(const eigrp_nbr_t *nbr)
+{
+	return nbr && nbr->published && nbr->eigrp_pfxlimits_af_suspended
+		&& nbr->limit_state == EIGRP_NBR_LIMIT_NONE;
+}
+
+static void eigrp_topology_suspended_peer_add(eigrp_nbr_t **peers,
+	size_t *count, size_t capacity, eigrp_nbr_t *nbr)
+{
+	if (!eigrp_topology_suspended_peer(nbr) || nbr->topo_batch_seen)
+		return;
+	assert(*count < capacity);
+	nbr->topo_batch_seen = true;
+	peers[(*count)++] = nbr;
+}
+
+/* All peers have completed RTP/adjacency teardown. Retire their DUAL
+ * ownership with one scan, preserving route and pending-REPLY semantics. */
+void eigrp_topology_suspended_neighbors_down(eigrp_instance_t *eigrp,
+	eigrp_nbr_t **peers, size_t capacity)
+{
+	eigrp_table_node_t *rn;
+	eigrp_prefix_descriptor_t *pe;
+	eigrp_route_descriptor_t *route;
+	eigrp_reply_status_t *status;
+	eigrp_list_item_t *node;
+	size_t count, i;
+	unsigned q;
+
+	if (!eigrp || !eigrp->topology_table || !peers || !capacity)
+		return;
+	for (rn = eigrp_table_first(eigrp->topology_table); rn;
+	     rn = eigrp_table_next(rn)) {
+		pe = rn->info;
+		if (!pe)
+			continue;
+		if (eigrp_topology_suspended_peer(pe->query_origin))
+			pe->query_origin = NULL;
+		count = 0;
+		for (q = 0; q < 2; ++q) {
+			eigrp_list_t *routes = eigrp_topology_route_queue(pe, q);
+			for (EIGRP_LIST_ITERATE_RO(routes, node, route))
+				eigrp_topology_suspended_peer_add(peers, &count, capacity,
+					route->adv_router);
+		}
+		if (pe->rij)
+			for (EIGRP_LIST_ITERATE_RO(pe->rij, node, status))
+				eigrp_topology_suspended_peer_add(peers, &count, capacity,
+					status->neighbor);
+
+		/* Clear marks before invoking any FSM callback. */
+		for (i = 0; i < count; ++i)
+			peers[i]->topo_batch_seen = false;
+		for (i = 0; i < count; ++i) {
+			eigrp_nbr_t *nbr = peers[i];
+			route = eigrp_prefix_descriptor_lookup(pe, nbr);
+			if (route) {
+				eigrp_fsm_action_message_t msg = {0};
+
+				msg.metrics.delay = EIGRP_MAX_METRIC;
+				msg.packet_type = pe->state == EIGRP_FSM_STATE_PASSIVE
+					? EIGRP_OPC_UPDATE : EIGRP_OPC_REPLY;
+				msg.eigrp = eigrp;
+				msg.data_type = eigrp_topology_route_external(route)
+					? EIGRP_EXT : EIGRP_INT;
+				msg.adv_router = nbr;
+				msg.route = route;
+				msg.prefix = pe;
+				eigrp_fsm_event(&msg);
+			} else {
+				/* A pending REPLY may have no corresponding DRDB. */
+			eigrp_fsm_neighbor_down(eigrp, pe, nbr);
+			}
+		}
+	}
+	eigrp_query_send_all(eigrp);
+	eigrp_update_send_all(eigrp, NULL);
+}
+
 void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
 {
 	eigrp_prefix_descriptor_t *pe;
@@ -2481,9 +2563,16 @@ eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation, eig
 		/* Reapplying the same policy must not bypass a process lockout or
 		 * reset incident history. Only an actual configuration change may
 		 * clear the running penalty. */
+		const eigrp_prefix_limit_t *old =
+			&context->config->topology_maximum_prefix;
 		bool changed = !context->config->topology_maximum_prefix_configured
-			|| memcmp(&context->config->topology_maximum_prefix,
-				limit, sizeof(*limit)) != 0;
+			|| old->maximum != limit->maximum
+			|| old->threshold != limit->threshold
+			|| old->warning_only != limit->warning_only
+			|| old->dampened != limit->dampened
+			|| old->reset_time_minutes != limit->reset_time_minutes
+			|| old->restart_minutes != limit->restart_minutes
+			|| old->restart_count != limit->restart_count;
 		context->config->topology_maximum_prefix = *limit;
 		context->config->topology_maximum_prefix_configured = true;
 		if (changed && context->runtime)

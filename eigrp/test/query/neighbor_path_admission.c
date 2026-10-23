@@ -28,6 +28,7 @@ void eigrp_reply_receive(eigrp_instance_t *, eigrp_nbr_t *,
 static eigrp_af_config_t policy;
 static eigrp_route_descriptor_t *incoming;
 static unsigned replies, acks, updates;
+static bool deny_inbound;
 static eigrp_instance_t runtime;
 static eigrp_nbr_t peer, self;
 static eigrp_intf_t link;
@@ -45,6 +46,10 @@ eigrp_result_t eigrp_eventlog_msg_add(eigrp_instance_t *e, uint16_t code,
   return EIGRP_RESULT_SUCCESS; }
 eigrp_af_config_t *eigrp_af_config_runtime_read(eigrp_instance_t *e)
 { (void)e; return &policy; }
+/* Host filter decisions are neutral in this admission regression. */
+bool eigrp_filter_prefix_update(eigrp_instance_t *e, eigrp_intf_t *ei,
+    int direction, const eigrp_prefix_t *dest)
+{ (void)e; (void)ei; (void)direction; (void)dest; return deny_inbound; }
 void eigrp_pfxlimits_prefix_exceeded(eigrp_instance_t *e, const eigrp_prefix_limit_t *l)
 { (void)e; (void)l; }
 void eigrp_eventlog_addr_from_legacy(eigrp_prefix_t *p, const eigrp_addr_t *a)
@@ -172,6 +177,7 @@ static void start(bool warning_only)
  eigrp_prefix_limit_t limit = {.maximum = 1, .warning_only = warning_only};
  assert(eigrp_nbr_max_prefix_all_update(EIGRP_SET, &ctx, &limit)
         == EIGRP_RESULT_SUCCESS);
+ deny_inbound = false;
  replies = acks = updates = 0;
 }
 static void finish(void)
@@ -264,6 +270,41 @@ static void reply_cases(bool warning_only)
  assert(eigrp_prefix_descriptor_lookup(p2, &peer));
  finish();
 }
+/* Filter precedes admission for finite QUERY, but an unanswered
+ * ACTIVE REPLY must still reach DUAL and clear the RIJ. */
+static void filtered_query_case(void)
+{
+ start(false);
+ eigrp_prefix_t target = dest(7);
+ deny_inbound = true;
+ receive_one(EIGRP_OPC_QUERY, 7, false);
+ assert(!eigrp_topology_table_lookup(runtime.topology_table, &target));
+ assert(peer.limit_prefix_count == 0 && peer.limit_state == EIGRP_NBR_LIMIT_NONE);
+ assert(replies == 1 && acks == 1);
+ deny_inbound = false;
+ receive_one(EIGRP_OPC_QUERY, 7, false);
+ assert(eigrp_topology_table_lookup(runtime.topology_table, &target));
+ assert(peer.limit_prefix_count == 1);
+ finish();
+}
+static void filtered_reply_case(void)
+{
+ start(false);
+ eigrp_prefix_descriptor_t *p = local(7);
+ active(p);
+ deny_inbound = true;
+ receive_one(EIGRP_OPC_REPLY, 7, false);
+ assert(!eigrp_fsm_reply_status_pending(p, &peer));
+ assert(p->state == EIGRP_FSM_STATE_PASSIVE);
+ assert(!eigrp_prefix_descriptor_lookup(p, &peer));
+ assert(peer.limit_prefix_count == 0 && peer.limit_state == EIGRP_NBR_LIMIT_NONE);
+ deny_inbound = false;
+ active(p);
+ receive_one(EIGRP_OPC_REPLY, 7, false);
+ assert(peer.limit_prefix_count == 1);
+ assert(eigrp_prefix_descriptor_lookup(p, &peer));
+ finish();
+}
 int main(int argc, char **argv)
 {
  if (argc != 2) return 2;
@@ -271,6 +312,10 @@ int main(int argc, char **argv)
   query_cases(false); query_cases(true);
  } else if (strcmp(argv[1], "reply") == 0) {
   reply_cases(false); reply_cases(true);
+ } else if (strcmp(argv[1], "query-filter") == 0) {
+  filtered_query_case();
+ } else if (strcmp(argv[1], "reply-filter") == 0) {
+  filtered_reply_case();
  } else return 2;
  puts("Neighbor admission, DUAL processing, and retirement: passed");
  return 0;

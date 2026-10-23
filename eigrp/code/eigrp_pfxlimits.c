@@ -5,11 +5,13 @@
  * Copyright (C) 2026 Donnie V. Savage
  */
 #include <stdint.h>
+#include <stdlib.h>
 #include "eigrp.h"
 #include "eigrp_structs.h"
 #include "eigrp_instance.h"
 #include "eigrp_interface.h"
 #include "eigrp_neighbor.h"
+#include "eigrp_topology.h"
 #include "eigrp_packet.h"
 #include "eigrp_redistribute.h"
 #include "eigrp_timer.h"
@@ -63,8 +65,25 @@ static void eigrp_pfxlimits_nbr_update(eigrp_instance_t *runtime, bool release)
 	eigrp_list_item_t *if_node, *nbr_node;
 	eigrp_intf_t *intf;
 	eigrp_nbr_t *nbr;
+	eigrp_nbr_t **peers = NULL;
+	size_t capacity = 0;
+
 	if (!runtime->eiflist)
 		return;
+	if (!release) {
+		/* Allocate before changing any adjacency. On failure, use
+		 * complete individual neighbor teardown. */
+		for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, intf)) {
+			if (!intf || !intf->nbrs)
+				continue;
+			for (EIGRP_LIST_ITERATE_RO(intf->nbrs, nbr_node, nbr))
+				if (nbr && nbr->published
+				    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
+					++capacity;
+		}
+		if (capacity)
+			peers = calloc(capacity, sizeof(*peers));
+	}
 	for (EIGRP_LIST_ITERATE_RO(runtime->eiflist, if_node, intf)) {
 		if (!intf || !intf->nbrs)
 			continue;
@@ -91,10 +110,18 @@ static void eigrp_pfxlimits_nbr_update(eigrp_instance_t *runtime, bool release)
 				pthread_mutex_unlock(&runtime->peer_lock);
 				/* Already penalized peers have completed DOWN teardown.
 				 * Their independent suspension must survive AF limit release. */
-				if (nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
-					eigrp_nbr_down(nbr);
+				if (nbr->limit_state == EIGRP_NBR_LIMIT_NONE) {
+					if (peers)
+						eigrp_nbr_down_deferred(nbr);
+					else
+						eigrp_nbr_down(nbr);
+				}
 			}
 		}
+	}
+	if (peers) {
+		eigrp_topology_suspended_neighbors_down(runtime, peers, capacity);
+		free(peers);
 	}
 }
 

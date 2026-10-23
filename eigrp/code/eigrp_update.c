@@ -392,8 +392,17 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				eigrp_route_descriptor_t *topology_route =
 					eigrp_prefix_descriptor_lookup(prefix, nbr);
 				bool free_received_route = false;
+				eigrp_metrics_t ingress_metric = received_route->metric;
+				/* A denied UPDATE cannot consume neighbor/process capacity,
+				 * but an already retained path must receive its withdrawal. */
+				if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
+							    &received_route->dest))
+					ingress_metric.delay = EIGRP_MAX_METRIC;
+				else
+					eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_IN,
+							   &received_route->dest, &ingress_metric);
 				bool unreachable = eigrp_metric_calculate(eigrp,
-					received_route->metric) == EIGRP_MAX_METRIC;
+					ingress_metric) == EIGRP_MAX_METRIC;
 
 				/* A new unreachable path is a withdrawal without a route
 				 * to withdraw. Do not admit a poisoned descriptor. */
@@ -410,7 +419,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				if (!unreachable
 				    && (!topology_route
 					? !eigrp_nbr_route_admit(eigrp, nbr,
-						&received_route->dest, &received_route->metric)
+						&received_route->dest, &ingress_metric)
 					: !eigrp_topology_prefix_admit(eigrp,
 						&received_route->dest))) {
 					eigrp_topology_route_free(received_route);
@@ -435,20 +444,11 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 							? EIGRP_EXT
 							: EIGRP_INT;
 				msg.adv_router = nbr;
-				msg.metrics = received_route->metric;
-				if (eigrp_filter_prefix_update(eigrp, ei,
-							      EIGRP_FILTER_IN,
-							      &received_route->dest))
-					msg.metrics.delay = EIGRP_MAX_METRIC;
-				else
-					eigrp_offset_metric_update(eigrp, ei,
-							  EIGRP_FILTER_IN,
-							  &received_route->dest,
-							  &msg.metrics);
+				msg.metrics = ingress_metric;
 				msg.route = route;
 				msg.prefix = prefix;
-				/* Admission was checked before copying the route. Inbound
-				 * filtering can still poison a newly decoded path. */
+				/* Rejected new paths do not enter DUAL. An already owned
+				 * path still processes an inbound-filter withdrawal. */
 				msg.transient_route = !topology_route &&
 					eigrp_metric_calculate(eigrp, msg.metrics)
 						== EIGRP_MAX_METRIC;
@@ -467,10 +467,16 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					eigrp_topology_route_free(route);
 					continue;
 				}
-				/* Enforce neighbor and topology limits only for a genuinely new
-				 * accepted destination/path. Duplicate UPDATEs do not consume
-				 * another prefix slot. */
-				if (!eigrp_nbr_route_admit(eigrp, nbr, &route->dest, &route->metric)) {
+				/* Only an inbound-permitted reachable UPDATE can create a
+				 * destination and consume neighbor or topology capacity. */
+				eigrp_metrics_t ingress_metric = route->metric;
+				if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
+							    &route->dest))
+					ingress_metric.delay = EIGRP_MAX_METRIC;
+				else
+					eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_IN,
+							   &route->dest, &ingress_metric);
+				if (!eigrp_nbr_route_admit(eigrp, nbr, &route->dest, &ingress_metric)) {
 					eigrp_topology_route_free(route);
 					continue;
 				}
@@ -491,19 +497,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				 * and its reported metric is local topology state, not the
 				 * neighbor's advertised RD.
 				 */
-				route->reported_metric = route->metric;
+				route->reported_metric = ingress_metric;
 				route->reported_distance = eigrp_metric_calculate(eigrp, route->reported_metric);
-
-				/*
-				 * Filtering
-				 */
-				if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN, &route->dest))
-					route->reported_metric.delay = EIGRP_MAX_METRIC;
-				else
-					eigrp_offset_metric_update(eigrp, ei,
-							  EIGRP_FILTER_IN,
-							  &route->dest,
-							  &route->reported_metric);
 
 				route->distance = eigrp_metric_total_calculate(eigrp, route);
 				prefix->fdistance = prefix->distance = prefix->rdistance = route->distance;

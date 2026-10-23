@@ -11,7 +11,11 @@ CODE = ROOT / "eigrp" / "code"
 TEST_SOURCE = ROOT / "eigrp" / "test" / "redistribution" / "withdrawal_fsm.c"
 
 
-def test_process_limit_100k_withdrawal_retirement_and_readmission(tmp_path):
+import pytest
+
+@pytest.fixture(scope="module")
+def process_executable(tmp_path_factory):
+    tmp_path = tmp_path_factory.mktemp("process")
     binary = tmp_path / "process_limit_100k"
     sources = (
         "eigrp_redistribute.c", "eigrp_pfxlimits.c", "eigrp_topology.c",
@@ -29,6 +33,11 @@ def test_process_limit_100k_withdrawal_retirement_and_readmission(tmp_path):
     ]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    result = subprocess.run([str(binary), "process-volume"], cwd=ROOT,
+    return binary
+
+
+@pytest.mark.parametrize("scenario", ["process-padding", "process-batch", "process-volume"])
+def test_process_limit_regressions(process_executable, scenario):
+    result = subprocess.run([str(process_executable), scenario], cwd=ROOT,
                             capture_output=True, text=True, timeout=180)
     assert result.returncode == 0, result.stderr or result.stdout

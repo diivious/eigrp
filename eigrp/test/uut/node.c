@@ -16,6 +16,11 @@
 #include "eigrp_summary.h"
 #include "eigrp_redistribute.h"
 #include "eigrp_pfxlimits.h"
+#include "eigrp_filter.h"
+#include "eigrp_prefix.h"
+
+/* UUT-only deterministic Unix policy fixture, not a production ACL. */
+extern void eigrp_unix_policy_uut_deny_set(const eigrp_prefix_t *prefix);
 #include "eigrp_timer.h"
 #include "eigrp_mgnt.h"
 #include "eigrp_sys.h"
@@ -322,6 +327,22 @@ static eigrp_result_t uut_redist_limit_clear(eigrp_instance_t *e, void *arg)
     return eigrp_redist_limit_clear(e);
 }
 
+typedef struct uut_inbound_deny {
+    bool enabled;
+    eigrp_prefix_t prefix;
+} uut_inbound_deny_t;
+
+static eigrp_result_t uut_inbound_deny_update(eigrp_instance_t *e, void *arg)
+{
+    const uut_inbound_deny_t *request = arg;
+    eigrp_filter_runtime_snapshot_t snapshot = {0};
+
+    eigrp_unix_policy_uut_deny_set(request->enabled ? &request->prefix : NULL);
+    if (request->enabled)
+        snapshot.access_list[EIGRP_FILTER_IN] = "uut-inbound-deny";
+    return eigrp_sys_filter_runtime_replace(e, NULL, &snapshot);
+}
+
 /* Advance the actual restart callback without waiting five wall-clock minutes.
  * This only changes test time, and executes on the owning AF thread. */
 static eigrp_result_t uut_redist_restart_expire(eigrp_instance_t *e, void *arg)
@@ -395,6 +416,17 @@ int main(int argc,char **argv){char line[LINE],ifname[256],verb[32];if(argc!=2){
         result = eigrp_instance_message_call(runtime,uut_redist_limit_config,&request);
     }
     printf("RESULT|%d\n",(int)result);
+    fflush(stdout);
+ }else if(!strcmp(verb,"INBOUND-DENY")){
+    uut_inbound_deny_t request = {0};
+    eigrp_result_t result;
+    if (strcmp(ifname,"off") != 0) {
+        request.enabled = true;
+        request.prefix = prefix_parse(ifname);
+        eigrp_prefix_normalize(&request.prefix);
+    }
+    result = eigrp_instance_message_call(runtime, uut_inbound_deny_update, &request);
+    printf("RESULT|%d\n", (int)result);
     fflush(stdout);
 }else if(!strcmp(verb,"PROCESS-LIMIT-CFG")){
     uut_limit_config_args_t request = {0};

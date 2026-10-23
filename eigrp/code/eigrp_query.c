@@ -24,6 +24,7 @@
 #include "eigrp_summary.h"
 #include "eigrp_eventlog.h"
 #include "eigrp_metric.h"
+#include "eigrp_filter.h"
 
 
 static void eigrp_query_unknown_reply_send(eigrp_instance_t *eigrp,
@@ -77,7 +78,9 @@ static bool eigrp_query_unknown_route_record(eigrp_instance_t *eigrp,
 
 	if (!eigrp || !nbr || !route || !nbr->ei || !eigrp->topology_table
 	    || route->metric.delay == EIGRP_MAX_METRIC
-	    || route->metric.delay == EIGRP_METRIC_MAX)
+	    || route->metric.delay == EIGRP_METRIC_MAX
+	    || eigrp_filter_prefix_update(eigrp, nbr->ei, EIGRP_FILTER_IN,
+						&route->dest))
 		return false;
 	if (!eigrp_nbr_route_admit(eigrp, nbr, &route->dest, &route->metric))
 		return false;
@@ -272,6 +275,9 @@ void eigrp_query_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		msg.adv_router = nbr;
 		msg.route = route;
 		msg.metrics = received_route->metric;
+		if (eigrp_filter_prefix_update(eigrp, nbr->ei, EIGRP_FILTER_IN,
+						  &received_route->dest))
+			msg.metrics.delay = EIGRP_MAX_METRIC;
 		msg.prefix = prefix;
 		msg.transient_route = !topology_route &&
 			!eigrp_nbr_route_admit(eigrp, nbr, &prefix->destination,

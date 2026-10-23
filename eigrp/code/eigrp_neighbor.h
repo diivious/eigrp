@@ -79,6 +79,7 @@ typedef struct eigrp_neighbor {
 	/* The receive path marks DOWN immediately, but drains DUAL/RTP only
 	 * after the packet TLV walker returns. Owned by the AF thread. */
 	bool eigrp_pfxlimits_af_suspended; /* Suspension imposed by the AF topology prefix limit. */
+	bool topo_batch_seen; /* Temporary per-prefix mark during AF suspension teardown. */
 	bool limit_cleanup_pending;
 	uint8_t limit_prev_state;
 	eigrp_prefix_limit_t limit_pending_cfg;
@@ -169,6 +170,8 @@ extern eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *, eigrp_addr_t *);
 /* DOWN clears operational ownership but retains the neighbor identity.
  * DELETE additionally unpublishes the peer and frees all remaining state. */
 void eigrp_nbr_down(eigrp_nbr_t *nbr);
+/* Only used when an AF-wide topology cleanup immediately follows. */
+void eigrp_nbr_down_deferred(eigrp_nbr_t *nbr);
 extern void eigrp_nbr_delete(eigrp_nbr_t *neigh);
 /* Neighbor limit-state lifecycle; restart/reset handling is separate. */
 bool eigrp_nbr_limit_state_update(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);

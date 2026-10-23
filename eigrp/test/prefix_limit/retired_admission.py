@@ -49,6 +49,8 @@ def prefix_admission_executable(tmp_path_factory):
             #include "eigrp/code/eigrp_redistribute.h"
             #include "eigrp/code/eigrp_rib.h"
             #include "eigrp/code/eigrp_topology.h"
+            #include "eigrp/code/eigrp_table.h"
+            #include "eigrp/code/eigrp_filter.h"
 
             void eigrp_pfxlimits_prefix_exceeded(eigrp_instance_t *runtime,
     const eigrp_prefix_limit_t *limit) { (void)runtime; (void)limit; }
@@ -484,6 +486,22 @@ static eigrp_af_config_t *test_runtime_af;
 
 
             static bool neighbor_gate_allowed = true;
+            static bool inbound_deny = false;
+
+            bool eigrp_filter_prefix_update(eigrp_instance_t *eigrp,
+                eigrp_intf_t *ei, int direction, const eigrp_prefix_t *prefix)
+            {
+                (void)eigrp; (void)ei; (void)prefix;
+                assert(direction == EIGRP_FILTER_IN);
+                return inbound_deny;
+            }
+            void eigrp_offset_metric_update(eigrp_instance_t *eigrp,
+                eigrp_intf_t *ei, int direction, const eigrp_prefix_t *prefix,
+                eigrp_metrics_t *metric)
+            {
+                (void)eigrp; (void)ei; (void)direction; (void)prefix;
+                (void)metric;
+            }
 
             bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime,
                                        eigrp_nbr_t *nbr,
@@ -501,6 +519,7 @@ static eigrp_af_config_t *test_runtime_af;
             {
                 eigrp_nbr_t neighbor = {0};
                 eigrp_nbr_t *nbr = &neighbor;
+                eigrp_intf_t *ei = NULL;
                 eigrp_route_descriptor_t *received_route =
                     eigrp_topology_route_create(NULL);
                 bool accepted = false;
@@ -561,6 +580,31 @@ static eigrp_af_config_t *test_runtime_af;
             }
 
 
+            static void test_receive_inbound_filter_before_admission(void)
+            {
+                eigrp_instance_t runtime;
+                eigrp_af_config_t af;
+                eigrp_nbr_t self = {0};
+                runtime_init(&runtime, &self);
+                max_prefix(&af, 1, false);
+                add_route(&runtime, &self, NULL, seed_metric(), true, 1);
+                neighbor_gate_allowed = true;
+                inbound_deny = true;
+                /* At full capacity, rejected inbound updates must NOT
+                 * activate the process penalty or consume a destination. */
+                assert(!ingress_check(&runtime, 2, false, NULL));
+                assert(runtime.eigrp_pfxlimits_af_state == 0);
+                assert(runtime.topology_table->size == 1);
+                /* Withdrawals of an owned RDB still reach DUAL. */
+                eigrp_route_descriptor_t *owned = add_route(&runtime, &self,
+                    NULL, seed_metric(), true, 3);
+                assert(ingress_check(&runtime, 3, false, owned));
+                inbound_deny = false;
+                assert(!ingress_check(&runtime, 2, false, NULL));
+                assert(ingress_check(&runtime, 3, true, owned));
+                runtime_destroy(&runtime);
+            }
+
             static void test_receive_gate_revived_owned_poison(void)
             {
                 eigrp_instance_t runtime;
@@ -606,6 +650,8 @@ static eigrp_af_config_t *test_runtime_af;
                     test_receive_gate_poison_and_duplicate();
                 else if (!strcmp(argv[1], "ingress-owned-poison"))
                     test_receive_gate_revived_owned_poison();
+                else if (!strcmp(argv[1], "inbound-deny"))
+                    test_receive_inbound_filter_before_admission();
                 else return 2;
                 return 0;
             }
@@ -636,7 +682,7 @@ def run_case(binary, name):
 
 @pytest.mark.parametrize("scenario", [
     "empty", "poison", "readvert-shell", "readvert-poison", "mixed", "recover",
-    "ingress-shell", "ingress-poison", "ingress-owned-poison"
+    "ingress-shell", "ingress-poison", "ingress-owned-poison", "inbound-deny"
 ])
 def test_topology_maximum_prefix_admission(prefix_admission_executable, scenario):
     run_case(prefix_admission_executable, scenario)

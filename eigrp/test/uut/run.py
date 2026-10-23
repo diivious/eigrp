@@ -163,6 +163,7 @@ STEP_FIELDS = {
     "peer-limit-config": {"uut", "maximum", "warning_only"},
     "redist-limit-config": {"uut", "maximum", "warning_only"},
     "process-limit-config": {"uut", "maximum", "warning_only", "dampened"},
+    "inbound-filter-config": {"uut", "prefix", "enabled"},
     "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "process-limit-reset-expire": {"uut"}, "process-limit-stale": {"uut"}, "process-limit-age": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "penalty_min", "penalty_max", "timeout"},
     "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "timeout"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
@@ -234,7 +235,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","validate-log","peer-limit","peer-limit-config","redist-limit-config","process-limit-config","process-limit-clear","process-limit-expire","process-limit-reset-expire","process-limit-stale","process-limit-age","validate-process-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","validate-log","peer-limit","peer-limit-config","redist-limit-config","process-limit-config","inbound-filter-config","process-limit-clear","process-limit-expire","process-limit-reset-expire","process-limit-stale","process-limit-age","validate-process-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -295,6 +296,7 @@ def validate_scenario(s):
                     "peer-limit-config":("uut","maximum"),
                     "redist-limit-config":("uut","maximum"),
                     "process-limit-config":("uut","maximum"),
+                    "inbound-filter-config":("uut","prefix"),
                     "process-limit-clear":("uut",),"process-limit-expire":("uut",),"process-limit-reset-expire":("uut",),"process-limit-stale":("uut",),"process-limit-age":("uut",),"validate-process-limit":("uut","state"),
                     "redist-limit-clear":("uut",),"redist-limit-expire":("uut",),"validate-redist-limit":("uut","state"),
                     "source-route-add":("uut","prefix"),"source-route-remove":("uut","prefix"),
@@ -311,6 +313,12 @@ def validate_scenario(s):
                 _count(arg["maximum"], f"{where}.maximum")
                 if "warning_only" in arg and type(arg["warning_only"]) is not bool:
                     raise SpecError(f"{where}: warning_only must be boolean")
+            if op == "inbound-filter-config":
+                try: ipaddress.ip_network(arg["prefix"], strict=False)
+                except (ValueError, TypeError) as exc:
+                    raise SpecError(f"{where}: invalid prefix") from exc
+                if "enabled" in arg and type(arg["enabled"]) is not bool:
+                    raise SpecError(f"{where}: enabled must be boolean")
             if op == "validate-process-limit":
                 for field in ("penalty", "penalty_min", "penalty_max"):
                     if field in arg: _count(arg[field], f"{where}.{field}")
@@ -425,6 +433,11 @@ class Node:
         result = self.cmd(f"PROCESS-LIMIT-CFG {maximum} {int(warning_only)} {int(dampened)}", timeout=10)
         if result != "RESULT|0":
             raise RuntimeError(f"{self.name}: process limit configuration failed: {result}")
+
+    def inbound_filter_config(self, prefix, enabled=True):
+        result = self.cmd(f"INBOUND-DENY {prefix if enabled else 'off'}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: inbound policy update failed: {result}")
 
     def process_limit_expire(self):
         result = self.cmd("PROCESS-LIMIT-EXPIRE", timeout=10)
@@ -734,6 +747,9 @@ class Runner:
                 arg["maximum"], arg.get("warning_only", False))
         elif op == "process-limit-config":
             self.nodes[arg["uut"]].process_limit_config(arg["maximum"], arg.get("warning_only", False), arg.get("dampened", False))
+        elif op == "inbound-filter-config":
+            self.nodes[arg["uut"]].inbound_filter_config(
+                arg["prefix"], arg.get("enabled", True))
         elif op == "process-limit-expire":
             self.nodes[arg["uut"]].process_limit_expire()
         elif op == "process-limit-reset-expire":

@@ -11,7 +11,7 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / 'eigrp' / 'code'
 CODE = ROOT / 'eigrp' / 'code'
 
 
-@pytest.mark.parametrize("packet", ["query", "reply"])
+@pytest.mark.parametrize("packet", ["query", "reply", "query-filter", "reply-filter"])
 def test_query_reply_neighbor_path_admission(tmp_path, packet):
     binary = tmp_path / 'neighbor_path_admission'
     sources = ['eigrp_query.c', 'eigrp_reply.c', 'eigrp_fsm.c',
