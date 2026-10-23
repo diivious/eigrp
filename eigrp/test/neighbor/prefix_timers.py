@@ -23,7 +23,7 @@ def test_prefix_limit_restart_reset_dampening_and_lockout(tmp_path):
            str(Path(__file__).with_suffix(".c")),
            *(str(p) for p in core), *(str(p) for p in unix),
            "-Wl,-dead_strip" if sys.platform == "darwin" else "-Wl,--gc-sections",
-           "-o", str(binary)]
+           "-lm", "-o", str(binary)]
     built = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     assert built.returncode == 0, built.stdout + built.stderr
     ran = subprocess.run([str(binary)], cwd=ROOT, capture_output=True, text=True)

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Donnie V. Savage
 /* Exercise the production prefix-limit timer engine and peer lifecycle. */
 #include <assert.h>
+#include <math.h>
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -48,7 +49,8 @@ static void run_timers(int afi)
     eigrp_addr_t src;
     eigrp_nbr_t *nbr;
     eigrp_prefix_limit_t limit = {.maximum = 1};
-    uint64_t now, first_delay, second_delay;
+    uint64_t now, first_delay, second_delay, elapsed;
+    uint32_t expected;
     unsigned i;
 
     assert(pthread_mutex_init(&eigrp.peer_lock, NULL) == 0);
@@ -164,9 +166,17 @@ static void run_timers(int afi)
     eigrp_timer_cancel(&eigrp, &nbr->t_limit_restart);
     nbr->limit_restart_due_msec = now - 1U;
     eigrp_nbr_limit_restart_expired(nbr);
-    nbr->limit_decay_msec = eigrp_sys_monotime_msec() - 180000U;
+    /* A monotonic clock can be younger than one half-life on a fresh CI
+     * host. Never rewind its unsigned timestamp before the clock epoch. */
+    now = eigrp_sys_monotime_msec();
+    elapsed = now > 180000U ? 180000U : now > 1U ? now - 1U : 0U;
+    nbr->limit_decay_msec = now - elapsed;
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
-    assert(nbr->limit_penalty_q16 >= 98000U && nbr->limit_penalty_q16 <= 98500U);
+    expected = 65536U + (uint32_t)(65536.0 * exp2(-(double)elapsed / 180000.0));
+    assert(nbr->limit_penalty_q16 >= expected - 256U);
+    assert(nbr->limit_penalty_q16 <= expected + 256U);
+    if (elapsed == 180000U)
+        assert(nbr->limit_penalty_q16 >= 98000U && nbr->limit_penalty_q16 <= 98500U);
     eigrp_nbr_delete(nbr);
     assert(!ei.nbrs->count && !eigrp.timer_head);
 
