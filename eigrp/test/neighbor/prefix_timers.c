@@ -69,11 +69,11 @@ static void run_timers(int afi)
 
     /* A receive-time violation marks the neighbor DOWN/ineligible but
      * cannot free packet- or DUAL-owned objects until the caller returns. */
-    assert(eigrp_nbr_limit_mark(nbr, &limit));
+    assert(eigrp_nbr_limit_mark_down(nbr, &limit));
     assert(nbr->limit_cleanup_pending);
     assert(nbr->limit_state == EIGRP_NBR_LIMIT_NONE);
     assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
-    assert(!eigrp_nbr_eligible(nbr));
+    assert(!eigrp_nbr_is_eligible(nbr));
     assert(!nbr->t_limit_restart && !nbr->t_limit_reset);
     eigrp_nbr_limit_cleanup(nbr);
     assert(!nbr->limit_cleanup_pending);
@@ -87,13 +87,13 @@ static void run_timers(int afi)
     /* Warning-only never starts a penalty. */
     limit.warning_only = true;
     assert(!eigrp_nbr_limit_exceeded(nbr, &limit));
-    assert(nbr->limit_restarts == 0 && eigrp_nbr_eligible(nbr));
+    assert(nbr->limit_restart_cnt == 0 && eigrp_nbr_is_eligible(nbr));
     limit.warning_only = false;
 
     for (i = 1; i <= 2; ++i) {
         now = eigrp_sys_monotime_msec();
         assert(eigrp_nbr_limit_exceeded(nbr, &limit));
-        assert(nbr->limit_restarts == i && !eigrp_nbr_eligible(nbr));
+        assert(nbr->limit_restart_cnt == i && !eigrp_nbr_is_eligible(nbr));
         assert(nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED);
         assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
         assert(nbr->t_limit_restart && nbr->t_limit_reset);
@@ -103,12 +103,12 @@ static void run_timers(int afi)
         assert(nbr->limit_reset_due_msec <= now + 900200U);
         /* An early timer callback must preserve ineligibility. */
         eigrp_nbr_limit_restart_expired(nbr);
-        assert(!eigrp_nbr_eligible(nbr) && nbr->t_limit_restart);
+        assert(!eigrp_nbr_is_eligible(nbr) && nbr->t_limit_restart);
         /* Model expiry in the real timer owner; no sleeps of five minutes. */
         eigrp_timer_cancel(&eigrp, &nbr->t_limit_restart);
         nbr->limit_restart_due_msec = now - 1U;
         eigrp_nbr_limit_restart_expired(nbr);
-        assert(eigrp_nbr_eligible(nbr));
+        assert(eigrp_nbr_is_eligible(nbr));
         assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
         assert(!nbr->t_limit_restart && nbr->t_limit_reset);
     }
@@ -117,7 +117,7 @@ static void run_timers(int afi)
     limit.restart_minutes = 9;
     limit.restart_count = 3;
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
-    assert(nbr->limit_restarts == 3 && nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED);
+    assert(nbr->limit_restart_cnt == 3 && nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED);
     assert(!nbr->t_limit_restart && !nbr->t_limit_reset);
     assert(!eigrp_nbr_limit_exceeded(nbr, &limit));
     eigrp_nbr_limit_restart_expired(nbr);
@@ -140,31 +140,31 @@ static void run_timers(int afi)
     eigrp_timer_cancel(&eigrp, &nbr->t_limit_restart);
     nbr->limit_restart_due_msec = now - 1U;
     eigrp_nbr_limit_restart_expired(nbr);
-    assert(eigrp_nbr_eligible(nbr));
+    assert(eigrp_nbr_is_eligible(nbr));
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
     now = eigrp_sys_monotime_msec();
     second_delay = nbr->limit_restart_due_msec - now;
     assert(second_delay > first_delay * 19U / 10U);
     assert(second_delay <= first_delay * 21U / 10U);
-    assert(nbr->limit_restarts == 2);
+    assert(nbr->limit_restart_cnt == 2);
     /* Expire reset first: restart timer continues independently. */
     eigrp_timer_cancel(&eigrp, &nbr->t_limit_reset);
     nbr->limit_reset_due_msec = now - 1U;
     eigrp_nbr_limit_reset_expired(nbr);
-    assert(nbr->limit_restarts == 0 && !nbr->limit_penalty_q16);
+    assert(nbr->limit_restart_cnt == 0 && !nbr->limit_penalty_q16);
     assert(nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED);
     assert(nbr->t_limit_restart);
     eigrp_timer_cancel(&eigrp, &nbr->t_limit_restart);
     nbr->limit_restart_due_msec = now - 1U;
     eigrp_nbr_limit_restart_expired(nbr);
-    assert(eigrp_nbr_eligible(nbr));
+    assert(eigrp_nbr_is_eligible(nbr));
     /* Half-life decay: earlier penalty 1.0 becomes 0.5 before next addition. */
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
     assert(nbr->limit_penalty_q16 == 65536U);
     eigrp_timer_cancel(&eigrp, &nbr->t_limit_restart);
     nbr->limit_restart_due_msec = now - 1U;
     eigrp_nbr_limit_restart_expired(nbr);
-    nbr->limit_penalty_updated_msec = eigrp_sys_monotime_msec() - 180000U;
+    nbr->limit_decay_msec = eigrp_sys_monotime_msec() - 180000U;
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
     assert(nbr->limit_penalty_q16 >= 98000U && nbr->limit_penalty_q16 <= 98500U);
     eigrp_nbr_delete(nbr);

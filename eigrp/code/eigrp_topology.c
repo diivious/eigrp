@@ -34,7 +34,7 @@
 #include "eigrp_metric.h"
 #include "eigrp_sys.h"
 #include "eigrp_timer.h"
-#include "eigrp_process_limit.h"
+#include "eigrp_pfxlimits.h"
 #include "eigrp_rib.h"
 static int eigrp_route_descriptor_cmp(eigrp_route_descriptor_t *,
 				      eigrp_route_descriptor_t *);
@@ -2397,7 +2397,7 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 
 	if (!runtime || !prefix)
 		return false;
-	if (runtime->process_limit_state)
+	if (runtime->eigrp_pfxlimits_af_state)
 		return false;
 	/* Every retained topology destination consumes one prefix slot. */
 	if (eigrp_topology_table_lookup(runtime->topology_table, prefix))
@@ -2419,7 +2419,7 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 			(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
 				prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_TOPOLOGY, count + 1U,
 				limit->maximum, 0);
-			eigrp_process_limit_exceeded(runtime, limit);
+			eigrp_pfxlimits_prefix_exceeded(runtime, limit);
 			return false;
 		}
 		return true;
@@ -2445,7 +2445,7 @@ eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation, eig
 		memset(&context->config->topology_maximum_prefix, 0,
 		       sizeof(context->config->topology_maximum_prefix));
 		if (context->runtime)
-			(void)eigrp_process_limit_clear(context->runtime);
+			(void)eigrp_pfxlimits_state_clear(context->runtime);
 		return EIGRP_RESULT_SUCCESS;
 	}
 	if (operation != EIGRP_SET || !limit || !limit->maximum || limit->threshold > 100)
@@ -2460,7 +2460,7 @@ eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation, eig
 		context->config->topology_maximum_prefix = *limit;
 		context->config->topology_maximum_prefix_configured = true;
 		if (changed && context->runtime)
-			(void)eigrp_process_limit_clear(context->runtime);
+			(void)eigrp_pfxlimits_state_clear(context->runtime);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }

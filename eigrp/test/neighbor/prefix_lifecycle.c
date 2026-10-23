@@ -61,7 +61,7 @@ static void run_lifecycle(int afi)
     address_init(&src, afi, 1);
 
     nbr = eigrp_nbr_create(&ei, &src);
-    assert(nbr && nbr->published && eigrp_nbr_eligible(nbr));
+    assert(nbr && nbr->published && eigrp_nbr_is_eligible(nbr));
     assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
     queue = nbr->retrans_queue;
     generation = nbr->generation;
@@ -77,8 +77,8 @@ static void run_lifecycle(int afi)
         assert(ei.tlv2_peer_count == 1);
         eigrp_packet_enqueue(queue, eigrp_packet_create(128, nbr));
         assert(queue->count == 1);
-        assert(eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED));
-        assert(!eigrp_nbr_eligible(nbr) && nbr->published);
+        assert(eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_SUSPENDED));
+        assert(!eigrp_nbr_is_eligible(nbr) && nbr->published);
         assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
         assert(nbr->t_holddown == NULL && nbr->t_nbr_send_gr == NULL);
         assert(nbr->t_sync == NULL && !nbr->sync_active);
@@ -92,25 +92,25 @@ static void run_lifecycle(int afi)
         assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
         eigrp_nbr_holddown_update(nbr);
         assert(nbr->t_holddown == NULL);
-        eigrp_nbr_release(nbr);
-        assert(eigrp_nbr_eligible(nbr) && nbr->state == EIGRP_NEIGHBOR_DOWN);
+        eigrp_nbr_limit_release(nbr);
+        assert(eigrp_nbr_is_eligible(nbr) && nbr->state == EIGRP_NEIGHBOR_DOWN);
         assert(nbr->generation != generation);
         generation = nbr->generation;
         assert(nbr->retrans_queue == queue);
     }
 
-    assert(eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED));
-    assert(eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_LOCKED));
+    assert(eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_SUSPENDED));
+    assert(eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_LOCKED));
     assert(nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED);
-    assert(!eigrp_nbr_suspend(nbr, EIGRP_NBR_LIMIT_SUSPENDED));
-    eigrp_nbr_release(nbr);
+    assert(!eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_SUSPENDED));
+    eigrp_nbr_limit_release(nbr);
     assert(nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED);
     eigrp_nbr_delete(nbr);
     assert(ei.nbrs->count == 0);
 
     /* An explicitly deleted locked peer can be discovered as a new object. */
     nbr = eigrp_nbr_create(&ei, &src);
-    assert(nbr && eigrp_nbr_eligible(nbr));
+    assert(nbr && eigrp_nbr_is_eligible(nbr));
     assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
     eigrp_nbr_delete(nbr);
     assert(ei.nbrs->count == 0);

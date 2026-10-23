@@ -55,7 +55,7 @@ void eigrp_hello_timer(void *arg)
 	 * resumes discovery without host-specific timer manipulation here, but
 	 * they neither multicast nor unicast Hello packets while passive.
 	 */
-	if (!eigrp_intf_is_passive(ei) && !ei->eigrp->process_limit_state) {
+	if (!eigrp_intf_is_passive(ei) && !ei->eigrp->eigrp_pfxlimits_af_state) {
 		/* Static-neighbor interfaces use explicit unicast discovery. */
 		if (!eigrp_nbr_static_hello_send(ei))
 			eigrp_hello_send(ei, EIGRP_HELLO_NORMAL, NULL);

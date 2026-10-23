@@ -14,7 +14,7 @@ TEST_SOURCE = ROOT / "eigrp" / "test" / "redistribution" / "withdrawal_fsm.c"
 def test_process_limit_100k_withdrawal_retirement_and_readmission(tmp_path):
     binary = tmp_path / "process_limit_100k"
     sources = (
-        "eigrp_redistribute.c", "eigrp_process_limit.c", "eigrp_topology.c",
+        "eigrp_redistribute.c", "eigrp_pfxlimits.c", "eigrp_topology.c",
         "eigrp_fsm.c", "eigrp_timer.c", "eigrp_metric.c", "eigrp_list.c",
         "eigrp_table.c", "eigrp_prefix.c",
     )

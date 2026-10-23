@@ -398,9 +398,9 @@ static void eigrp_redist_limit_release(eigrp_instance_t *runtime,
 	eigrp_redist_limit_timers_cancel(runtime);
 	runtime->redist_limit_state = 0;
 	if (reset_history) {
-		runtime->redist_limit_restarts = 0;
+		runtime->redist_limit_restart_cnt = 0;
 		runtime->redist_limit_penalty_q16 = 0;
-		runtime->redist_limit_penalty_updated_msec = 0;
+		runtime->redist_limit_decay_msec = 0;
 	}
 	eigrp_redist_routes_replay(runtime);
 }
@@ -441,9 +441,9 @@ static void eigrp_redist_limit_reset_expired(void *arg)
 	runtime->redist_limit_reset_due_msec = 0;
 	/* Expiry must never release a locked source. */
 	if (runtime->redist_limit_state != 2) {
-		runtime->redist_limit_restarts = 0;
+		runtime->redist_limit_restart_cnt = 0;
 		runtime->redist_limit_penalty_q16 = 0;
-		runtime->redist_limit_penalty_updated_msec = 0;
+		runtime->redist_limit_decay_msec = 0;
 	}
 }
 
@@ -474,25 +474,25 @@ static void eigrp_redist_limit_exceeded(eigrp_instance_t *runtime,
 	base = (uint64_t)restart_minutes * REDIST_LIMIT_MINUTE_MSEC;
 	half_life = base + base / 2U;
 	if (dampened) {
-		if (runtime->redist_limit_penalty_updated_msec &&
-		    now > runtime->redist_limit_penalty_updated_msec)
+		if (runtime->redist_limit_decay_msec &&
+		    now > runtime->redist_limit_decay_msec)
 			runtime->redist_limit_penalty_q16 = eigrp_redist_limit_decay(
 				runtime->redist_limit_penalty_q16,
-				now - runtime->redist_limit_penalty_updated_msec, half_life);
+				now - runtime->redist_limit_decay_msec, half_life);
 		if (runtime->redist_limit_penalty_q16 > UINT32_MAX - REDIST_LIMIT_Q16)
 			runtime->redist_limit_penalty_q16 = UINT32_MAX;
 		else
 			runtime->redist_limit_penalty_q16 += REDIST_LIMIT_Q16;
-		runtime->redist_limit_penalty_updated_msec = now;
+		runtime->redist_limit_decay_msec = now;
 	} else {
 		runtime->redist_limit_penalty_q16 = 0;
-		runtime->redist_limit_penalty_updated_msec = 0;
+		runtime->redist_limit_decay_msec = 0;
 	}
-	if (runtime->redist_limit_restarts < UINT16_MAX)
-		++runtime->redist_limit_restarts;
+	if (runtime->redist_limit_restart_cnt < UINT16_MAX)
+		++runtime->redist_limit_restart_cnt;
 	/* Set ineligible BEFORE topology withdrawal. */
 	runtime->redist_limit_state =
-		runtime->redist_limit_restarts >= count ? 2 : 1;
+		runtime->redist_limit_restart_cnt >= count ? 2 : 1;
 	eigrp_redist_limit_timers_cancel(runtime);
 	eigrp_redist_routes_withdraw(runtime);
 	if (runtime->redist_limit_state == 2)
@@ -539,7 +539,7 @@ bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 
 	if (!runtime || !route)
 		return false;
-	if (runtime->redist_limit_state || runtime->process_limit_state)
+	if (runtime->redist_limit_state || runtime->eigrp_pfxlimits_af_state)
 		return false;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af || !af->redistribute_policy
@@ -735,7 +735,7 @@ void eigrp_redist_policy_update_all(void)
  * Placement:
  *   Named: topology base mode
  * Description:
- * Sets or removes the redistribution prefix-limit policy.
+ * Sets or removes the redistribution prefix-limit configuration.
  * Retained configuration stays here while supported runtime limit semantics are enforced.
  */
 eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
@@ -790,7 +790,7 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation, eigrp
  * Placement:
  *   Named: topology base mode
  * Description:
- * Sets or removes the redistribution prefix-limit policy.
+ * Sets or removes the redistribution prefix-limit configuration.
  * Retained configuration stays here while supported runtime limit semantics are enforced.
  */
 

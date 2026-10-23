@@ -25,126 +25,126 @@ bool eigrp_sys_auth_key_lookup(const char *name, uint32_t *id,
     return false;
 }
 
-struct snapshot {
+struct nbr_limit_view {
     unsigned rows;
     char status;
-    uint16_t restarts;
-    uint32_t restart;
-    uint32_t reset;
+    uint16_t restart_cnt;
+    uint32_t restart_seconds;
+    uint32_t reset_seconds;
     eigrp_afi_t afi;
 };
-static eigrp_result_t account_cb(const eigrp_statistics_accounting_state_t *s,
+static eigrp_result_t accounting_cb(const eigrp_stat_nbr_limit_t *s,
                                  void *arg)
 {
-    struct snapshot *out = arg;
+    struct nbr_limit_view *out = arg;
     out->rows++;
     out->status = s->status;
-    out->restarts = s->restart_count;
-    out->restart = s->restart_seconds;
-    out->reset = s->reset_seconds;
+    out->restart_cnt = s->restart_cnt;
+    out->restart_seconds = s->restart_seconds;
+    out->reset_seconds = s->reset_seconds;
     out->afi = s->neighbor_address.afi;
     assert(s->prefix_count == 0);
     return EIGRP_RESULT_SUCCESS;
 }
-struct timer_snapshot { unsigned hold, restart, reset; };
+struct timer_counts { unsigned hold_cnt, restart_cnt, reset_cnt; };
 static eigrp_result_t timer_cb(const eigrp_timer_state_t *s, void *arg)
 {
-    struct timer_snapshot *out = arg;
+    struct timer_counts *out = arg;
     assert(s->neighbor_present && s->interface_name);
     if (s->type == EIGRP_TIMER_STATE_LIMIT_RESTART) {
-        out->restart++;
+        out->restart_cnt++;
         assert(s->expiration_seconds > 0);
     } else if (s->type == EIGRP_TIMER_STATE_LIMIT_RESET) {
-        out->reset++;
+        out->reset_cnt++;
         assert(s->expiration_seconds > 0);
     } else if (s->type == EIGRP_TIMER_STATE_PEER_HOLD) {
-        out->hold++;
+        out->hold_cnt++;
     }
     return EIGRP_RESULT_SUCCESS;
 }
 static eigrp_result_t neighbor_cb(const eigrp_nbr_state_t *s, void *arg)
 {
-    struct snapshot *out = arg;
+    struct nbr_limit_view *out = arg;
     out->rows++;
     out->status = s->limit_status;
-    out->restarts = s->limit_restarts;
-    out->restart = s->limit_restart_seconds;
-    out->reset = s->limit_reset_seconds;
+    out->restart_cnt = s->limit_restart_cnt;
+    out->restart_seconds = s->limit_restart_seconds;
+    out->reset_seconds = s->limit_reset_seconds;
     return EIGRP_RESULT_SUCCESS;
 }
 
-static void snapshot(eigrp_instance_t *runtime, eigrp_nbr_t *nbr,
+static void check_nbr_limit_state(eigrp_instance_t *runtime, eigrp_nbr_t *nbr,
                      char expected, uint16_t count, bool active)
 {
-    struct snapshot a = {0}, n = {0};
-    struct timer_snapshot timers = {0};
+    struct nbr_limit_view a = {0}, n = {0};
+    struct timer_counts timers = {0};
     uint32_t total = UINT32_MAX;
     eigrp_instance_context_t context = {.runtime=runtime};
     eigrp_result_t result;
 
-    result = eigrp_statistics_accounting_iterate(&context, &total,
-                                                   account_cb, &a);
+    result = eigrp_stat_accounting_iterate(&context, &total,
+                                                   accounting_cb, &a);
     assert(result == EIGRP_RESULT_SUCCESS && total == 0);
     assert(a.rows == (expected ? 1U : 0U));
     if (expected) {
-        assert(a.status == expected && a.restarts == count);
+        assert(a.status == expected && a.restart_cnt == count);
         assert(a.afi == (nbr->src.afi == AF_INET6 ? EIGRP_AFI_IPV6 : EIGRP_AFI_IPV4));
     }
     result = eigrp_nbr_state_iterate(NULL, runtime, NULL, false,
                                      neighbor_cb, &n);
     if (expected) {
         assert(result == EIGRP_RESULT_SUCCESS);
-        assert(n.rows == 1 && n.status == expected && n.restarts == count);
-        assert(a.restart == n.restart && a.reset == n.reset);
+        assert(n.rows == 1 && n.status == expected && n.restart_cnt == count);
+        assert(a.restart_seconds == n.restart_seconds && a.reset_seconds == n.reset_seconds);
     }
     result = eigrp_timer_state_iterate(&context, timer_cb, &timers);
     assert(result == EIGRP_RESULT_SUCCESS);
-    assert(timers.restart == (unsigned)active && timers.reset == (unsigned)active);
+    assert(timers.restart_cnt == (unsigned)active && timers.reset_cnt == (unsigned)active);
     if (active) {
-        assert(a.restart > 0 && a.reset > 0);
+        assert(a.restart_seconds > 0 && a.reset_seconds > 0);
     } else if (expected == 'D') {
-        assert(a.restart == 0 && a.reset == 0);
+        assert(a.restart_seconds == 0 && a.reset_seconds == 0);
     }
 }
 
-static void scope_snapshot(eigrp_instance_t *runtime)
+static void test_limit_state_read(eigrp_instance_t *runtime)
 {
-    eigrp_statistics_limit_state_t state;
+    eigrp_pfxlimits_summary_t state;
     eigrp_instance_context_t context = {.runtime = runtime};
     uint64_t now = eigrp_sys_monotime_msec();
 
-    assert(eigrp_statistics_limit_state_read(NULL, &state) == EIGRP_RESULT_NOT_FOUND);
-    assert(eigrp_statistics_limit_state_read(&context, NULL) == EIGRP_RESULT_INVALID_ARGUMENT);
-    assert(eigrp_statistics_limit_state_read(&context, &state) == EIGRP_RESULT_SUCCESS);
-    assert(state.process.state == 0 && state.process.prefix_count == 0);
-    assert(state.redistribution.state == 0 && state.redistribution.prefix_count == 0);
+    assert(eigrp_stat_pfxlimits_summary_read(NULL, &state) == EIGRP_RESULT_NOT_FOUND);
+    assert(eigrp_stat_pfxlimits_summary_read(&context, NULL) == EIGRP_RESULT_INVALID_ARGUMENT);
+    assert(eigrp_stat_pfxlimits_summary_read(&context, &state) == EIGRP_RESULT_SUCCESS);
+    assert(state.process.state == 0 && state.process.prefix_cnt == 0);
+    assert(state.redist.state == 0 && state.redist.prefix_cnt == 0);
 
-    runtime->process_limit_state = 1;
-    runtime->process_limit_restarts = 2;
-    runtime->process_limit_penalty_q16 = 2 * 65536U;
-    runtime->process_limit_restart_due_msec = now + 2500;
-    runtime->process_limit_reset_due_msec = now + 5500;
+    runtime->eigrp_pfxlimits_af_state = 1;
+    runtime->eigrp_pfxlimits_af_restart_cnt = 2;
+    runtime->eigrp_pfxlimits_af_penalty_q16 = 2 * 65536U;
+    runtime->eigrp_pfxlimits_af_restart_due_msec = now + 2500;
+    runtime->eigrp_pfxlimits_af_reset_due_msec = now + 5500;
     runtime->redist_limit_state = 2;
-    runtime->redist_limit_restarts = 3;
+    runtime->redist_limit_restart_cnt = 3;
     runtime->redist_prefix_count = 7;
-    assert(eigrp_statistics_limit_state_read(&context, &state) == EIGRP_RESULT_SUCCESS);
-    assert(state.process.state == 1 && state.process.restart_count == 2);
+    assert(eigrp_stat_pfxlimits_summary_read(&context, &state) == EIGRP_RESULT_SUCCESS);
+    assert(state.process.state == 1 && state.process.restart_cnt == 2);
     assert(state.process.penalty_q16 == 2 * 65536U);
     assert(state.process.restart_seconds >= 2 && state.process.restart_seconds <= 3);
     assert(state.process.reset_seconds >= 5 && state.process.reset_seconds <= 6);
-    assert(state.redistribution.state == 2 && state.redistribution.restart_count == 3);
-    assert(state.redistribution.prefix_count == 7 && state.redistribution.restart_seconds == 0);
-    assert(state.redistribution.reset_seconds == 0);
+    assert(state.redist.state == 2 && state.redist.restart_cnt == 3);
+    assert(state.redist.prefix_cnt == 7 && state.redist.restart_seconds == 0);
+    assert(state.redist.reset_seconds == 0);
 
-    runtime->process_limit_state = 0;
-    runtime->process_limit_restart_due_msec = 0;
+    runtime->eigrp_pfxlimits_af_state = 0;
+    runtime->eigrp_pfxlimits_af_restart_due_msec = 0;
     runtime->redist_limit_state = 0;
     runtime->redist_prefix_count = 0;
-    assert(eigrp_statistics_limit_state_read(&context, &state) == EIGRP_RESULT_SUCCESS);
+    assert(eigrp_stat_pfxlimits_summary_read(&context, &state) == EIGRP_RESULT_SUCCESS);
     assert(state.process.state == 0 && state.process.restart_seconds == 0);
-    assert(state.process.restart_count == 2 && state.process.reset_seconds > 0);
-    assert(state.redistribution.state == 0 && state.redistribution.prefix_count == 0);
-    runtime->process_limit_reset_due_msec = 0;
+    assert(state.process.restart_cnt == 2 && state.process.reset_seconds > 0);
+    assert(state.redist.state == 0 && state.redist.prefix_cnt == 0);
+    runtime->eigrp_pfxlimits_af_reset_due_msec = 0;
 }
 
 static void run(int family)
@@ -181,29 +181,29 @@ static void run(int family)
     nbr = eigrp_nbr_create(&interface, &address);
     assert(nbr);
 
-    scope_snapshot(&runtime);
-    snapshot(&runtime, nbr, 0, 0, false); /* INIT not shown as penalty P. */
+    test_limit_state_read(&runtime);
+    check_nbr_limit_state(&runtime, nbr, 0, 0, false); /* INIT not shown as penalty P. */
     eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_UP);
-    snapshot(&runtime, nbr, 'A', 0, false);
+    check_nbr_limit_state(&runtime, nbr, 'A', 0, false);
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
-    snapshot(&runtime, nbr, 'P', 1, true);
+    check_nbr_limit_state(&runtime, nbr, 'P', 1, true);
 
     now = eigrp_sys_monotime_msec();
-    assert(eigrp_nbr_limit_seconds(0, now) == 0);
-    assert(eigrp_nbr_limit_seconds(now, now) == 0);
-    assert(eigrp_nbr_limit_seconds(now+1, now) == 1);
-    assert(eigrp_nbr_limit_seconds(now+1000, now) == 1);
-    assert(eigrp_nbr_limit_seconds(now+1001, now) == 2);
+    assert(eigrp_nbr_limit_remaining(0, now) == 0);
+    assert(eigrp_nbr_limit_remaining(now, now) == 0);
+    assert(eigrp_nbr_limit_remaining(now+1, now) == 1);
+    assert(eigrp_nbr_limit_remaining(now+1000, now) == 1);
+    assert(eigrp_nbr_limit_remaining(now+1001, now) == 2);
 
     eigrp_timer_cancel(&runtime, &nbr->t_limit_restart);
     nbr->limit_restart_due_msec = now - 1;
     eigrp_nbr_limit_restart_expired(nbr);
-    assert(eigrp_nbr_eligible(nbr));
+    assert(eigrp_nbr_is_eligible(nbr));
     assert(eigrp_nbr_limit_exceeded(nbr, &limit));
-    snapshot(&runtime, nbr, 'D', 2, false);
+    check_nbr_limit_state(&runtime, nbr, 'D', 2, false);
     eigrp_nbr_delete(nbr);
     assert(!interface.nbrs->count && !runtime.timer_head);
-    snapshot(&runtime, NULL, 0, 0, false);
+    check_nbr_limit_state(&runtime, NULL, 0, 0, false);
 
     eigrp_packetizer_delete(&runtime);
     eigrp_topology_table_delete(&runtime, runtime.topology_table);

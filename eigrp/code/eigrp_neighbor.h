@@ -74,19 +74,19 @@ typedef struct eigrp_neighbor {
 	eigrp_nbr_limit_state_t limit_state; /* prefix-limit admission status */
 	/* The receive path marks DOWN immediately, but drains DUAL/RTP only
 	 * after the packet TLV walker returns. Owned by the AF thread. */
-	bool process_limit_suspended; /* Suspension owned by the AF process penalty. */
+	bool eigrp_pfxlimits_af_suspended; /* Suspension imposed by the AF topology prefix limit. */
 	bool limit_cleanup_pending;
-	uint8_t limit_previous_state;
-	eigrp_prefix_limit_t limit_pending_policy;
+	uint8_t limit_prev_state;
+	eigrp_prefix_limit_t limit_pending_cfg;
 	/* Maintained on actual RDB insert/delete, so admission stays O(1). */
 	uint32_t limit_prefix_count;
 	bool limit_prefix_count_valid;
 
 	/* Prefix-limit penalty lifetime is owned by this peer.  Protocol timers
 	 * are cancelled on DOWN; these survive until restart/reset or DELETE. */
-	uint16_t limit_restarts;
+	uint16_t limit_restart_cnt;
 	uint32_t limit_penalty_q16;
-	uint64_t limit_penalty_updated_msec;
+	uint64_t limit_decay_msec;
 	uint64_t limit_restart_due_msec;
 	uint64_t limit_reset_due_msec;
 	eigrp_timer_event_t *t_limit_restart;
@@ -166,13 +166,13 @@ extern eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *, eigrp_addr_t *);
  * DELETE additionally unpublishes the peer and frees all remaining state. */
 void eigrp_nbr_down(eigrp_nbr_t *nbr);
 extern void eigrp_nbr_delete(eigrp_nbr_t *neigh);
-/* Task 1 lifecycle API: scheduling/violation policy belongs to later tasks. */
-bool eigrp_nbr_suspend(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);
-void eigrp_nbr_release(eigrp_nbr_t *nbr);
+/* Neighbor limit-state lifecycle; restart/reset handling is separate. */
+bool eigrp_nbr_limit_state_update(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);
+void eigrp_nbr_limit_release(eigrp_nbr_t *nbr);
 /* Task 2 timer engine.  Task 3 invokes this when a hard limit is crossed.
  * Per-peer timer options inherit from neighbor-all, then process settings. */
 /* Mark prefix-limit DOWN without retiring descriptors used by this packet. */
-bool eigrp_nbr_limit_mark(eigrp_nbr_t *nbr,
+bool eigrp_nbr_limit_mark_down(eigrp_nbr_t *nbr,
 	const eigrp_prefix_limit_t *limit);
 /* Complete DOWN and start the penalty only at a safe receive boundary. */
 void eigrp_nbr_limit_cleanup(eigrp_nbr_t *nbr);
@@ -182,10 +182,10 @@ void eigrp_nbr_limit_restart_expired(void *arg);
 void eigrp_nbr_limit_reset_expired(void *arg);
 void eigrp_nbr_limit_timers_cancel(eigrp_nbr_t *nbr);
 
-bool eigrp_nbr_eligible(const eigrp_nbr_t *nbr);
+bool eigrp_nbr_is_eligible(const eigrp_nbr_t *nbr);
 /* Read-only prefix-limit status for operational state snapshots. */
 char eigrp_nbr_limit_status(const eigrp_nbr_t *nbr);
-uint32_t eigrp_nbr_limit_seconds(uint64_t deadline_msec, uint64_t now_msec);
+uint32_t eigrp_nbr_limit_remaining(uint64_t deadline_msec, uint64_t now_msec);
 
 extern void eigrp_nbr_holddown_expired(void *arg);
 

@@ -15,6 +15,7 @@ steps:
   - source-route-remove: {uut: r1, prefix: '192.0.2.222/32'}
   - process-limit-clear: {uut: r1}
   - validate-process-limit: {uut: r1, state: 0, restarts: 0}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: P, restart_count: 1, restart_active: true, reset_active: true}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, timeout: 5}
   - source-route-remove: {uut: r2, prefix: '192.0.2.201/32'}
   - redistribute-remove: {uut: r2, source: static}

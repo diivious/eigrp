@@ -26,7 +26,7 @@
 
 /* This fixture tests topology slot accounting; process penalty lifecycle
  * is exercised by the dedicated process-limit UUT scenarios. */
-void eigrp_process_limit_exceeded(eigrp_instance_t *runtime,
+void eigrp_pfxlimits_prefix_exceeded(eigrp_instance_t *runtime,
                                   const eigrp_prefix_limit_t *limit)
 {
     (void)runtime;

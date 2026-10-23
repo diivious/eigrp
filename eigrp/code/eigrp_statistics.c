@@ -19,7 +19,7 @@
 #include "eigrp_sys.h"
 
 static eigrp_result_t
-eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
+eigrp_stat_context_validate(const eigrp_instance_context_t *context)
 {
 	if (!context || (!context->config && !context->runtime))
 		return EIGRP_RESULT_NOT_FOUND;
@@ -28,7 +28,7 @@ eigrp_statistics_context_validate(const eigrp_instance_context_t *context)
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static void eigrp_statistics_neighbor_address(const eigrp_nbr_t *nbr,
+static void eigrp_stat_nbr_address(const eigrp_nbr_t *nbr,
 					      eigrp_address_t *address)
 {
 	memset(address, 0, sizeof(*address));
@@ -41,7 +41,7 @@ static void eigrp_statistics_neighbor_address(const eigrp_nbr_t *nbr,
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
-static uint32_t eigrp_statistics_prefix_count(eigrp_instance_t *runtime)
+static uint32_t eigrp_stat_prefix_count(eigrp_instance_t *runtime)
 {
 	eigrp_table_node_t *node;
 	uint32_t count = 0;
@@ -55,7 +55,7 @@ static uint32_t eigrp_statistics_prefix_count(eigrp_instance_t *runtime)
 	return count;
 }
 
-static uint32_t eigrp_statistics_neighbor_prefix_count(
+static uint32_t eigrp_stat_nbr_prefix_count(
 	eigrp_instance_t *runtime, eigrp_nbr_t *neighbor)
 {
 	eigrp_prefix_descriptor_t *prefix;
@@ -80,13 +80,13 @@ static uint32_t eigrp_statistics_neighbor_prefix_count(
 
 /* Return both AF-owned penalty scopes without inspecting neighbors. These
  * values remain meaningful while all adjacencies are suspended or removed. */
-eigrp_result_t eigrp_statistics_limit_state_read(
+eigrp_result_t eigrp_stat_pfxlimits_summary_read(
 	const eigrp_instance_context_t *context,
-	eigrp_statistics_limit_state_t *state)
+	eigrp_pfxlimits_summary_t *state)
 {
 	eigrp_instance_t *runtime;
 	uint64_t now;
-	eigrp_result_t result = eigrp_statistics_context_validate(context);
+	eigrp_result_t result = eigrp_stat_context_validate(context);
 
 	if (result != EIGRP_RESULT_SUCCESS)
 		return result;
@@ -96,23 +96,23 @@ eigrp_result_t eigrp_statistics_limit_state_read(
 	memset(state, 0, sizeof(*state));
 	now = eigrp_sys_monotime_msec();
 
-	state->process.state = runtime->process_limit_state;
-	state->process.prefix_count = eigrp_statistics_prefix_count(runtime);
-	state->process.restart_count = runtime->process_limit_restarts;
-	state->process.restart_seconds = eigrp_nbr_limit_seconds(
-		runtime->process_limit_restart_due_msec, now);
-	state->process.reset_seconds = eigrp_nbr_limit_seconds(
-		runtime->process_limit_reset_due_msec, now);
-	state->process.penalty_q16 = runtime->process_limit_penalty_q16;
+	state->process.state = runtime->eigrp_pfxlimits_af_state;
+	state->process.prefix_cnt = eigrp_stat_prefix_count(runtime);
+	state->process.restart_cnt = runtime->eigrp_pfxlimits_af_restart_cnt;
+	state->process.restart_seconds = eigrp_nbr_limit_remaining(
+		runtime->eigrp_pfxlimits_af_restart_due_msec, now);
+	state->process.reset_seconds = eigrp_nbr_limit_remaining(
+		runtime->eigrp_pfxlimits_af_reset_due_msec, now);
+	state->process.penalty_q16 = runtime->eigrp_pfxlimits_af_penalty_q16;
 
-	state->redistribution.state = runtime->redist_limit_state;
-	state->redistribution.prefix_count = runtime->redist_prefix_count;
-	state->redistribution.restart_count = runtime->redist_limit_restarts;
-	state->redistribution.restart_seconds = eigrp_nbr_limit_seconds(
+	state->redist.state = runtime->redist_limit_state;
+	state->redist.prefix_cnt = runtime->redist_prefix_count;
+	state->redist.restart_cnt = runtime->redist_limit_restart_cnt;
+	state->redist.restart_seconds = eigrp_nbr_limit_remaining(
 		runtime->redist_limit_restart_due_msec, now);
-	state->redistribution.reset_seconds = eigrp_nbr_limit_seconds(
+	state->redist.reset_seconds = eigrp_nbr_limit_remaining(
 		runtime->redist_limit_reset_due_msec, now);
-	state->redistribution.penalty_q16 = runtime->redist_limit_penalty_q16;
+	state->redist.penalty_q16 = runtime->redist_limit_penalty_q16;
 	return EIGRP_RESULT_SUCCESS;
 }
 
@@ -126,11 +126,11 @@ eigrp_result_t eigrp_statistics_limit_state_read(
  * Exports EIGRP accounting state for the selected address-family.
  * FRR supplies rendering callbacks only.
  */
-eigrp_result_t eigrp_statistics_accounting_iterate(
+eigrp_result_t eigrp_stat_accounting_iterate(
 	const eigrp_instance_context_t *context, uint32_t *total_prefix_count,
-	eigrp_statistics_accounting_cb callback, void *arg)
+	eigrp_stat_accounting_cb callback, void *arg)
 {
-	eigrp_result_t result = eigrp_statistics_context_validate(context);
+	eigrp_result_t result = eigrp_stat_context_validate(context);
 	eigrp_intf_t *interface;
 	eigrp_nbr_t *neighbor;
 	eigrp_list_item_t *interface_node;
@@ -141,26 +141,26 @@ eigrp_result_t eigrp_statistics_accounting_iterate(
 	if (!total_prefix_count || !callback)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 
-	*total_prefix_count = eigrp_statistics_prefix_count(context->runtime);
+	*total_prefix_count = eigrp_stat_prefix_count(context->runtime);
 	for (EIGRP_LIST_ITERATE_RO(context->runtime->eiflist, interface_node,
 				  interface)) {
 		for (EIGRP_LIST_ITERATE_RO(interface->nbrs, neighbor_node, neighbor)) {
-			eigrp_statistics_accounting_state_t state = {0};
+			eigrp_stat_nbr_limit_t state = {0};
 
 			state.status = eigrp_nbr_limit_status(neighbor);
 			if (!state.status)
 				continue;
-			eigrp_statistics_neighbor_address(neighbor,
+			eigrp_stat_nbr_address(neighbor,
 							  &state.neighbor_address);
 			state.interface_name = eigrp_intf_name_string(interface);
-			state.prefix_count = eigrp_statistics_neighbor_prefix_count(
+			state.prefix_count = eigrp_stat_nbr_prefix_count(
 				context->runtime, neighbor);
-			state.restart_count = neighbor->limit_restarts;
+			state.restart_cnt = neighbor->limit_restart_cnt;
 			{
 				uint64_t now = eigrp_sys_monotime_msec();
-				state.restart_seconds = eigrp_nbr_limit_seconds(
+				state.restart_seconds = eigrp_nbr_limit_remaining(
 					neighbor->limit_restart_due_msec, now);
-				state.reset_seconds = eigrp_nbr_limit_seconds(
+				state.reset_seconds = eigrp_nbr_limit_remaining(
 					neighbor->limit_reset_due_msec, now);
 			}
 			result = callback(&state, arg);
@@ -183,11 +183,11 @@ eigrp_result_t eigrp_statistics_accounting_iterate(
  * Exports EIGRP packet and protocol traffic counters.
  * Counter ownership remains with the EIGRP runtime.
  */
-eigrp_result_t eigrp_statistics_traffic_state_read(
+eigrp_result_t eigrp_stat_traffic_read(
 	const eigrp_instance_context_t *context,
 	eigrp_statistics_traffic_state_t *state)
 {
-	eigrp_result_t result = eigrp_statistics_context_validate(context);
+	eigrp_result_t result = eigrp_stat_context_validate(context);
 	eigrp_intf_t *interface;
 	eigrp_list_item_t *node;
 

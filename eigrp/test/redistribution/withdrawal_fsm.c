@@ -20,18 +20,18 @@
 #include "eigrp/code/eigrp_rib.h"
 #include "eigrp/code/eigrp_topology.h"
 #include "eigrp/code/eigrp_table.h"
-#include "eigrp/code/eigrp_process_limit.h"
+#include "eigrp/code/eigrp_pfxlimits.h"
 #include "eigrp/code/eigrp_timer.h"
 
 #ifndef EIGRP_TEST_PROCESS_VOLUME
-void eigrp_process_limit_exceeded(eigrp_instance_t *runtime,
+void eigrp_pfxlimits_prefix_exceeded(eigrp_instance_t *runtime,
     const eigrp_prefix_limit_t *limit) { (void)runtime; (void)limit; }
-eigrp_result_t eigrp_process_limit_clear(eigrp_instance_t *runtime)
+eigrp_result_t eigrp_pfxlimits_state_clear(eigrp_instance_t *runtime)
 { (void)runtime; return EIGRP_RESULT_SUCCESS; }
 #else
 /* No live peer or socket in this direct 100K-DUAL fixture. */
 void eigrp_nbr_down(eigrp_nbr_t *nbr) { (void)nbr; }
-void eigrp_nbr_release(eigrp_nbr_t *nbr) { (void)nbr; }
+void eigrp_nbr_limit_release(eigrp_nbr_t *nbr) { (void)nbr; }
 bool eigrp_intf_is_passive(eigrp_intf_t *intf) { (void)intf; return false; }
 void eigrp_hello_send(eigrp_intf_t *intf, uint8_t type, eigrp_addr_t *nbr)
 { (void)intf; (void)type; (void)nbr; }
@@ -684,8 +684,8 @@ static void test_process_prefix_volume(void)
     set_ipv4(&overflow.prefix.address, 198, 19, 134, 160);
     assert(eigrp_rib_redist_add(&f.runtime, &overflow)
            == EIGRP_RESULT_CONFLICT);
-    assert(f.runtime.process_limit_state == 1);
-    assert(f.runtime.process_limit_restarts == 1);
+    assert(f.runtime.eigrp_pfxlimits_af_state == 1);
+    assert(f.runtime.eigrp_pfxlimits_af_restart_cnt == 1);
     assert(f.runtime.topology_table->size == 100000);
     assert(f.runtime.redist_prefix_count == 100000);
     assert(!eigrp_topology_table_lookup(f.runtime.topology_table,
@@ -712,13 +712,13 @@ static void test_process_prefix_volume(void)
     }
     assert(f.runtime.topology_table->size == 0);
     assert(f.runtime.redist_prefix_count == 0);
-    assert(f.runtime.process_limit_state == 1);
+    assert(f.runtime.eigrp_pfxlimits_af_state == 1);
     assert(eigrp_rib_redist_add(&f.runtime, &candidate)
            == EIGRP_RESULT_CONFLICT);
-    assert(eigrp_process_limit_clear(&f.runtime) == EIGRP_RESULT_SUCCESS);
-    assert(f.runtime.process_limit_state == 0);
-    assert(!f.runtime.t_process_limit_restart &&
-           !f.runtime.t_process_limit_reset);
+    assert(eigrp_pfxlimits_state_clear(&f.runtime) == EIGRP_RESULT_SUCCESS);
+    assert(f.runtime.eigrp_pfxlimits_af_state == 0);
+    assert(!f.runtime.t_pfxlimits_af_restart &&
+           !f.runtime.t_pfxlimits_af_reset);
     assert(eigrp_rib_redist_add(&f.runtime, &candidate)
            == EIGRP_RESULT_SUCCESS);
     assert(f.runtime.redist_prefix_count == 1);

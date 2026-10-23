@@ -16,6 +16,7 @@ steps:
   - process-limit-clear: {uut: r1}
   - validate-process-limit: {uut: r1, state: 0, restarts: 0}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: A, restart_count: 0}
   - validate-route: {uut: r2, prefix: '192.0.2.221/32', table: rib, present: true, timeout: 15}
   - process-limit-config: {uut: r1, maximum: 4, warning_only: true}
   - source-route-add: {uut: r1, prefix: '192.0.2.222/32', metric: 20}

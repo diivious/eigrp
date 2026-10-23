@@ -186,7 +186,7 @@ eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context
 			eigrp_timer_neighbor_address(neighbor, &state.neighbor_address);
 			if (neighbor->t_limit_restart) {
 				state.type = EIGRP_TIMER_STATE_LIMIT_RESTART;
-				state.expiration_seconds = eigrp_nbr_limit_seconds(
+				state.expiration_seconds = eigrp_nbr_limit_remaining(
 					neighbor->limit_restart_due_msec, now);
 				result = callback(&state, arg);
 				if (result != EIGRP_RESULT_SUCCESS)
@@ -194,7 +194,7 @@ eigrp_result_t eigrp_timer_state_iterate(const eigrp_instance_context_t *context
 			}
 			if (neighbor->t_limit_reset) {
 				state.type = EIGRP_TIMER_STATE_LIMIT_RESET;
-				state.expiration_seconds = eigrp_nbr_limit_seconds(
+				state.expiration_seconds = eigrp_nbr_limit_remaining(
 					neighbor->limit_reset_due_msec, now);
 				result = callback(&state, arg);
 				if (result != EIGRP_RESULT_SUCCESS)

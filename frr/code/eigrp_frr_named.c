@@ -4127,11 +4127,11 @@ static eigrp_result_t eigrp_vty_neighbor_state_render(
 			state->tlv_minor, state->retransmit_count, state->retry_count,
 			state->prefix_count);
 		if (state->limit_status == 'P' || state->limit_status == 'D'
-		    || state->limit_restarts)
+		    || state->limit_restart_cnt)
 			vty_out(show->vty,
 				"   Prefix-limit: %c, restarts: %u, restart/reset: %u/%u seconds\n",
 				state->limit_status ? state->limit_status : 'A',
-				state->limit_restarts, state->limit_restart_seconds,
+				state->limit_restart_cnt, state->limit_restart_seconds,
 				state->limit_reset_seconds);
 	}
 	return EIGRP_RESULT_SUCCESS;
@@ -4179,7 +4179,7 @@ struct eigrp_vty_topology_show {
 	bool include_serial;
 };
 
-static eigrp_result_t eigrp_vty_topology_prefix_render(
+static eigrp_result_t eigrp_vty_topology_prefix_show(
 	const eigrp_topology_prefix_state_t *state, void *arg)
 {
 	struct eigrp_vty_topology_show *show = arg;
@@ -4199,7 +4199,7 @@ static eigrp_result_t eigrp_vty_topology_prefix_render(
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static eigrp_result_t eigrp_vty_topology_route_render(
+static eigrp_result_t eigrp_vty_topology_route_show(
 	const eigrp_topology_route_state_t *state, void *arg)
 {
 	struct eigrp_vty_topology_show *show = arg;
@@ -4222,7 +4222,7 @@ struct eigrp_vty_topology_context {
 	bool all_links;
 };
 
-static eigrp_result_t eigrp_vty_topology_context_render(
+static eigrp_result_t eigrp_vty_topology_show(
 	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
@@ -4258,7 +4258,7 @@ static eigrp_result_t eigrp_vty_topology_context_render(
 		"       r - reply Status, s - sia Status\n\n");
 	result = eigrp_topology_state_iterate(
 		af, runtime, options->destination, options->all_links,
-		eigrp_vty_topology_prefix_render, eigrp_vty_topology_route_render, &show);
+		eigrp_vty_topology_prefix_show, eigrp_vty_topology_route_show, &show);
 	if (result == EIGRP_RESULT_NOT_FOUND) {
 		vty_out(vty, options->destination ? "%% Network not in table\n"
 						  : "  Topology table is empty\n");
@@ -4275,7 +4275,7 @@ static int eigrp_vty_topology_walk(struct vty *vty,
 {
     struct eigrp_vty_named_state_walk walk = {
         .vty = vty,
-        .callback = eigrp_vty_topology_context_render,
+        .callback = eigrp_vty_topology_show,
         .arg = options,
     };
     eigrp_result_t result;
@@ -4520,8 +4520,8 @@ struct eigrp_vty_accounting_show {
 	struct vty *vty;
 };
 
-static eigrp_result_t eigrp_vty_accounting_state_render(
-	const eigrp_statistics_accounting_state_t *state, void *arg)
+static eigrp_result_t eigrp_vty_accounting_entry_show(
+	const eigrp_stat_nbr_limit_t *state, void *arg)
 {
 	struct eigrp_vty_accounting_show *show = arg;
 	char address[INET6_ADDRSTRLEN];
@@ -4532,24 +4532,24 @@ static eigrp_result_t eigrp_vty_accounting_state_render(
 	vty_out(show->vty, "%-5c %-40s %-22s %-10u %-9u %u\n", state->status,
 		eigrp_vty_address_string(&state->neighbor_address, address,
 					 sizeof(address)),
-		state->interface_name, state->prefix_count, state->restart_count,
+		state->interface_name, state->prefix_count, state->restart_cnt,
 		remaining);
 	return EIGRP_RESULT_SUCCESS;
 }
 
-static void eigrp_vty_limit_scope_render(struct vty *vty, const char *scope,
-	const eigrp_statistics_limit_scope_state_t *state)
+static void eigrp_vty_limit_status_show(struct vty *vty, const char *scope,
+	const eigrp_pfxlimits_af_state_t *state)
 {
 	const char *status = state->state == 2 ? "locked"
 		: state->state == 1 ? "suspended" : "normal";
 
 	vty_out(vty,
 		"  %s: %s, prefixes: %u, violations: %u, restart/reset: %u/%u seconds, penalty: %u (Q16)\n",
-		scope, status, state->prefix_count, state->restart_count,
+		scope, status, state->prefix_cnt, state->restart_cnt,
 		state->restart_seconds, state->reset_seconds, state->penalty_q16);
 }
 
-static eigrp_result_t eigrp_vty_accounting_context_render(
+static eigrp_result_t eigrp_vty_accounting_show(
 	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
 {
@@ -4560,7 +4560,7 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 	};
 	struct eigrp_vty_accounting_show show = {.vty = vty};
 	uint32_t total_prefix_count = 0;
-	eigrp_statistics_limit_state_t limits = {0};
+	eigrp_pfxlimits_summary_t limits = {0};
 	eigrp_result_t result;
 
 	(void)arg;
@@ -4569,8 +4569,8 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 	vty_out(vty, "States: A-Adjacency, P-Suspended, D-Locked\n");
 	vty_out(vty, "%-5s %-40s %-22s %-10s %-9s %s\n", "State",
 		"Address/Source", "Interface", "Prefixes", "Restart", "Restart/Reset(s)");
-	result = eigrp_statistics_accounting_iterate(
-		&context, &total_prefix_count, eigrp_vty_accounting_state_render, &show);
+	result = eigrp_stat_accounting_iterate(
+		&context, &total_prefix_count, eigrp_vty_accounting_entry_show, &show);
 	if (result == EIGRP_RESULT_SUCCESS) {
 		vty_out(vty, "Total Prefix Count: %u\n", total_prefix_count);
 	} else if (result == EIGRP_RESULT_NOT_FOUND) {
@@ -4578,10 +4578,10 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 	} else {
 		eigrp_cli_result_render(vty, "accounting", result);
 	}
-	result = eigrp_statistics_limit_state_read(&context, &limits);
+	result = eigrp_stat_pfxlimits_summary_read(&context, &limits);
 	if (result == EIGRP_RESULT_SUCCESS) {
-		eigrp_vty_limit_scope_render(vty, "Process topology", &limits.process);
-		eigrp_vty_limit_scope_render(vty, "Redistribution", &limits.redistribution);
+		eigrp_vty_limit_status_show(vty, "Process topology", &limits.process);
+		eigrp_vty_limit_status_show(vty, "Redistribution", &limits.redist);
 	} else if (result != EIGRP_RESULT_NOT_FOUND) {
 		eigrp_cli_result_render(vty, "prefix-limit state", result);
 	}
@@ -4603,7 +4603,7 @@ static eigrp_result_t eigrp_vty_traffic_context_render(
 	(void)arg;
 	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
 				       "Traffic Statistics");
-	result = eigrp_statistics_traffic_state_read(&context, &state);
+	result = eigrp_stat_traffic_read(&context, &state);
 	if (result == EIGRP_RESULT_SUCCESS) {
 		vty_out(vty, "  Hellos sent/received: %" PRIu64 "/%" PRIu64 "\n",
 			state.sent_hello, state.received_hello);
@@ -4768,7 +4768,7 @@ static eigrp_result_t eigrp_vty_event_context_render(
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] accounting`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_statistics_accounting_iterate()
+ * Target: eigrp_stat_accounting_iterate()
  */
 DEFPY(show_eigrp_accounting,
       show_eigrp_accounting_cmd,
@@ -4782,7 +4782,7 @@ DEFPY(show_eigrp_accounting,
 	if (!eigrp_vty_state_request_build(afi, as, vrf, &request))
 		return CMD_WARNING;
 	return eigrp_vty_named_state_walk(vty, &request, "accounting",
-					  eigrp_vty_accounting_context_render, NULL);
+					  eigrp_vty_accounting_show, NULL);
 }
 
 /*
@@ -4831,7 +4831,7 @@ DEFPY(show_eigrp_timer,
  * Syntax: `show eigrp address-family <ipv4|ipv6>$afi [vrf NAME$vrf] [(1-65535)$as] traffic`
  * Mode: EXEC
  * XPath: none; read-only
- * Target: eigrp_statistics_traffic_state_read()
+ * Target: eigrp_stat_traffic_read()
  */
 DEFPY(show_eigrp_traffic,
       show_eigrp_traffic_cmd,
@@ -4920,13 +4920,13 @@ static eigrp_result_t eigrp_vty_tech_support_context(
 					 runtime, &interface_options);
 	eigrp_vty_neighbor_context_render(vty, state->instance_name, state->config,
 					runtime, &neighbor_options);
-	eigrp_vty_topology_context_render(vty, state->instance_name, state->config,
+	eigrp_vty_topology_show(vty, state->instance_name, state->config,
 					runtime, &topology_options);
 	eigrp_vty_traffic_context_render(vty, state->instance_name, state->config,
 				       runtime, NULL);
 	eigrp_vty_timer_context_render(vty, state->instance_name, state->config,
 				     runtime, NULL);
-	eigrp_vty_accounting_context_render(vty, state->instance_name, state->config,
+	eigrp_vty_accounting_show(vty, state->instance_name, state->config,
 					  runtime, NULL);
 	eigrp_vty_event_context_render(vty, state->instance_name, state->config,
 				     runtime, NULL);
