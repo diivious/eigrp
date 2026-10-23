@@ -4537,6 +4537,18 @@ static eigrp_result_t eigrp_vty_accounting_state_render(
 	return EIGRP_RESULT_SUCCESS;
 }
 
+static void eigrp_vty_limit_scope_render(struct vty *vty, const char *scope,
+	const eigrp_statistics_limit_scope_state_t *state)
+{
+	const char *status = state->state == 2 ? "locked"
+		: state->state == 1 ? "suspended" : "normal";
+
+	vty_out(vty,
+		"  %s: %s, prefixes: %u, violations: %u, restart/reset: %u/%u seconds, penalty: %u (Q16)\n",
+		scope, status, state->prefix_count, state->restart_count,
+		state->restart_seconds, state->reset_seconds, state->penalty_q16);
+}
+
 static eigrp_result_t eigrp_vty_accounting_context_render(
 	struct vty *vty, const char *instance_name, eigrp_af_config_t *af,
 	eigrp_instance_t *runtime, void *arg)
@@ -4548,12 +4560,13 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 	};
 	struct eigrp_vty_accounting_show show = {.vty = vty};
 	uint32_t total_prefix_count = 0;
+	eigrp_statistics_limit_state_t limits = {0};
 	eigrp_result_t result;
 
 	(void)arg;
 	eigrp_vty_named_context_header(vty, instance_name, af, runtime,
 				       "Accounting");
-	vty_out(vty, "States: A-Adjacency, P-Pending, D-Down\n");
+	vty_out(vty, "States: A-Adjacency, P-Suspended, D-Locked\n");
 	vty_out(vty, "%-5s %-40s %-22s %-10s %-9s %s\n", "State",
 		"Address/Source", "Interface", "Prefixes", "Restart", "Restart/Reset(s)");
 	result = eigrp_statistics_accounting_iterate(
@@ -4564,6 +4577,13 @@ static eigrp_result_t eigrp_vty_accounting_context_render(
 		vty_out(vty, "  Runtime accounting data is not available\n");
 	} else {
 		eigrp_cli_result_render(vty, "accounting", result);
+	}
+	result = eigrp_statistics_limit_state_read(&context, &limits);
+	if (result == EIGRP_RESULT_SUCCESS) {
+		eigrp_vty_limit_scope_render(vty, "Process topology", &limits.process);
+		eigrp_vty_limit_scope_render(vty, "Redistribution", &limits.redistribution);
+	} else if (result != EIGRP_RESULT_NOT_FOUND) {
+		eigrp_cli_result_render(vty, "prefix-limit state", result);
 	}
 	return EIGRP_RESULT_SUCCESS;
 }

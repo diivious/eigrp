@@ -21,6 +21,9 @@
 #define EIGRP_STATISTICS_TRAFFIC_SIA_QUERY (1U << 5)
 #define EIGRP_STATISTICS_TRAFFIC_SIA_REPLY (1U << 6)
 
+eigrp_result_t eigrp_statistics_limit_state_read(
+	const eigrp_instance_context_t *context,
+	eigrp_statistics_limit_state_t *state);
 eigrp_result_t eigrp_statistics_accounting_iterate(
 	const eigrp_instance_context_t *context, uint32_t *total_prefix_count,
 	eigrp_statistics_accounting_cb callback, void *arg);

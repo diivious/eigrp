@@ -107,6 +107,46 @@ static void snapshot(eigrp_instance_t *runtime, eigrp_nbr_t *nbr,
     }
 }
 
+static void scope_snapshot(eigrp_instance_t *runtime)
+{
+    eigrp_statistics_limit_state_t state;
+    eigrp_instance_context_t context = {.runtime = runtime};
+    uint64_t now = eigrp_sys_monotime_msec();
+
+    assert(eigrp_statistics_limit_state_read(NULL, &state) == EIGRP_RESULT_NOT_FOUND);
+    assert(eigrp_statistics_limit_state_read(&context, NULL) == EIGRP_RESULT_INVALID_ARGUMENT);
+    assert(eigrp_statistics_limit_state_read(&context, &state) == EIGRP_RESULT_SUCCESS);
+    assert(state.process.state == 0 && state.process.prefix_count == 0);
+    assert(state.redistribution.state == 0 && state.redistribution.prefix_count == 0);
+
+    runtime->process_limit_state = 1;
+    runtime->process_limit_restarts = 2;
+    runtime->process_limit_penalty_q16 = 2 * 65536U;
+    runtime->process_limit_restart_due_msec = now + 2500;
+    runtime->process_limit_reset_due_msec = now + 5500;
+    runtime->redist_limit_state = 2;
+    runtime->redist_limit_restarts = 3;
+    runtime->redist_prefix_count = 7;
+    assert(eigrp_statistics_limit_state_read(&context, &state) == EIGRP_RESULT_SUCCESS);
+    assert(state.process.state == 1 && state.process.restart_count == 2);
+    assert(state.process.penalty_q16 == 2 * 65536U);
+    assert(state.process.restart_seconds >= 2 && state.process.restart_seconds <= 3);
+    assert(state.process.reset_seconds >= 5 && state.process.reset_seconds <= 6);
+    assert(state.redistribution.state == 2 && state.redistribution.restart_count == 3);
+    assert(state.redistribution.prefix_count == 7 && state.redistribution.restart_seconds == 0);
+    assert(state.redistribution.reset_seconds == 0);
+
+    runtime->process_limit_state = 0;
+    runtime->process_limit_restart_due_msec = 0;
+    runtime->redist_limit_state = 0;
+    runtime->redist_prefix_count = 0;
+    assert(eigrp_statistics_limit_state_read(&context, &state) == EIGRP_RESULT_SUCCESS);
+    assert(state.process.state == 0 && state.process.restart_seconds == 0);
+    assert(state.process.restart_count == 2 && state.process.reset_seconds > 0);
+    assert(state.redistribution.state == 0 && state.redistribution.prefix_count == 0);
+    runtime->process_limit_reset_due_msec = 0;
+}
+
 static void run(int family)
 {
     eigrp_instance_t runtime = {0};
@@ -141,6 +181,7 @@ static void run(int family)
     nbr = eigrp_nbr_create(&interface, &address);
     assert(nbr);
 
+    scope_snapshot(&runtime);
     snapshot(&runtime, nbr, 0, 0, false); /* INIT not shown as penalty P. */
     eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_UP);
     snapshot(&runtime, nbr, 'A', 0, false);

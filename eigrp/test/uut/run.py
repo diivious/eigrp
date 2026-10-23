@@ -163,8 +163,8 @@ STEP_FIELDS = {
     "peer-limit-config": {"uut", "maximum", "warning_only"},
     "redist-limit-config": {"uut", "maximum", "warning_only"},
     "process-limit-config": {"uut", "maximum", "warning_only", "dampened"},
-    "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "process-limit-reset-expire": {"uut"}, "process-limit-stale": {"uut"}, "process-limit-age": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "restart_active", "reset_active", "penalty", "penalty_min", "penalty_max", "timeout"},
-    "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "timeout"},
+    "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "process-limit-reset-expire": {"uut"}, "process-limit-stale": {"uut"}, "process-limit-age": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "penalty_min", "penalty_max", "timeout"},
+    "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "timeout"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
     "redistribute-add": {"uut", "source"}, "redistribute-remove": {"uut", "source"},
     "wait": {"seconds"}, "fault-add": {"name", "action", "source_uut", "destination_uut",
@@ -391,7 +391,7 @@ class Node:
             elif typ=="PATH": st["paths"].append({"prefix":current_prefix,"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","feasible_successor":kv.get("feasible_successor")=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
             elif typ=="RIB": st["rib"].append({"prefix":kv["prefix"],"next_hop":kv["next_hop"],"metric":int(kv["metric"]),"distance":int(kv["admin_distance"])})
             elif typ=="REDIST-LIMIT": st["redist_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"count":int(kv["count"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1", "penalty":int(kv.get("penalty",0))}
-            elif typ=="PROCESS-LIMIT": st["process_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1", "penalty":int(kv.get("penalty",0))}
+            elif typ=="PROCESS-LIMIT": st["process_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"count":int(kv["count"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1", "penalty":int(kv.get("penalty",0))}
             elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
     def link(self,up,ifname):

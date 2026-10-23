@@ -78,6 +78,44 @@ static uint32_t eigrp_statistics_neighbor_prefix_count(
 	return count;
 }
 
+/* Return both AF-owned penalty scopes without inspecting neighbors. These
+ * values remain meaningful while all adjacencies are suspended or removed. */
+eigrp_result_t eigrp_statistics_limit_state_read(
+	const eigrp_instance_context_t *context,
+	eigrp_statistics_limit_state_t *state)
+{
+	eigrp_instance_t *runtime;
+	uint64_t now;
+	eigrp_result_t result = eigrp_statistics_context_validate(context);
+
+	if (result != EIGRP_RESULT_SUCCESS)
+		return result;
+	if (!state)
+		return EIGRP_RESULT_INVALID_ARGUMENT;
+	runtime = context->runtime;
+	memset(state, 0, sizeof(*state));
+	now = eigrp_sys_monotime_msec();
+
+	state->process.state = runtime->process_limit_state;
+	state->process.prefix_count = eigrp_statistics_prefix_count(runtime);
+	state->process.restart_count = runtime->process_limit_restarts;
+	state->process.restart_seconds = eigrp_nbr_limit_seconds(
+		runtime->process_limit_restart_due_msec, now);
+	state->process.reset_seconds = eigrp_nbr_limit_seconds(
+		runtime->process_limit_reset_due_msec, now);
+	state->process.penalty_q16 = runtime->process_limit_penalty_q16;
+
+	state->redistribution.state = runtime->redist_limit_state;
+	state->redistribution.prefix_count = runtime->redist_prefix_count;
+	state->redistribution.restart_count = runtime->redist_limit_restarts;
+	state->redistribution.restart_seconds = eigrp_nbr_limit_seconds(
+		runtime->redist_limit_restart_due_msec, now);
+	state->redistribution.reset_seconds = eigrp_nbr_limit_seconds(
+		runtime->redist_limit_reset_due_msec, now);
+	state->redistribution.penalty_q16 = runtime->redist_limit_penalty_q16;
+	return EIGRP_RESULT_SUCCESS;
+}
+
 /*
  * Syntax:
  *   EXEC: `show eigrp address-family <ipv4|ipv6> ... accounting`

@@ -18,8 +18,11 @@ def test_accounting_renders_portable_state_without_synthetic_restart_values():
                   'state->reset_seconds', 'state->prefix_count'):
         assert field in code
     assert 'eigrp_statistics_accounting_iterate(' in code
+    assert 'eigrp_statistics_limit_state_read(&context, &limits)' in code
+    assert 'eigrp_vty_limit_scope_render(vty, "Process topology"' in code
+    assert 'eigrp_vty_limit_scope_render(vty, "Redistribution"' in code
     assert 'Restart fields are n/a' not in code
-    assert 'States: A-Adjacency, P-Pending, D-Down' in code
+    assert 'States: A-Adjacency, P-Suspended, D-Locked' in code
 
 
 def test_neighbor_and_timer_views_render_portable_penalty_state():

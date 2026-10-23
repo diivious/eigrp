@@ -9,7 +9,7 @@ steps:
   - source-route-add: {uut: r1, prefix: '192.0.2.211/32', metric: 20}
   - validate-route: {uut: r2, prefix: '192.0.2.211/32', table: rib, present: true, timeout: 15}
   - source-route-add: {uut: r1, prefix: '192.0.2.212/32', metric: 20}
-  - validate-redist-limit: {uut: r1, state: 1, restarts: 1, restart_active: true, reset_active: true}
+  - validate-redist-limit: {uut: r1, state: 1, restarts: 1, restart_active: true, reset_active: true, penalty: 0}
   - validate-route: {uut: r2, prefix: '192.0.2.211/32', table: rib, present: false, timeout: 15}
   - validate-route: {uut: r2, prefix: '192.0.2.212/32', table: rib, present: false, timeout: 2}
   - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 3}

@@ -229,6 +229,26 @@ typedef struct eigrp_statistics_accounting_state {
 	uint32_t reset_seconds;
 } eigrp_statistics_accounting_state_t;
 
+/* AF-owned process and redistribution penalty snapshots. These scopes are
+ * independent of individual neighbor penalties and may exist without peers. */
+typedef struct eigrp_statistics_limit_scope_state {
+	uint8_t state; /* 0 normal, 1 suspended, 2 locked. */
+	uint32_t prefix_count;
+	uint16_t restart_count;
+	uint32_t restart_seconds;
+	uint32_t reset_seconds;
+	uint32_t penalty_q16;
+} eigrp_statistics_limit_scope_state_t;
+
+typedef struct eigrp_statistics_limit_state {
+	eigrp_statistics_limit_scope_state_t process;
+	eigrp_statistics_limit_scope_state_t redistribution;
+} eigrp_statistics_limit_state_t;
+
+eigrp_result_t eigrp_statistics_limit_state_read(
+	const eigrp_instance_context_t *context,
+	eigrp_statistics_limit_state_t *state);
+
 typedef eigrp_result_t (*eigrp_statistics_accounting_cb)(
 	const eigrp_statistics_accounting_state_t *state, void *arg);
 eigrp_result_t eigrp_statistics_accounting_iterate(
