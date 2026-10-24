@@ -49,7 +49,7 @@ static void run_timers(int afi)
     eigrp_addr_t src;
     eigrp_nbr_t *nbr;
     eigrp_prefix_limit_t limit = {.maximum = 1};
-    uint64_t now, first_delay, second_delay, elapsed;
+    uint64_t now, after, first_delay, second_delay, elapsed;
     uint32_t expected;
     unsigned i;
 
@@ -93,16 +93,19 @@ static void run_timers(int afi)
     limit.warning_only = false;
 
     for (i = 1; i <= 2; ++i) {
+        /* Bracket the actual clock read inside the violation. A CI runner
+         * may be preempted for arbitrarily long between these calls. */
         now = eigrp_sys_monotime_msec();
         assert(eigrp_nbr_limit_exceeded(nbr, &limit));
+        after = eigrp_sys_monotime_msec();
         assert(nbr->limit_restart_cnt == i && !eigrp_nbr_is_eligible(nbr));
         assert(nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED);
         assert(nbr->state == EIGRP_NEIGHBOR_DOWN);
         assert(nbr->t_limit_restart && nbr->t_limit_reset);
         assert(nbr->limit_restart_due_msec >= now + 300000U);
-        assert(nbr->limit_restart_due_msec <= now + 300200U);
+        assert(nbr->limit_restart_due_msec <= after + 300000U);
         assert(nbr->limit_reset_due_msec >= now + 900000U);
-        assert(nbr->limit_reset_due_msec <= now + 900200U);
+        assert(nbr->limit_reset_due_msec <= after + 900000U);
         /* An early timer callback must preserve ineligibility. */
         eigrp_nbr_limit_restart_expired(nbr);
         assert(!eigrp_nbr_is_eligible(nbr) && nbr->t_limit_restart);

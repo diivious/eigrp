@@ -339,11 +339,25 @@ def validate_scenario(s):
             if "since" in arg and arg["since"] not in marks: raise SpecError(f"{where}: unknown packet mark {arg['since']!r}")
     return s
 
+def process_penalty_bounds(aged_msec, extra_msec):
+    """Bracket a second Q16 penalty across elapsed replay time.
+
+    The exact recurrence can occur any time after process-limit-age and
+    before the next STATE reply. Decay continues throughout that interval.
+    """
+    def penalty(elapsed):
+        return 65536 + 65536 * 2 ** (-elapsed / 450000)
+
+    return (int(penalty(aged_msec + extra_msec)) - 256,
+            int(penalty(aged_msec)) + 256)
+
+
 class Node:
     def __init__(self,name,config,sock):
         self.name=name; self.config=config; self.sock=sock; self.p=None
         self.stderr=[]; self.err_thread=None; self.stdout_thread=None
         self.process_limit_age_elapsed=None
+        self.process_limit_age_started=None
         self.responses=queue.Queue(); self.cmd_lock=threading.Lock()
     def _start_stdout_reader(self):
         # Read from the buffered TextIO stream in exactly one thread. select()
@@ -455,10 +469,12 @@ class Node:
             raise RuntimeError(f"{self.name}: process reset timer expiry failed")
 
     def process_limit_age(self):
+        started = time.monotonic()
         result = self.cmd("PROCESS-LIMIT-AGE", timeout=10)
         if not result.startswith("RESULT|0|elapsed="):
             raise RuntimeError(f"{self.name}: process penalty aging failed: {result}")
         self.process_limit_age_elapsed = int(result.split("=", 1)[1])
+        self.process_limit_age_started = started
 
     def process_limit_stale(self):
         if self.cmd("PROCESS-LIMIT-STALE", timeout=10) != "RESULT|0":
@@ -773,16 +789,17 @@ class Runner:
             penalty_min = arg.get("penalty_min", 0)
             penalty_max = arg.get("penalty_max", 4294967295)
             if arg.get("penalty_after_age"):
-                elapsed = self.nodes[arg["uut"]].process_limit_age_elapsed
-                if elapsed is None:
+                node = self.nodes[arg["uut"]]
+                if node.process_limit_age_elapsed is None or node.process_limit_age_started is None:
                     raise RuntimeError("process penalty age was not recorded")
-                # One initial Q16 incident decays by elapsed/7.5m; the
-                # recurring violation contributes one more Q16 incident.
-                expected = 65536 + 65536 * 2 ** (-elapsed / 450000)
-                penalty_min = int(expected) - 256
-                penalty_max = int(expected) + 256
             while True:
                 actual = self.nodes[arg["uut"]].state().get("process_limit", {})
+                if arg.get("penalty_after_age"):
+                    # The second violation occurs during asynchronous route
+                    # replay, not when PROCESS-LIMIT-AGE returns. Bound its
+                    # actual decay by the time elapsed through this STATE read.
+                    extra = max(0, int((time.monotonic() - node.process_limit_age_started) * 1000))
+                    penalty_min, penalty_max = process_penalty_bounds(node.process_limit_age_elapsed, extra)
                 if (all(actual.get(k) == v for k,v in arg.items()
                         if k not in ("uut", "timeout", "penalty_min", "penalty_max", "penalty_after_age"))
                     and penalty_min <= actual.get("penalty", 0) <= penalty_max):

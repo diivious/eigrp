@@ -15,7 +15,8 @@ steps:
   - process-limit-age: {uut: r1}
   - process-limit-expire: {uut: r1}
   # CI hosts can have less than 7.5 minutes of monotonic uptime.
-  # Check the real decay using the elapsed interval actually aged by the UUT.
+  # Check real decay across both the test-aged interval and asynchronous
+  # neighbor/route replay time before the second violation is observed.
   - validate-process-limit: {uut: r1, state: 1, restarts: 2, restart_active: true, reset_active: true, penalty_after_age: true}
   - process-limit-expire: {uut: r1}
   - validate-process-limit: {uut: r1, state: 2, restarts: 3, restart_active: false, reset_active: false}

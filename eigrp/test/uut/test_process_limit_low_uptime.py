@@ -63,3 +63,23 @@ def test_process_dampening_fresh_linux_uptime(tmp_path):
                          cwd=ROOT, env=env, text=True, capture_output=True,
                          timeout=70)
     assert ran.returncode == 0, ran.stdout + ran.stderr
+
+
+def test_penalty_bounds_include_async_replay_elapsed():
+    """A replay delay must not turn legitimate further decay into a failure."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("eigrp_uut_run", UUT / "run.py")
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+
+    aged = 90000
+    replay = 5000
+    actual = int(65536 + 65536 * 2 ** (-(aged + replay) / 450000))
+    min_penalty, max_penalty = runner.process_penalty_bounds(aged, replay)
+    assert min_penalty <= actual <= max_penalty
+    assert actual < runner.process_penalty_bounds(aged, 0)[0]
+    # A full half-life retains the original, narrow Q16 decay oracle.
+    assert runner.process_penalty_bounds(450000, 0) == (98048, 98560)
+    # Incorrect penalty accumulation remains outside the replay-time bounds.
+    assert not min_penalty <= 65536 <= max_penalty
