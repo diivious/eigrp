@@ -1,0 +1,34 @@
+{#
+  Shared Cisco IOS XE / FRR+OpenEIGRP named-mode configuration.
+  Use only topology-provided interface and loopback data. Netlab renders this
+  template once per device and applies it through the native device transport.
+  No classic-mode EIGRP module is enabled on these devices.
+#}
+{% set eigrp_name = 'OpenEIGRP' %}
+{% set eigrp_as = 4473 %}
+{% set rid = loopback.ipv4.split('/')[0] %}
+router eigrp {{ eigrp_name }}
+ address-family ipv4 unicast autonomous-system {{ eigrp_as }}
+  eigrp router-id {{ rid }}
+{% for intf in interfaces|default([]) if intf.ipv4 is defined and intf.ipv4 is string and intf.type|default('') != 'loopback' %}
+  network {{ intf.ipv4.split('/')[0] }} 0.0.0.0
+{% endfor %}
+  no shutdown
+{% for intf in interfaces|default([]) if intf.ipv4 is defined and intf.ipv4 is string and intf.type|default('') != 'loopback' %}
+  af-interface {{ intf.ifname }}
+   no passive-interface
+   no shutdown
+  exit-af-interface
+{% endfor %}
+ exit-address-family
+ address-family ipv6 unicast autonomous-system {{ eigrp_as }}
+  eigrp router-id {{ rid }}
+  no shutdown
+{% for intf in interfaces|default([]) if intf.ipv6 is defined and intf.ipv6 and intf.type|default('') != 'loopback' %}
+  af-interface {{ intf.ifname }}
+   no passive-interface
+   no shutdown
+  exit-af-interface
+{% endfor %}
+ exit-address-family
+!

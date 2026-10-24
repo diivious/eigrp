@@ -1,0 +1,31 @@
+# Native netlab topology: initial interface/loopback configuration and EIGRP
+# configuration are deployed by netlab, never by the UUT Python validator.
+name: eigrp-neighbor
+provider: clab
+
+defaults:
+  devices.frr.clab.image: ghcr.io/diivious/openeigrp-frr:0.3.0
+  devices.csr.clab.image: vrnetlab/vr-csr:17.03.06
+  # netlab's native post-start hook; FRR can start after Docker reports running.
+  devices.frr.clab.group_vars.netlab_config_exec: [ 'sleep 10' ]
+  # The common template is staged with the test, outside the topology folder.
+  paths.prepend.custom.dirs: [ 'topology:../../config' ]
+
+nodes:
+  oe:
+    device: frr
+    frr.daemons: [ eigrpd ]
+    config: [ eigrp-named ]
+    loopback.ipv4: 10.255.0.1/32
+  csr:
+    device: csr
+    config: [ eigrp-named ]
+    loopback.ipv4: 10.255.0.2/32
+
+links:
+- oe:
+    ipv4: 10.44.53.1/30
+    ipv6: 2001:db8:4473:1::1/64
+  csr:
+    ipv4: 10.44.53.2/30
+    ipv6: 2001:db8:4473:1::2/64

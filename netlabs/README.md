@@ -1,4 +1,153 @@
-# OpenEIGRP Learning Curriculum Specification
+# OpenEIGRP netlabs
+
+## Getting started
+
+`netlabs/` provides two independent tools for a shared Linux lab appliance:
+
+- **`netlabs/tools/remote-lab.sh`** deploys a numbered instructional lab and
+  leaves it running for an operator to follow the lab guide. No numbered labs
+  are deployable yet; the curriculum below describes planned labs.
+- **`netlabs/tools/remote-uut.sh`** deploys an automated interoperability test,
+  validates it, collects reports, and tears down the topology. The implemented
+  `2R-neighbor` scenario tests OpenEIGRP-FRR 0.3.0 against Cisco CSR1000v
+  17.03.06 for bidirectional IPv4 and IPv6 EIGRP neighbor formation.
+
+The numeric prefix in `2R-neighbor` identifies the **total number of routers**
+regardless of their implementations. These live tests are separate from the
+portable `make uut` framework in `eigrp/test/uut/`.
+
+### Prerequisites
+
+The **execution host** must be Linux with Docker, Containerlab, netlab,
+Ansible, KVM acceleration for Cisco virtual routers, and the dedicated `netlab`
+account. The provisioner used for StormTrooper installs these dependencies and
+creates `/home/netlab/netlab-venv/`, `/home/netlab-data/runs/`, and
+`/home/netlab-data/results/`. Before using these scripts, verify that the
+`netlab` account can run `netlab test clab` and access Docker images.
+
+The `2R-neighbor` scenario also requires these exact image tags on the execution
+host: `ghcr.io/diivious/openeigrp-frr:0.3.0` and
+`vrnetlab/vr-csr:17.03.06`. CSR1000v IOS XE takes several minutes to boot.
+The runner requires `sshpass` on the execution host for its Cisco CLI checks.
+
+The **client** can be macOS or Linux and needs Bash, SSH, and `tar`. Python,
+Docker, Containerlab, and netlab are not required on the client. If using
+password-based SSH instead of public keys, install `sshpass` on the client too.
+The client needs a local OpenEIGRP repository checkout containing `netlabs/`.
+
+### Configure the execution host
+
+Edit **`netlabs/remote-lab.cfg`** in your local checkout (not `netlabs.cfg`):
+
+```bash
+REMOTE_HOST=204.75.212.13
+REMOTE_USER=netlab
+REMOTE_PASSWORD=netlab
+REMOTE_SSH_PORT=22
+```
+
+`REMOTE_HOST` can be a resolvable hostname or an IPv4 address. `netlab` is the
+requested default for both user and password; the account password must be set
+separately if you intend to use password authentication. **SSH keys are
+preferred.** In that case, the password setting is unused. Treat the config as
+a trusted Bash file because the clients source it directly.
+
+Do **not commit a real password** to Git. Use an untracked credential file
+outside your checkout if you need one:
+
+```bash
+chmod 600 /path/to/private-remote-lab.cfg
+export REMOTE_LAB_CONFIG=/path/to/private-remote-lab.cfg
+```
+
+The override file must specify the same variable names. A password is not
+needed when SSH public-key authentication works.
+
+Before your first run, verify unattended SSH authentication from your client:
+
+```bash
+ssh -o BatchMode=yes netlab@204.75.212.13 whoami
+# expected: netlab
+```
+
+If this fails but interactive password SSH succeeds, authorize your client's
+public key in `/home/netlab/.ssh/authorized_keys` on the Linux execution host.
+The host does **not** need a new SSH key pair. Use the actual configured
+`REMOTE_HOST` instead of the example address above.
+
+### Can I use localhost?
+
+**Yes, with an important restriction:** `REMOTE_HOST=127.0.0.1` (or
+`REMOTE_HOST=localhost`) works when the client script runs **on the Linux
+execution host itself**, provided it has the same provisioning, Docker/KVM
+images, `netlab` account, running SSH server, and SSH authentication to
+`netlab@127.0.0.1`. The scripts still use SSH, even for loopback. Confirm with:
+
+```bash
+ssh -o BatchMode=yes netlab@127.0.0.1 whoami
+# expected: netlab
+```
+
+Setting `127.0.0.1` **on macOS points to the Mac**, not StormTrooper. It does
+not enable running the CSR1000v KVM lab natively on macOS. Likewise, an
+unprovisioned local Linux machine is not automatically a lab appliance.
+
+### Run tests and manage labs
+
+From the OpenEIGRP repository root:
+
+```bash
+netlabs/tools/remote-uut.sh --list
+netlabs/tools/remote-uut.sh --scenario 2R-neighbor
+
+netlabs/tools/remote-lab.sh --status
+netlabs/tools/remote-lab.sh --lab 101  # when lab 101 is implemented
+netlabs/tools/remote-lab.sh --connect  # choose a router
+netlabs/tools/remote-lab.sh --stop     # destroy the active lab
+```
+
+Only **one lab or UUT session** can occupy the execution host at a time. The
+server maintains authoritative session state in `/home/netlab/.remote-lab/`;
+interactive labs persist until `--stop`, while UUTs tear down automatically.
+The tools stream progress and return a final PASS/FAIL. A failure to clean up
+retains the session for recovery rather than claiming success.
+
+UUT reports are copied to `netlabs/results/uut-.../` in the client checkout;
+`report.json` contains separate IPv4/IPv6 verdicts, `run-status.txt` records
+execution and cleanup status, and the logs include deployment, CLI, and router
+startup diagnostics. Transient Cisco SSH retries and macOS tar extended
+attribute warnings are suppressed or retained in diagnostic logs when possible.
+A successful neighbor test does **not** verify route exchange or convergence.
+
+### Code layout and developer checks
+
+```text
+netlabs/
+├── README.md                 # Operation guide and instructional curriculum
+├── remote-lab.cfg            # Client SSH settings; keep secrets out of Git
+├── config/eigrp-named.j2    # Shared named-mode Cisco/OpenEIGRP configuration
+├── tools/
+│   ├── remote-lab.sh
+│   ├── remote-uut.sh
+│   └── remote/{common.sh,runner.sh}
+├── uut/
+│   ├── 2R-neighbor.py       # Live test driver
+│   ├── 2R-neighbor/         # Native netlab topology and scenario
+│   └── tests/
+├── labs/                    # Numbered instructional labs (not yet deployed)
+├── tests/                   # Remote runner regression tests
+└── results/                 # Generated artifacts; excluded from Git
+```
+
+```bash
+python3 -m unittest discover -s netlabs/uut/tests -p 'test_2r_neighbor.py'
+netlabs/tests/test_remote_runtime.sh
+```
+
+These regression tests use mocked external tools. Live interoperability and
+cleanup must be verified separately on the provisioned execution host.
+
+---
 
 **Platform:** [netlab](https://netlab.tools/) for network labs; portable OpenEIGRP tools and the project repository for developer labs
 
@@ -35,24 +184,16 @@ Each developer lab should add build/test commands, an exercise branch or reprodu
 
 **Release gate:** A lab is *planned* until its environment, commands, reference solution and semantic validations are executed and confirmed on a named OpenEIGRP integration and image version.
 
-## Repository layout
+## Repository layout and lab status
 
-The initial scaffold contains only the curriculum and two empty directories, retained in Git by `.gitkeep` files:
+The operational layout and commands are documented in **Getting started**
+above. The instructional curriculum below remains a specification: a lab is
+not deployable until its numbered `netlabs/labs/NNN/` directory includes a
+working `topology.yml` and its learning materials. `netlabs/uut/2R-neighbor`
+is an implemented *automated interoperability test*, not lab 101.
 
-```text
-openeigrp/
-└── netlabs/
-    ├── README.md
-    ├── common/
-    │   └── .gitkeep
-    └── frr/
-        └── .gitkeep
-```
-
-Lab scenarios, configuration and validation templates, and other platform adapters will be added after the directory and curriculum design is reviewed. None of the proposed labs are implemented by this scaffold.
-
-The **400-level** labs concern source development and need not all reside under `netlabs/common/`; their canonical exercises may live under a separate training path, for example `training/developer/401-architecture/`. This keeps netlab limited to its actual role as network orchestration. Directory names are short; full descriptive titles belong in READMEs.
-
+All netlab-specific tooling, templates, labs, tests, and configuration belong
+under `netlabs/`, including future 400-level lab materials.
 
 ## OEIGRP 100: EIGRP Foundations
 
