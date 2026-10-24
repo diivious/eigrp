@@ -31,7 +31,7 @@ void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	eigrp_debug_neighbor_sia(nbr, "SIA-QUERY received");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
 				   nbr ? nbr->ei : NULL, nbr, "SIA-QUERY received");
-	eigrp_fsm_action_message_t msg;
+	eigrp_fsm_action_message_t msg = {0};
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 
@@ -93,11 +93,14 @@ void eigrp_siaquery_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		msg.route = route;
 		msg.metrics = received_route->metric;
 		msg.prefix = prefix;
+		msg.transient_route = !topology_route &&
+			!eigrp_nbr_route_admit(eigrp, nbr, &prefix->destination,
+						   &msg.metrics);
 		eigrp_fsm_event(&msg);
 		if (prefix->state != EIGRP_FSM_STATE_PASSIVE)
 			eigrp_siareply_send(eigrp, nbr, prefix, true);
 
-		if (free_received_route)
+		if (free_received_route || msg.transient_route)
 			eigrp_topology_route_free(received_route);
 	}
 

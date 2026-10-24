@@ -1,0 +1,26 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Neighbor maximum-prefix violations defer DOWN cleanup safely (IPv4)
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
+  - validate-route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: true, timeout: 12}
+  - peer-limit-config: {uut: r1, maximum: 1}
+  - redistribute-add: {uut: r2, source: static}
+  - source-route-add: {uut: r2, prefix: 192.0.2.201/32, metric: 20}
+  - validate-convergence:
+      timeout: 15
+      expect:
+        - neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, reliable_q: 0}
+        - route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: false}
+        - route: {uut: r1, prefix: 192.0.2.201/32, table: rib, present: false}
+  - validate-event: {uut: r1, contains: 'reason prefix limit exceeded'}
+  - validate-neighbor: {uut: r2, neighbor: 10.0.0.1, interface: eth0, state: up, timeout: 2}
+  # Remove the excess source before recovery; otherwise a fresh UPDATE
+  # correctly triggers another limit incident.
+  - source-route-remove: {uut: r2, prefix: 192.0.2.201/32}
+  - redistribute-remove: {uut: r2, source: static}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: expire}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 12}
+  - validate-route: {uut: r1, prefix: 10.2.0.0/24, table: rib, present: true, timeout: 12}
+  - stop: all

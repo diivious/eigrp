@@ -24,6 +24,10 @@ eigrp_result_t eigrp_redist_max_prefix_update(eigrp_operation_t operation,
 	const eigrp_prefix_limit_t *limit);
 bool eigrp_redist_prefix_admit(eigrp_instance_t *runtime,
 	const eigrp_rib_route_t *route);
+void eigrp_redist_routes_withdraw(eigrp_instance_t *runtime);
+void eigrp_redist_routes_replay(eigrp_instance_t *runtime);
+void eigrp_redist_limit_restart_expired(void *runtime);
+eigrp_result_t eigrp_redist_limit_clear(eigrp_instance_t *runtime);
 void eigrp_redist_policy_delete_all(eigrp_af_config_t *af);
 
 #endif /* EIGRPD_EIGRP_REDISTRIBUTE_H_ */

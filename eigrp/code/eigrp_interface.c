@@ -1551,7 +1551,7 @@ int eigrp_intf_up(eigrp_instance_t *eigrp, eigrp_intf_t *ei)
 		eigrp_update_send_all(eigrp, NULL);
 
 	} else {
-		eigrp_fsm_action_message_t msg;
+		eigrp_fsm_action_message_t msg = {0};
 
 		route->prefix = prefix;
 		eigrp_route_descriptor_add(eigrp, prefix, route);
@@ -1602,7 +1602,7 @@ int eigrp_intf_down(eigrp_intf_t *ei)
 	 * query process*/
 	for (EIGRP_LIST_ITERATE(ei->nbrs, node, nnode, nbr)) {
 		eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-			EIGRP_EVENTLOG_NEIGHBOR_REASON_INTERFACE_DOWN);
+			EIGRP_EVENTLOG_NBR_INTF_DOWN);
 		eigrp_nbr_delete(nbr);
 	}
 	eigrp_topology_connected_interface_down(ei->eigrp, ei);

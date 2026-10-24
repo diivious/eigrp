@@ -32,6 +32,19 @@
 
 /* Caller must hold instance->peer_lock (ingress authentication already does). */
 bool eigrp_nbr_admit_locked(const eigrp_intf_t *ei);
+/* Combined neighbor/topology admission for a new neighbor-owned path. */
+bool eigrp_nbr_route_admit(eigrp_instance_t *, eigrp_nbr_t *,
+	const eigrp_prefix_t *, const eigrp_metrics_t *);
+
+
+/* Prefix-limit admission is orthogonal to the normal EIGRP DOWN/PENDING/UP
+ * handshake. A suspended neighbor is DOWN operationally, but remains published
+ * so its penalty identity survives until explicit deletion. */
+typedef enum eigrp_nbr_limit_state {
+	EIGRP_NBR_LIMIT_NONE = 0,
+	EIGRP_NBR_LIMIT_SUSPENDED,
+	EIGRP_NBR_LIMIT_LOCKED,
+} eigrp_nbr_limit_state_t;
 
 /* Neighbor Data Structure */
 typedef struct eigrp_neighbor {
@@ -61,7 +74,28 @@ typedef struct eigrp_neighbor {
 	uint64_t multicast_epoch; /* Changes on every UP transition. */
 
 	/* EIGRP neighbor Information */
-	uint8_t state; /* neigbor status. */
+	uint8_t state; /* normal adjacency FSM status */
+	eigrp_nbr_limit_state_t limit_state; /* prefix-limit admission status */
+	/* The receive path marks DOWN immediately, but drains DUAL/RTP only
+	 * after the packet TLV walker returns. Owned by the AF thread. */
+	bool eigrp_pfxlimits_af_suspended; /* Suspension imposed by the AF topology prefix limit. */
+	bool topo_batch_seen; /* Temporary per-prefix mark during AF suspension teardown. */
+	bool limit_cleanup_pending;
+	uint8_t limit_prev_state;
+	eigrp_prefix_limit_t limit_pending_cfg;
+	/* Maintained on actual RDB insert/delete, so admission stays O(1). */
+	uint32_t limit_prefix_count;
+	bool limit_prefix_count_valid;
+
+	/* Prefix-limit penalty lifetime is owned by this peer.  Protocol timers
+	 * are cancelled on DOWN; these survive until restart/reset or DELETE. */
+	uint16_t limit_restart_cnt;
+	uint32_t limit_penalty_q16;
+	uint64_t limit_decay_msec;
+	uint64_t limit_restart_due_msec;
+	uint64_t limit_reset_due_msec;
+	eigrp_timer_event_t *t_limit_restart;
+	eigrp_timer_event_t *t_limit_reset;
 
 	uint32_t recv_sequence_number; /* Last received sequence Number. */
 	uint32_t peer_init_sequence_number; /* Accepted peer INIT, for duplicate detection. */
@@ -133,7 +167,32 @@ typedef struct eigrp_neighbor {
 extern eigrp_nbr_t *eigrp_nbr_lookup(eigrp_intf_t *, struct eigrp_header *,
 					  eigrp_addr_t *);
 extern eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *, eigrp_addr_t *);
+/* DOWN clears operational ownership but retains the neighbor identity.
+ * DELETE additionally unpublishes the peer and frees all remaining state. */
+void eigrp_nbr_down(eigrp_nbr_t *nbr);
+/* Only used when an AF-wide topology cleanup immediately follows. */
+void eigrp_nbr_down_deferred(eigrp_nbr_t *nbr);
 extern void eigrp_nbr_delete(eigrp_nbr_t *neigh);
+/* Neighbor limit-state lifecycle; restart/reset handling is separate. */
+bool eigrp_nbr_limit_state_update(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state);
+void eigrp_nbr_limit_release(eigrp_nbr_t *nbr);
+/* Task 2 timer engine.  Task 3 invokes this when a hard limit is crossed.
+ * Per-peer timer options inherit from neighbor-all, then process settings. */
+/* Mark prefix-limit DOWN without retiring descriptors used by this packet. */
+bool eigrp_nbr_limit_mark_down(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit);
+/* Complete DOWN and start the penalty only at a safe receive boundary. */
+void eigrp_nbr_limit_cleanup(eigrp_nbr_t *nbr);
+bool eigrp_nbr_limit_exceeded(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit);
+void eigrp_nbr_limit_restart_expired(void *arg);
+void eigrp_nbr_limit_reset_expired(void *arg);
+void eigrp_nbr_limit_timers_cancel(eigrp_nbr_t *nbr);
+
+bool eigrp_nbr_is_eligible(const eigrp_nbr_t *nbr);
+/* Read-only prefix-limit status for operational state snapshots. */
+char eigrp_nbr_limit_status(const eigrp_nbr_t *nbr);
+uint32_t eigrp_nbr_limit_remaining(uint64_t deadline_msec, uint64_t now_msec);
 
 extern void eigrp_nbr_holddown_expired(void *arg);
 

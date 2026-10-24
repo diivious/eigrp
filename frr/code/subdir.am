@@ -39,6 +39,7 @@ eigrpd_eigrpd_SOURCES = \
 	eigrpd/eigrp_packetizer.c \
 	eigrpd/eigrp_frr_policy.c \
 	eigrpd/eigrp_prefix.c \
+	eigrpd/eigrp_pfxlimits.c \
 	eigrpd/eigrp_query.c \
 	eigrpd/eigrp_redistribute.c \
 	eigrpd/eigrp_reply.c \
@@ -107,6 +108,7 @@ noinst_HEADERS += \
 	eigrpd/eigrp_packetizer.h \
 	eigrpd/eigrp_frr_policy.h \
 	eigrpd/eigrp_prefix.h \
+	eigrpd/eigrp_pfxlimits.h \
 	eigrpd/eigrp_redistribute.h \
 	eigrpd/eigrp_sha256.h \
 	eigrpd/eigrp_southbound.h \

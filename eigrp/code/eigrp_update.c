@@ -120,7 +120,7 @@ static void eigrp_update_receive_GR_ask(eigrp_instance_t *eigrp,
 {
 	eigrp_list_item_t *node1;
 	eigrp_prefix_descriptor_t *prefix;
-	eigrp_fsm_action_message_t fsm_msg;
+	eigrp_fsm_action_message_t fsm_msg = {0};
 
 	/* iterate over all prefixes which weren't advertised by neighbor */
 	for (EIGRP_LIST_ITERATE_RO(nbr_prefixes, node1, prefix)) {
@@ -334,7 +334,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			eigrp_update_nsf_eventlog(eigrp, nbr, 4, flags,
 				ntohl(eigrph->sequence));
 			eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-				EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART);
+				EIGRP_EVENTLOG_NBR_PEER_RESTART);
 			eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
 			nbr->peer_init_sequence_number = ntohl(eigrph->sequence);
 			nbr->peer_init_retransmit_eligible =
@@ -363,7 +363,7 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	}
 
 	/*If there is topology information*/
-	while (pkt->endp > pkt->getp) {
+	while (pkt->endp > pkt->getp && !nbr->limit_cleanup_pending) {
 		size_t tlv_start = pkt->getp;
 
 		route = (nbr->decoder)(eigrp, nbr, pkt, length);
@@ -387,13 +387,22 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				if (nbr->peer_init_resync_pending && nbr->peer_init_resync_prefixes)
 					eigrp_list_delete_data(nbr->peer_init_resync_prefixes, prefix);
 
-				struct eigrp_fsm_action_message msg;
+				struct eigrp_fsm_action_message msg = {0};
 				eigrp_route_descriptor_t *received_route = route;
 				eigrp_route_descriptor_t *topology_route =
 					eigrp_prefix_descriptor_lookup(prefix, nbr);
 				bool free_received_route = false;
+				eigrp_metrics_t ingress_metric = received_route->metric;
+				/* A denied UPDATE cannot consume neighbor/process capacity,
+				 * but an already retained path must receive its withdrawal. */
+				if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
+							    &received_route->dest))
+					ingress_metric.delay = EIGRP_MAX_METRIC;
+				else
+					eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_IN,
+							   &received_route->dest, &ingress_metric);
 				bool unreachable = eigrp_metric_calculate(eigrp,
-					received_route->metric) == EIGRP_MAX_METRIC;
+					ingress_metric) == EIGRP_MAX_METRIC;
 
 				/* A new unreachable path is a withdrawal without a route
 				 * to withdraw. Do not admit a poisoned descriptor. */
@@ -408,15 +417,10 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				 * may have a valid alternate without successor flags.
 				 * Withdrawals must always reach DUAL. */
 				if (!unreachable
-				    && (((!topology_route
-					  || topology_route->distance == EIGRP_MAX_METRIC
-					  || topology_route->metric.delay == EIGRP_MAX_METRIC
-					  || prefix->distance == EIGRP_MAX_METRIC
-					  || prefix->fdistance == EIGRP_MAX_METRIC
-					  || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
-					 && !eigrp_nbr_prefix_admit(eigrp, nbr,
-						&received_route->dest))
-					|| !eigrp_topology_prefix_admit(eigrp,
+				    && (!topology_route
+					? !eigrp_nbr_route_admit(eigrp, nbr,
+						&received_route->dest, &ingress_metric)
+					: !eigrp_topology_prefix_admit(eigrp,
 						&received_route->dest))) {
 					eigrp_topology_route_free(received_route);
 					continue;
@@ -440,21 +444,17 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 							? EIGRP_EXT
 							: EIGRP_INT;
 				msg.adv_router = nbr;
-				msg.metrics = received_route->metric;
-				if (eigrp_filter_prefix_update(eigrp, ei,
-							      EIGRP_FILTER_IN,
-							      &received_route->dest))
-					msg.metrics.delay = EIGRP_MAX_METRIC;
-				else
-					eigrp_offset_metric_update(eigrp, ei,
-							  EIGRP_FILTER_IN,
-							  &received_route->dest,
-							  &msg.metrics);
+				msg.metrics = ingress_metric;
 				msg.route = route;
 				msg.prefix = prefix;
+				/* Rejected new paths do not enter DUAL. An already owned
+				 * path still processes an inbound-filter withdrawal. */
+				msg.transient_route = !topology_route &&
+					eigrp_metric_calculate(eigrp, msg.metrics)
+						== EIGRP_MAX_METRIC;
 				eigrp_fsm_event(&msg);
 
-				if (free_received_route)
+				if (free_received_route || msg.transient_route)
 					eigrp_topology_route_free(received_route);
 
 			} else {
@@ -467,11 +467,16 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 					eigrp_topology_route_free(route);
 					continue;
 				}
-				/* Enforce neighbor and topology limits only for a genuinely new
-				 * accepted destination/path. Duplicate UPDATEs do not consume
-				 * another prefix slot. */
-				if (!eigrp_nbr_prefix_admit(eigrp, nbr, &route->dest)
-				    || !eigrp_topology_prefix_admit(eigrp, &route->dest)) {
+				/* Only an inbound-permitted reachable UPDATE can create a
+				 * destination and consume neighbor or topology capacity. */
+				eigrp_metrics_t ingress_metric = route->metric;
+				if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
+							    &route->dest))
+					ingress_metric.delay = EIGRP_MAX_METRIC;
+				else
+					eigrp_offset_metric_update(eigrp, ei, EIGRP_FILTER_IN,
+							   &route->dest, &ingress_metric);
+				if (!eigrp_nbr_route_admit(eigrp, nbr, &route->dest, &ingress_metric)) {
 					eigrp_topology_route_free(route);
 					continue;
 				}
@@ -492,19 +497,8 @@ void eigrp_update_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				 * and its reported metric is local topology state, not the
 				 * neighbor's advertised RD.
 				 */
-				route->reported_metric = route->metric;
+				route->reported_metric = ingress_metric;
 				route->reported_distance = eigrp_metric_calculate(eigrp, route->reported_metric);
-
-				/*
-				 * Filtering
-				 */
-				if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN, &route->dest))
-					route->reported_metric.delay = EIGRP_MAX_METRIC;
-				else
-					eigrp_offset_metric_update(eigrp, ei,
-							  EIGRP_FILTER_IN,
-							  &route->dest,
-							  &route->reported_metric);
 
 				route->distance = eigrp_metric_total_calculate(eigrp, route);
 				prefix->fdistance = prefix->distance = prefix->rdistance = route->distance;
@@ -1038,7 +1032,7 @@ static void eigrp_update_send_GR_part(eigrp_nbr_t *nbr)
 		 * still valid, then consume this resync work item. */
 		if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
 					      &prefix->destination)) {
-			eigrp_fsm_action_message_t fsm_msg;
+			eigrp_fsm_action_message_t fsm_msg = {0};
 			eigrp_route_descriptor_t *fsm_route =
 				eigrp_prefix_descriptor_lookup(prefix, nbr);
 

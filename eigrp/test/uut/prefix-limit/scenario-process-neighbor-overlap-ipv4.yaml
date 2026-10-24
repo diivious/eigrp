@@ -1,0 +1,26 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Neighbor penalty survives independent process penalty release
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  - peer-limit-config: {uut: r1, maximum: 1}
+  - redistribute-add: {uut: r2, source: static}
+  - source-route-add: {uut: r2, prefix: '192.0.2.201/32', metric: 20}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, timeout: 15}
+  - process-limit-config: {uut: r1, maximum: 1}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.222/32', metric: 20}
+  - validate-process-limit: {uut: r1, state: 1, restarts: 1}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.222/32'}
+  - process-limit-clear: {uut: r1}
+  - validate-process-limit: {uut: r1, state: 0, restarts: 0}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: P, restart_count: 1, restart_active: true, reset_active: true}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, timeout: 5}
+  - source-route-remove: {uut: r2, prefix: '192.0.2.201/32'}
+  - redistribute-remove: {uut: r2, source: static}
+  - redistribute-remove: {uut: r1, source: static}
+  - process-limit-config: {uut: r1, maximum: 0}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: expire}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 20}
+  - stop: all

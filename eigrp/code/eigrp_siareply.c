@@ -31,7 +31,7 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 	eigrp_debug_neighbor_sia(nbr, "SIA-REPLY received");
 	eigrp_debug_transmit_event(EIGRP_DEBUG_TRANSMIT_SIA, eigrp,
 				   nbr ? nbr->ei : NULL, nbr, "SIA-REPLY received");
-	struct eigrp_fsm_action_message msg;
+	struct eigrp_fsm_action_message msg = {0};
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 
@@ -84,7 +84,12 @@ void eigrp_siareply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 				}
 				msg.metrics = route->metric;
 				msg.prefix = prefix;
+				msg.transient_route = route_retained &&
+					!eigrp_nbr_route_admit(eigrp, nbr, &prefix->destination,
+								   &msg.metrics);
 				eigrp_fsm_event(&msg);
+				if (msg.transient_route)
+					route_retained = false;
 			}
 		}
 		if (!route_retained)

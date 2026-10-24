@@ -34,6 +34,7 @@
 #include "eigrp_metric.h"
 #include "eigrp_sys.h"
 #include "eigrp_timer.h"
+#include "eigrp_pfxlimits.h"
 #include "eigrp_rib.h"
 static int eigrp_route_descriptor_cmp(eigrp_route_descriptor_t *,
 				      eigrp_route_descriptor_t *);
@@ -372,6 +373,38 @@ eigrp_route_descriptor_t *eigrp_topology_route_create(eigrp_intf_t *intf)
 	return new;
 }
 
+/* Count redistribution, not connected self-paths or peer-learned externals.
+ * A destination with several redistributed sources consumes only one slot. */
+bool eigrp_topology_redist_present(const eigrp_instance_t *eigrp,
+    const eigrp_prefix_descriptor_t *prefix)
+{
+    eigrp_route_descriptor_t *route;
+    eigrp_list_item_t *item;
+
+    if (!eigrp || !prefix || !prefix->external_routes || !eigrp->neighbor_self)
+        return false;
+    for (EIGRP_LIST_ITERATE_RO(prefix->external_routes, item, route)) {
+        if (route->adv_router == eigrp->neighbor_self && !route->ei)
+            return true;
+    }
+    return false;
+}
+
+/* Insert once and account only after storage succeeds.  A route moved between
+ * metric/class queues is not a newly owned neighbor destination. */
+bool eigrp_topology_route_insert(eigrp_instance_t *eigrp,
+	eigrp_prefix_descriptor_t *prefix, eigrp_route_descriptor_t *route,
+	bool first_peer_path)
+{
+	if (!eigrp_list_insert(eigrp_topology_route_class_queue(prefix, route), route))
+		return false;
+	if (first_peer_path && route->adv_router
+	    && route->adv_router != eigrp->neighbor_self
+	    && route->adv_router->limit_prefix_count_valid)
+		route->adv_router->limit_prefix_count++;
+	return true;
+}
+
 /*
  * Adding topology entry to topology node
  */
@@ -384,8 +417,17 @@ void eigrp_route_descriptor_add(eigrp_instance_t *eigrp,
 	eigrp_list_t *routes = eigrp_topology_route_class_queue(node, route);
 
 	if (eigrp_list_lookup(routes, route) == NULL) {
-		eigrp_list_insert(routes, route);
+		bool first_peer_path = route->adv_router
+			&& !eigrp_prefix_descriptor_lookup(node, route->adv_router);
+		bool first_redist = eigrp && route->adv_router == eigrp->neighbor_self
+			&& !route->ei && eigrp_topology_route_external(route)
+			&& !eigrp_topology_redist_present(eigrp, node);
+		if (!eigrp_topology_route_insert(eigrp, node, route,
+						first_peer_path))
+			return;
 		route->prefix = node;
+		if (first_redist && eigrp->redist_prefix_count < UINT32_MAX)
+			eigrp->redist_prefix_count++;
 
 		if (eigrp_topology_route_read(node) == route
 		    && eigrp_topology_southbound_nexthop(route, &nexthop)) {
@@ -620,7 +662,17 @@ void eigrp_route_descriptor_delete(eigrp_instance_t *eigrp,
 		(void)eigrp_eventlog_msg_add(eigrp, EIGRP_EVENTLOG_OPCODE_TOPOLOGY_ROUTE_DELETE,
 			&node->destination, route->ei ? route->ei->ifindex : 0,
 			route->reported_distance, route->distance, installed);
+		eigrp_nbr_t *owner = route->adv_router;
+		bool was_redist = eigrp && owner == eigrp->neighbor_self
+			&& !route->ei && eigrp_topology_route_external(route);
 		eigrp_list_delete_data(routes, route);
+		if (was_redist && !eigrp_topology_redist_present(eigrp, node)
+		    && eigrp->redist_prefix_count)
+			eigrp->redist_prefix_count--;
+		if (owner && owner->limit_prefix_count_valid
+		    && owner->limit_prefix_count
+		    && !eigrp_prefix_descriptor_lookup(node, owner))
+			owner->limit_prefix_count--;
 		if (installed) {
 			eigrp_result_t rib_result = eigrp_rib_route_del(eigrp, &node->destination);
 
@@ -1000,8 +1052,12 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 	enum metric_change change = METRIC_SAME;
 	uint32_t new_reported_distance;
 	bool class_changed;
+	bool stored;
+	bool first_peer_path;
 
 	assert(route);
+	if (msg->transient_route)
+		return METRIC_SAME;
 
 	if (!route->adv_router)
 		route->adv_router = msg->adv_router;
@@ -1010,6 +1066,11 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 	if (!route->ei && msg->adv_router)
 		route->ei = msg->adv_router->ei;
 
+	stored = eigrp_list_lookup(prefix->internal_routes, route) != NULL
+		|| eigrp_list_lookup(prefix->external_routes, route) != NULL;
+	first_peer_path = !stored && route->adv_router
+		&& route->adv_router != eigrp->neighbor_self
+		&& !eigrp_prefix_descriptor_lookup(prefix, route->adv_router);
 	class_changed =
 		(eigrp_list_lookup(prefix->external_routes, route) != NULL)
 		!= eigrp_topology_route_external(route);
@@ -1022,7 +1083,7 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		change = METRIC_DECREASE;
 		break;
 	case EIGRP_INT:
-		if (!class_changed
+		if (stored && !class_changed
 		    && eigrp_metrics_match(msg->metrics, route->reported_metric))
 			return change; // No change
 
@@ -1040,7 +1101,7 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		route->distance = eigrp_metric_total_calculate(eigrp, route);
 		break;
 	case EIGRP_EXT:
-		if (!class_changed
+		if (stored && !class_changed
 		    && eigrp_metrics_match(msg->metrics, route->reported_metric))
 			return change;
 
@@ -1093,7 +1154,11 @@ eigrp_topology_update_distance(eigrp_fsm_action_message_t *msg)
 		eigrp_list_delete_data(prefix->internal_routes, route);
 	if (eigrp_list_lookup(prefix->external_routes, route))
 		eigrp_list_delete_data(prefix->external_routes, route);
-	eigrp_list_insert(eigrp_topology_route_class_queue(prefix, route), route);
+	if (!eigrp_topology_route_insert(eigrp, prefix, route,
+						  first_peer_path)) {
+		msg->transient_route = !stored;
+		return METRIC_SAME;
+	}
 
 	return change;
 }
@@ -1488,6 +1553,88 @@ void eigrp_topology_connected_interface_down(eigrp_instance_t *eigrp,
 
 	eigrp_query_send_all(eigrp);
 	eigrp_update_send_all(eigrp, ei);
+}
+
+/* Save affected neighbors before DUAL mutates route queues and reply
+ * status. A temporary neighbor mark avoids duplicate work without a hash
+ * table or an additional topology traversal. */
+static bool eigrp_topology_suspended_peer(const eigrp_nbr_t *nbr)
+{
+	return nbr && nbr->published && nbr->eigrp_pfxlimits_af_suspended
+		&& nbr->limit_state == EIGRP_NBR_LIMIT_NONE;
+}
+
+static void eigrp_topology_suspended_peer_add(eigrp_nbr_t **peers,
+	size_t *count, size_t capacity, eigrp_nbr_t *nbr)
+{
+	if (!eigrp_topology_suspended_peer(nbr) || nbr->topo_batch_seen)
+		return;
+	assert(*count < capacity);
+	nbr->topo_batch_seen = true;
+	peers[(*count)++] = nbr;
+}
+
+/* All peers have completed RTP/adjacency teardown. Retire their DUAL
+ * ownership with one scan, preserving route and pending-REPLY semantics. */
+void eigrp_topology_suspended_neighbors_down(eigrp_instance_t *eigrp,
+	eigrp_nbr_t **peers, size_t capacity)
+{
+	eigrp_table_node_t *rn;
+	eigrp_prefix_descriptor_t *pe;
+	eigrp_route_descriptor_t *route;
+	eigrp_reply_status_t *status;
+	eigrp_list_item_t *node;
+	size_t count, i;
+	unsigned q;
+
+	if (!eigrp || !eigrp->topology_table || !peers || !capacity)
+		return;
+	for (rn = eigrp_table_first(eigrp->topology_table); rn;
+	     rn = eigrp_table_next(rn)) {
+		pe = rn->info;
+		if (!pe)
+			continue;
+		if (eigrp_topology_suspended_peer(pe->query_origin))
+			pe->query_origin = NULL;
+		count = 0;
+		for (q = 0; q < 2; ++q) {
+			eigrp_list_t *routes = eigrp_topology_route_queue(pe, q);
+			for (EIGRP_LIST_ITERATE_RO(routes, node, route))
+				eigrp_topology_suspended_peer_add(peers, &count, capacity,
+					route->adv_router);
+		}
+		if (pe->rij)
+			for (EIGRP_LIST_ITERATE_RO(pe->rij, node, status))
+				eigrp_topology_suspended_peer_add(peers, &count, capacity,
+					status->neighbor);
+
+		/* Clear marks before invoking any FSM callback. */
+		for (i = 0; i < count; ++i)
+			peers[i]->topo_batch_seen = false;
+		for (i = 0; i < count; ++i) {
+			eigrp_nbr_t *nbr = peers[i];
+			route = eigrp_prefix_descriptor_lookup(pe, nbr);
+			if (route) {
+				eigrp_fsm_action_message_t msg = {0};
+
+				msg.metrics.delay = EIGRP_MAX_METRIC;
+				msg.packet_type = pe->state == EIGRP_FSM_STATE_PASSIVE
+					? EIGRP_OPC_UPDATE : EIGRP_OPC_REPLY;
+				msg.eigrp = eigrp;
+				msg.data_type = eigrp_topology_route_external(route)
+					? EIGRP_EXT : EIGRP_INT;
+				msg.adv_router = nbr;
+				msg.route = route;
+				msg.prefix = pe;
+				eigrp_fsm_event(&msg);
+			} else {
+				/* A pending REPLY may have no corresponding DRDB. */
+			eigrp_fsm_neighbor_down(eigrp, pe, nbr);
+			}
+		}
+	}
+	eigrp_query_send_all(eigrp);
+	eigrp_update_send_all(eigrp, NULL);
 }
 
 void eigrp_topology_neighbor_down(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr)
@@ -2338,43 +2485,17 @@ static eigrp_result_t eigrp_topology_message_process(eigrp_instance_t *eigrp,
 	return EIGRP_RESULT_INVALID_ARGUMENT;
 }
 
-/* Maximum-prefix counts accepted, usable destinations, not just installed
- * successors.  A valid alternate consumes capacity even when its successor
- * flags are clear.  A route retained only for an unknown QUERY has no
- * DUAL-established feasible distance (FD == infinity); it is not an
- * UPDATE-admitted destination.  Unreachable shells retained for deferred
- * withdrawal do not consume capacity. */
-static bool eigrp_topology_prefix_reachable(eigrp_prefix_descriptor_t *prefix)
-{
-	eigrp_topology_route_iterator_t iterator;
-	eigrp_route_descriptor_t *route;
-
-	if (!prefix || prefix->distance == EIGRP_MAX_METRIC
-	    || prefix->fdistance == EIGRP_MAX_METRIC
-	    || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
-		return false;
-	for (route = eigrp_topology_route_iterator_first(prefix, &iterator); route;
-	     route = eigrp_topology_route_iterator_next(&iterator)) {
-		if (route->distance != EIGRP_MAX_METRIC
-		    && route->metric.delay != EIGRP_MAX_METRIC)
-			return true;
-	}
-	return false;
-}
-
+/* Every destination still present in the topology database counts, even
+ * if QUERY-retained, poisoned, or awaiting deferred retirement. */
 static uint32_t eigrp_topology_prefix_count(eigrp_instance_t *runtime)
 {
-	eigrp_table_node_t *node;
-	uint32_t count = 0;
-
 	if (!runtime || !runtime->topology_table)
 		return 0;
-	for (node = eigrp_table_first(runtime->topology_table); node;
-	     node = eigrp_table_next(node)) {
-		if (eigrp_topology_prefix_reachable(node->info))
-			count++;
-	}
-	return count;
+	/* Topology publication sets node->info with node creation, and
+	 * retirement removes the node. The indexed table size is O(1). */
+	if (runtime->topology_table->size > UINT32_MAX)
+		return UINT32_MAX;
+	return (uint32_t)runtime->topology_table->size;
 }
 
 bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
@@ -2385,9 +2506,10 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 
 	if (!runtime || !prefix)
 		return false;
-	/* Only an existing reachable prefix can bypass new-slot admission. */
-	if (eigrp_topology_prefix_reachable(
-		    eigrp_topology_table_lookup(runtime->topology_table, prefix)))
+	if (runtime->eigrp_pfxlimits_af_state)
+		return false;
+	/* Every retained topology destination consumes one prefix slot. */
+	if (eigrp_topology_table_lookup(runtime->topology_table, prefix))
 		return true;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af || !af->topology_maximum_prefix_configured)
@@ -2399,10 +2521,14 @@ bool eigrp_topology_prefix_admit(eigrp_instance_t *runtime,
 			eigrp_log(EIGRP_LOG_WARNING,
 				  "EIGRP topology maximum-prefix threshold reached (%u/%u)",
 				  count + 1U, limit->maximum);
-		if (!eigrp_prefix_limit_allows(limit, count, false)) {
+		/* Process admission supports restart/reset/dampening policies.
+		 * The legacy basic-only admission helper would bypass hard limits
+		 * whenever any of those options was configured. */
+		if (!limit->warning_only && count >= limit->maximum) {
 			(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
 				prefix, EIGRP_EVENTLOG_PREFIX_LIMIT_TOPOLOGY, count + 1U,
 				limit->maximum, 0);
+			eigrp_pfxlimits_prefix_exceeded(runtime, limit);
 			return false;
 		}
 		return true;
@@ -2427,17 +2553,32 @@ eigrp_result_t eigrp_topology_max_prefix_update(eigrp_operation_t operation, eig
 		context->config->topology_maximum_prefix_configured = false;
 		memset(&context->config->topology_maximum_prefix, 0,
 		       sizeof(context->config->topology_maximum_prefix));
+		if (context->runtime)
+			(void)eigrp_pfxlimits_state_clear(context->runtime);
 		return EIGRP_RESULT_SUCCESS;
 	}
 	if (operation != EIGRP_SET || !limit || !limit->maximum || limit->threshold > 100)
 		return EIGRP_RESULT_INVALID_ARGUMENT;
 	if (context->config) {
+		/* Reapplying the same policy must not bypass a process lockout or
+		 * reset incident history. Only an actual configuration change may
+		 * clear the running penalty. */
+		const eigrp_prefix_limit_t *old =
+			&context->config->topology_maximum_prefix;
+		bool changed = !context->config->topology_maximum_prefix_configured
+			|| old->maximum != limit->maximum
+			|| old->threshold != limit->threshold
+			|| old->warning_only != limit->warning_only
+			|| old->dampened != limit->dampened
+			|| old->reset_time_minutes != limit->reset_time_minutes
+			|| old->restart_minutes != limit->restart_minutes
+			|| old->restart_count != limit->restart_count;
 		context->config->topology_maximum_prefix = *limit;
 		context->config->topology_maximum_prefix_configured = true;
+		if (changed && context->runtime)
+			(void)eigrp_pfxlimits_state_clear(context->runtime);
 	}
-	return context->runtime && (limit->dampened || limit->reset_time_minutes
-		|| limit->restart_minutes || limit->restart_count)
-		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*

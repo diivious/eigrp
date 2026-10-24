@@ -133,19 +133,20 @@ static const char *eigrp_eventlog_neighbor_state_name(eventmsg_arg_t state)
 }
 
 
-static const char *eigrp_eventlog_neighbor_reason_name(eventmsg_arg_t reason)
+static const char *eigrp_eventlog_nbr_event_name(eventmsg_arg_t event)
 {
-	switch (reason) {
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE: return "none";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_HOLD_EXPIRED: return "holding time expired";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_K_MISMATCH: return "K-value mismatch";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_GOODBYE: return "Interface Goodbye received";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_RESTART: return "peer restarted";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_RTP_RETRY_LIMIT: return "retry limit exceeded";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_ADMIN_CLEAR: return "manually cleared";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_INTERFACE_DOWN: return "interface down";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_PEER_TERMINATION: return "Peer Termination received";
-	case EIGRP_EVENTLOG_NEIGHBOR_REASON_SIA: return "stuck in active";
+	switch (event) {
+	case EIGRP_EVENTLOG_NBR_NONE: return "none";
+	case EIGRP_EVENTLOG_NBR_HOLD_EXPIRED: return "holding time expired";
+	case EIGRP_EVENTLOG_NBR_K_MISMATCH: return "K-value mismatch";
+	case EIGRP_EVENTLOG_NBR_GOODBYE: return "Interface Goodbye received";
+	case EIGRP_EVENTLOG_NBR_PEER_RESTART: return "peer restarted";
+	case EIGRP_EVENTLOG_NBR_RTP_RETRY_LIMIT: return "retry limit exceeded";
+	case EIGRP_EVENTLOG_NBR_ADMIN_CLEAR: return "manually cleared";
+	case EIGRP_EVENTLOG_NBR_INTF_DOWN: return "interface down";
+	case EIGRP_EVENTLOG_NBR_PEER_TERMINATION: return "Peer Termination received";
+	case EIGRP_EVENTLOG_NBR_SIA: return "stuck in active";
+	case EIGRP_EVENTLOG_NBR_PREFIX_LIMIT: return "prefix limit exceeded";
 	default: return "unknown";
 	}
 }
@@ -324,13 +325,13 @@ eigrp_result_t eigrp_eventlog_msg_format(const eigrp_eventlog_msg_t *entry,
 			       eigrp_eventlog_dual_state_name(entry->arg2));
 		break;
 	case EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE:
-		if (entry->arg4 != EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE)
+		if (entry->arg4 != EIGRP_EVENTLOG_NBR_NONE)
 			(void)snprintf(message, sizeof(message),
 				       "Peer %s: %s -> %s ifindex %lu reason %s",
 				       addr, eigrp_eventlog_neighbor_state_name(entry->arg1),
 				       eigrp_eventlog_neighbor_state_name(entry->arg2),
 				       (unsigned long)entry->arg3,
-				       eigrp_eventlog_neighbor_reason_name(entry->arg4));
+				       eigrp_eventlog_nbr_event_name(entry->arg4));
 		else
 			(void)snprintf(message, sizeof(message), "Peer %s: %s -> %s ifindex %lu",
 				       addr, eigrp_eventlog_neighbor_state_name(entry->arg1),

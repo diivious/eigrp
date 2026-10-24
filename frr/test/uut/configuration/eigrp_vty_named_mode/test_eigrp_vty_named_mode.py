@@ -289,10 +289,10 @@ def test_named_operational_commands_use_owner_specific_targets():
         "eigrp_intf_state_iterate": ROOT / "eigrpd" / "code" / "eigrp_interface.c",
         "eigrp_nbr_state_iterate": ROOT / "eigrpd" / "code" / "eigrp_neighbor.c",
         "eigrp_topology_state_iterate": ROOT / "eigrpd" / "code" / "eigrp_topology.c",
-        "eigrp_statistics_accounting_iterate": ROOT / "eigrpd" / "code" / "eigrp_statistics.c",
+        "eigrp_stat_accounting_iterate": ROOT / "eigrpd" / "code" / "eigrp_statistics.c",
         "eigrp_eventlog_msg_iterate": ROOT / "eigrpd" / "code" / "eigrp_eventlog.c",
         "eigrp_timer_state_iterate": ROOT / "eigrpd" / "code" / "eigrp_timer.c",
-        "eigrp_statistics_traffic_state_read": ROOT / "eigrpd" / "code" / "eigrp_statistics.c",
+        "eigrp_stat_traffic_read": ROOT / "eigrpd" / "code" / "eigrp_statistics.c",
         "eigrp_status_protocol_iterate": ROOT / "eigrpd" / "code" / "eigrp_status.c",
         "eigrp_status_tech_support_iterate": ROOT / "eigrpd" / "code" / "eigrp_status.c",
     }
