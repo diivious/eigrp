@@ -8,21 +8,21 @@ from pathlib import Path
 import re
 
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrpd" / "code").is_dir())
-INSTANCE_H = ROOT / "eigrpd" / "code" / "eigrp_instance.h"
-INSTANCE_C = ROOT / "eigrpd" / "code" / "eigrp_instance.c"
-INTERFACE_C = ROOT / "eigrpd" / "code" / "eigrp_interface.c"
-AUTH_C = ROOT / "eigrpd" / "code" / "eigrp_auth.c"
-FILTER_C = ROOT / "eigrpd" / "code" / "eigrp_filter.c"
-REDISTRIBUTE_C = ROOT / "eigrpd" / "code" / "eigrp_redistribute.c"
-SUMMARY_C = ROOT / "eigrpd" / "code" / "eigrp_summary.c"
-METRIC_C = ROOT / "eigrpd" / "code" / "eigrp_metric.c"
-TIMER_C = ROOT / "eigrpd" / "code" / "eigrp_timer.c"
-NEIGHBOR_C = ROOT / "eigrpd" / "code" / "eigrp_neighbor.c"
-HELLO_C = ROOT / "eigrpd" / "code" / "eigrp_hello.c"
-PACKET_C = ROOT / "eigrpd" / "code" / "eigrp_packet.c"
-UPDATE_C = ROOT / "eigrpd" / "code" / "eigrp_update.c"
-EIGRPD_C = ROOT / "eigrpd" / "code" / "eigrp.c"
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "eigrp" / "code").is_dir())
+INSTANCE_H = ROOT / "eigrp" / "code" / "eigrp_instance.h"
+INSTANCE_C = ROOT / "eigrp" / "code" / "eigrp_instance.c"
+INTERFACE_C = ROOT / "eigrp" / "code" / "eigrp_interface.c"
+AUTH_C = ROOT / "eigrp" / "code" / "eigrp_auth.c"
+FILTER_C = ROOT / "eigrp" / "code" / "eigrp_filter.c"
+REDISTRIBUTE_C = ROOT / "eigrp" / "code" / "eigrp_redistribute.c"
+SUMMARY_C = ROOT / "eigrp" / "code" / "eigrp_summary.c"
+METRIC_C = ROOT / "eigrp" / "code" / "eigrp_metric.c"
+TIMER_C = ROOT / "eigrp" / "code" / "eigrp_timer.c"
+NEIGHBOR_C = ROOT / "eigrp" / "code" / "eigrp_neighbor.c"
+HELLO_C = ROOT / "eigrp" / "code" / "eigrp_hello.c"
+PACKET_C = ROOT / "eigrp" / "code" / "eigrp_packet.c"
+UPDATE_C = ROOT / "eigrp" / "code" / "eigrp_update.c"
+EIGRPD_C = ROOT / "eigrp" / "code" / "eigrp.c"
 NORTHBOUND_C = ROOT / "frr" / "code" / "eigrp_northbound.c"
 
 
@@ -105,14 +105,15 @@ def test_interface_controls_retain_configuration_and_apply_available_runtime_beh
     assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in shutdown
 
 
-def test_authentication_keeps_md5_runtime_and_truthful_hmac_boundary():
+def test_authentication_preserves_md5_and_hmac_sha256_runtime_selection():
     source = read(AUTH_C)
     mode = function_body(source, "eigrp_auth_mode_update")
     keychain = function_body(source, "eigrp_auth_keychain_update")
 
     assert "context->config->authentication_mode = (uint8_t)mode;" in mode
     assert "mode == EIGRP_AUTHENTICATION_HMAC_SHA256" in mode
-    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" in mode
+    assert "return EIGRP_RESULT_NOT_IMPLEMENTED;" not in mode
+    assert "EIGRP_AUTH_TYPE_SHA256" in mode
     assert "context->runtime->params.auth_type =" in mode
     assert "EIGRP_AUTH_TYPE_MD5" in mode
     assert "context->config->keychain" in keychain
@@ -137,7 +138,7 @@ def test_filter_and_redistribution_targets_retain_policy_before_runtime_boundary
 
     assert "context->config->redistribute_policy" in redist_limit
     assert "maximum_prefix_configured = true" in redist_limit
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in redist_limit
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in redist_limit
 
     for target in (
         "eigrp_offset_add",
@@ -225,9 +226,9 @@ def test_neighbor_policy_targets_retain_configuration_and_logging_state():
 
     assert "entry->maximum_prefix = *limit;" in maximum_prefix
     assert "entry->maximum_prefix_configured = true;" in maximum_prefix
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in maximum_prefix
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in maximum_prefix
     assert "state->maximum_prefix_all = *limit;" in maximum_prefix_all
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in maximum_prefix_all
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in maximum_prefix_all
 
     assert "case EIGRP_NEIGHBOR_LOG_CHANGES:" in log_set
     assert "state->log_changes = enabled;" in log_set
@@ -235,7 +236,7 @@ def test_neighbor_policy_targets_retain_configuration_and_logging_state():
     assert "case EIGRP_NEIGHBOR_LOG_WARNINGS:" in log_set
     assert "state->log_warnings = enabled;" in log_set
     assert "context->runtime->log_neighbor_warning_interval" in log_set
-    assert "EIGRP_RESULT_NOT_IMPLEMENTED" in log_set
+    assert "EIGRP_RESULT_NOT_IMPLEMENTED" not in log_set
 
     assert "case EIGRP_NEIGHBOR_LOG_CHANGES:" in log_reset
     assert "context->runtime->log_neighbor_changes = true;" in log_reset
@@ -252,11 +253,11 @@ def test_neighbor_change_logging_switch_guards_adjacency_messages():
     }
 
     assert "if (eigrp->log_neighbor_changes)" in sources["hello"]
-    assert "if (nbr->ei->eigrp->log_neighbor_changes)" in sources["neighbor"]
+    assert "if (eigrp->log_neighbor_changes)" in sources["neighbor"]
     assert "if (eigrp->log_neighbor_changes)" in sources["packet"]
     assert "if (eigrp->log_neighbor_changes)" in sources["update"]
 
-    init = read(EIGRPD_C)
+    init = read(INSTANCE_C)
     assert "eigrp->log_neighbor_changes = true;" in init
     assert "eigrp->log_neighbor_warnings = true;" in init
     assert "eigrp->log_neighbor_warning_interval = 10;" in init
@@ -299,4 +300,6 @@ def test_item5_northbound_commands_terminate_at_module_targets():
         assert target in northbound
 
     result = function_body(northbound, "eigrpd_named_config_result")
-    assert "result == EIGRP_RESULT_NOT_IMPLEMENTED" in result
+    assert "result == EIGRP_RESULT_NOT_IMPLEMENTED" not in result
+    assert "result == EIGRP_RESULT_SUCCESS" in result
+    assert "return NB_ERR_INCONSISTENCY;" in result

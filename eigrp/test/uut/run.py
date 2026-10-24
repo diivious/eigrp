@@ -96,6 +96,27 @@ def topology_afi(t):
         raise SpecError("UUT topology requires exactly one address family")
     return next(iter(families))
 
+ACCOUNT_ASSERTION_KEYS = {"uut", "neighbor", "interface", "status", "restart_count", "prefix_count", "restart_active", "reset_active", "timeout", "observe"}
+
+def validate_accounting_assertion(e, where):
+    if not isinstance(e, dict):
+        raise SpecError(f"{where}: accounting assertion must be a mapping")
+    check_keys(e, ACCOUNT_ASSERTION_KEYS, where)
+    if not isinstance(e.get("uut"), str) or not e["uut"]:
+        raise SpecError(f"{where}: uut is required")
+    try:
+        ipaddress.ip_address(e["neighbor"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SpecError(f"{where}: valid neighbor address is required") from exc
+    if e.get("status", "A") not in ("A", "P", "D"):
+        raise SpecError(f"{where}: status must be A, P or D")
+    for key in ("restart_count", "prefix_count"):
+        if key in e and (not isinstance(e[key], int) or isinstance(e[key], bool) or e[key] < 0):
+            raise SpecError(f"{where}: {key} must be non-negative integer")
+    for key in ("restart_active", "reset_active"):
+        if key in e and not isinstance(e[key], bool):
+            raise SpecError(f"{where}: {key} must be boolean")
+
 NEIGHBOR_ASSERTION_KEYS = {"uut", "neighbor", "interface", "state", "timeout", "observe",
                            "reliable_q", "rto", "srtt_valid", "srtt", "retransmissions"}
 
@@ -113,8 +134,8 @@ def validate_neighbor_assertion(e, where):
     except ValueError as exc:
         raise SpecError(f"{where}: invalid neighbor address {e['neighbor']!r}") from exc
     state = e.get("state", "up")
-    if not isinstance(state, str) or state.lower() not in ("up", "present", "down"):
-        raise SpecError(f"{where}: state must be up, present, or down")
+    if not isinstance(state, str) or state.lower() not in ("up", "present", "down", "limit-suspended", "limit-locked"):
+        raise SpecError(f"{where}: state must be up, present, down, limit-suspended, or limit-locked")
     if state.lower() == "down" and any(k in e for k in
                                         ("reliable_q", "rto", "srtt_valid", "srtt", "retransmissions")):
         raise SpecError(f"{where}: cannot check live neighbor counters when state is down")
@@ -138,6 +159,13 @@ PACKET_GROUP_KEYS = {"source_uut", "destination_uut", "source_interface", "desti
                      "segment", "afi", "opcode", "multicast", "sequence", "auth_sequence", "ack", "cr", "event"}
 STEP_FIELDS = {
     "link-up": {"uut", "interface"}, "link-down": {"uut", "interface"},
+    "peer-limit": {"uut", "interface", "neighbor", "operation"},
+    "peer-limit-config": {"uut", "maximum", "warning_only"},
+    "redist-limit-config": {"uut", "maximum", "warning_only"},
+    "process-limit-config": {"uut", "maximum", "warning_only", "dampened"},
+    "inbound-filter-config": {"uut", "prefix", "enabled"},
+    "process-limit-clear": {"uut"}, "process-limit-expire": {"uut"}, "process-limit-reset-expire": {"uut"}, "process-limit-stale": {"uut"}, "process-limit-age": {"uut"}, "validate-process-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "penalty_min", "penalty_max", "penalty_after_age", "timeout"},
+    "redist-limit-clear": {"uut"}, "redist-limit-expire": {"uut"}, "validate-redist-limit": {"uut", "state", "restarts", "count", "restart_active", "reset_active", "penalty", "timeout"},
     "source-route-add": {"uut", "prefix", "metric"}, "source-route-remove": {"uut", "prefix"},
     "redistribute-add": {"uut", "source"}, "redistribute-remove": {"uut", "source"},
     "wait": {"seconds"}, "fault-add": {"name", "action", "source_uut", "destination_uut",
@@ -145,6 +173,7 @@ STEP_FIELDS = {
                "opcode", "prefix", "sequence", "ack", "cr", "delay_ms", "copies", "count"},
     "fault-remove": {"name"}, "validate-fault": {"name", "hits", "remaining", "timeout"},
     "validate-event": {"uut", "contains", "after", "min", "max", "timeout"},
+    "validate-log": {"uut", "contains", "min", "timeout"},
     "validate-retransmission": {"source_uut", "destination_uut", "opcode", "since", "timeout"},
     "validate-retry": {"source_uut", "opcode", "since", "timeout"},
 }
@@ -206,7 +235,7 @@ def validate_scenario(s):
     if s.get("schema")!=TEST_SCHEMA: raise SpecError(f"scenario schema must be {TEST_SCHEMA}")
     if not isinstance(s.get("topology"),str) or not s["topology"]: raise SpecError("scenario.topology must name its topology YAML")
     if not isinstance(s.get("steps"),list) or not s["steps"]: raise SpecError("scenario.steps must be a non-empty list")
-    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","source-route-add","source-route-remove","redistribute-add","redistribute-remove","checkpoint"}
+    allowed={"start","stop","link-up","link-down","links-up","links-down","wait","packet-mark","fault-add","fault-remove","validate-fault","validate-neighbor","validate-accounting","validate-route","validate-packet","validate-retransmission","validate-retry","validate-convergence","validate-event","validate-log","peer-limit","peer-limit-config","redist-limit-config","process-limit-config","inbound-filter-config","process-limit-clear","process-limit-expire","process-limit-reset-expire","process-limit-stale","process-limit-age","validate-process-limit","source-route-add","source-route-remove","redistribute-add","redistribute-remove","redist-limit-clear","redist-limit-expire","validate-redist-limit","checkpoint"}
     marks=set()
     for idx,step in enumerate(s["steps"],1):
         if not isinstance(step,dict) or len(step)!=1: raise SpecError(f"step {idx}: exactly one operation required")
@@ -218,6 +247,7 @@ def validate_scenario(s):
             if arg in marks: raise SpecError(f"{where}: duplicate mark {arg!r}")
             marks.add(arg)
         elif op=="validate-neighbor": validate_neighbor_assertion(arg,where)
+        elif op=="validate-accounting": validate_accounting_assertion(arg,where)
         elif op=="validate-route": validate_route_assertion(arg,where)
         elif op=="validate-packet": validate_packet_assertion(arg,where,marks)
         elif op=="validate-convergence":
@@ -262,18 +292,72 @@ def validate_scenario(s):
             if not isinstance(arg,dict): raise SpecError(f"{where}: must be a mapping")
             check_keys(arg,STEP_FIELDS[op],where)
             needed={"link-up":("uut","interface"),"link-down":("uut","interface"),
+                    "peer-limit":("uut","interface","neighbor","operation"),
+                    "peer-limit-config":("uut","maximum"),
+                    "redist-limit-config":("uut","maximum"),
+                    "process-limit-config":("uut","maximum"),
+                    "inbound-filter-config":("uut","prefix"),
+                    "process-limit-clear":("uut",),"process-limit-expire":("uut",),"process-limit-reset-expire":("uut",),"process-limit-stale":("uut",),"process-limit-age":("uut",),"validate-process-limit":("uut","state"),
+                    "redist-limit-clear":("uut",),"redist-limit-expire":("uut",),"validate-redist-limit":("uut","state"),
                     "source-route-add":("uut","prefix"),"source-route-remove":("uut","prefix"),
                     "redistribute-add":("uut","source"),"redistribute-remove":("uut","source"),
                     "fault-add":("action",),"fault-remove":("name",),"validate-fault":("name",),
-                    "validate-event":("uut","contains")}.get(op,())
+                    "validate-event":("uut","contains"),
+                    "validate-log":("uut","contains")}.get(op,())
             if any(k not in arg for k in needed): raise SpecError(f"{where}: missing required fields {needed}")
+            if op == "validate-log":
+                if not isinstance(arg["contains"], str) or not arg["contains"]:
+                    raise SpecError(f"{where}: contains must be a nonempty string")
+                if "min" in arg: _count(arg["min"], f"{where}.min", 1)
+            if op in ("peer-limit-config", "redist-limit-config", "process-limit-config"):
+                _count(arg["maximum"], f"{where}.maximum")
+                if "warning_only" in arg and type(arg["warning_only"]) is not bool:
+                    raise SpecError(f"{where}: warning_only must be boolean")
+            if op == "inbound-filter-config":
+                try: ipaddress.ip_network(arg["prefix"], strict=False)
+                except (ValueError, TypeError) as exc:
+                    raise SpecError(f"{where}: invalid prefix") from exc
+                if "enabled" in arg and type(arg["enabled"]) is not bool:
+                    raise SpecError(f"{where}: enabled must be boolean")
+            if op == "validate-process-limit":
+                for field in ("penalty", "penalty_min", "penalty_max"):
+                    if field in arg: _count(arg[field], f"{where}.{field}")
+                if arg.get("penalty_min",0) > arg.get("penalty_max",4294967295):
+                    raise SpecError(f"{where}: penalty bounds are inverted")
+                if "penalty_after_age" in arg:
+                    if type(arg["penalty_after_age"]) is not bool:
+                        raise SpecError(f"{where}: penalty_after_age must be boolean")
+                    if any(k in arg for k in ("penalty", "penalty_min", "penalty_max")):
+                        raise SpecError(f"{where}: penalty_after_age conflicts with fixed penalty bounds")
+            if op == "process-limit-config" and "dampened" in arg and type(arg["dampened"]) is not bool:
+                raise SpecError(f"{where}: dampened must be boolean")
+            if op == "peer-limit":
+                if arg["operation"] not in ("suspend", "lock", "release", "delete", "violate", "expire"):
+                    raise SpecError(f"{where}: unsupported operation")
+                try: ipaddress.ip_address(arg["neighbor"])
+                except ValueError as exc: raise SpecError(f"{where}: invalid neighbor") from exc
             if "since" in arg and arg["since"] not in marks: raise SpecError(f"{where}: unknown packet mark {arg['since']!r}")
     return s
+
+def process_penalty_bounds(aged_msec, extra_msec):
+    """Bracket a second Q16 penalty across elapsed replay time.
+
+    The exact recurrence can occur any time after process-limit-age and
+    before the next STATE reply. Decay continues throughout that interval.
+    """
+    def penalty(elapsed):
+        return 65536 + 65536 * 2 ** (-elapsed / 450000)
+
+    return (int(penalty(aged_msec + extra_msec)) - 256,
+            int(penalty(aged_msec)) + 256)
+
 
 class Node:
     def __init__(self,name,config,sock):
         self.name=name; self.config=config; self.sock=sock; self.p=None
         self.stderr=[]; self.err_thread=None; self.stdout_thread=None
+        self.process_limit_age_elapsed=None
+        self.process_limit_age_started=None
         self.responses=queue.Queue(); self.cmd_lock=threading.Lock()
     def _start_stdout_reader(self):
         # Read from the buffered TextIO stream in exactly one thread. select()
@@ -330,15 +414,18 @@ class Node:
                 if row==until: return out
                 out.append(row)
     def state(self):
-        rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"topology":[],"paths":[],"rib":[],"source":[]}; current_prefix=None
+        rows=self.cmd("STATE",until="END"); st={"interfaces":[],"neighbors":[],"accounting":[],"topology":[],"paths":[],"rib":[],"source":[]}; current_prefix=None
         for row in rows:
             f=row.split("|"); typ=f[0]; kv=dict(part.split("=",1) for part in f[1:] if "=" in part)
             if typ=="INTF": st["interfaces"].append({"interface":kv["name"],"runtime":kv["runtime_present"]=="1","shutdown":kv["shutdown"]=="1","peers":int(kv["peer_count"]),"output_q":int(kv["output_queue"]),"reliable_q":int(kv["reliable_queue"])})
             elif typ=="NBR": st["neighbors"].append({"address":kv["address"],"interface":kv["interface"],"state":kv["state"],"runtime":kv["runtime_present"]=="1","reliable_q":int(kv["reliable_queue"]),"rto":int(kv["rto_ms"]),"srtt_valid":kv["srtt_valid"]=="1","srtt":int(kv["srtt_ms"]),"retransmissions":int(kv["retransmits"])})
+            elif typ=="ACCOUNT": st["accounting"].append({"address":kv["address"],"interface":kv["interface"],"status":kv["status"],"prefix_count":int(kv["prefix_count"]),"restart_count":int(kv["restart_count"]),"restart_active":int(kv["restart_seconds"])>0,"reset_active":int(kv["reset_seconds"])>0})
             elif typ=="TOPO":
                 current_prefix=kv["prefix"]; st["topology"].append({"prefix":current_prefix,"active":kv["active"]=="1","fd":int(kv["feasible_distance"]),"successors":int(kv["successors"])})
             elif typ=="PATH": st["paths"].append({"prefix":current_prefix,"next_hop":kv["next_hop"],"interface":kv["interface"],"connected":kv["connected"]=="1","successor":kv["successor"]=="1","feasible_successor":kv.get("feasible_successor")=="1","distance":int(kv["distance"]),"rd":int(kv["reported_distance"])})
             elif typ=="RIB": st["rib"].append({"prefix":kv["prefix"],"next_hop":kv["next_hop"],"metric":int(kv["metric"]),"distance":int(kv["admin_distance"])})
+            elif typ=="REDIST-LIMIT": st["redist_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"count":int(kv["count"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1", "penalty":int(kv.get("penalty",0))}
+            elif typ=="PROCESS-LIMIT": st["process_limit"]={"state":int(kv["state"]),"restarts":int(kv["restarts"]),"count":int(kv["count"]),"restart_active":kv["restart_active"]=="1","reset_active":kv["reset_active"]=="1", "penalty":int(kv.get("penalty",0))}
             elif typ=="SRC": st["source"].append({"prefix":kv["prefix"],"protocol":int(kv["protocol"]),"metric":int(kv["metric"])})
         return st
     def link(self,up,ifname):
@@ -347,6 +434,67 @@ class Node:
         # result instead of declaring a live UUT dead under dense-mesh load.
         r=self.cmd(("UP" if up else "DOWN")+" "+ifname,timeout=10)
         if r!="RESULT|0": raise RuntimeError(f"{self.name}:{ifname}: link operation failed: {r}")
+    def peer_limit(self, interface, neighbor, operation):
+        result = self.cmd(f"LIMIT {interface} {neighbor} {operation}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: peer limit operation failed: {result}")
+
+    def peer_limit_config(self, maximum, warning_only=False):
+        result = self.cmd(f"LIMIT-CFG {maximum} {int(warning_only)}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: limit configuration failed: {result}")
+
+    def redist_limit_config(self, maximum, warning_only=False):
+        result = self.cmd(f"REDIST-LIMIT-CFG {maximum} {int(warning_only)}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: redistribution limit configuration failed: {result}")
+
+    def process_limit_config(self, maximum, warning_only=False, dampened=False):
+        result = self.cmd(f"PROCESS-LIMIT-CFG {maximum} {int(warning_only)} {int(dampened)}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process limit configuration failed: {result}")
+
+    def inbound_filter_config(self, prefix, enabled=True):
+        result = self.cmd(f"INBOUND-DENY {prefix if enabled else 'off'}", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: inbound policy update failed: {result}")
+
+    def process_limit_expire(self):
+        result = self.cmd("PROCESS-LIMIT-EXPIRE", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process restart expiry failed: {result}")
+
+    def process_limit_reset_expire(self):
+        if self.cmd("PROCESS-LIMIT-RESET-EXPIRE", timeout=10) != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process reset timer expiry failed")
+
+    def process_limit_age(self):
+        started = time.monotonic()
+        result = self.cmd("PROCESS-LIMIT-AGE", timeout=10)
+        if not result.startswith("RESULT|0|elapsed="):
+            raise RuntimeError(f"{self.name}: process penalty aging failed: {result}")
+        self.process_limit_age_elapsed = int(result.split("=", 1)[1])
+        self.process_limit_age_started = started
+
+    def process_limit_stale(self):
+        if self.cmd("PROCESS-LIMIT-STALE", timeout=10) != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process stale callback failed")
+
+    def process_limit_clear(self):
+        result = self.cmd("PROCESS-LIMIT-CLEAR", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: process penalty clear failed: {result}")
+
+    def redist_limit_expire(self):
+        result = self.cmd("REDIST-LIMIT-EXPIRE", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: redistribution restart expiry failed: {result}")
+
+    def redist_limit_clear(self):
+        result = self.cmd("REDIST-LIMIT-CLEAR", timeout=10)
+        if result != "RESULT|0":
+            raise RuntimeError(f"{self.name}: redistribution penalty clear failed: {result}")
+
     def source_route_change(self, prefix, add, metric=1):
         command = (f"SOURCE-ADD {prefix} {metric}" if add
                    else f"SOURCE-DEL {prefix}")
@@ -481,7 +629,24 @@ class Runner:
         # progress.  'up' means adjacency established, not merely present.
         if state == "up" and any(n["state"].lower() != "up" for n in matches):
             return False
+        if state == "limit-suspended" and any(n["state"] != "Prefix-limit Pending" for n in matches):
+            return False
+        if state == "limit-locked" and any(n["state"] != "Prefix-limit Locked" for n in matches):
+            return False
         return all(k not in e or n.get(k)==e[k] for n in matches for k in ("reliable_q","rto","srtt_valid","srtt","retransmissions"))
+    def accounting_ok(self,e):
+        validate_accounting_assertion(e, "validate-accounting")
+        st=self.nodes[e["uut"]].state()
+        for row in st["accounting"]:
+            if row["address"].lower()!=e["neighbor"].lower():
+                continue
+            if "interface" in e and row["interface"]!=e["interface"]:
+                continue
+            if row["status"]!=e.get("status", "A"):
+                continue
+            if all(k not in e or row[k]==e[k] for k in ("restart_count", "prefix_count", "restart_active", "reset_active")):
+                return True
+        return False
     def route_ok(self,e):
         validate_route_assertion(e,"validate-route")
         st=self.nodes[e["uut"]].state(); prefix=str(ipaddress.ip_network(e["prefix"],strict=False)); table=e.get("table","rib"); rows=st["rib"] if table=="rib" else st["source"] if table=="source" else st["paths"] if table=="path" else st["topology"]
@@ -550,7 +715,7 @@ class Runner:
             seen.add(key)
         return False
     def expect(self,kind,e):
-        timeout=float(e.get("timeout",5)); deadline=time.monotonic()+timeout; okfn={"neighbor":self.neighbor_ok,"route":self.route_ok,"packet":self.packet_ok,"fault":self.fault_ok,"retransmission":self.retransmission_ok,"retry":self.retry_ok}[kind]
+        timeout=float(e.get("timeout",5)); deadline=time.monotonic()+timeout; okfn={"neighbor":self.neighbor_ok,"accounting":self.accounting_ok,"route":self.route_ok,"packet":self.packet_ok,"fault":self.fault_ok,"retransmission":self.retransmission_ok,"retry":self.retry_ok}[kind]
         if kind=="packet" and any(k in e for k in ("max","max_groups","max_per_group")):
             upper=dict(e); upper["min"]=0; upper.pop("min_groups",None)
             while time.monotonic()<deadline:
@@ -558,7 +723,7 @@ class Runner:
                 time.sleep(.05)
             if okfn(e): return
             raise AssertionError(f"validate-{kind} failed at end of observation window: expected {e}")
-        if kind=="neighbor" and e.get("state", "up").lower() not in ("up", "present") and e.get("observe"):
+        if ((kind=="neighbor" and e.get("state", "up").lower() not in ("up", "present")) or kind=="accounting") and e.get("observe"):
             deadline=time.monotonic()+float(e["observe"])
             while time.monotonic()<deadline:
                 if not okfn(e):
@@ -595,6 +760,69 @@ class Runner:
             for thread in threads: thread.start()
             for thread in threads: thread.join()
             if errors: raise RuntimeError(f"batched link operation failed: {errors}")
+        elif op == "peer-limit":
+            self.nodes[arg["uut"]].peer_limit(
+                arg["interface"], arg["neighbor"], arg["operation"])
+        elif op == "peer-limit-config":
+            self.nodes[arg["uut"]].peer_limit_config(
+                arg["maximum"], arg.get("warning_only", False))
+        elif op == "redist-limit-config":
+            self.nodes[arg["uut"]].redist_limit_config(
+                arg["maximum"], arg.get("warning_only", False))
+        elif op == "process-limit-config":
+            self.nodes[arg["uut"]].process_limit_config(arg["maximum"], arg.get("warning_only", False), arg.get("dampened", False))
+        elif op == "inbound-filter-config":
+            self.nodes[arg["uut"]].inbound_filter_config(
+                arg["prefix"], arg.get("enabled", True))
+        elif op == "process-limit-expire":
+            self.nodes[arg["uut"]].process_limit_expire()
+        elif op == "process-limit-reset-expire":
+            self.nodes[arg["uut"]].process_limit_reset_expire()
+        elif op == "process-limit-stale":
+            self.nodes[arg["uut"]].process_limit_stale()
+        elif op == "process-limit-age":
+            self.nodes[arg["uut"]].process_limit_age()
+        elif op == "process-limit-clear":
+            self.nodes[arg["uut"]].process_limit_clear()
+        elif op == "validate-process-limit":
+            deadline = time.monotonic() + float(arg.get("timeout", 10))
+            penalty_min = arg.get("penalty_min", 0)
+            penalty_max = arg.get("penalty_max", 4294967295)
+            if arg.get("penalty_after_age"):
+                node = self.nodes[arg["uut"]]
+                if node.process_limit_age_elapsed is None or node.process_limit_age_started is None:
+                    raise RuntimeError("process penalty age was not recorded")
+            while True:
+                actual = self.nodes[arg["uut"]].state().get("process_limit", {})
+                if arg.get("penalty_after_age"):
+                    # The second violation occurs during asynchronous route
+                    # replay, not when PROCESS-LIMIT-AGE returns. Bound its
+                    # actual decay by the time elapsed through this STATE read.
+                    extra = max(0, int((time.monotonic() - node.process_limit_age_started) * 1000))
+                    penalty_min, penalty_max = process_penalty_bounds(node.process_limit_age_elapsed, extra)
+                if (all(actual.get(k) == v for k,v in arg.items()
+                        if k not in ("uut", "timeout", "penalty_min", "penalty_max", "penalty_after_age"))
+                    and penalty_min <= actual.get("penalty", 0) <= penalty_max):
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"process limit state mismatch: {actual} expected {arg} penalty bounds [{penalty_min}, {penalty_max}]")
+                time.sleep(0.1)
+        elif op == "redist-limit-expire":
+            self.nodes[arg["uut"]].redist_limit_expire()
+        elif op == "redist-limit-clear":
+            self.nodes[arg["uut"]].redist_limit_clear()
+        elif op == "validate-redist-limit":
+            deadline = time.monotonic() + float(arg.get("timeout", 10))
+            while True:
+                actual = self.nodes[arg["uut"]].state().get("redist_limit", {})
+                if (all(actual.get(k) == v for k,v in arg.items()
+                        if k not in ("uut", "timeout", "penalty_min", "penalty_max"))
+                    and actual.get("penalty", 0) >= arg.get("penalty_min", 0)
+                    and actual.get("penalty", 0) <= arg.get("penalty_max", 4294967295)):
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"redistribution limit state mismatch: {actual} expected {arg}")
+                time.sleep(0.1)
         elif op in ("source-route-add", "source-route-remove"):
             prefix = str(ipaddress.ip_network(arg["prefix"], strict=False))
             self.nodes[arg["uut"]].source_route_change(
@@ -615,10 +843,20 @@ class Runner:
             if not self.broker.remove_fault(arg if isinstance(arg,str) else arg["name"]): raise SpecError(f"unknown fault {arg}")
         elif op=="validate-fault": self.expect("fault",arg)
         elif op=="validate-neighbor": self.expect("neighbor",arg)
+        elif op=="validate-accounting": self.expect("accounting",arg)
         elif op=="validate-route": self.expect("route",arg)
         elif op=="validate-packet": self.expect("packet",arg)
         elif op=="validate-retransmission": self.expect("retransmission",arg)
         elif op=="validate-retry": self.expect("retry",arg)
+        elif op=="validate-log":
+            node=self.nodes[arg["uut"]]
+            deadline=time.monotonic()+float(arg.get("timeout",3))
+            while True:
+                matching=[line for line in list(node.stderr) if arg["contains"] in line]
+                if len(matching)>=arg.get("min",1): break
+                if time.monotonic()>=deadline:
+                    raise AssertionError(f"validate-log failed: {arg}; stderr={list(node.stderr)}")
+                time.sleep(.05)
         elif op=="validate-event":
             if not self.event_ok(arg): raise AssertionError(f"validate-event failed: {arg}")
         elif op=="validate-convergence":

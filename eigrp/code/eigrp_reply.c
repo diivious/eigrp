@@ -25,6 +25,7 @@
 #include "eigrp_packetizer.h"
 #include "eigrp_prefix.h"
 #include "eigrp_eventlog.h"
+#include "eigrp_filter.h"
 
 void eigrp_reply_send_route(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			   eigrp_prefix_descriptor_t *prefix,
@@ -58,7 +59,7 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 			 struct eigrp_header *eigrph, eigrp_stream_t *pkt,
 			 eigrp_intf_t *ei, int length)
 {
-	struct eigrp_fsm_action_message msg;
+	struct eigrp_fsm_action_message msg = {0};
 	eigrp_prefix_descriptor_t *prefix;
 	eigrp_route_descriptor_t *route;
 
@@ -127,10 +128,16 @@ void eigrp_reply_receive(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
 		msg.adv_router = nbr;
 		msg.route = route;
 		msg.metrics = received_route->metric;
+		if (eigrp_filter_prefix_update(eigrp, ei, EIGRP_FILTER_IN,
+						  &received_route->dest))
+			msg.metrics.delay = EIGRP_MAX_METRIC;
 		msg.prefix = prefix;
+		msg.transient_route = !topology_route &&
+			!eigrp_nbr_route_admit(eigrp, nbr, &prefix->destination,
+						   &msg.metrics);
 		eigrp_fsm_event(&msg);
 
-		if (free_received_route)
+		if (free_received_route || msg.transient_route)
 			eigrp_topology_route_free(received_route);
 	}
 

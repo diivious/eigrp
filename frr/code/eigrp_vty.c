@@ -155,7 +155,7 @@ static void eigrp_vty_topology_vrf_header(
 	ctx->vrf_printed = true;
 }
 
-static eigrp_result_t eigrp_vty_topology_instance_render(
+static eigrp_result_t eigrp_vty_topology_show(
 	eigrp_instance_t *eigrp, void *arg)
 {
 	struct eigrp_vty_topology_walk_context *ctx = arg;
@@ -228,7 +228,7 @@ DEFPY (show_ip_eigrp_topology_all,
 			ctx.vrf_printed = false;
 			(void)eigrp_vty_topology_walk_vrf(
 				&ctx, v->vrf_id, asn,
-				eigrp_vty_topology_instance_render);
+				eigrp_vty_topology_show);
 		}
 	} else {
 		struct vrf *v = eigrp_vty_get_vrf(vty, vrf);
@@ -236,7 +236,7 @@ DEFPY (show_ip_eigrp_topology_all,
 		if (!v)
 			return CMD_WARNING;
 		result = eigrp_vty_topology_walk_vrf(
-			&ctx, v->vrf_id, asn, eigrp_vty_topology_instance_render);
+			&ctx, v->vrf_id, asn, eigrp_vty_topology_show);
 		if (result == EIGRP_RESULT_NOT_FOUND) {
 			vty_out(vty, " EIGRP Routing Process not enabled\n");
 			return CMD_SUCCESS;
@@ -375,7 +375,7 @@ static void eigrp_neighbors_helper(struct vty *vty, eigrp_instance_t *eigrp,
 	for (EIGRP_LIST_ITERATE_RO(eigrp->eiflist, node, ei)) {
 		if (!ifname || strcmp(ei->name, ifname) == 0) {
 			for (EIGRP_LIST_ITERATE(ei->nbrs, node2, nnode2, nbr)) {
-				if (detail || (nbr->state == EIGRP_NEIGHBOR_UP))
+				if (eigrp_vty_neighbor_visible(nbr, !!detail))
 					show_ip_eigrp_neighbor_sub(vty, nbr,
 								   !!detail);
 			}

@@ -90,6 +90,9 @@ typedef struct eigrp_metric_weights {
 	uint8_t k6;
 } eigrp_metric_weights_t;
 
+/* Zero threshold means the optional Cisco threshold was omitted. */
+#define EIGRP_PREFIX_LIMIT_THRESHOLD_DEFAULT 75U
+
 typedef struct eigrp_prefix_limit {
 	uint32_t maximum;
 	uint8_t threshold;
@@ -122,12 +125,15 @@ static inline bool eigrp_prefix_limit_threshold_crossed(
 	uint64_t before;
 	uint64_t after;
 	uint64_t boundary;
+	uint8_t threshold;
 
-	if (!limit || !limit->threshold || current >= limit->maximum)
+	if (!limit || current >= limit->maximum)
 		return false;
+	threshold = limit->threshold ? limit->threshold
+				     : EIGRP_PREFIX_LIMIT_THRESHOLD_DEFAULT;
 	before = (uint64_t)current * 100U;
 	after = (uint64_t)(current + 1U) * 100U;
-	boundary = (uint64_t)limit->maximum * limit->threshold;
+	boundary = (uint64_t)limit->maximum * threshold;
 	return before < boundary && after >= boundary;
 }
 

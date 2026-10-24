@@ -31,6 +31,7 @@
 #include "eigrp_eventlog.h"
 #include "eigrp_timer.h"
 #include "eigrp_packetizer.h"
+#include "eigrp_pfxlimits.h"
 /* Packet Type String. */
 const eigrp_message_t eigrp_packet_type_str[] = {
 	{EIGRP_OPC_UPDATE, "Update"},
@@ -339,7 +340,7 @@ static void eigrp_packet_retransmit_limit_exceeded(eigrp_nbr_t *nbr)
 					 sizeof(address)),
 			  nbr->ei->name);
 	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-		EIGRP_EVENTLOG_NEIGHBOR_REASON_RTP_RETRY_LIMIT);
+		EIGRP_EVENTLOG_NBR_RTP_RETRY_LIMIT);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -978,6 +979,10 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 
 	eigrp_debug_packet_receive(ei, &src, &dst, eigrph, length);
 	opcode = eigrph->opcode;
+	/* A process-wide suspension blocks new Hello adjacency discovery as well as
+	 * existing neighbor traffic. The periodic sender is quiesced separately. */
+	if (eigrp->eigrp_pfxlimits_af_state && opcode == EIGRP_OPC_HELLO)
+		return;
 
 	if (IS_DEBUG_EIGRP_TRANSMIT(0, DETAIL)) {
 		char source_text[64];
@@ -1002,9 +1007,17 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 	 * update neighbor state.
 	 */
 	nbr = eigrp_nbr_lookup(ei, eigrph, &src);
+	/* Prefix-limit suspension retains the peer identity, not its adjacency.
+	 * Reject all opcodes, including Hellos and ACKs, before RTP/DUAL. */
+	if (nbr && !eigrp_nbr_is_eligible(nbr))
+		return;
 	if (!input->ingress_authenticated
 	    || (input->ingress_neighbor_generation != 0
 	        && (!nbr || nbr->generation != input->ingress_neighbor_generation)))
+		return;
+	/* Retained penalized peers are lookup-visible but not protocol-eligible.
+	 * Reject even ACK Hellos before they can revive stale RTP state. */
+	if (nbr && !eigrp_nbr_is_eligible(nbr))
 		return;
 	if (opcode == EIGRP_OPC_HELLO) {
 		/* Several discovery Hellos can be queued before a new neighbor is
@@ -1099,6 +1112,7 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 		return;
 	}
 
+	eigrp->eigrp_pfxlimits_af_pkt_active = true;
 	switch (opcode) {
 	case EIGRP_OPC_PROBE:
 		eigrp_packet_reject_event(ei, &src, opcode,
@@ -1130,6 +1144,13 @@ static void eigrp_packet_input_process(eigrp_instance_t *eigrp,
 			EIGRP_EVENTLOG_PACKET_REJECT_UNSUPPORTED_OPCODE, opcode, 0);
 		break;
 	}
+	/* A prefix-limit DOWN transition is committed inside admission, but
+	 * topology/RTP teardown waits until the TLV handler has returned. */
+	eigrp->eigrp_pfxlimits_af_pkt_active = false;
+	if (eigrp->eigrp_pfxlimits_af_cleanup_pending)
+		eigrp_pfxlimits_state_cleanup(eigrp);
+	if (nbr->limit_cleanup_pending)
+		eigrp_nbr_limit_cleanup(nbr);
 }
 
 static eigrp_packet_input_t *eigrp_packet_input_dequeue_locked(eigrp_instance_t *eigrp)
@@ -2630,6 +2651,10 @@ bool eigrp_packet_ingress_authenticate(eigrp_instance_t *instance,
 	nbr = eigrp_nbr_lookup(ei, header, &input->source);
 	if (nbr && !nbr->published)
 		nbr = NULL;
+	/* Suspended neighbors keep their identity but are not eligible for any
+	 * ingress work, including authentication or hold-timer refresh. */
+	if (nbr && !eigrp_nbr_is_eligible(nbr))
+		goto done;
 	/* Only discovery Hellos may arrive without an existing peer. */
 	if (!nbr && (header->opcode != EIGRP_OPC_HELLO || ntohl(header->ack)))
 		goto done;

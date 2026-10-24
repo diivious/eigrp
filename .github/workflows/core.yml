@@ -65,7 +65,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
       - name: Install fast-test dependencies
         run: python3 -m pip install pytest PyYAML
@@ -73,8 +73,12 @@ jobs:
       - name: Build portable and Unix sources
         run: make build
 
-      - name: Run pacing and topology-index smoke tests
-        run: python3 -m pytest -q eigrp/test/packet/pacing.py eigrp/test/scale/test_table_index.py
+      - name: Run pacing, topology-index, and fresh-uptime smoke tests
+        run: |
+          python3 -m pytest -q \
+            eigrp/test/packet/pacing.py \
+            eigrp/test/scale/test_table_index.py \
+            eigrp/test/uut/test_process_limit_low_uptime.py
 
   codeql:
     name: CodeQL / Analyze (${{ matrix.language }})
@@ -119,8 +123,8 @@ jobs:
     name: ${{ matrix.os }} / make test
     needs: [codeql]
     strategy:
-      # Stop the other platform when one platform fails.
-      fail-fast: true
+      # Collect independent Linux and macOS results even if one fails.
+      fail-fast: false
       matrix:
         os:
           - ubuntu-latest
@@ -135,7 +139,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
       - name: Install portable test dependencies
         run: python3 -m pip install pytest PyYAML

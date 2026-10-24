@@ -1,0 +1,10 @@
+schema: eigrp-uut-test/v1
+topology: ../dual-kite/ipv4-kite.yaml
+name: Multiple IPv4 neighbors are present in both peer and accounting snapshots
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.12.0.2, interface: eth12, state: up, timeout: 12}
+  - validate-neighbor: {uut: r1, neighbor: 10.13.0.3, interface: eth13, state: up, timeout: 12}
+  - validate-accounting: {uut: r1, neighbor: 10.12.0.2, interface: eth12, status: A, restart_count: 0, restart_active: false, reset_active: false}
+  - validate-accounting: {uut: r1, neighbor: 10.13.0.3, interface: eth13, status: A, restart_count: 0, restart_active: false, reset_active: false}
+  - stop: all

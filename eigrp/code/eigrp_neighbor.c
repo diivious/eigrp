@@ -546,21 +546,12 @@ static void eigrp_nbr_runtime_address(const eigrp_nbr_t *nbr,
 	memcpy(address->bytes, &nbr->src.ip.v4, 4);
 }
 
-/* A neighbor's QUERY-retained or poisoned RDB is not an admitted,
- * reachable prefix.  A legitimate alternate route still counts even if it
- * is not the selected successor, provided the destination is reachable. */
-static bool eigrp_nbr_prefix_reachable(eigrp_prefix_descriptor_t *prefix,
-					     eigrp_nbr_t *neighbor)
+/* Every retained neighbor destination consumes a prefix slot, regardless
+ * of whether it arrived in UPDATE or QUERY or has an infinite metric. */
+static bool eigrp_nbr_prefix_present(eigrp_prefix_descriptor_t *prefix,
+				      eigrp_nbr_t *neighbor)
 {
-	eigrp_route_descriptor_t *route;
-
-	if (!prefix || prefix->distance == EIGRP_MAX_METRIC
-	    || prefix->fdistance == EIGRP_MAX_METRIC
-	    || prefix->reported_metric.delay == EIGRP_MAX_METRIC)
-		return false;
-	route = eigrp_prefix_descriptor_lookup(prefix, neighbor);
-	return route && route->distance != EIGRP_MAX_METRIC
-	    && route->metric.delay != EIGRP_MAX_METRIC;
+	return prefix && eigrp_prefix_descriptor_lookup(prefix, neighbor) != NULL;
 }
 
 static uint32_t eigrp_nbr_prefix_count(eigrp_instance_t *runtime,
@@ -572,12 +563,14 @@ static uint32_t eigrp_nbr_prefix_count(eigrp_instance_t *runtime,
 
 	if (!runtime || !runtime->topology_table || !neighbor)
 		return 0;
+	if (neighbor->limit_prefix_count_valid)
+		return neighbor->limit_prefix_count;
 	for (route_node = eigrp_table_first(runtime->topology_table); route_node;
 	     route_node = eigrp_table_next(route_node)) {
 		prefix = route_node->info;
 		if (!prefix)
 			continue;
-		if (eigrp_nbr_prefix_reachable(prefix, neighbor))
+		if (eigrp_nbr_prefix_present(prefix, neighbor))
 			count++;
 	}
 	return count;
@@ -640,8 +633,8 @@ eigrp_result_t eigrp_nbr_state_iterate(
 		if (interface_name && strcmp(name, interface_name) != 0)
 			continue;
 		for (EIGRP_LIST_ITERATE_RO(ei->nbrs, nbr_node, nbr)) {
-			/* Normal neighbor output contains established adjacencies only. */
-			if (nbr->state != EIGRP_NEIGHBOR_UP)
+			/* Also expose retained prefix-penalized peers to show/accounting. */
+			if (!eigrp_nbr_limit_status(nbr))
 				continue;
 			memset(&state, 0, sizeof(state));
 			eigrp_nbr_runtime_address(nbr, &state.address);
@@ -661,6 +654,15 @@ eigrp_result_t eigrp_nbr_state_iterate(
 				nbr->retrans_queue ? nbr->retrans_queue->count : 0;
 			state.sequence_number = nbr->recv_sequence_number;
 			state.prefix_count = eigrp_nbr_prefix_count(runtime, nbr);
+			state.limit_status = eigrp_nbr_limit_status(nbr);
+			state.limit_restart_cnt = nbr->limit_restart_cnt;
+			{
+				uint64_t now = eigrp_sys_monotime_msec();
+				state.limit_restart_seconds = eigrp_nbr_limit_remaining(
+					nbr->limit_restart_due_msec, now);
+				state.limit_reset_seconds = eigrp_nbr_limit_remaining(
+					nbr->limit_reset_due_msec, now);
+			}
 			state.retransmit_count = nbr->retransmissions;
 			if (nbr->retrans_queue && nbr->retrans_queue->tail)
 				state.retry_count = nbr->retrans_queue->tail->retrans_counter;
@@ -799,6 +801,7 @@ eigrp_nbr_t *eigrp_nbr_create(eigrp_intf_t *ei, eigrp_addr_t *src)
 
 	nbr->ei = ei;
 	eigrp_nbr_init(nbr, src);
+	nbr->limit_prefix_count_valid = true;
 	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
 	if (!nbr->retrans_queue) {
 		/* An unallocated RTP queue makes this neighbor unusable. */
@@ -910,10 +913,386 @@ eigrp_nbr_t *eigrp_nbr_lookup_by_addr_process(eigrp_instance_t *eigrp,
 }
 
 
-/* Delete specified EIGRP neighbor from interface. */
+/* Cisco accounting state reflects prefix-limit eligibility, not the DUAL FSM. */
+char eigrp_nbr_limit_status(const eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return 0;
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED)
+		return 'D';
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED
+	    || nbr->limit_cleanup_pending || nbr->eigrp_pfxlimits_af_suspended)
+		return 'P';
+	return nbr->state == EIGRP_NEIGHBOR_UP ? 'A' : 0;
+}
+
+/* Return remaining seconds, rounded up; 0 means stopped or expired. */
+uint32_t eigrp_nbr_limit_remaining(uint64_t deadline_msec, uint64_t now_msec)
+{
+	uint64_t remain;
+
+	if (!deadline_msec || deadline_msec <= now_msec)
+		return 0;
+	remain = deadline_msec - now_msec;
+	remain = remain / 1000U + (remain % 1000U != 0);
+	return remain > UINT32_MAX ? UINT32_MAX : (uint32_t)remain;
+}
+
+/* Only a non-penalized neighbor may enter the normal INIT handshake. */
+bool eigrp_nbr_is_eligible(const eigrp_nbr_t *nbr)
+{
+	return nbr && nbr->limit_state == EIGRP_NBR_LIMIT_NONE
+	       && !nbr->limit_cleanup_pending && !nbr->eigrp_pfxlimits_af_suspended
+	       && (!nbr->ei || !nbr->ei->eigrp
+	           || !nbr->ei->eigrp->eigrp_pfxlimits_af_state);
+}
+
+/* Begin neighbor teardown but leave DUAL processing to the caller's
+ * coordinated topology pass. Only AF-wide suspension may use this path. */
+void eigrp_nbr_down_deferred(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	/* Prefix-limit admission marked the state DOWN during TLV processing.
+	 * Retire the old UP encoder ownership here, not in that callback. */
+	if (nbr->limit_cleanup_pending) {
+		if (nbr->limit_prev_state == EIGRP_NEIGHBOR_UP) {
+			eigrp_intf_encoder_peer_remove(nbr->ei, nbr->tlv_version);
+			nbr->up_since_msec = 0;
+		}
+		nbr->limit_cleanup_pending = false;
+	}
+	if (nbr->ei)
+		eigrp_packet_neighbor_output_clear(nbr);
+	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
+	/* A pending sync can exist before the peer is fully UP. */
+	eigrp_update_sync_cancel(nbr);
+	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_nbr_send_gr);
+	if (nbr->nbr_gr_prefixes)
+		eigrp_list_delete(&nbr->nbr_gr_prefixes);
+	if (nbr->nbr_gr_prefixes_send)
+		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
+	nbr->nbr_gr_packet_type = EIGRP_PACKET_PART_NA;
+}
+
+/* Complete neighbor teardown, including its topology/DUAL obligations. */
+void eigrp_nbr_down(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	eigrp_nbr_down_deferred(nbr);
+	if (nbr->ei)
+		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
+}
+
+/* Keep the same published peer for prefix-limit penalty accounting. Ingress
+ * and the ordinary adjacency FSM see it as DOWN and ineligible. Generation
+ * changes invalidate any pre-suspension authenticated work still in packetQ. */
+bool eigrp_nbr_limit_state_update(eigrp_nbr_t *nbr, eigrp_nbr_limit_state_t state)
+{
+	eigrp_instance_t *eigrp;
+	bool first;
+
+	if (!nbr || !nbr->ei
+	    || (state != EIGRP_NBR_LIMIT_SUSPENDED && state != EIGRP_NBR_LIMIT_LOCKED))
+		return false;
+	eigrp = nbr->ei->eigrp;
+	if (!eigrp)
+		return false;
+	pthread_mutex_lock(&eigrp->peer_lock);
+	if (!nbr->published || (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED
+			      && state == EIGRP_NBR_LIMIT_SUSPENDED)) {
+		pthread_mutex_unlock(&eigrp->peer_lock);
+		return false;
+	}
+	first = nbr->limit_state == EIGRP_NBR_LIMIT_NONE;
+	nbr->limit_state = state;
+	if (first) {
+		if (++eigrp->next_neighbor_generation == 0)
+			++eigrp->next_neighbor_generation;
+		nbr->generation = eigrp->next_neighbor_generation;
+	}
+	pthread_mutex_unlock(&eigrp->peer_lock);
+	if (first)
+		eigrp_nbr_down(nbr);
+	if (state == EIGRP_NBR_LIMIT_LOCKED)
+		eigrp_nbr_limit_timers_cancel(nbr);
+	return true;
+}
+
+/* Timer expiry restores eligibility only. A fresh Hello/INIT exchange is
+ * still required; the neighbor is never moved directly to UP. */
+void eigrp_nbr_limit_release(eigrp_nbr_t *nbr)
+{
+	eigrp_instance_t *eigrp;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp)
+		return;
+	eigrp = nbr->ei->eigrp;
+	pthread_mutex_lock(&eigrp->peer_lock);
+	if (nbr->published && nbr->limit_state == EIGRP_NBR_LIMIT_SUSPENDED) {
+		nbr->limit_state = EIGRP_NBR_LIMIT_NONE;
+		if (++eigrp->next_neighbor_generation == 0)
+			++eigrp->next_neighbor_generation;
+		nbr->generation = eigrp->next_neighbor_generation;
+	}
+	pthread_mutex_unlock(&eigrp->peer_lock);
+}
+
+/* Cisco prefix-limit restart/reset defaults, in minutes.  An individual
+ * neighbor limit inherits timers from neighbor-all, then process settings.
+ * Zero-valued options use the next available source/default. */
+#define EIGRP_LIMIT_RESTART_MINUTES 5U
+#define EIGRP_LIMIT_RESET_MINUTES 15U
+#define EIGRP_LIMIT_RESTART_COUNT 3U
+#define EIGRP_LIMIT_MINUTE_MSEC UINT64_C(60000)
+#define EIGRP_LIMIT_Q16 UINT32_C(65536)
+
+static void eigrp_nbr_limit_values_read(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit, eigrp_prefix_limit_t *effective)
+{
+	eigrp_af_config_t *af;
+	const eigrp_prefix_limit_t *all = NULL;
+	const eigrp_prefix_limit_t *process = NULL;
+
+	*effective = *limit;
+	af = eigrp_af_config_runtime_read(nbr->ei->eigrp);
+	if (af) {
+		if (af->neighbor_policy
+		    && af->neighbor_policy->maximum_prefix_all_configured)
+			all = &af->neighbor_policy->maximum_prefix_all;
+		if (af->topology_maximum_prefix_configured)
+			process = &af->topology_maximum_prefix;
+	}
+if (!effective->restart_minutes)
+		effective->restart_minutes = all && all->restart_minutes
+			? all->restart_minutes
+			: process && process->restart_minutes
+				? process->restart_minutes : EIGRP_LIMIT_RESTART_MINUTES;
+	if (!effective->reset_time_minutes)
+		effective->reset_time_minutes = all && all->reset_time_minutes
+			? all->reset_time_minutes
+			: process && process->reset_time_minutes
+				? process->reset_time_minutes : EIGRP_LIMIT_RESET_MINUTES;
+	if (!effective->restart_count)
+		effective->restart_count = all && all->restart_count
+			? all->restart_count
+			: process && process->restart_count
+				? process->restart_count : EIGRP_LIMIT_RESTART_COUNT;
+	/* Dampening is enabled on the selected scope or its inherited defaults. */
+	if (!effective->dampened)
+		effective->dampened = (all && all->dampened)
+				      || (process && process->dampened);
+}
+
+/* Q16 approximation of 2^(-fraction), fraction expressed as eighth-order
+ * binary bits.  Whole half-lives divide by two exactly; fractional half
+ * lives use deterministic fixed-point factors without a libm dependency. */
+static uint32_t eigrp_nbr_limit_decay(uint32_t score, uint64_t elapsed,
+	uint64_t half_life)
+{
+	static const uint32_t factor[8] = {
+		46341U, 55109U, 60097U, 62758U,
+		64132U, 64830U, 65182U, 65359U,
+	};
+	uint32_t fraction;
+	unsigned i;
+
+	if (!score || !elapsed || !half_life)
+		return score;
+	if (elapsed / half_life >= 32U)
+		return 0;
+	score >>= (unsigned)(elapsed / half_life);
+	fraction = (uint32_t)(((elapsed % half_life) * 256U) / half_life);
+	for (i = 0; i < 8; ++i)
+		if (fraction & (128U >> i))
+			score = (uint32_t)(((uint64_t)score * factor[i]) >> 16);
+	return score;
+}
+
+/* The timer queue accepts uint32 milliseconds; rearm long intervals in
+ * chunks rather than truncating valid user-configured minute values. */
+static void eigrp_nbr_limit_timer_arm(eigrp_nbr_t *nbr,
+	eigrp_timer_event_t **timer, eigrp_event_callback_t callback,
+	uint64_t deadline)
+{
+	uint64_t now = eigrp_sys_monotime_msec();
+	uint64_t delta = deadline > now ? deadline - now : 1U;
+	if (delta > UINT32_MAX)
+		delta = UINT32_MAX;
+	eigrp_timer_add(nbr->ei->eigrp, timer, callback, nbr,
+			(uint32_t)delta);
+}
+
+void eigrp_nbr_limit_timers_cancel(eigrp_nbr_t *nbr)
+{
+	if (!nbr)
+		return;
+	eigrp_instance_t *eigrp = nbr->ei ? nbr->ei->eigrp : NULL;
+	eigrp_timer_cancel(eigrp, &nbr->t_limit_restart);
+	eigrp_timer_cancel(eigrp, &nbr->t_limit_reset);
+	nbr->limit_restart_due_msec = 0;
+	nbr->limit_reset_due_msec = 0;
+}
+
+void eigrp_nbr_limit_restart_expired(void *arg)
+{
+	eigrp_nbr_t *nbr = arg;
+	uint64_t now;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp)
+		return;
+	if (nbr->limit_state != EIGRP_NBR_LIMIT_SUSPENDED
+	    || !nbr->limit_restart_due_msec)
+		return;
+	now = eigrp_sys_monotime_msec();
+	if (now < nbr->limit_restart_due_msec) {
+		eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_restart,
+			eigrp_nbr_limit_restart_expired,
+			nbr->limit_restart_due_msec);
+		return;
+	}
+	nbr->limit_restart_due_msec = 0;
+	eigrp_nbr_limit_release(nbr); /* Never jumps directly to UP. */
+}
+
+void eigrp_nbr_limit_reset_expired(void *arg)
+{
+	eigrp_nbr_t *nbr = arg;
+	uint64_t now;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp || !nbr->limit_reset_due_msec)
+		return;
+	now = eigrp_sys_monotime_msec();
+	if (now < nbr->limit_reset_due_msec) {
+		eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_reset,
+			eigrp_nbr_limit_reset_expired,
+			nbr->limit_reset_due_msec);
+		return;
+	}
+	nbr->limit_reset_due_msec = 0;
+	/* Never unlock a peer: manual clear is required even if reset expires. */
+	if (nbr->limit_state != EIGRP_NBR_LIMIT_LOCKED) {
+		nbr->limit_restart_cnt = 0;
+		nbr->limit_penalty_q16 = 0;
+		nbr->limit_decay_msec = 0;
+	}
+}
+
+/* A violation is first recorded without touching DUAL, RTP queues, or
+ * packetizer work referenced by the current UPDATE/QUERY TLV walker.
+ * The neighbor becomes ineligible synchronously at this state mutation. */
+bool eigrp_nbr_limit_mark_down(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit)
+{
+	eigrp_instance_t *eigrp;
+	eigrp_prefix_t peer;
+	uint8_t old;
+
+	if (!nbr || !nbr->ei || !(eigrp = nbr->ei->eigrp) || !limit
+	    || limit->warning_only || !nbr->published || !eigrp_nbr_is_eligible(nbr))
+		return false;
+	old = nbr->state;
+	/* Ingress checks limit_cleanup_pending as well as the normal FSM. */
+	nbr->limit_cleanup_pending = true;
+	nbr->limit_prev_state = old;
+	nbr->limit_pending_cfg = *limit;
+	nbr->state = EIGRP_NEIGHBOR_DOWN;
+	eigrp_eventlog_addr_from_legacy(&peer, &nbr->src);
+	(void)eigrp_eventlog_msg_add(eigrp,
+		EIGRP_EVENTLOG_OPCODE_NEIGHBOR_STATE_CHANGE, &peer,
+		old, EIGRP_NEIGHBOR_DOWN, nbr->ei->ifindex,
+		EIGRP_EVENTLOG_NBR_PREFIX_LIMIT);
+	return true;
+}
+
+/* Called only after packet dispatch returns. The penalty engine now runs
+ * the normal DOWN cleanup and retains the same neighbor for recovery. */
+void eigrp_nbr_limit_cleanup(eigrp_nbr_t *nbr)
+{
+	eigrp_prefix_limit_t cfg;
+
+	if (!nbr || !nbr->limit_cleanup_pending)
+		return;
+	cfg = nbr->limit_pending_cfg;
+	if (!eigrp_nbr_limit_exceeded(nbr, &cfg)) {
+		/* Even if a timer could not be allocated, never leave live RTP or
+		 * topology state behind after the DOWN state was committed. */
+		if (nbr->limit_cleanup_pending)
+			eigrp_nbr_down(nbr);
+		(void)eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_LOCKED);
+	}
+}
+
+/* Apply one prefix-limit violation on the owning AF thread.  Repeated
+ * violations cannot shorten an existing suspension.  The violation limit
+ * counts incidents: the third violation locks under the default policy. */
+bool eigrp_nbr_limit_exceeded(eigrp_nbr_t *nbr,
+	const eigrp_prefix_limit_t *limit)
+{
+	eigrp_prefix_limit_t effective;
+	uint64_t now, base, restart, half_life, score;
+
+	if (!nbr || !nbr->ei || !nbr->ei->eigrp || !limit
+	    || !limit->maximum || limit->warning_only || !nbr->published
+	    || nbr->limit_state != EIGRP_NBR_LIMIT_NONE)
+		return false;
+	eigrp_nbr_limit_values_read(nbr, limit, &effective);
+	now = eigrp_sys_monotime_msec();
+	base = (uint64_t)effective.restart_minutes * EIGRP_LIMIT_MINUTE_MSEC;
+	half_life = base + base / 2U;
+	if (effective.dampened) {
+		if (nbr->limit_decay_msec && now > nbr->limit_decay_msec)
+			nbr->limit_penalty_q16 = eigrp_nbr_limit_decay(
+				nbr->limit_penalty_q16,
+				now - nbr->limit_decay_msec, half_life);
+		if (nbr->limit_penalty_q16 > UINT32_MAX - EIGRP_LIMIT_Q16)
+			nbr->limit_penalty_q16 = UINT32_MAX;
+		else
+			nbr->limit_penalty_q16 += EIGRP_LIMIT_Q16;
+		nbr->limit_decay_msec = now;
+	} else {
+		nbr->limit_penalty_q16 = 0;
+		nbr->limit_decay_msec = 0;
+	}
+	if (nbr->limit_restart_cnt < UINT16_MAX)
+		++nbr->limit_restart_cnt;
+	if (nbr->limit_restart_cnt >= effective.restart_count) {
+		eigrp_nbr_limit_timers_cancel(nbr);
+		return eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_LOCKED);
+	}
+	restart = base;
+	if (effective.dampened) {
+		score = nbr->limit_penalty_q16;
+		/* Fixed point penalty gives one base interval on first violation. */
+		restart = (base * score) / EIGRP_LIMIT_Q16;
+	}
+	if (restart > UINT64_MAX - now || base == 0)
+		return false;
+	if (!eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_SUSPENDED))
+		return false;
+	nbr->limit_restart_due_msec = now + restart;
+	nbr->limit_reset_due_msec = now +
+		(uint64_t)effective.reset_time_minutes * EIGRP_LIMIT_MINUTE_MSEC;
+	eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_restart,
+		eigrp_nbr_limit_restart_expired, nbr->limit_restart_due_msec);
+	eigrp_nbr_limit_timer_arm(nbr, &nbr->t_limit_reset,
+		eigrp_nbr_limit_reset_expired, nbr->limit_reset_due_msec);
+	if (!nbr->t_limit_restart || !nbr->t_limit_reset) {
+		/* Allocation/shutdown failure cannot silently restore eligibility. */
+		eigrp_nbr_limit_timers_cancel(nbr);
+		(void)eigrp_nbr_limit_state_update(nbr, EIGRP_NBR_LIMIT_LOCKED);
+		return false;
+	}
+	return true;
+}
+
+/* Final deletion is independent of prefix-limit configuration. */
 void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 {
-	if (nbr && IS_DEBUG_EIGRP_EVENT) {
+	if (!nbr)
+		return;
+	if (IS_DEBUG_EIGRP_EVENT) {
 		eigrp_log(EIGRP_LOG_DEBUG, "EIGRP event: neighbor %s delete%s%s",
 			   eigrp_print_addr(&nbr->src), nbr->ei ? " on " : "",
 			   nbr->ei ? eigrp_intf_name_string(nbr->ei) : "");
@@ -922,10 +1301,9 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 				   nbr->ei->eigrp->AS, nbr->state, nbr->retrans_counter);
 	}
 
-	/* Stop ingress lookup before teardown begins.  A receive-thread lookup
-	 * holding peer_lock therefore either completes its hold refresh first or
-	 * cannot obtain this neighbor after unpublication. */
-	if (nbr && nbr->ei) {
+	/* Unpublish before destroying adjacency-owned objects, so ingress
+	 * cannot rediscover a neighbor while it is being deleted. */
+	if (nbr->ei) {
 		pthread_mutex_lock(&nbr->ei->eigrp->peer_lock);
 		if (nbr->published) {
 			eigrp_list_delete_data(nbr->ei->nbrs, nbr);
@@ -933,23 +1311,9 @@ void eigrp_nbr_delete(eigrp_nbr_t *nbr)
 		}
 		pthread_mutex_unlock(&nbr->ei->eigrp->peer_lock);
 	}
-
-	/* A paced packet can still point at nbr after its RTP queue was cleared. */
-	if (nbr->ei)
-		eigrp_packet_neighbor_output_clear(nbr);
-	eigrp_nbr_state_update(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN);
-	if (nbr->ei)
-		eigrp_topology_neighbor_down(nbr->ei->eigrp, nbr);
-
-	/* Cancel neighbor-owned host runtime events before releasing queues/state. */
-	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_nbr_send_gr);
-	if (nbr->nbr_gr_prefixes)
-		eigrp_list_delete(&nbr->nbr_gr_prefixes);
-	if (nbr->nbr_gr_prefixes_send)
-		eigrp_list_delete(&nbr->nbr_gr_prefixes_send);
+	eigrp_nbr_limit_timers_cancel(nbr);
+	eigrp_nbr_down(nbr);
 	eigrp_packet_queue_free(nbr->retrans_queue);
-	eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
-
 	free(nbr);
 }
 
@@ -993,7 +1357,7 @@ void eigrp_nbr_holddown_expired(void *arg)
 			  eigrp_print_addr(&nbr->src),
 			  nbr->ei->name);
 	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-		EIGRP_EVENTLOG_NEIGHBOR_REASON_HOLD_EXPIRED);
+		EIGRP_EVENTLOG_NBR_HOLD_EXPIRED);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -1005,7 +1369,7 @@ uint8_t eigrp_nbr_state(eigrp_nbr_t *nbr)
 void eigrp_nbr_state_update(eigrp_operation_t operation, eigrp_nbr_t *nbr, uint8_t state)
 {
 	eigrp_nbr_state_update_reason(operation, nbr, state,
-		EIGRP_EVENTLOG_NEIGHBOR_REASON_NONE);
+		EIGRP_EVENTLOG_NBR_NONE);
 }
 
 void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr,
@@ -1016,6 +1380,12 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 	if (operation != EIGRP_SET || !nbr)
 		return;
 
+	/* A suspended peer is not a live adjacency, regardless of its prior
+	 * handshake state. Only release may restore admission. */
+	if ((nbr->limit_state != EIGRP_NBR_LIMIT_NONE
+	     || nbr->eigrp_pfxlimits_af_suspended)
+	    && state != EIGRP_NEIGHBOR_DOWN)
+		return;
 	old_state = nbr->state;
 
 	/* Cancel a snapshot at the actual adjacency transition, not merely
@@ -1097,6 +1467,10 @@ void eigrp_nbr_state_update_reason(eigrp_operation_t operation, eigrp_nbr_t *nbr
 const char *eigrp_nbr_state_str(eigrp_nbr_t *nbr)
 {
 	const char *state;
+	if (eigrp_nbr_limit_status(nbr) == 'P')
+		return "Prefix-limit Pending";
+	if (nbr->limit_state == EIGRP_NBR_LIMIT_LOCKED)
+		return "Prefix-limit Locked";
 	switch (nbr->state) {
 	case EIGRP_NEIGHBOR_DOWN:
 		state = "Down";
@@ -1117,6 +1491,12 @@ const char *eigrp_nbr_state_str(eigrp_nbr_t *nbr)
 
 void eigrp_nbr_holddown_update(eigrp_nbr_t *nbr)
 {
+	if (!nbr)
+		return;
+	if (!eigrp_nbr_is_eligible(nbr)) {
+		eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
+		return;
+	}
 	switch (nbr->state) {
 	case EIGRP_NEIGHBOR_DOWN:
 		eigrp_timer_cancel(nbr->ei ? nbr->ei->eigrp : NULL, &nbr->t_holddown);
@@ -1212,12 +1592,12 @@ static void eigrp_nbr_clear_hard(eigrp_nbr_t *nbr,
 		   eigrp_print_addr(&nbr->src), interface_name);
 	eigrp_nbr_clear_report(nbr, false, callback, arg);
 
-	if (peer_termination)
+	if (peer_termination && nbr->state != EIGRP_NEIGHBOR_DOWN)
 		eigrp_hello_send(nbr->ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN_NBR,
 				 &nbr->src);
 
 	eigrp_nbr_state_update_reason(EIGRP_SET, nbr, EIGRP_NEIGHBOR_DOWN,
-		EIGRP_EVENTLOG_NEIGHBOR_REASON_ADMIN_CLEAR);
+		EIGRP_EVENTLOG_NBR_ADMIN_CLEAR);
 	eigrp_nbr_delete(nbr);
 }
 
@@ -1288,7 +1668,8 @@ eigrp_result_t eigrp_nbr_clear(
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
 		for (EIGRP_LIST_ITERATE(ei->nbrs, nbr_node, next_node, nbr)) {
-			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
+			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN
+			    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
 				continue;
 			if (request->soft)
 				eigrp_nbr_clear_soft(nbr, callback, arg);
@@ -1307,7 +1688,8 @@ eigrp_result_t eigrp_nbr_clear(
 			eigrp_hello_send(ei, EIGRP_HELLO_GRACEFUL_SHUTDOWN, NULL);
 
 		for (EIGRP_LIST_ITERATE(ei->nbrs, nbr_node, next_node, nbr)) {
-			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN)
+			if (!request->soft && nbr->state == EIGRP_NEIGHBOR_DOWN
+			    && nbr->limit_state == EIGRP_NBR_LIMIT_NONE)
 				continue;
 			if (request->soft)
 				eigrp_nbr_clear_soft(nbr, callback, arg);
@@ -1506,10 +1888,10 @@ eigrp_result_t eigrp_nbr_description_update(eigrp_operation_t operation, eigrp_i
  * Placement:
  *   Named: address-family mode
  * Description:
- * Sets or removes a per-neighbor maximum-prefix policy.
- * The target retains the policy and applies supported runtime prefix-limit semantics.
+ * Sets or removes per-neighbor maximum-prefix configuration.
+ * The target retains the configured limit and applies runtime limit handling.
  */
-static const eigrp_prefix_limit_t *eigrp_nbr_prefix_limit(
+static const eigrp_prefix_limit_t *eigrp_nbr_limit_lookup(
 	eigrp_af_config_t *af, const eigrp_address_t *address)
 {
 	struct eigrp_nbr_policy_entry *entry;
@@ -1524,6 +1906,17 @@ static const eigrp_prefix_limit_t *eigrp_nbr_prefix_limit(
 	return NULL;
 }
 
+bool eigrp_nbr_route_admit(eigrp_instance_t *eigrp, eigrp_nbr_t *nbr,
+	const eigrp_prefix_t *dest, const eigrp_metrics_t *metric)
+{
+	/* Unreachable routes are still processed by DUAL as withdrawal/REPLY
+	 * events, but they must not consume a newly retained neighbor path. */
+	if (!metric || eigrp_metric_calculate(eigrp, *metric) == EIGRP_MAX_METRIC)
+		return false;
+	return eigrp_nbr_prefix_admit(eigrp, nbr, dest)
+		&& eigrp_topology_prefix_admit(eigrp, dest);
+}
+
 bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 	const eigrp_prefix_t *prefix)
 {
@@ -1533,21 +1926,19 @@ bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 	eigrp_prefix_descriptor_t *existing;
 	uint32_t count;
 
-	if (!runtime || !neighbor || !prefix)
+	if (!runtime || !neighbor || !prefix || !eigrp_nbr_is_eligible(neighbor))
 		return false;
 	existing = eigrp_topology_table_lookup(runtime->topology_table, prefix);
-	/* An RDB created by an unknown QUERY has not consumed a neighbor slot.
-	 * A subsequent UPDATE must pass admission even if the RDB already exists. */
-	if (eigrp_nbr_prefix_reachable(existing, neighbor))
+	/* UPDATE and QUERY share one counted destination for the neighbor. */
+	if (eigrp_nbr_prefix_present(existing, neighbor))
 		return true;
 	af = eigrp_af_config_runtime_read(runtime);
 	if (!af)
 		return true;
 	eigrp_nbr_runtime_address(neighbor, &address);
-	limit = eigrp_nbr_prefix_limit(af, &address);
-	/* An unconfigured maximum-prefix policy has no admission limit.
-	 * Counting every neighbor path here would scan the entire topology
-	 * for each received UPDATE: quadratic work at 100K destinations. */
+	limit = eigrp_nbr_limit_lookup(af, &address);
+	/* Without a configured cap admission is unrestricted. Otherwise the
+	 * maintained neighbor count makes each admission O(1). */
 	if (!limit)
 		return true;
 	count = eigrp_nbr_prefix_count(runtime, neighbor);
@@ -1557,7 +1948,12 @@ bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 		eigrp_log(EIGRP_LOG_WARNING,
 			  "EIGRP neighbor maximum-prefix threshold reached (%u/%u)",
 			  count + 1U, limit->maximum);
-	if (!eigrp_prefix_limit_allows(limit, count, false)) {
+	if (limit->warning_only && count >= limit->maximum
+	    && eigrp_nbr_warning_should_emit(runtime, neighbor, "maximum-prefix reached"))
+		eigrp_log(EIGRP_LOG_WARNING,
+			"EIGRP neighbor maximum-prefix reached (%u/%u), warning-only",
+			count + 1U, limit->maximum);
+	if (!limit->warning_only && count >= limit->maximum) {
 		eigrp_prefix_t peer_addr;
 
 		(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_REJECT,
@@ -1567,7 +1963,9 @@ bool eigrp_nbr_prefix_admit(eigrp_instance_t *runtime, eigrp_nbr_t *neighbor,
 		(void)eigrp_eventlog_msg_add(runtime, EIGRP_EVENTLOG_OPCODE_PREFIX_LIMIT_PEER,
 			&peer_addr, count + 1U, limit->maximum,
 			neighbor->ei ? neighbor->ei->ifindex : 0, 0);
-		return false;
+		if (!limit->warning_only)
+			(void)eigrp_nbr_limit_mark_down(neighbor, limit);
+		return limit->warning_only;
 	}
 	return true;
 }
@@ -1612,8 +2010,8 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
 		entry->maximum_prefix = *limit;
 		entry->maximum_prefix_configured = true;
 	}
-	return context->runtime && !eigrp_prefix_limit_runtime_supported(limit)
-		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
+	/* The Task 2 neighbor timer engine supports these policy options. */
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -1623,8 +2021,8 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
  * Placement:
  *   Named: address-family mode
  * Description:
- * Sets or removes a per-neighbor maximum-prefix policy.
- * The target retains the policy and applies supported runtime prefix-limit semantics.
+ * Sets or removes per-neighbor maximum-prefix configuration.
+ * The target retains the configured limit and applies runtime limit handling.
  */
 
 
@@ -1635,7 +2033,7 @@ eigrp_result_t eigrp_nbr_max_prefix_update(eigrp_operation_t operation, eigrp_in
  * Placement:
  *   Named: address-family mode
  * Description:
- * Sets or removes the address-family default maximum-prefix policy for neighbors.
+ * Sets or removes the address-family default maximum-prefix configuration for neighbors.
  * The target preserves configuration and applies the AF-wide default at runtime.
  */
 eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigrp_instance_context_t *context, const eigrp_prefix_limit_t *limit)
@@ -1670,8 +2068,8 @@ eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigr
 		state->maximum_prefix_all = *limit;
 		state->maximum_prefix_all_configured = true;
 	}
-	return context->runtime && !eigrp_prefix_limit_runtime_supported(limit)
-		       ? EIGRP_RESULT_UNSUPPORTED : EIGRP_RESULT_SUCCESS;
+	/* The Task 2 neighbor timer engine supports these policy options. */
+	return EIGRP_RESULT_SUCCESS;
 }
 
 /*
@@ -1681,7 +2079,7 @@ eigrp_result_t eigrp_nbr_max_prefix_all_update(eigrp_operation_t operation, eigr
  * Placement:
  *   Named: address-family mode
  * Description:
- * Sets or removes the address-family default maximum-prefix policy for neighbors.
+ * Sets or removes the address-family default maximum-prefix configuration for neighbors.
  * The target preserves configuration and applies the AF-wide default at runtime.
  */
 

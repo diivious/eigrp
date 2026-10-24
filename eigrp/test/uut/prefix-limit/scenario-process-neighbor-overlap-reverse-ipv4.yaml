@@ -1,0 +1,26 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/two-router.yaml
+name: Neighbor restart expiry cannot bypass independent process suspension
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 15}
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: violate}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: limit-suspended, timeout: 10}
+  - process-limit-config: {uut: r1, maximum: 3}
+  - redistribute-add: {uut: r1, source: static}
+  - source-route-add: {uut: r1, prefix: '192.0.2.223/32', metric: 20}
+  - source-route-add: {uut: r1, prefix: '192.0.2.224/32', metric: 20}
+  - validate-process-limit: {uut: r1, state: 1, restarts: 1}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.224/32'}
+  # Neighbor restart expires first; process suspension must remain authoritative.
+  - peer-limit: {uut: r1, interface: eth0, neighbor: 10.0.0.2, operation: expire}
+  - validate-process-limit: {uut: r1, state: 1, restarts: 1}
+  - validate-accounting: {uut: r1, neighbor: 10.0.0.2, interface: eth0, status: P, restart_count: 1}
+  # Widen the policy before recovery so the neighbor readvertisement is admissible.
+  - process-limit-config: {uut: r1, maximum: 6}
+  - validate-process-limit: {uut: r1, state: 0, restarts: 0}
+  - validate-neighbor: {uut: r1, neighbor: 10.0.0.2, interface: eth0, state: up, timeout: 20}
+  - source-route-remove: {uut: r1, prefix: '192.0.2.223/32'}
+  - redistribute-remove: {uut: r1, source: static}
+  - process-limit-config: {uut: r1, maximum: 0}
+  - stop: all

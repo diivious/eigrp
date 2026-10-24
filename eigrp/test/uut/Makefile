@@ -1,7 +1,7 @@
 PYTHON ?= ../../../tools/python
 CC ?= cc
 CFLAGS ?= -O2 -g
-CPPFLAGS += -DEIGRP_DISABLE_SNMP  -I../../../eigrp/code -I../../../unix/code
+CPPFLAGS += -DEIGRP_UUT_TEST -DEIGRP_DISABLE_SNMP  -I../../../eigrp/code -I../../../unix/code
 CFLAGS += -std=c11 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wno-unused-parameter -Wno-unused-const-variable -pthread
 
 CORE := $(filter-out ../../../eigrp/code/eigrp_log.c ../../../eigrp/code/eigrp_dump.c,$(wildcard ../../../eigrp/code/*.c))

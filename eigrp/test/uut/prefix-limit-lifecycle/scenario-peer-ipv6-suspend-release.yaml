@@ -1,0 +1,30 @@
+schema: eigrp-uut-test/v1
+topology: ../examples/ipv6-basic-core.yaml
+name: IPv6 prefix-limit retained-peer lifecycle, suspend, release and delete
+steps:
+  - start: all
+  - validate-neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: up, timeout: 8}
+  - validate-route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, next_hop: 'fe80::2', timeout: 8}
+  - peer-limit: {uut: r1, interface: eth12, neighbor: 'fe80::2', operation: suspend}
+  - validate-convergence:
+      timeout: 8
+      expect:
+        - neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: limit-suspended, reliable_q: 0}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, present: false}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, present: false}
+  - validate-neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: limit-suspended, observe: 0.6}
+  - peer-limit: {uut: r1, interface: eth12, neighbor: 'fe80::2', operation: release}
+  - validate-neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: up, timeout: 12}
+  - validate-route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, next_hop: 'fe80::2', timeout: 12}
+  - peer-limit: {uut: r1, interface: eth12, neighbor: 'fe80::2', operation: lock}
+  - validate-convergence:
+      timeout: 8
+      expect:
+        - neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: limit-locked, reliable_q: 0}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, present: false}
+        - route: {uut: r1, prefix: '2001:db8:3::/64', table: topology, present: false}
+  - peer-limit: {uut: r1, interface: eth12, neighbor: 'fe80::2', operation: delete}
+  - validate-neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: down, timeout: 3}
+  - validate-neighbor: {uut: r1, neighbor: 'fe80::2', interface: eth12, state: up, timeout: 12}
+  - validate-route: {uut: r1, prefix: '2001:db8:3::/64', table: rib, next_hop: 'fe80::2', timeout: 12}
+  - stop: all

@@ -36,7 +36,13 @@ def test_redistributed_candidate_external_topology_lifecycle_executes(tmp_path):
             #include "eigrp/code/eigrp_rib.h"
             #include "eigrp/code/eigrp_topology.h"
 
-            static eigrp_af_config_t *test_runtime_af;
+            uint64_t eigrp_sys_monotime_msec(void) { return 1; }
+
+            void eigrp_pfxlimits_prefix_exceeded(eigrp_instance_t *runtime,
+    const eigrp_prefix_limit_t *limit) { (void)runtime; (void)limit; }
+eigrp_result_t eigrp_pfxlimits_state_clear(eigrp_instance_t *runtime)
+{ (void)runtime; return EIGRP_RESULT_SUCCESS; }
+static eigrp_af_config_t *test_runtime_af;
             static unsigned query_work;
             static unsigned update_work;
 

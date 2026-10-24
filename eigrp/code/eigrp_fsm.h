@@ -30,6 +30,8 @@ typedef struct eigrp_fsm_action_message {
 	msg_data_t data_type;			// internal or external tlv type
 	eigrp_metrics_t metrics;		//
 	enum metric_change change;		//
+	/* DUAL must process a QUERY/REPLY even if a new peer path cannot be retained. */
+	bool transient_route;
 } eigrp_fsm_action_message_t;
 
 extern int eigrp_fsm_event(eigrp_fsm_action_message_t *msg);

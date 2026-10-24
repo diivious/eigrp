@@ -74,6 +74,11 @@ typedef struct eigrp_nbr_state {
 	unsigned long reliable_queue_count;
 	uint32_t sequence_number;
 	uint32_t prefix_count;
+	/* Prefix-limit admission is separate from the adjacency FSM. */
+	char limit_status; /* A adjacency, P suspended, D locked; 0 unpenalized. */
+	uint16_t limit_restart_cnt;
+	uint32_t limit_restart_seconds;
+	uint32_t limit_reset_seconds;
 	uint64_t retransmit_count;
 	uint8_t retry_count;
 	bool srtt_valid;
@@ -133,6 +138,8 @@ eigrp_result_t eigrp_topology_instance_iterate(
 typedef enum eigrp_timer_state_type {
 	EIGRP_TIMER_STATE_HELLO = 0,
 	EIGRP_TIMER_STATE_PEER_HOLD,
+	EIGRP_TIMER_STATE_LIMIT_RESTART,
+	EIGRP_TIMER_STATE_LIMIT_RESET,
 } eigrp_timer_state_type_t;
 
 typedef struct eigrp_timer_state {
@@ -212,20 +219,43 @@ typedef struct eigrp_statistics_traffic_state {
 	uint64_t received_sia_reply;
 } eigrp_statistics_traffic_state_t;
 
-typedef struct eigrp_statistics_accounting_state {
+typedef struct eigrp_stat_nbr_limit {
 	eigrp_address_t neighbor_address;
 	const char *interface_name;
-	const char *neighbor_state;
+	char status; /* A adjacency, P suspended, D locked */
 	uint32_t prefix_count;
-} eigrp_statistics_accounting_state_t;
+	uint16_t restart_cnt;
+	uint32_t restart_seconds;
+	uint32_t reset_seconds;
+} eigrp_stat_nbr_limit_t;
 
-typedef eigrp_result_t (*eigrp_statistics_accounting_cb)(
-	const eigrp_statistics_accounting_state_t *state, void *arg);
-eigrp_result_t eigrp_statistics_accounting_iterate(
+/* AF-owned process and redistribution penalty snapshots. These scopes are
+ * independent of individual neighbor penalties and may exist without peers. */
+typedef struct eigrp_pfxlimits_af_state {
+	uint8_t state; /* 0 normal, 1 suspended, 2 locked. */
+	uint32_t prefix_cnt;
+	uint16_t restart_cnt;
+	uint32_t restart_seconds;
+	uint32_t reset_seconds;
+	uint32_t penalty_q16;
+} eigrp_pfxlimits_af_state_t;
+
+typedef struct eigrp_pfxlimits_summary {
+	eigrp_pfxlimits_af_state_t process;
+	eigrp_pfxlimits_af_state_t redist;
+} eigrp_pfxlimits_summary_t;
+
+eigrp_result_t eigrp_stat_pfxlimits_summary_read(
+	const eigrp_instance_context_t *context,
+	eigrp_pfxlimits_summary_t *state);
+
+typedef eigrp_result_t (*eigrp_stat_accounting_cb)(
+	const eigrp_stat_nbr_limit_t *state, void *arg);
+eigrp_result_t eigrp_stat_accounting_iterate(
 	const eigrp_instance_context_t *context,
 	uint32_t *total_prefix_count,
-	eigrp_statistics_accounting_cb callback, void *arg);
-eigrp_result_t eigrp_statistics_traffic_state_read(
+	eigrp_stat_accounting_cb callback, void *arg);
+eigrp_result_t eigrp_stat_traffic_read(
 	const eigrp_instance_context_t *context,
 	eigrp_statistics_traffic_state_t *state);
 
